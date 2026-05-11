@@ -18,19 +18,41 @@ public partial class BMSPlaylist
 
     private static readonly AppHttpClient playlistUrlCompletionStellaHttpClient = AppHttpClient.Create(PlaylistUrlCompletionTimeoutMs);
 
-    private readonly object playlistUrlCompletionSnapshotLock = new object();
+    private static readonly object playlistUrlCompletionSnapshotLock = new object();
 
     private readonly SemaphoreSlim playlistUrlCompletionRefreshSemaphore = new SemaphoreSlim(1, 1);
 
-    private IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionTsvSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+    private static IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionTsvSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
 
-    private IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionStellaSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+    private static IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionStellaSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+
+    private static Uri playlistUrlCompletionTsvSnapshotSourceUri;
+
+    private static bool playlistUrlCompletionTsvSnapshotFetched;
+
+    private static bool playlistUrlCompletionStellaSnapshotFetched;
 
     private long playlistUrlCompletionRequestedVersion;
 
     private long playlistUrlCompletionCompletedVersion;
 
     private string playlistUrlCompletionLatestReason = "initial";
+
+    internal static Func<Uri, CancellationToken, Task<string>> PlaylistUrlCompletionTsvContentFetcherForTests { get; set; }
+
+    internal static Func<Uri, CancellationToken, Task<string>> PlaylistUrlCompletionStellaContentFetcherForTests { get; set; }
+
+    internal static void ResetPlaylistUrlCompletionSourceCacheForTests()
+    {
+        lock (playlistUrlCompletionSnapshotLock)
+        {
+            playlistUrlCompletionTsvSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+            playlistUrlCompletionStellaSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+            playlistUrlCompletionTsvSnapshotSourceUri = null;
+            playlistUrlCompletionTsvSnapshotFetched = false;
+            playlistUrlCompletionStellaSnapshotFetched = false;
+        }
+    }
 
     /// <summary>
     /// プレイリスト URL 補完の再取得と再適用をバックグラウンドで予約します。
@@ -130,35 +152,44 @@ public partial class BMSPlaylist
         PlaylistUrlCompletionRefreshSourceResult[] refreshResults = await Task.WhenAll(tsvTask, stellaTask).ConfigureAwait(false);
         PlaylistUrlCompletionRefreshSourceResult tsvResult = refreshResults[0];
         PlaylistUrlCompletionRefreshSourceResult stellaResult = refreshResults[1];
-        lock (playlistUrlCompletionSnapshotLock)
-        {
-            if (tsvResult.ShouldReplaceSnapshot)
-            {
-                playlistUrlCompletionTsvSnapshot = tsvResult.Snapshot.Candidates;
-            }
-            if (stellaResult.ShouldReplaceSnapshot)
-            {
-                playlistUrlCompletionStellaSnapshot = stellaResult.Snapshot.Candidates;
-            }
-        }
         PlaylistUrlCompletionApplyStats applyStats = ApplyPlaylistUrlCompletionToLoadedTablesCore();
-        NLogWrapper.FileLogger?.Info("playlist_url_completion finish version=" + version + " reason=" + reason + " tsvCandidates=" + tsvResult.Snapshot.CandidateCount + " tsvDuplicateSkipped=" + tsvResult.Snapshot.DuplicateCount + " tsvIgnored=" + tsvResult.Snapshot.IgnoredRowCount + " tsvSnapshotReplaced=" + tsvResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " stellaCandidates=" + stellaResult.Snapshot.CandidateCount + " stellaDuplicateSkipped=" + stellaResult.Snapshot.DuplicateCount + " stellaIgnored=" + stellaResult.Snapshot.IgnoredRowCount + " stellaSnapshotReplaced=" + stellaResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " tables=" + applyStats.TableCount + " entries=" + applyStats.EntryCount + " changed=" + applyStats.ChangedEntryCount + " runtimeUrl=" + applyStats.RuntimeUrlCount + " runtimeUrlDiff=" + applyStats.RuntimeUrlDiffCount);
+        NLogWrapper.FileLogger?.Info("playlist_url_completion finish version=" + version + " reason=" + reason + " tsvCandidates=" + tsvResult.Snapshot.CandidateCount + " tsvDuplicateSkipped=" + tsvResult.Snapshot.DuplicateCount + " tsvIgnored=" + tsvResult.Snapshot.IgnoredRowCount + " tsvSnapshotReplaced=" + tsvResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " tsvSnapshotCached=" + tsvResult.UsedCachedSnapshot.ToString().ToLowerInvariant() + " stellaCandidates=" + stellaResult.Snapshot.CandidateCount + " stellaDuplicateSkipped=" + stellaResult.Snapshot.DuplicateCount + " stellaIgnored=" + stellaResult.Snapshot.IgnoredRowCount + " stellaSnapshotReplaced=" + stellaResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " stellaSnapshotCached=" + stellaResult.UsedCachedSnapshot.ToString().ToLowerInvariant() + " tables=" + applyStats.TableCount + " entries=" + applyStats.EntryCount + " changed=" + applyStats.ChangedEntryCount + " runtimeUrl=" + applyStats.RuntimeUrlCount + " runtimeUrlDiff=" + applyStats.RuntimeUrlDiffCount);
     }
 
     private async Task<PlaylistUrlCompletionRefreshSourceResult> FetchPlaylistUrlCompletionTsvSnapshotAsync(Uri sourceUri, bool hasConfiguredSource, bool hasValidConfiguredSource)
     {
         if (!hasConfiguredSource)
         {
+            lock (playlistUrlCompletionSnapshotLock)
+            {
+                playlistUrlCompletionTsvSnapshot = PlaylistUrlCompletionSourceSnapshot.Empty.Candidates;
+                playlistUrlCompletionTsvSnapshotFetched = true;
+                playlistUrlCompletionTsvSnapshotSourceUri = null;
+            }
             return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(PlaylistUrlCompletionSourceSnapshot.Empty);
         }
         if (!hasValidConfiguredSource || sourceUri == null)
         {
             return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(PlaylistUrlCompletionSourceSnapshot.Empty);
         }
+        lock (playlistUrlCompletionSnapshotLock)
+        {
+            if (playlistUrlCompletionTsvSnapshotFetched && UriEquals(playlistUrlCompletionTsvSnapshotSourceUri, sourceUri))
+            {
+                return PlaylistUrlCompletionRefreshSourceResult.FromCache(new PlaylistUrlCompletionSourceSnapshot(playlistUrlCompletionTsvSnapshot, 0, 0));
+            }
+        }
         try
         {
-            string content = await playlistUrlCompletionTsvHttpClient.GetStringAsync(sourceUri, null, CancellationToken.None).ConfigureAwait(false);
-            return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(PlaylistUrlCompletionSupport.ParseMd5UrlMappingTsv(content));
+            string content = await FetchPlaylistUrlCompletionTsvContentAsync(sourceUri, CancellationToken.None).ConfigureAwait(false);
+            PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseMd5UrlMappingTsv(content);
+            lock (playlistUrlCompletionSnapshotLock)
+            {
+                playlistUrlCompletionTsvSnapshot = snapshot.Candidates;
+                playlistUrlCompletionTsvSnapshotFetched = true;
+                playlistUrlCompletionTsvSnapshotSourceUri = sourceUri;
+            }
+            return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(snapshot);
         }
         catch (TaskCanceledException ex)
         {
@@ -174,11 +205,28 @@ public partial class BMSPlaylist
 
     private async Task<PlaylistUrlCompletionRefreshSourceResult> FetchPlaylistUrlCompletionStellaSnapshotAsync()
     {
-        Uri stellaUri = new Uri(PlaylistUrlCompletionSupport.StellaScoreUploadJsonUri, UriKind.Absolute);
+        if (!Settings.Default.EnableStellaFullPlaylistUrlCompletion)
+        {
+            return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(PlaylistUrlCompletionSourceSnapshot.Empty);
+        }
+        Uri stellaUri = new Uri(PlaylistUrlCompletionSupport.StellaScoreUploadFullJsonUri, UriKind.Absolute);
+        lock (playlistUrlCompletionSnapshotLock)
+        {
+            if (playlistUrlCompletionStellaSnapshotFetched)
+            {
+                return PlaylistUrlCompletionRefreshSourceResult.FromCache(new PlaylistUrlCompletionSourceSnapshot(playlistUrlCompletionStellaSnapshot, 0, 0));
+            }
+        }
         try
         {
-            string content = await playlistUrlCompletionStellaHttpClient.GetStringAsync(stellaUri, null, CancellationToken.None).ConfigureAwait(false);
-            return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(PlaylistUrlCompletionSupport.ParseStellaUploadJson(content));
+            string content = await FetchPlaylistUrlCompletionStellaContentAsync(stellaUri, CancellationToken.None).ConfigureAwait(false);
+            PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseStellaUploadFullJson(content);
+            lock (playlistUrlCompletionSnapshotLock)
+            {
+                playlistUrlCompletionStellaSnapshot = snapshot.Candidates;
+                playlistUrlCompletionStellaSnapshotFetched = true;
+            }
+            return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(snapshot);
         }
         catch (TaskCanceledException ex)
         {
@@ -189,6 +237,41 @@ public partial class BMSPlaylist
         {
             NLogWrapper.FileLogger?.Warn(ex2, "playlist_url_completion_stella_failed source=" + stellaUri);
             return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(PlaylistUrlCompletionSourceSnapshot.Empty);
+        }
+    }
+
+    private static Task<string> FetchPlaylistUrlCompletionTsvContentAsync(Uri sourceUri, CancellationToken cancellationToken)
+    {
+        Func<Uri, CancellationToken, Task<string>> testFetcher = PlaylistUrlCompletionTsvContentFetcherForTests;
+        if (testFetcher != null)
+        {
+            return testFetcher(sourceUri, cancellationToken);
+        }
+        return playlistUrlCompletionTsvHttpClient.GetStringAsync(sourceUri, null, cancellationToken);
+    }
+
+    private static Task<string> FetchPlaylistUrlCompletionStellaContentAsync(Uri sourceUri, CancellationToken cancellationToken)
+    {
+        Func<Uri, CancellationToken, Task<string>> testFetcher = PlaylistUrlCompletionStellaContentFetcherForTests;
+        if (testFetcher != null)
+        {
+            return testFetcher(sourceUri, cancellationToken);
+        }
+        return playlistUrlCompletionStellaHttpClient.GetStringAsync(sourceUri, null, cancellationToken);
+    }
+
+    internal async Task RefreshPlaylistUrlCompletionForTestsAsync(string reason)
+    {
+        await playlistUrlCompletionRefreshSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            long targetVersion = Interlocked.Increment(ref playlistUrlCompletionRequestedVersion);
+            await RefreshPlaylistUrlCompletionCoreAsync(targetVersion, reason ?? "test").ConfigureAwait(false);
+            Interlocked.Exchange(ref playlistUrlCompletionCompletedVersion, targetVersion);
+        }
+        finally
+        {
+            playlistUrlCompletionRefreshSemaphore.Release();
         }
     }
 
@@ -245,7 +328,7 @@ public partial class BMSPlaylist
         lock (playlistUrlCompletionSnapshotLock)
         {
             tsvSnapshot = playlistUrlCompletionTsvSnapshot;
-            stellaSnapshot = playlistUrlCompletionStellaSnapshot;
+            stellaSnapshot = Settings.Default.EnableStellaFullPlaylistUrlCompletion ? playlistUrlCompletionStellaSnapshot : PlaylistUrlCompletionSourceSnapshot.Empty.Candidates;
         }
         PlaylistUrlCompletionApplyStats tableStats = new PlaylistUrlCompletionApplyStats
         {
@@ -341,6 +424,8 @@ public partial class BMSPlaylist
     {
         public bool ShouldReplaceSnapshot { get; private set; }
 
+        public bool UsedCachedSnapshot { get; private set; }
+
         public PlaylistUrlCompletionSourceSnapshot Snapshot { get; private set; }
 
         public static PlaylistUrlCompletionRefreshSourceResult ReplaceWith(PlaylistUrlCompletionSourceSnapshot snapshot)
@@ -348,6 +433,7 @@ public partial class BMSPlaylist
             return new PlaylistUrlCompletionRefreshSourceResult
             {
                 ShouldReplaceSnapshot = true,
+                UsedCachedSnapshot = false,
                 Snapshot = snapshot ?? PlaylistUrlCompletionSourceSnapshot.Empty
             };
         }
@@ -357,9 +443,33 @@ public partial class BMSPlaylist
             return new PlaylistUrlCompletionRefreshSourceResult
             {
                 ShouldReplaceSnapshot = false,
+                UsedCachedSnapshot = false,
                 Snapshot = snapshot ?? PlaylistUrlCompletionSourceSnapshot.Empty
             };
         }
+
+        public static PlaylistUrlCompletionRefreshSourceResult FromCache(PlaylistUrlCompletionSourceSnapshot snapshot)
+        {
+            return new PlaylistUrlCompletionRefreshSourceResult
+            {
+                ShouldReplaceSnapshot = false,
+                UsedCachedSnapshot = true,
+                Snapshot = snapshot ?? PlaylistUrlCompletionSourceSnapshot.Empty
+            };
+        }
+    }
+
+    private static bool UriEquals(Uri left, Uri right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+        if (left == null || right == null)
+        {
+            return false;
+        }
+        return Uri.Compare(left, right, UriComponents.AbsoluteUri, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
     }
 
     private struct PlaylistUrlCompletionApplyStats

@@ -906,14 +906,10 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="Playlist_output_root" xml:space="preserve">
     <value>ルートフォルダ出力先: </value>
   </data>
-  <data name="Playlist_output_note" xml:space="preserve">
-    <value>「通常出力先」にはプレイリストに対応するLR2のカスタムフォルダが出力されます。
-特定のフォルダをLR2選曲画面からクイックアクセス出来るように設定することも出来ます。
-これを有効にしたフォルダは「ルートフォルダ出力先」で指定した場所に出力されます。
-二種類のカスタムフォルダ出力先はそれぞれ別の場所を指定する必要があります。</value>
-  </data>
   <data name="Playlist_output_desc" xml:space="preserve">
-    <value>※出力先には重要なデータを含まないようにして下さい</value>
+    <value>※出力先には重要なデータを含まないようにして下さい。出力先はそれぞれ別の場所を指定してください。
+「通常出力先」にはプレイリストに対応するカスタムフォルダが出力されます。
+「ルートフォルダ出力先」にはプレイリストのプロパティで「ルートフォルダにする」を有効にしたものが出力されます。選曲画面のルートに表示されるのでクイックアクセスが可能です。</value>
   </data>
   <data name="Unregistered_in_lr2_db" xml:space="preserve">
     <value>LR2非対応パス</value>
@@ -1098,10 +1094,13 @@ BMSファイルが重複しないようにマージします。
     <value>MD5-URLマッピングTSV取得URI</value>
   </data>
   <data name="Playlist_url_completion_enable" xml:space="preserve">
-    <value>プレイリストの url, url_diff が空の場合補完を試みる</value>
+    <value>プレイリストの URL1/URL2 が空の場合補完を試みる</value>
   </data>
   <data name="Playlist_url_completion_overwrite" xml:space="preserve">
-    <value>空ではない url, url_diff も補完機能で上書きする</value>
+    <value>空ではない URL1/URL2 も補完機能で上書きする</value>
+  </data>
+  <data name="Playlist_url_completion_stella_full_enable" xml:space="preserve">
+    <value>Stella Uploader (Full)のデータでURL1/URL2を補完する</value>
   </data>
   <data name="Error_InvalidPlaylistMd5UrlMappingTsvUri" xml:space="preserve">
     <value>MD5-URLマッピングTSV取得URIが正しくありません。</value>

@@ -273,6 +273,14 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(playlistTab, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_table_uri, Mode=OneWay}\""));
         Assert.AreEqual(1, CountOccurrences(playlistTab, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri, Mode=OneWay}\""));
         Assert.AreEqual(0, CountOccurrences(playlistTab, "<Label Height=\"28\" Padding=\"0,6,0,0\" Content=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri"));
+        StringAssert.Contains(playlistTab, "Path=Resources.Playlist_output_desc");
+        Assert.IsFalse(playlistTab.Contains("Path=Resources.Playlist_output_note"));
+        StringAssert.Contains(playlistTab, "Path=Resources.Playlist_url_completion_enable");
+        StringAssert.Contains(playlistTab, "Path=Resources.Playlist_url_completion_overwrite");
+        StringAssert.Contains(playlistTab, "Path=Resources.Playlist_url_completion_stella_full_enable");
+        StringAssert.Contains(playlistTab, "IsChecked=\"{Binding settingDialog.EnableStellaFullPlaylistUrlCompletion}\"");
+        Assert.IsTrue(playlistTab.IndexOf("Path=Resources.Playlist_url_completion_enable", StringComparison.Ordinal) < playlistTab.IndexOf("Path=Resources.Playlist_url_completion_overwrite", StringComparison.Ordinal));
+        Assert.IsTrue(playlistTab.IndexOf("Path=Resources.Playlist_url_completion_overwrite", StringComparison.Ordinal) < playlistTab.IndexOf("Path=Resources.Playlist_url_completion_stella_full_enable", StringComparison.Ordinal));
     }
 
     [TestMethod]

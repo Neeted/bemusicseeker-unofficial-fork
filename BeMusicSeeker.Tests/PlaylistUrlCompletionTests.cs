@@ -1,17 +1,36 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Windows.Threading;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class PlaylistUrlCompletionTests
 {
+    [TestInitialize]
+    public void ResetPlaylistUrlCompletionSourceCacheBeforeTest()
+    {
+        BMSPlaylist.ResetPlaylistUrlCompletionSourceCacheForTests();
+    }
+
+    [TestCleanup]
+    public void ResetPlaylistUrlCompletionSourceCacheAfterTest()
+    {
+        BMSPlaylist.ResetPlaylistUrlCompletionSourceCacheForTests();
+    }
+
     [TestMethod]
     [TestCategory("Playlist")]
     public void ParseMd5UrlMappingTsv_SkipsHeaderInvalidRowsAndKeepsFirstDuplicate()
@@ -39,22 +58,25 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ParseStellaUploadJson_ParsesLongSubmissionAndKeepsFirstDuplicate()
+    public void ParseStellaUploadFullJson_UsesUrlAndUrlDiffWithoutSubmissionBuild()
     {
         string content = "[" +
-            "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"submission\":9876543210123}," +
-            "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"submission\":111}," +
-            "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"submission\":\"222\"}," +
-            "{\"md5\":\"invalid\",\"submission\":333}" +
+            "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"url\":\"https://example.com/main-a\",\"url_diff\":\"https://example.com/diff-a\"}," +
+            "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"url\":\"https://example.com/main-duplicate\",\"url_diff\":\"https://example.com/diff-duplicate\"}," +
+            "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-b\",\"submission\":\"222\"}," +
+            "{\"md5\":\"cccccccccccccccccccccccccccccccc\",\"url\":\"not-url\",\"url_diff\":\"\"}," +
+            "{\"md5\":\"invalid\",\"url\":\"https://example.com/main-invalid\",\"url_diff\":\"https://example.com/diff-invalid\"}" +
             "]";
 
-        PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseStellaUploadJson(content);
+        PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseStellaUploadFullJson(content);
 
         Assert.AreEqual(2, snapshot.CandidateCount);
         Assert.AreEqual(1, snapshot.DuplicateCount);
-        Assert.AreEqual(1, snapshot.IgnoredRowCount);
-        Assert.AreEqual(new Uri("https://stellabms.xyz/upload/9876543210123"), snapshot.Candidates["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"].UrlDiff);
-        Assert.AreEqual(new Uri("https://stellabms.xyz/upload/222"), snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].UrlDiff);
+        Assert.AreEqual(2, snapshot.IgnoredRowCount);
+        Assert.AreEqual(new Uri("https://example.com/main-a"), snapshot.Candidates["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"].Url);
+        Assert.AreEqual(new Uri("https://example.com/diff-a"), snapshot.Candidates["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"].UrlDiff);
+        Assert.AreEqual(new Uri("https://example.com/main-b"), snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].Url);
+        Assert.IsNull(snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].UrlDiff);
     }
 
     [TestMethod]
@@ -138,6 +160,137 @@ public sealed class PlaylistUrlCompletionTests
         Assert.IsNull(entry.RuntimeUrlDiffCompletion);
         Assert.IsNull(entry.EffectiveUrl);
         Assert.IsNull(entry.EffectiveUrlDiff);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        string previousTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
+        bool previousEnableCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        bool previousOverwriteCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
+        bool previousEnableStella = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
+        Func<Uri, CancellationToken, Task<string>> previousTsvFetcher = BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests;
+        Func<Uri, CancellationToken, Task<string>> previousStellaFetcher = BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests;
+        try
+        {
+            int tsvFetchCount = 0;
+            int stellaFetchCount = 0;
+            Settings.Default.EnablePlaylistUrlCompletion = true;
+            Settings.Default.OverwritePlaylistUrlsWithCompletion = false;
+            Settings.Default.EnableStellaFullPlaylistUrlCompletion = true;
+            Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-a.tsv";
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) =>
+            {
+                tsvFetchCount++;
+                string mainUrl = uri.AbsoluteUri.IndexOf("map-b.tsv", StringComparison.OrdinalIgnoreCase) >= 0 ? "https://example.com/main-tsv-b" : "https://example.com/main-tsv-a";
+                return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-tsv\t" + mainUrl);
+            };
+            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) =>
+            {
+                stellaFetchCount++;
+                return Task.FromResult("[" +
+                    "{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"url\":\"https://example.com/main-stella-a\",\"url_diff\":\"https://example.com/diff-stella-a\"}," +
+                    "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella-b\",\"url_diff\":\"https://example.com/diff-stella-b\"}" +
+                    "]");
+            };
+            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            BMSTable table = CreateTable(5001, "CompletionTable");
+            BMSTableEntry tsvEntry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "TsvSong");
+            BMSTableEntry stellaEntry = CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "StellaSong");
+            table.entries = new List<BMSTableEntry> { tsvEntry, stellaEntry };
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("first");
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("reload");
+
+            Assert.AreEqual(1, tsvFetchCount);
+            Assert.AreEqual(1, stellaFetchCount);
+            Assert.AreEqual(new Uri("https://example.com/main-tsv-a"), tsvEntry.RuntimeUrlCompletion);
+            Assert.AreEqual(new Uri("https://example.com/diff-tsv"), tsvEntry.RuntimeUrlDiffCompletion);
+            Assert.AreEqual(new Uri("https://example.com/main-stella-b"), stellaEntry.RuntimeUrlCompletion);
+            Assert.AreEqual(new Uri("https://example.com/diff-stella-b"), stellaEntry.RuntimeUrlDiffCompletion);
+
+            Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-b.tsv";
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("settings_changed");
+
+            Assert.AreEqual(2, tsvFetchCount);
+            Assert.AreEqual(1, stellaFetchCount);
+            Assert.AreEqual(new Uri("https://example.com/main-tsv-b"), tsvEntry.RuntimeUrlCompletion);
+        }
+        finally
+        {
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = previousTsvFetcher;
+            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = previousStellaFetcher;
+            Settings.Default.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnableCompletion;
+            Settings.Default.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
+            Settings.Default.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task BMSPlaylist_StellaFullSettingDisablesFetchAndClearsStellaRuntimeCompletion()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        string previousTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
+        bool previousEnableCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        bool previousOverwriteCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
+        bool previousEnableStella = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
+        Func<Uri, CancellationToken, Task<string>> previousTsvFetcher = BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests;
+        Func<Uri, CancellationToken, Task<string>> previousStellaFetcher = BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests;
+        try
+        {
+            int stellaFetchCount = 0;
+            Settings.Default.EnablePlaylistUrlCompletion = true;
+            Settings.Default.OverwritePlaylistUrlsWithCompletion = false;
+            Settings.Default.EnableStellaFullPlaylistUrlCompletion = false;
+            Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/empty.tsv";
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) => Task.FromResult("md5\turl_diff\turl");
+            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) =>
+            {
+                stellaFetchCount++;
+                return Task.FromResult("[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella\",\"url_diff\":\"https://example.com/diff-stella\"}]");
+            };
+            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            BMSTable table = CreateTable(5002, "StellaToggleTable");
+            BMSTableEntry stellaEntry = CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "StellaSong");
+            table.entries = new List<BMSTableEntry> { stellaEntry };
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("disabled");
+
+            Assert.AreEqual(0, stellaFetchCount);
+            Assert.IsNull(stellaEntry.RuntimeUrlCompletion);
+            Assert.IsNull(stellaEntry.RuntimeUrlDiffCompletion);
+
+            Settings.Default.EnableStellaFullPlaylistUrlCompletion = true;
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("enabled");
+
+            Assert.AreEqual(1, stellaFetchCount);
+            Assert.AreEqual(new Uri("https://example.com/main-stella"), stellaEntry.RuntimeUrlCompletion);
+            Assert.AreEqual(new Uri("https://example.com/diff-stella"), stellaEntry.RuntimeUrlDiffCompletion);
+
+            Settings.Default.EnableStellaFullPlaylistUrlCompletion = false;
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("disabled_again");
+
+            Assert.AreEqual(1, stellaFetchCount);
+            Assert.IsNull(stellaEntry.RuntimeUrlCompletion);
+            Assert.IsNull(stellaEntry.RuntimeUrlDiffCompletion);
+        }
+        finally
+        {
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = previousTsvFetcher;
+            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = previousStellaFetcher;
+            Settings.Default.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnableCompletion;
+            Settings.Default.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
+            Settings.Default.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
     }
 
     [TestMethod]

@@ -648,8 +648,6 @@ public class Resources
 
     public static string Playlist_output_desc => ResourceManager.GetString("Playlist_output_desc", resourceCulture);
 
-    public static string Playlist_output_note => ResourceManager.GetString("Playlist_output_note", resourceCulture);
-
     public static string Playlist_output_root => ResourceManager.GetString("Playlist_output_root", resourceCulture);
 
     public static string Playlist_table_uri => ResourceManager.GetString("Playlist_table_uri", resourceCulture);
@@ -659,6 +657,8 @@ public class Resources
     public static string Playlist_url_completion_enable => ResourceManager.GetString("Playlist_url_completion_enable", resourceCulture);
 
     public static string Playlist_url_completion_overwrite => ResourceManager.GetString("Playlist_url_completion_overwrite", resourceCulture);
+
+    public static string Playlist_url_completion_stella_full_enable => ResourceManager.GetString("Playlist_url_completion_stella_full_enable", resourceCulture);
 
     public static string Error_InvalidPlaylistMd5UrlMappingTsvUri => ResourceManager.GetString("Error_InvalidPlaylistMd5UrlMappingTsvUri", resourceCulture);
 

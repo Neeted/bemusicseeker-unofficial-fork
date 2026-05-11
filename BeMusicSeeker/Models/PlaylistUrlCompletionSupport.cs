@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using BeMusicSeeker.Models.LR2;
 using Codeplex.Data;
@@ -20,15 +19,9 @@ internal static class PlaylistUrlCompletionSupport
     internal const string DefaultMd5UrlMappingTsvUri = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/bms-md5-url-map.tsv";
 
     /// <summary>
-    /// Stella Uploader の送信一覧 JSON 取得先です。
-    /// submission からダウンロード URL を組み立てるために参照します。
+    /// Stella Uploader の URL1/URL2 付き送信一覧 JSON 取得先です。
     /// </summary>
-    internal const string StellaScoreUploadJsonUri = "https://stellabms.xyz/score_upload.json";
-
-    /// <summary>
-    /// Stella Uploader の submission からダウンロード URL を組み立てる書式です。
-    /// </summary>
-    internal const string StellaUploadUrlFormat = "https://stellabms.xyz/upload/{0}";
+    internal const string StellaScoreUploadFullJsonUri = "https://stellabms.xyz/score_upload_full.json";
 
     /// <summary>
     /// 補完元 URI またはローカルファイルパスを解決します。
@@ -122,12 +115,12 @@ internal static class PlaylistUrlCompletionSupport
     }
 
     /// <summary>
-    /// Stella Uploader の score_upload.json を URL2 補完用スナップショットへ変換します。
-    /// 同一 MD5 は先勝ちにし、不正 submission や不正 MD5 は無視します。
+    /// Stella Uploader の score_upload_full.json を URL1/URL2 補完用スナップショットへ変換します。
+    /// 同一 MD5 は先勝ちにし、不正 MD5 や絶対 URI にならない列は無視します。
     /// </summary>
     /// <param name="content">JSON の全文字列。</param>
-    /// <returns>URL2 補完用のスナップショット。</returns>
-    internal static PlaylistUrlCompletionSourceSnapshot ParseStellaUploadJson(string content)
+    /// <returns>URL1/URL2 補完用のスナップショット。</returns>
+    internal static PlaylistUrlCompletionSourceSnapshot ParseStellaUploadFullJson(string content)
     {
         Dictionary<string, PlaylistUrlCompletionCandidate> candidates = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
         int duplicateCount = 0;
@@ -141,8 +134,9 @@ internal static class PlaylistUrlCompletionSupport
                 ignoredRowCount++;
                 continue;
             }
-            string submissionText = GetDynamicString(row, "submission");
-            if (!long.TryParse(submissionText, NumberStyles.Integer, CultureInfo.InvariantCulture, out long submission))
+            Uri url = TryParseAbsoluteUri(GetDynamicString(row, "url"));
+            Uri urlDiff = TryParseAbsoluteUri(GetDynamicString(row, "url_diff"));
+            if (url == null && urlDiff == null)
             {
                 ignoredRowCount++;
                 continue;
@@ -152,8 +146,7 @@ internal static class PlaylistUrlCompletionSupport
                 duplicateCount++;
                 continue;
             }
-            Uri uploadUri = new Uri(string.Format(CultureInfo.InvariantCulture, StellaUploadUrlFormat, submission), UriKind.Absolute);
-            candidates.Add(normalizedMd5, new PlaylistUrlCompletionCandidate(null, uploadUri));
+            candidates.Add(normalizedMd5, new PlaylistUrlCompletionCandidate(url, urlDiff));
         }
         return new PlaylistUrlCompletionSourceSnapshot(candidates, duplicateCount, ignoredRowCount);
     }

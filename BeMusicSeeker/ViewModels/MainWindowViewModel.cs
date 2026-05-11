@@ -286,6 +286,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempOverwritePlaylistUrlsWithCompletion;
 
+        private bool tempEnableStellaFullPlaylistUrlCompletion;
+
         private string tempPlaylistMd5UrlMappingTsvUri;
 
         private bool tempIsLR2BackupEnabled;
@@ -998,6 +1000,22 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.OverwritePlaylistUrlsWithCompletion = value;
                     RaisePropertyChanged("OverwritePlaylistUrlsWithCompletion");
+                }
+            }
+        }
+
+        public bool EnableStellaFullPlaylistUrlCompletion
+        {
+            get
+            {
+                return Settings.Default.EnableStellaFullPlaylistUrlCompletion;
+            }
+            set
+            {
+                if (Settings.Default.EnableStellaFullPlaylistUrlCompletion != value)
+                {
+                    Settings.Default.EnableStellaFullPlaylistUrlCompletion = value;
+                    RaisePropertyChanged("EnableStellaFullPlaylistUrlCompletion");
                 }
             }
         }
@@ -2921,6 +2939,7 @@ public class MainWindowViewModel : ViewModel
             tempTableListURL = Settings.Default.TableListURL;
             tempEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
             tempOverwritePlaylistUrlsWithCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
+            tempEnableStellaFullPlaylistUrlCompletion = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
             tempPlaylistMd5UrlMappingTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
             tempIsLR2BackupEnabled = Settings.Default.IsLR2BackupEnabled;
             tempLR2BackupPath = Settings.Default.LR2BackupPath;
@@ -3056,7 +3075,7 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.Messenger.Raise(new ConfirmationMessage("LR2設定ファイルバックアップ機能は" + Environment.NewLine + "次回起動時から有効になります", "確認", MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
             }
-            if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
+            if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
             {
                 ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
             }
@@ -3238,6 +3257,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.TableListURL = tempTableListURL;
             Settings.Default.EnablePlaylistUrlCompletion = tempEnablePlaylistUrlCompletion;
             Settings.Default.OverwritePlaylistUrlsWithCompletion = tempOverwritePlaylistUrlsWithCompletion;
+            Settings.Default.EnableStellaFullPlaylistUrlCompletion = tempEnableStellaFullPlaylistUrlCompletion;
             Settings.Default.PlaylistMd5UrlMappingTsvUri = tempPlaylistMd5UrlMappingTsvUri;
             Settings.Default.LR2bodyResolution = tempLR2bodyResolution;
             Settings.Default.IsSaveLR2bodyWindowPosition = tempIsSaveLR2bodyWindowPosition;
@@ -3332,6 +3352,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => TableListURL);
             RaisePropertyChanged(() => EnablePlaylistUrlCompletion);
             RaisePropertyChanged(() => OverwritePlaylistUrlsWithCompletion);
+            RaisePropertyChanged(() => EnableStellaFullPlaylistUrlCompletion);
             RaisePropertyChanged(() => PlaylistMd5UrlMappingTsvUri);
             RaisePropertyChanged(() => IsLR2BackupEnabled);
             RaisePropertyChanged(() => LR2BackupPath);

@@ -237,6 +237,24 @@ internal sealed class Settings : ApplicationSettingsBase
 	}
 
 	/// <summary>
+	/// Stella Uploader (Full) の URL1/URL2 対応をプレイリスト URL 補完に使うかどうかを取得または設定します。
+	/// </summary>
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("True")]
+	public bool EnableStellaFullPlaylistUrlCompletion
+	{
+		get
+		{
+			return (bool)this["EnableStellaFullPlaylistUrlCompletion"];
+		}
+		set
+		{
+			this["EnableStellaFullPlaylistUrlCompletion"] = value;
+		}
+	}
+
+	/// <summary>
 	/// MD5 と URL の対応 TSV を取得する URI またはローカルファイルパスを取得または設定します。
 	/// </summary>
 	[UserScopedSetting]
