@@ -160,6 +160,181 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task UpdateBmsTablesInternalAsync_ReloadsOnlyExternalSyncTargets()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string externalHeaderPath = Path.Combine(tempDirectory, "external-header.json");
+            string externalScorePath = Path.Combine(tempDirectory, "external-score.json");
+            string manualHeaderPath = Path.Combine(tempDirectory, "manual-header.json");
+            File.WriteAllBytes(externalHeaderPath, CreateUtf8BomBytes("{\r\n\"name\":\"ExternalTarget\",\r\n\"symbol\":\"E\",\r\n\"data_url\":\"./external-score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(externalScorePath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+            File.WriteAllBytes(manualHeaderPath, CreateUtf8BomBytes("{ invalid json"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            BMSTable externalTable = await playlist.LoadExternalTableAsync(new Uri(externalHeaderPath));
+            externalTable.EnableExternalSync();
+            BMSTable manualTable = new BMSTable
+            {
+                name = "ManualTarget",
+                symbol = "M",
+                Header_url = new Uri(manualHeaderPath)
+            };
+            manualTable.DisableExternalSync();
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { externalTable, manualTable }), Dispatcher.CurrentDispatcher);
+            List<PlaylistSyncAttemptResult> syncResults = new List<PlaylistSyncAttemptResult>();
+
+            await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResults.Add);
+
+            Assert.AreEqual(1, syncResults.Count);
+            Assert.AreSame(externalTable, syncResults[0].SourceTable);
+            Assert.IsTrue(syncResults[0].Succeeded);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_ReloadsExplicitTargetRegardlessOfExternalSyncFlag()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ManualTarget\",\r\n\"symbol\":\"M\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.playlist_id = 9001;
+            table.DisableExternalSync();
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
+
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table }, reason: "test_explicit_reload");
+
+            Assert.AreEqual(1, results.Count);
+            Assert.IsTrue(results[0].Succeeded);
+            Assert.IsTrue(results[0].Updated);
+            Assert.IsFalse(results[0].ResultTable.is_external_sync);
+            using (results[0].ResultTable.ReaderWriterLock.GetReaderGuard())
+            {
+                Assert.AreEqual(2, results[0].ResultTable.entries.Count((BMSTableEntry entry) => !entry.is_removed));
+            }
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_SkipsTargetsWithoutAbsoluteUri()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = new BMSTable
+            {
+                name = "NoUri",
+                symbol = "N"
+            };
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            List<PlaylistSyncProgressSnapshot> snapshots = new List<PlaylistSyncProgressSnapshot>();
+
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table }, progressCallback: snapshots.Add, reason: "test_skip_no_uri");
+
+            Assert.AreEqual(0, results.Count);
+            Assert.IsTrue(snapshots.Count >= 2);
+            Assert.IsTrue(snapshots.All((PlaylistSyncProgressSnapshot snapshot) => snapshot.TotalTableCount == 0));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_ContinuesAfterTargetFailure()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string goodHeaderPath = Path.Combine(tempDirectory, "good-header.json");
+            string goodScorePath = Path.Combine(tempDirectory, "good-score.json");
+            string badHeaderPath = Path.Combine(tempDirectory, "bad-header.json");
+            File.WriteAllBytes(goodHeaderPath, CreateUtf8BomBytes("{\r\n\"name\":\"GoodTarget\",\r\n\"symbol\":\"G\",\r\n\"data_url\":\"./good-score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(goodScorePath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Good Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+            File.WriteAllBytes(badHeaderPath, CreateUtf8BomBytes("{ invalid json"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            BMSTable goodTable = await playlist.LoadExternalTableAsync(new Uri(goodHeaderPath));
+            BMSTable badTable = new BMSTable
+            {
+                name = "BadTarget",
+                symbol = "B",
+                Header_url = new Uri(badHeaderPath)
+            };
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { goodTable, badTable }), Dispatcher.CurrentDispatcher);
+            List<PlaylistSyncAttemptResult> syncResults = new List<PlaylistSyncAttemptResult>();
+
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { goodTable, badTable }, syncResultCallback: syncResults.Add, reason: "test_partial_failure");
+
+            Assert.AreEqual(2, results.Count);
+            Assert.AreEqual(2, syncResults.Count);
+            Assert.IsTrue(results.Any((BMSPlaylist.PlaylistReloadTargetResult result) => result.SourceTable == goodTable && result.Succeeded));
+            Assert.IsTrue(results.Any((BMSPlaylist.PlaylistReloadTargetResult result) => result.SourceTable == badTable && !result.Succeeded));
+            Assert.IsTrue(syncResults.Any((PlaylistSyncAttemptResult result) => result.SourceTable == goodTable && result.Succeeded));
+            Assert.IsTrue(syncResults.Any((PlaylistSyncAttemptResult result) => result.SourceTable == badTable && !result.Succeeded));
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ReloadTables_ReloadsHeadersWithoutScoreInitialization()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;

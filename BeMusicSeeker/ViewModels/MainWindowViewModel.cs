@@ -16698,62 +16698,27 @@ public class MainWindowViewModel : ViewModel
         try
         {
             LogPlaylistReload("playlist_reload_operation started operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count);
-            int completed = 0;
-            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
-            {
-                IsActive = true,
-                TotalTableCount = list.Count,
-                CompletedTableCount = 0,
-                CurrentTableName = string.Empty,
-                CurrentUri = null
-            });
-            foreach (BMSTable item in list)
-            {
-                Uri uri = item.Page_url ?? item.Header_url;
-                UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await tables.ReloadPlaylistTargetsAsync(
+                list,
+                new List<Action<BMSPlaylist.PlaylistTableUpdateContext>> { CreatePlaylistReferenceReplaceUpdateCallback() },
+                delegate(PlaylistSyncAttemptResult result)
                 {
-                    IsActive = true,
-                    TotalTableCount = list.Count,
-                    CompletedTableCount = completed,
-                    CurrentTableName = item.name,
-                    CurrentUri = uri
-                });
-                try
-                {
-                    DateTime last_update = item.last_update;
-                    List<BMSTableEntry> oldEntriesSnapshot;
-                    tables.EnsurePlaylistEntriesLoaded(item, "ResyncPlaylistsAsync");
-                    using (item.ReaderWriterLock.GetReaderGuard())
+                    if (result == null)
                     {
-                        oldEntriesSnapshot = item.entries.ToList();
+                        return;
                     }
-                    BMSTable bMSTable = await tables.ResetBMSTableAsync(item, uri);
-                    files.ReplaceReferenceBMSTable(item, bMSTable, oldEntriesSnapshot);
-                    UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(item, bMSTable, uri, bMSTable.last_update != last_update));
-                }
-                catch (Exception ex)
-                {
-                    NLogWrapper.FileLogger?.Warn(ex, "playlist_manual_resync_failed table=" + (item?.name ?? string.Empty) + " uri=" + (uri?.ToString() ?? string.Empty));
-                    UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(item, uri, ex));
-                    ShowPlaylistLoadFailure(ex);
-                }
-                finally
-                {
-                    completed++;
-                    UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+                    if (!result.Succeeded)
                     {
-                        IsActive = true,
-                        TotalTableCount = list.Count,
-                        CompletedTableCount = completed,
-                        CurrentTableName = item.name,
-                        CurrentUri = uri
-                    });
-                }
-            }
+                        NLogWrapper.FileLogger?.Warn(result.Exception, "playlist_manual_resync_failed table=" + (result.SourceTable?.name ?? string.Empty) + " uri=" + (result.PageUri?.ToString() ?? string.Empty));
+                    }
+                    UpdatePlaylistSyncRuntimeStatus(result);
+                },
+                UpdatePlaylistSyncProgressStatus,
+                "manual_resync");
             RefreshPlaylistSummaryIfVisible("manual_playlist_resync", invalidateTableCountCache: true);
             RefreshPlaylistDetailAfterReloadIfVisible();
             bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, list.Count);
-            LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count + " summaryRebuildMs=" + Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs) + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + playlistReloadStopwatch.ElapsedMilliseconds);
+            LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count + " processedCount=" + (results?.Count ?? 0) + " summaryRebuildMs=" + Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs) + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + playlistReloadStopwatch.ElapsedMilliseconds);
         }
         finally
         {

@@ -42,7 +42,7 @@ install readiness は playlist、score/ranking、chart_info、maintenance hydrat
 - external playlist sync を再スケジュールする。
 - score DB load、score snapshot rebuild、ranking refresh は行わない。
 
-library の full file scan とは別操作である。
+library の full file scan とは別操作である。reload 実行は bounded parallel の共通 batch を使い、root reload は外部同期 ON の playlist だけを対象にする。プレイリスト単体 reload / サマリー選択範囲 reload は、選択対象を外部同期フラグに関係なく同じ batch で処理する。範囲 reload の失敗は個別 dialog を出さず、ログと playlist summary の `STATUS` に残す。
 
 ## FullReinitialize
 

@@ -85,6 +85,23 @@ public partial class BMSPlaylist : NotificationObject
         public IReadOnlyList<BMSTableEntry> NewEntriesSnapshot { get; internal set; }
     }
 
+    internal sealed class PlaylistReloadTargetResult
+    {
+        public BMSTable SourceTable { get; internal set; }
+
+        public BMSTable ResultTable { get; internal set; }
+
+        public Uri Uri { get; internal set; }
+
+        public bool Updated { get; internal set; }
+
+        public Exception Exception { get; internal set; }
+
+        public PlaylistTableUpdateContext UpdateContext { get; internal set; }
+
+        public bool Succeeded => Exception == null;
+    }
+
     /// <summary>
     /// 推定表の派生種類を識別します。
     /// </summary>
@@ -2411,168 +2428,198 @@ public partial class BMSPlaylist : NotificationObject
         try
         {
             Stopwatch stopwatchUpdateTablesTotal = Stopwatch.StartNew();
-            long updateExternalSyncTicks = 0L;
-            long updateCallbacksTicks = 0L;
-            long updateCommitTicks = 0L;
-            List<BMSTable> updatedTables = new List<BMSTable>();
             List<BMSTable> tableSnapshot;
             using (rwlockBMSTables.GetReaderGuard())
             {
                 tableSnapshot = BMSTables.ToList();
             }
-            List<BMSTable> externalSyncTargets = tableSnapshot.Where(delegate(BMSTable table)
+            List<BMSTable> reloadTargets = tableSnapshot.Where(delegate(BMSTable table)
             {
                 Uri uri2 = table?.Page_url ?? table?.Header_url;
                 return reloadExtPlaylist && table != null && table.is_external_sync && uri2 != null && uri2.IsAbsoluteUri;
             }).ToList();
-            int completedTableCount = 0;
-            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+            List<PlaylistReloadTargetResult> results = await ReloadPlaylistTargetsAsync(
+                reloadTargets,
+                updateCallbackActions,
+                syncResultCallback,
+                progressCallback,
+                "UpdateBMSTablesInternalAsync",
+                cancellationToken).ConfigureAwait(false);
+            if (updateCallbackActions != null)
             {
-                IsActive = externalSyncTargets.Count > 0,
-                TotalTableCount = externalSyncTargets.Count,
-                CompletedTableCount = 0,
-                CurrentTableName = string.Empty,
-                CurrentUri = null
-            });
-            object lockObject = new object();
-            using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-            await Task.WhenAll(tableSnapshot.Select(async delegate(BMSTable table)
-            {
-                BMSTable newTable = table;
-                List<BMSTableEntry> oldEntriesSnapshot = null;
-                List<BMSTableEntry> newEntriesSnapshot = null;
-                await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
-                Uri uri = table.Page_url ?? table.Header_url;
-                bool arg = false;
-                PlaylistSyncAttemptResult playlistSyncAttemptResult = null;
-                try
+                HashSet<BMSTable> reloadedTables = new HashSet<BMSTable>(results.Select((PlaylistReloadTargetResult result) => result.SourceTable).Where((BMSTable table) => table != null));
+                foreach (BMSTable table in tableSnapshot.Where((BMSTable table) => table != null && !reloadedTables.Contains(table)))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
+                    InvokePlaylistUpdateCallbacks(new PlaylistTableUpdateContext
                     {
-                        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-                        {
-                            IsActive = true,
-                            TotalTableCount = externalSyncTargets.Count,
-                            CompletedTableCount = Volatile.Read(ref completedTableCount),
-                            CurrentTableName = table.name,
-                            CurrentUri = uri
-                        });
-                        Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
-                        try
-                        {
-                            BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
-                            EnsurePlaylistEntriesLoaded(table, "UpdateBMSTablesInternalAsync");
-                            using (table.ReaderWriterLock.GetWriterGuard())
-                            {
-                                oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
-                                IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
-                                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out arg, logLastUpdateDecision: true);
-                                if (arg)
-                                {
-                                    newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
-                                    Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                                    CommitBMSTable(newTable);
-                                    stopwatchCommit.Stop();
-                                    Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
-                                }
-                                else
-                                {
-                                    newTable = table;
-                                    newEntriesSnapshot = oldEntriesSnapshot;
-                                }
-                            }
-                            if (arg)
-                            {
-                                using (rwlockBMSTables.GetWriterGuard())
-                                {
-                                    ReplaceBMSTableInCollection(table, newTable);
-                                    lock (lockObject)
-                                    {
-                                        updatedTables.Add(newTable);
-                                    }
-                                }
-                            }
-                            ApplyCachedPlaylistUrlCompletionToTable(newTable, "UpdateBMSTablesInternalAsync");
-                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, arg);
-                        }
-                        catch (Exception ex)
-                        {
-                            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_auto_resync_failed table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
-                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateFailure(table, uri, ex);
-                        }
-                        finally
-                        {
-                            syncResultCallback?.Invoke(playlistSyncAttemptResult);
-                            int num4 = Interlocked.Increment(ref completedTableCount);
-                            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-                            {
-                                IsActive = true,
-                                TotalTableCount = externalSyncTargets.Count,
-                                CompletedTableCount = num4,
-                                CurrentTableName = table.name,
-                                CurrentUri = uri
-                            });
-                        }
-                        stopwatchExternalSync.Stop();
-                        Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
-                    }
-                    Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
-                    try
-                    {
-                        if (updateCallbackActions != null)
-                        {
-                            PlaylistTableUpdateContext updateContext = new PlaylistTableUpdateContext
-                            {
-                                NewTable = newTable,
-                                Updated = arg,
-                                OldTable = table,
-                                OldEntriesSnapshot = oldEntriesSnapshot,
-                                NewEntriesSnapshot = newEntriesSnapshot
-                            };
-                            foreach (Action<PlaylistTableUpdateContext> item in updateCallbackActions.Where((Action<PlaylistTableUpdateContext> a) => a != null))
-                            {
-                                item(updateContext);
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_update_callback_failed table=" + FormatTextForLog(newTable?.name) + " uri=" + FormatUriForLog(uri));
-                    }
-                    finally
-                    {
-                        stopwatchCallbacks.Stop();
-                        Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
-                    }
+                        NewTable = table,
+                        Updated = false,
+                        OldTable = table,
+                        OldEntriesSnapshot = null,
+                        NewEntriesSnapshot = null
+                    }, updateCallbackActions, table.Page_url ?? table.Header_url);
                 }
-                finally
-                {
-                    semaphoreSlim.Release();
-                }
-            }).ToArray()).ConfigureAwait(false);
-            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-            {
-                IsActive = false,
-                TotalTableCount = externalSyncTargets.Count,
-                CompletedTableCount = completedTableCount,
-                CurrentTableName = string.Empty,
-                CurrentUri = null
-            });
-            stopwatchUpdateTablesTotal.Stop();
-            long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
-            long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
-            long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
-            LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + tableSnapshot.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
-            if (reloadExtPlaylist && Settings.Default.EnablePlaylistUrlCompletion)
-            {
-                SchedulePlaylistUrlCompletionRefresh("UpdateBMSTablesInternalAsync");
             }
+            stopwatchUpdateTablesTotal.Stop();
+            List<BMSTable> updatedTables = results.Where((PlaylistReloadTargetResult result) => result.Succeeded && result.Updated && result.ResultTable != null).Select((PlaylistReloadTargetResult result) => result.ResultTable).ToList();
+            LogPlaylistPerformance("playlist_update table_count=" + tableSnapshot.Count + " target_count=" + reloadTargets.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
             return updatedTables;
         }
         finally
         {
             IsPlaylistUpdating = false;
+        }
+    }
+
+    internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(IEnumerable<BMSTable> targets, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "ReloadPlaylistTargetsAsync", CancellationToken cancellationToken = default(CancellationToken))
+    {
+        List<BMSTable> targetSnapshot = (targets ?? Enumerable.Empty<BMSTable>())
+            .Where((BMSTable table) => table != null)
+            .Distinct()
+            .Where(delegate(BMSTable table)
+            {
+                Uri uri = table.Page_url ?? table.Header_url;
+                return uri != null && uri.IsAbsoluteUri;
+            })
+            .ToList();
+        int completedTableCount = 0;
+        List<PlaylistReloadTargetResult> results = new List<PlaylistReloadTargetResult>();
+        object resultLock = new object();
+        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = targetSnapshot.Count > 0,
+            TotalTableCount = targetSnapshot.Count,
+            CompletedTableCount = 0,
+            CurrentTableName = string.Empty,
+            CurrentUri = null
+        });
+        using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
+        await Task.WhenAll(targetSnapshot.Select(async delegate(BMSTable table)
+        {
+            await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
+            Uri uri = table.Page_url ?? table.Header_url;
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                {
+                    IsActive = true,
+                    TotalTableCount = targetSnapshot.Count,
+                    CompletedTableCount = Volatile.Read(ref completedTableCount),
+                    CurrentTableName = table.name,
+                    CurrentUri = uri
+                });
+                PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(table, uri, updateCallbackActions, syncResultCallback, reason, cancellationToken).ConfigureAwait(false);
+                lock (resultLock)
+                {
+                    results.Add(result);
+                }
+            }
+            finally
+            {
+                int num = Interlocked.Increment(ref completedTableCount);
+                progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                {
+                    IsActive = true,
+                    TotalTableCount = targetSnapshot.Count,
+                    CompletedTableCount = num,
+                    CurrentTableName = table.name,
+                    CurrentUri = uri
+                });
+                semaphoreSlim.Release();
+            }
+        }).ToArray()).ConfigureAwait(false);
+        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = false,
+            TotalTableCount = targetSnapshot.Count,
+            CompletedTableCount = completedTableCount,
+            CurrentTableName = string.Empty,
+            CurrentUri = null
+        });
+        if (targetSnapshot.Count > 0 && Settings.Default.EnablePlaylistUrlCompletion)
+        {
+            SchedulePlaylistUrlCompletionRefresh(reason);
+        }
+        return results;
+    }
+
+    private async Task<PlaylistReloadTargetResult> ReloadPlaylistTargetCoreAsync(BMSTable table, Uri uri, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Action<PlaylistSyncAttemptResult> syncResultCallback, string reason, CancellationToken cancellationToken)
+    {
+        BMSTable newTable = table;
+        List<BMSTableEntry> oldEntriesSnapshot = null;
+        List<BMSTableEntry> newEntriesSnapshot = null;
+        bool updated = false;
+        Exception failure = null;
+        try
+        {
+            BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
+            EnsurePlaylistEntriesLoaded(table, reason);
+            using (table.ReaderWriterLock.GetWriterGuard())
+            {
+                oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
+                IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
+                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out updated, logLastUpdateDecision: true);
+                if (updated)
+                {
+                    newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
+                }
+                else
+                {
+                    newTable = table;
+                    newEntriesSnapshot = oldEntriesSnapshot;
+                }
+            }
+            if (updated)
+            {
+                CommitBMSTable(newTable);
+                ReplaceBMSTableInCollection(table, newTable);
+            }
+            ApplyCachedPlaylistUrlCompletionToTable(newTable, reason);
+            syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated));
+        }
+        catch (Exception ex)
+        {
+            failure = ex;
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_reload_target_failed reason=" + FormatTextForLog(reason) + " table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
+            syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, ex));
+        }
+        PlaylistTableUpdateContext updateContext = new PlaylistTableUpdateContext
+        {
+            NewTable = newTable,
+            Updated = updated,
+            OldTable = table,
+            OldEntriesSnapshot = oldEntriesSnapshot,
+            NewEntriesSnapshot = newEntriesSnapshot
+        };
+        InvokePlaylistUpdateCallbacks(updateContext, updateCallbackActions, uri);
+        return new PlaylistReloadTargetResult
+        {
+            SourceTable = table,
+            ResultTable = newTable,
+            Uri = uri,
+            Updated = updated,
+            Exception = failure,
+            UpdateContext = updateContext
+        };
+    }
+
+    private static void InvokePlaylistUpdateCallbacks(PlaylistTableUpdateContext updateContext, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Uri uri)
+    {
+        if (updateCallbackActions == null)
+        {
+            return;
+        }
+        try
+        {
+            foreach (Action<PlaylistTableUpdateContext> item in updateCallbackActions.Where((Action<PlaylistTableUpdateContext> action) => action != null))
+            {
+                item(updateContext);
+            }
+        }
+        catch (Exception ex)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_update_callback_failed table=" + FormatTextForLog(updateContext?.NewTable?.name) + " uri=" + FormatUriForLog(uri));
         }
     }
 
@@ -2599,13 +2646,29 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        tables.Dispatcher.BeginInvoke(new Action(delegate
+        System.Windows.Threading.DispatcherOperation operation = tables.Dispatcher.BeginInvoke((Action)delegate
         {
             using (rwlockBMSTables.GetWriterGuard())
             {
                 ReplaceCore();
             }
-        }));
+        });
+        if (Application.Current == null)
+        {
+            return;
+        }
+        try
+        {
+            operation.Wait(TimeSpan.FromSeconds(5));
+            if (operation.Status != System.Windows.Threading.DispatcherOperationStatus.Completed)
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn("playlist_table_replace_dispatch_wait_incomplete status=" + operation.Status);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException || ex is ThreadInterruptedException)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_wait_failed");
+        }
     }
 
     /// <summary>
@@ -2627,32 +2690,24 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
-        BMSTable reloadedTable = await reloadBMSTableAsync(bmsTable, pageUri, cancellationToken).ConfigureAwait(false);
-        EnsurePlaylistEntriesLoaded(bmsTable, "ResetBMSTableAsync");
-        BMSTable mergedTable;
-        using (rwlockBMSTables.GetWriterGuard())
+        if (pageUri == null)
         {
-            using (bmsTable.ReaderWriterLock.GetWriterGuard())
-            {
-                IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(bmsTable.playlist_id);
-                mergedTable = MergeReloadedBMSTableState(bmsTable, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out bool hasContentChanges, logLastUpdateDecision: true);
-                if (hasContentChanges)
-                {
-                    using (mergedTable.ReaderWriterLock.GetWriterGuard())
-                    {
-                        BMSTables[BMSTables.IndexOf(bmsTable)] = mergedTable;
-                        CommitBMSTable(mergedTable);
-                    }
-                }
-                else
-                {
-                    mergedTable = bmsTable;
-                }
-            }
+            pageUri = bmsTable.Page_url ?? bmsTable.Header_url;
         }
-        ApplyCachedPlaylistUrlCompletionToTable(mergedTable, "ResetBMSTableAsync");
-        SchedulePlaylistUrlCompletionRefresh("ResetBMSTableAsync");
-        return mergedTable;
+        if (pageUri == null || !pageUri.IsAbsoluteUri)
+        {
+            throw new InvalidOperationException("Playlist reload URI is not absolute.");
+        }
+        PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(bmsTable, pageUri, null, null, "ResetBMSTableAsync", cancellationToken).ConfigureAwait(false);
+        if (result.Exception != null)
+        {
+            throw result.Exception;
+        }
+        if (Settings.Default.EnablePlaylistUrlCompletion)
+        {
+            SchedulePlaylistUrlCompletionRefresh("ResetBMSTableAsync");
+        }
+        return result.ResultTable;
     }
 
     /// <summary>

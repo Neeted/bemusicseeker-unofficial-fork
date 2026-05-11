@@ -801,6 +801,23 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ManualPlaylistResync_UsesBatchReloadWithoutFailureDialogs()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string method = ExtractBetween(
+            viewModelCode,
+            "public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)",
+            "public void ManualInstallBMSFiles");
+
+        StringAssert.Contains(method, "tables.ReloadPlaylistTargetsAsync(");
+        StringAssert.Contains(method, "CreatePlaylistReferenceReplaceUpdateCallback()");
+        StringAssert.Contains(method, "UpdatePlaylistSyncRuntimeStatus(result)");
+        StringAssert.Contains(method, "playlist_manual_resync_failed");
+        Assert.IsFalse(method.Contains("ResetBMSTableAsync("));
+        Assert.IsFalse(method.Contains("ShowPlaylistLoadFailure("));
+    }
+
+    [TestMethod]
     public void SidebarTreeViewWidthPolicy_NormalizesInvalidPersistedValues()
     {
         Assert.AreEqual(Settings.DefaultTreeViewWidth, Settings.NormalizeTreeViewWidth(double.NaN));
