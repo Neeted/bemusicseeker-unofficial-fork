@@ -659,6 +659,47 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void BuildAutoRenamePlans_MixedFolderIncludesBmsonRowsInMetadata()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            string rootPath = Path.Combine(tempDirectoryPath, "Songs");
+            string sourcePath = Path.Combine(rootPath, "OldFolder");
+            Directory.CreateDirectory(sourcePath);
+            string bmsPath = Path.Combine(sourcePath, "chart.bms");
+            string bmsonPath = Path.Combine(sourcePath, "chart.bmson");
+            File.WriteAllText(bmsPath, "#PLAYER 1");
+            File.WriteAllText(bmsonPath, "{}");
+            TestableBmsFile bmsRow = CreateFile(bmsPath);
+            bmsRow.SetTitleForTest("BmsTitle");
+            PendingChartEntry bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = bmsonPath,
+                folder = sourcePath,
+                title = "BmsonTitle",
+                artist = "BmsonArtist"
+            });
+
+            List<string> directChildTitles = new List<string>();
+            List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
+                new[] { bmsRow },
+                new BMSFile[] { bmsRow, bmsonRow },
+                Array.Empty<string>(),
+                renameRootFolder: true,
+                (children, parentDir, _) =>
+                {
+                    directChildTitles = children.Select((BMSFile child) => child.Title).OrderBy(title => title, StringComparer.Ordinal).ToList();
+                    return Path.Combine(parentDir, string.Join("_", directChildTitles));
+                });
+
+            CollectionAssert.AreEqual(new[] { "BmsTitle", "BmsonTitle" }, directChildTitles);
+            Assert.AreEqual(1, plans.Count);
+            Assert.AreEqual(Path.Combine(rootPath, "BmsTitle_BmsonTitle"), plans[0].DestinationDirectory);
+        });
+    }
+
+    [TestMethod]
     public void BuildFolderMoveDelta_TracksBmsonSongPathChanges()
     {
         BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
@@ -888,6 +929,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
     private sealed class TestableBmsFile : BMSFile
     {
+        internal void SetTitleForTest(string value)
+        {
+            Title = value;
+        }
     }
 
     private sealed class TestFileMutationService : IFileMutationService

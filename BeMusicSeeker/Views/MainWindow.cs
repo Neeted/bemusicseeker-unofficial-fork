@@ -5190,7 +5190,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem16 != null)
         {
-            bool canAutoRenameFolders = !isPlaylistContext && !isPendingSelected && hasBmsSelection;
+            bool canAutoRenameFolders = !isPlaylistContext && !isPendingSelected && (hasBmsSelection || hasBmsonSelection);
             menuItem16.Visibility = ((!canAutoRenameFolders) ? Visibility.Collapsed : Visibility.Visible);
             menuItem16.IsEnabled = canAutoRenameFolders;
         }
@@ -6579,7 +6579,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.None);
+        List<BMSFile> bmsFiles = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None);
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (bmsFiles.Count > 0)
         {

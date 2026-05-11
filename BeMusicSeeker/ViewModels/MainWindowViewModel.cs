@@ -17692,11 +17692,12 @@ public class MainWindowViewModel : ViewModel
 
     public void AutoRenameAllBMSFolder(string parentDir = null)
     {
-        if (BMSFiles == null)
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = GetLibraryChartFilesForFolderOperations();
+        if (chartFiles.Count == 0)
         {
             return;
         }
-        IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;
+        IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = chartFiles;
         lock (lockCopyFile)
         {
             PlayEndBMSFile(closeProcess: true);
@@ -17707,6 +17708,17 @@ public class MainWindowViewModel : ViewModel
             files.AutoRenameBMSFolder(enumerable);
             SyncBmsonLibraryRowCacheWithoutRebuild();
         }
+    }
+
+    private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()
+    {
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = (BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
+            .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
+            .ToList();
+        chartFiles.AddRange((files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Select(PendingChartEntry.CreateFromBmsonSong)
+            .Where((PendingChartEntry entry) => entry != null));
+        return chartFiles;
     }
 
     public void AutoRenameBMSFolder(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)

@@ -677,6 +677,38 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void AutoRenameFolder_UsesCompatibilityChartSelectionIncludingBmson()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string autoRenameClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemAutoRenameFolderClick",
+            "private void tableContextMenuItemRenameBMSFileClick");
+        string contextMenuOpening = ExtractBetween(
+            mainWindowCode,
+            "bool canAutoRenameFolders =",
+            "if (menuItem17 != null)");
+        string autoRenameAll = ExtractBetween(
+            viewModelCode,
+            "public void AutoRenameAllBMSFolder",
+            "public void AutoRenameBMSFolder");
+        string chartFilesForFolderOperations = ExtractBetween(
+            viewModelCode,
+            "private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()",
+            "public void AutoRenameBMSFolder");
+
+        StringAssert.Contains(autoRenameClick, "GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None)");
+        Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
+        StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
+        StringAssert.Contains(autoRenameAll, "GetLibraryChartFilesForFolderOperations()");
+        Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
+        StringAssert.Contains(chartFilesForFolderOperations, "files?.BmsonSongs");
+        StringAssert.Contains(chartFilesForFolderOperations, "PendingChartEntry.CreateFromBmsonSong");
+    }
+
+    [TestMethod]
     public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
