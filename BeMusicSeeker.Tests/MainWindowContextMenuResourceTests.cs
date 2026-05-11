@@ -845,6 +845,53 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void SettingDialog_UsesScopedModernLayoutStyles()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+
+        StringAssert.Contains(xaml, "<Border Width=\"640\" Height=\"500\" CornerRadius=\"8\"");
+        StringAssert.Contains(xaml, "BorderBrush=\"{DynamicResource App.DialogBorderBrush}\"");
+        StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type GroupBox}\" BasedOn=\"{StaticResource {x:Type GroupBox}}\">");
+        StringAssert.Contains(xaml, "<Setter Property=\"Padding\" Value=\"10,8,10,10\" />");
+        StringAssert.Contains(xaml, "TextElement.FontWeight=\"SemiBold\"");
+        StringAssert.Contains(xaml, "CornerRadius=\"4\"");
+        StringAssert.Contains(xaml, "<ScrollViewer Margin=\"4\" VerticalScrollBarVisibility=\"Auto\" HorizontalScrollBarVisibility=\"Disabled\">");
+        StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type Button}\" BasedOn=\"{StaticResource {x:Type Button}}\">");
+        StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type TextBox}\" BasedOn=\"{StaticResource {x:Type TextBox}}\">");
+        StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type ComboBox}\" BasedOn=\"{StaticResource {x:Type ComboBox}}\">");
+        StringAssert.Contains(xaml, "x:Key=\"styleWrappingSettingCheckBox\"");
+        StringAssert.Contains(xaml, "TextWrapping=\"Wrap\"");
+        StringAssert.Contains(xaml, "Path=Resources.Details_initialization_settings, Mode=OneWay");
+        StringAssert.Contains(xaml, "Path=Resources.Details_lr2_integration_settings, Mode=OneWay");
+        StringAssert.Contains(xaml, "<GroupBox Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}\">");
+        Assert.AreEqual(0, CountOccurrences(xaml, "VerticalScrollBarVisibility=\"Disabled\" HorizontalScrollBarVisibility=\"Auto\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "MaxHeight=\"260\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Note, Mode=OneWay}\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "GroupBox Padding=\"5,5,5,0\""));
+    }
+
+    [TestMethod]
+    public void PlaylistPropertyDialog_UsesScopedModernLayoutStyles()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml"));
+
+        StringAssert.Contains(xaml, "<Border Width=\"520\" Height=\"340\" CornerRadius=\"8\"");
+        StringAssert.Contains(xaml, "BorderBrush=\"{DynamicResource App.DialogBorderBrush}\"");
+        StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type TabControl}\" BasedOn=\"{StaticResource {x:Type TabControl}}\">");
+        StringAssert.Contains(xaml, "<ScrollViewer Margin=\"4\" VerticalScrollBarVisibility=\"Auto\" HorizontalScrollBarVisibility=\"Disabled\">");
+        StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type GroupBox}\" BasedOn=\"{StaticResource {x:Type GroupBox}}\">");
+        StringAssert.Contains(xaml, "TextElement.FontWeight=\"SemiBold\"");
+        StringAssert.Contains(xaml, "CornerRadius=\"4\"");
+        StringAssert.Contains(xaml, "<Grid DockPanel.Dock=\"Bottom\" VerticalAlignment=\"Bottom\" Margin=\"0,8,0,0\">");
+        StringAssert.Contains(xaml, "<Button Content=\"OK\" MinWidth=\"64\" Margin=\"0,0,8,0\" Click=\"SaveAndClose\" />");
+        StringAssert.Contains(xaml, "<Button Content=\"Cancel\" MinWidth=\"64\" Click=\"CancelAndClose\" />");
+        StringAssert.Contains(xaml, "ListBox Name=\"foldersListBox\" DockPanel.Dock=\"Left\" Width=\"300\" Height=\"130\"");
+        Assert.AreEqual(0, CountOccurrences(xaml, "GroupBox Padding=\"5"));
+        Assert.AreEqual(0, CountOccurrences(xaml, "Margin=\"5,5,5"));
+    }
+
+    [TestMethod]
     public void ThemeStyles_ApplyToMenusAndStandardControls()
     {
         string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));

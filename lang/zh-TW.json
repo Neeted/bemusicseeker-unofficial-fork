@@ -265,6 +265,8 @@
   "New": "新增",
   "Error": "錯誤",
   "Details_message_diag": "訊息對話方塊",
+  "Details_initialization_settings": "初始化",
+  "Details_lr2_integration_settings": "LR2 連動",
   "Fixed": "已修復",
   "Daily": "日",
   "Level": "等級",

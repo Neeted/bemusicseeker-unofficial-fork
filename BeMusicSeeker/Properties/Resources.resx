@@ -775,6 +775,12 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Details_message_diag" xml:space="preserve">
     <value>メッセージ表示</value>
   </data>
+  <data name="Details_initialization_settings" xml:space="preserve">
+    <value>初期化</value>
+  </data>
+  <data name="Details_lr2_integration_settings" xml:space="preserve">
+    <value>LR2連携</value>
+  </data>
   <data name="Fixed" xml:space="preserve">
     <value>修正済み</value>
   </data>

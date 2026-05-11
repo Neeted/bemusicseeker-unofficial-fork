@@ -265,6 +265,8 @@
   "New": "새로 만들기",
   "Error": "오류",
   "Details_message_diag": "메시지 대화 상자",
+  "Details_initialization_settings": "초기화",
+  "Details_lr2_integration_settings": "LR2 연동",
   "Fixed": "해결됨",
   "Daily": "일",
   "Level": "레벨",

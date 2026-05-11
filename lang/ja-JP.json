@@ -270,6 +270,8 @@
   "New": "新規",
   "Error": "エラー",
   "Details_message_diag": "メッセージ表示",
+  "Details_initialization_settings": "初期化",
+  "Details_lr2_integration_settings": "LR2連携",
   "Fixed": "修正済み",
   "Daily": "毎日",
   "Level": "レベル",

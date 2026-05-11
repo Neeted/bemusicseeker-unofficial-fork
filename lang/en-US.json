@@ -265,6 +265,8 @@
   "New": "New",
   "Error": "Error",
   "Details_message_diag": "Message dialogue",
+  "Details_initialization_settings": "Initialization",
+  "Details_lr2_integration_settings": "LR2 integration",
   "Fixed": "Fixed",
   "Daily": "Daily",
   "Level": "Level",

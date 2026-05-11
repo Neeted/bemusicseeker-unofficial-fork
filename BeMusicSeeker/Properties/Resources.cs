@@ -130,6 +130,10 @@ public class Resources
 
     public static string Details_message_diag => ResourceManager.GetString("Details_message_diag", resourceCulture);
 
+    public static string Details_initialization_settings => ResourceManager.GetString("Details_initialization_settings", resourceCulture);
+
+    public static string Details_lr2_integration_settings => ResourceManager.GetString("Details_lr2_integration_settings", resourceCulture);
+
     public static string Details_show_diag_chartview => ResourceManager.GetString("Details_show_diag_chartview", resourceCulture);
 
     public static string Details_show_diag_diff_install => ResourceManager.GetString("Details_show_diag_diff_install", resourceCulture);
