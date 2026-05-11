@@ -130,6 +130,16 @@ ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `Scr
 
 `ProgressBar` はライト / ダークの配色差を付けず、従来のステータスバーに近い共通の緑色 indicator と薄い track を使う。進捗ゲージは状態表示であり、テーマ accent 色の一部としては扱わない。
 
+## Focus 表示
+
+アプリ内では、WPF 既定の点線 `FocusVisualStyle` は使わない。キーボード操作時の状態は、各 control の既存 visual で表現する。
+
+- `CustomTableView`: 選択行と current cell の独自描画で表現する。
+- `TreeView` / `TreeViewItem`: control 本体の点線 adorner は出さず、選択背景と選択時文字色で表現する。
+- `TextBox`: `App.InputFocusBorderBrush` による入力枠で表現する。
+- `Button` / `ToggleButton` / `CheckBox` / `RadioButton` / `TabItem` / `Slider` / `ListBoxItem` / `ComboBoxItem`: 点線 adorner は出さず、選択・hover・pressed の visual に任せる。
+- `GridSplitter`: Tab focus 対象にせず、点線 adorner も出さない。ドラッグ操作によるサイズ変更は維持する。
+
 ## MainWindow
 
 メインウィンドウは `Background` / `Foreground` をテーマ resource へ接続する。

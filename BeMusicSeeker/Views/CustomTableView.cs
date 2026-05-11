@@ -180,6 +180,7 @@ public sealed class CustomTableView : Grid
     {
         ClipToBounds = true;
         Focusable = true;
+        FocusVisualStyle = null;
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
         SetResourceReference(Panel.BackgroundProperty, "ScrollBar.TrackBackgroundBrush");

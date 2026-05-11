@@ -47,6 +47,9 @@
       <v:timeSpanToDoubleSecConverter x:Key="timeSpanToDoubleSecConverter" />
       <v:doubleSecToTimeStrConverter x:Key="doubleSecToTimeStrConverter" />
       <Style x:Key="SidebarSplitterStyle" TargetType="{x:Type GridSplitter}">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Background" Value="{DynamicResource App.SeparatorBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Template">
@@ -799,6 +802,7 @@
       </ControlTemplate>
       <Style x:Key="SliderStylePlayer" TargetType="{x:Type Slider}">
         <Setter Property="Stylus.IsPressAndHoldEnabled" Value="False" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Background" Value="#00FFFFFF" />
         <Setter Property="BorderBrush" Value="#00FFFFFF" />
         <Setter Property="Foreground" Value="{StaticResource SliderThumb.Static.Foreground}" />
@@ -809,18 +813,10 @@
           </Trigger>
         </Style.Triggers>
       </Style>
-      <Style x:Key="TreeViewItemFocusVisual">
-        <Setter Property="Control.Template">
-          <Setter.Value>
-            <ControlTemplate>
-              <Rectangle />
-            </ControlTemplate>
-          </Setter.Value>
-        </Setter>
-      </Style>
       <PathGeometry x:Key="TreeArrow" Figures="M0,0 L0,6 L6,0 z" />
       <Style x:Key="ExpandCollapseToggleStyle" TargetType="{x:Type ToggleButton}">
         <Setter Property="Focusable" Value="False" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Width" Value="16" />
         <Setter Property="Height" Value="16" />
         <Setter Property="Template">
@@ -907,7 +903,7 @@
         <Setter Property="VerticalContentAlignment" Value="{Binding VerticalContentAlignment, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" />
         <Setter Property="Padding" Value="1,0,0,0" />
         <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{StaticResource TreeViewItemFocusVisual}" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
         <Style.Triggers>
           <Trigger Property="VirtualizingPanel.IsVirtualizing" Value="True">
@@ -1683,7 +1679,7 @@
                     </Border>
                   </Popup>
                   <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding KeywordSearchWarningText}" Visibility="{Binding HasKeywordSearchWarning, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
-                  <ToggleButton x:Name="KeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.AccentBrush}" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsKeywordSearchHelpOpen, Mode=TwoWay}" />
+                  <ToggleButton x:Name="KeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.AccentBrush}" FocusVisualStyle="{x:Null}" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsKeywordSearchHelpOpen, Mode=TwoWay}" />
                   <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsKeywordSearchHelpOpen, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
                       <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource App.TextBrush}" Text="{Binding KeywordSearchHelpText}" />
@@ -1754,7 +1750,7 @@
                     </Border>
                   </Popup>
                   <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding PlaylistSummaryKeywordSearchWarningText}" Visibility="{Binding HasPlaylistSummaryKeywordSearchWarning, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
-                  <ToggleButton x:Name="PlaylistSummaryKeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.AccentBrush}" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}" />
+                  <ToggleButton x:Name="PlaylistSummaryKeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.AccentBrush}" FocusVisualStyle="{x:Null}" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}" />
                   <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=PlaylistSummaryKeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
                       <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource App.TextBrush}" Text="{Binding PlaylistSummaryKeywordSearchHelpText}" />
@@ -1872,7 +1868,7 @@
     <RowDefinition Height="*" />
   </Grid.RowDefinitions>
   <Border Grid.RowSpan="3" BorderThickness="0" IsHitTestVisible="False" />
-  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="{Binding IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding BMSTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
@@ -1937,6 +1933,7 @@
               </FrameworkElement.Resources>
               <ItemsControl.ItemContainerStyle>
                 <Style TargetType="{x:Type TreeViewItem}">
+                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                   <Setter Property="Focusable" Value="True" />
                   <Setter Property="Header" Value="{Binding name}" />
                   <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTable}" />
@@ -1947,6 +1944,10 @@
                   <Setter Property="ItemContainerStyle">
                     <Setter.Value>
                       <Style TargetType="{x:Type TreeViewItem}">
+                        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                        <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewPlaylistTableFolderContextMenu}" />
+                        <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                        <EventSetter Event="KeyDown" Handler="playlistTableFolderkeyDown" />
                         <Style.Triggers>
                           <DataTrigger Value="False" Binding="{Binding IsSpecial}">
                             <Setter Property="Header" Value="{Binding}" />
@@ -1957,9 +1958,6 @@
                             <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTableFolderSP}" />
                           </DataTrigger>
                         </Style.Triggers>
-                        <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewPlaylistTableFolderContextMenu}" />
-                        <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
-                        <EventSetter Event="KeyDown" Handler="playlistTableFolderkeyDown" />
                       </Style>
                     </Setter.Value>
                   </Setter>
@@ -1974,7 +1972,7 @@
             </TreeViewItem>
   </TreeView>
   <GridSplitter Name="gridSplitterTree" Style="{StaticResource SidebarSplitterStyle}" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Margin="0" Panel.ZIndex="1" />
-  <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay, Converter={qc:QuickConverter '!$P'}}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
@@ -2010,12 +2008,14 @@
               </FrameworkElement.Resources>
               <ItemsControl.ItemContainerStyle>
                 <Style TargetType="{x:Type TreeViewItem}">
+                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
               <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderFolder}" ContextMenu="{StaticResource treeViewLibraryFolderRootContextMenu}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Folder, Mode=OneWay}" ItemsSource="{Binding BMSParentFolderList}">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
+                    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderFolder}" />
                     <Setter Property="Header" Value="{Binding}" />
                     <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewLibraryFolderContextMenu}" />
@@ -2079,12 +2079,14 @@
               </FrameworkElement.Resources>
               <ItemsControl.ItemContainerStyle>
                 <Style TargetType="{x:Type TreeViewItem}">
+                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
               <TreeViewItem Name="newlyInstalledTreeViewItem" ContextMenu="{StaticResource treeViewInstalledContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstall}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.New, Mode=OneWay}" ItemsSource="{Binding BMSPackagesInstalled}" Selected="newlyInstalledFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
+                    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding BMSFiles}}" />
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderInstalledFolder}" />
                     <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewInstalledFolderContextMenu}" />
@@ -2095,6 +2097,7 @@
               <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding BMSPackagesPending}" Selected="pendingInstallFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
+                    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding BMSFiles}}" />
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderInstallFolder}" />
                     <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewInstallPackageContextMenu}" />
@@ -2106,6 +2109,7 @@
             <TreeViewItem IsExpanded="True" Focusable="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Maintenance, Mode=OneWay}">
               <ItemsControl.ItemContainerStyle>
                 <Style TargetType="{x:Type TreeViewItem}">
+                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
@@ -2249,6 +2253,7 @@
               <TreeViewItem Name="treeViewItemFullScanCheck" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceHealthStatus}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_check, Mode=OneWay}" Selected="fullScanCheckFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
+                    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                   </Style>
                 </ItemsControl.ItemContainerStyle>
@@ -2268,6 +2273,7 @@
                 </FrameworkElement.Resources>
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
+                    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Header" Value="{Binding Header}" />
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderDuplicateFileCheckFolder}" />
                     <Setter Property="ItemsSource" Value="{Binding Folders}" />
@@ -2275,6 +2281,7 @@
                     <Setter Property="ItemContainerStyle">
                       <Setter.Value>
                         <Style TargetType="{x:Type TreeViewItem}">
+                          <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                           <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder2}" />
                           <Setter Property="Header" Value="{qc:Binding Path.GetFileName($P), P={Binding Mode=OneWay}}" />
                           <Setter Property="FrameworkElement.ToolTip" Value="{Binding Mode=OneWay}" />
@@ -2290,6 +2297,7 @@
               <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceEncodingInfo}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_garbled, Mode=OneWay}" Selected="garbledCheckFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
+                    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                   </Style>
                 </ItemsControl.ItemContainerStyle>

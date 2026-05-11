@@ -43,19 +43,8 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#AAA" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#DDD" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#444" />
-  <Style x:Key="SimpleButtonFocusVisual">
-    <Setter Property="Control.Template">
-      <Setter.Value>
-        <ControlTemplate>
-          <Border>
-            <Rectangle Margin="2" Stroke="#60000000" StrokeThickness="1" StrokeDashArray="1 2" />
-          </Border>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
   <Style x:Key="SimpleButton" TargetType="{x:Type Button}" BasedOn="{x:Null}">
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource SimpleButtonFocusVisual}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -88,31 +77,9 @@
       </Setter.Value>
     </Setter>
   </Style>
-  <Style x:Key="RadioButtonFocusVisual">
-    <Setter Property="Control.Template">
-      <Setter.Value>
-        <ControlTemplate>
-          <Border>
-            <Rectangle Margin="15,0,0,0" Stroke="#60000000" StrokeThickness="1" StrokeDashArray="1 2" />
-          </Border>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
-  <Style x:Key="CheckBoxFocusVisual">
-    <Setter Property="Control.Template">
-      <Setter.Value>
-        <ControlTemplate>
-          <Border>
-            <Rectangle Margin="15,0,0,0" Stroke="#60000000" StrokeThickness="1" StrokeDashArray="1 2" />
-          </Border>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
   <Style x:Key="SimpleCheckBox" TargetType="{x:Type CheckBox}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource CheckBoxFocusVisual}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -157,7 +124,7 @@
   </Style>
   <Style x:Key="SimpleRadioButton" TargetType="{x:Type RadioButton}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource RadioButtonFocusVisual}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -371,6 +338,7 @@
   <Style x:Key="SimpleListBoxItem" TargetType="{x:Type ListBoxItem}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
     <Setter Property="FrameworkElement.OverridesDefaultStyle" Value="True" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
@@ -435,7 +403,7 @@
                   <ColumnDefinition Width="20" />
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <ToggleButton Template="{DynamicResource ExpanderToggleButton}" Background="{DynamicResource NormalBrush}" OverridesDefaultStyle="True" IsChecked="{Binding Path=IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
+                <ToggleButton Template="{DynamicResource ExpanderToggleButton}" Background="{DynamicResource NormalBrush}" FocusVisualStyle="{x:Null}" OverridesDefaultStyle="True" IsChecked="{Binding Path=IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
                 <ContentPresenter Grid.Column="1" Margin="4" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
               </Grid>
             </Border>
@@ -487,6 +455,7 @@
   </ControlTemplate>
   <Style x:Key="SimpleComboBox" TargetType="{x:Type ComboBox}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="HorizontalContentAlignment" Value="Left" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -533,6 +502,7 @@
   </Style>
   <Style x:Key="SimpleComboBoxItem" TargetType="{x:Type ComboBoxItem}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
@@ -813,6 +783,7 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleTabItem" TargetType="{x:Type TabItem}">
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Padding" Value="5,1,5,1" />
     <Setter Property="Template">
@@ -862,6 +833,7 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleSlider" TargetType="{x:Type Slider}">
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{DynamicResource LightBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="Template">
@@ -917,6 +889,7 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleTreeView" TargetType="{x:Type TreeView}">
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TreeView}">
@@ -933,6 +906,7 @@
   </Style>
   <Style x:Key="SimpleTreeViewItemToggleButton" TargetType="{x:Type ToggleButton}">
     <Setter Property="Focusable" Value="False" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ToggleButton}">
@@ -952,6 +926,7 @@
   </Style>
   <Style x:Key="SimpleTreeViewItem" TargetType="{x:Type TreeViewItem}">
     <Setter Property="Background" Value="#00FFFFFF" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="HorizontalContentAlignment" Value="{Binding Path=HorizontalContentAlignment, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" />
     <Setter Property="VerticalContentAlignment" Value="{Binding Path=VerticalContentAlignment, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" />
     <Setter Property="Padding" Value="1,0,0,0" />
@@ -1002,6 +977,9 @@
     </Setter>
   </Style>
   <Style TargetType="{x:Type Button}" BasedOn="{StaticResource SimpleButton}" />
+  <Style TargetType="{x:Type ToggleButton}">
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+  </Style>
   <Style TargetType="{x:Type CheckBox}" BasedOn="{StaticResource SimpleCheckBox}" />
   <Style TargetType="{x:Type RadioButton}" BasedOn="{StaticResource SimpleRadioButton}" />
   <Style TargetType="{x:Type ScrollViewer}" BasedOn="{StaticResource SimpleScrollViewer}" />
