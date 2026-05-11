@@ -14,9 +14,9 @@
   - 独自描画、スクロール、選択、列リサイズ、列並べ替え、セル編集、右クリック要求、描画計測を担当する。
 - `BeMusicSeeker/Views/CustomTableColumn.cs`
   - メイン一覧 / プレイリストサマリー一覧のカラム定義、表示 formatter、tooltip、編集可否、sort path を定義する。
-- `BeMusicSeeker/ViewModels/dataGridColumnsSettings.cs`
+- `BeMusicSeeker/ViewModels/CustomTableColumnSettings.cs`
   - メイン一覧系の列幅、表示/非表示、表示順を永続化する。
-  - 型名は互換性のため `dataGridColumnsSettings` のまま残っているが、現在は CustomTable の layout source として扱う。
+  - 旧 `dataGridColumnsSettings` は廃止し、現行設定はこの CustomTable 専用型だけを読み書きする。
 - `BeMusicSeeker/ViewModels/PlaylistSummaryColumnSettings.cs`
   - プレイリストサマリー用の列幅、表示/非表示、表示順を永続化する。
 
@@ -53,23 +53,23 @@
 
 `MainWindowViewModel.loadColumnSetting(...)` は、現在の `viewUpdateMode` に応じて `ColumnsSettingsBMSFilesView` を差し替える。
 
-| 画面 / filter | `viewUpdateMode` | 設定オブジェクト | `dataGridColumnsSettings.viewType` |
+| 画面 / filter | `viewUpdateMode` | 設定オブジェクト | `CustomTableColumnSettings.ViewKind` |
 | --- | --- | --- | --- |
-| 通常ライブラリ / フォルダ / 未登録 | `FolderFilterSelected`, `UnregisteredFilterSelected` | `Settings.Default.StandardColumnsSettings` | `STANDARD` |
-| プレイリスト詳細 / 未所持フィルタ | `PlaylistFilterSelected`, `PlaylistNotOwnedFilterSelected` | `Settings.Default.PlaylistColumnsSettings` | `PLAYLIST` |
-| ゼロノート | `ZeroNoteFilterSelected` | `Settings.Default.ZeroNoteColumnsSettings` | `ZERO_NOTE` |
-| 譜面メタデータ解析失敗 | `ChartInfoParseErrorFilterSelected` | `Settings.Default.ChartInfoParseErrorColumnsSettings` | `CHART_INFO_PARSE_ERROR` |
-| ファイル不足 / full scan / 新規導入済み | `FileMissingFilterSelected`, `FileMissingIgnoredFilterSelected`, `FullScanAllChartsFilterSelected`, `NewlyInstalledFolderSelected` | `Settings.Default.FullScanColumnsSettings` | `FULLSCAN` |
-| 重複ファイル | `DuplicateFilterSelected` | `Settings.Default.DuplicateColumnsSettings` | `DUPLICATE` |
-| 文字化け / 修正済み | `GarbledFilterSelected`, `GarbleFixedFilterSelected` | `Settings.Default.EncodingColumnsSettings` | `ENCODING` |
-| インストール保留 | `PendingInstallFolderSelected` | `Settings.Default.InstallColumnsSettings` | `INSTALL` |
+| 通常ライブラリ / フォルダ / 未登録 | `FolderFilterSelected`, `UnregisteredFilterSelected` | `Settings.Default.StandardCustomTableColumnSettings` | `STANDARD` |
+| プレイリスト詳細 / 未所持フィルタ | `PlaylistFilterSelected`, `PlaylistNotOwnedFilterSelected` | `Settings.Default.PlaylistCustomTableColumnSettings` | `PLAYLIST` |
+| ゼロノート | `ZeroNoteFilterSelected` | `Settings.Default.ZeroNoteCustomTableColumnSettings` | `ZERO_NOTE` |
+| 譜面メタデータ解析失敗 | `ChartInfoParseErrorFilterSelected` | `Settings.Default.ChartInfoParseErrorCustomTableColumnSettings` | `CHART_INFO_PARSE_ERROR` |
+| ファイル不足 / full scan / 新規導入済み | `FileMissingFilterSelected`, `FileMissingIgnoredFilterSelected`, `FullScanAllChartsFilterSelected`, `NewlyInstalledFolderSelected` | `Settings.Default.FullScanCustomTableColumnSettings` | `FULLSCAN` |
+| 重複ファイル | `DuplicateFilterSelected` | `Settings.Default.DuplicateCustomTableColumnSettings` | `DUPLICATE` |
+| 文字化け / 修正済み | `GarbledFilterSelected`, `GarbleFixedFilterSelected` | `Settings.Default.EncodingCustomTableColumnSettings` | `ENCODING` |
+| インストール保留 | `PendingInstallFolderSelected` | `Settings.Default.InstallCustomTableColumnSettings` | `INSTALL` |
 | プレイリストサマリー | `IsPlaylistSummaryMode == true` | `Settings.Default.PlaylistSummaryColumnsSettings` | 専用型 |
 
 プレイリストサマリーの設定は、メイン一覧系とは別に常に `EnsureCompatibility()` され、`PlaylistSummaryColumnsSettings` へ割り当てられる。
 
 ## 初期カラム設定
 
-以下は、新しい設定オブジェクトを作成したときの初期可視カラムである。幅は `dataGridColumnsSettings` または `PlaylistSummaryColumnSettings` の既定値。ユーザーが列幅、表示順、表示/非表示を変更した後は、保存済み設定が優先される。
+以下は、新しい設定オブジェクトを作成したときの初期可視カラムである。幅は `CustomTableColumnSettings` または `PlaylistSummaryColumnSettings` の既定値。ユーザーが列幅、表示順、表示/非表示を変更した後は、保存済み設定が優先される。
 
 ### 通常ライブラリ
 
@@ -268,7 +268,7 @@
 
 ## 非表示で保持される主なカラム
 
-`dataGridColumnsSettings` は全 view type で同じ layout object 群を持つ。初期可視でないカラムの多くは、ヘッダー右クリックメニューから表示できる。
+`CustomTableColumnSettings` は全 view type で同じ layout object 群を持つ。初期可視でないカラムの多くは、ヘッダー右クリックメニューから表示できる。
 
 ただし `EntryLevel`, `Url1`, `Url2`, `Comment`, `Memo` などのプレイリスト編集用カラムは、プレイリスト詳細表示時だけメニュー項目を表示する。通常ライブラリ表示では、playlist 専用の編集 surface を出さない。
 
@@ -397,11 +397,11 @@
 
 ## 互換と注意点
 
-- `dataGridColumnsSettings` という型名は旧 DataGrid 時代の名残だが、設定ファイル互換のため変更しない。
+- 旧 `dataGridColumnsSettings` 系の user setting は読み替えない。新しい `*CustomTableColumnSettings` が null の場合は、現行の初期カラム設定で新規作成する。
 - 初期カラムは新規設定作成時だけ適用される。既存ユーザーの列幅、表示順、表示/非表示は保存済み設定が優先される。
 - 新しいカラムを追加する場合は、以下を揃える。
-  - `dataGridColumnsSettings` または `PlaylistSummaryColumnSettings` の layout property。
+  - `CustomTableColumnSettings` または `PlaylistSummaryColumnSettings` の layout property。
   - `CustomTableColumnFactory` の column 定義。
   - ヘッダー右クリック menu の表示切り替え項目。
   - 必要なら sort path、tooltip、formatter、編集/アクション処理。
-  - 既存設定の compatibility 初期化。
+  - `SettingsLoadedEventHandler` での null 補完と compatibility 初期化。

@@ -268,7 +268,7 @@ internal static class CustomTableColumnFactory
     private const string DownloadIconGlyphText = "\uE14F";
     private static Brush UndefinedCellBackgroundBrush => CustomTablePalette.Current.UndefinedCellBackground;
 
-    internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(dataGridColumnsSettings settings)
+    internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(CustomTableColumnSettings settings)
     {
         if (settings == null)
         {
@@ -282,7 +282,7 @@ internal static class CustomTableColumnFactory
             .ToArray();
     }
 
-    internal static IEnumerable<dataGridColumnsSettings.dataGridColumnlayouts> EnumerateMainColumnLayouts(dataGridColumnsSettings settings)
+    internal static IEnumerable<CustomTableColumnSettings.ColumnLayout> EnumerateMainColumnLayouts(CustomTableColumnSettings settings)
     {
         if (settings == null)
         {
@@ -290,7 +290,7 @@ internal static class CustomTableColumnFactory
         }
         foreach (CustomTableColumn column in CreateAllMainColumns(settings))
         {
-            if (column.Layout is dataGridColumnsSettings.dataGridColumnlayouts layout)
+            if (column.Layout is CustomTableColumnSettings.ColumnLayout layout)
             {
                 yield return layout;
             }
@@ -326,7 +326,7 @@ internal static class CustomTableColumnFactory
         }
     }
 
-    private static CustomTableColumn[] CreateAllMainColumns(dataGridColumnsSettings settings)
+    private static CustomTableColumn[] CreateAllMainColumns(CustomTableColumnSettings settings)
     {
         return new[]
         {

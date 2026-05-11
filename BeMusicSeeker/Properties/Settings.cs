@@ -301,21 +301,6 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	[DefaultSettingValue("0")]
-	public int BmsonColumnSettingsMigrationVersion
-	{
-		get
-		{
-			return (int)this["BmsonColumnSettingsMigrationVersion"];
-		}
-		set
-		{
-			this["BmsonColumnSettingsMigrationVersion"] = value;
-		}
-	}
-
-	[UserScopedSetting]
-	[DebuggerNonUserCode]
 	[DefaultSettingValue("50")]
 	public int uBMplayVolume
 	{
@@ -376,113 +361,113 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings StandardColumnsSettings
+	public CustomTableColumnSettings StandardCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["StandardColumnsSettings"];
+			return (CustomTableColumnSettings)this["StandardCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["StandardColumnsSettings"] = value;
+			this["StandardCustomTableColumnSettings"] = value;
 		}
 	}
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings ZeroNoteColumnsSettings
+	public CustomTableColumnSettings ZeroNoteCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["ZeroNoteColumnsSettings"];
+			return (CustomTableColumnSettings)this["ZeroNoteCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["ZeroNoteColumnsSettings"] = value;
+			this["ZeroNoteCustomTableColumnSettings"] = value;
 		}
 	}
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings PlaylistColumnsSettings
+	public CustomTableColumnSettings PlaylistCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["PlaylistColumnsSettings"];
+			return (CustomTableColumnSettings)this["PlaylistCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["PlaylistColumnsSettings"] = value;
+			this["PlaylistCustomTableColumnSettings"] = value;
 		}
 	}
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings FullScanColumnsSettings
+	public CustomTableColumnSettings FullScanCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["FullScanColumnsSettings"];
+			return (CustomTableColumnSettings)this["FullScanCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["FullScanColumnsSettings"] = value;
+			this["FullScanCustomTableColumnSettings"] = value;
 		}
 	}
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings DuplicateColumnsSettings
+	public CustomTableColumnSettings DuplicateCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["DuplicateColumnsSettings"];
+			return (CustomTableColumnSettings)this["DuplicateCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["DuplicateColumnsSettings"] = value;
+			this["DuplicateCustomTableColumnSettings"] = value;
 		}
 	}
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings EncodingColumnsSettings
+	public CustomTableColumnSettings EncodingCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["EncodingColumnsSettings"];
+			return (CustomTableColumnSettings)this["EncodingCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["EncodingColumnsSettings"] = value;
+			this["EncodingCustomTableColumnSettings"] = value;
 		}
 	}
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings InstallColumnsSettings
+	public CustomTableColumnSettings InstallCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["InstallColumnsSettings"];
+			return (CustomTableColumnSettings)this["InstallCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["InstallColumnsSettings"] = value;
+			this["InstallCustomTableColumnSettings"] = value;
 		}
 	}
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	public dataGridColumnsSettings ChartInfoParseErrorColumnsSettings
+	public CustomTableColumnSettings ChartInfoParseErrorCustomTableColumnSettings
 	{
 		get
 		{
-			return (dataGridColumnsSettings)this["ChartInfoParseErrorColumnsSettings"];
+			return (CustomTableColumnSettings)this["ChartInfoParseErrorCustomTableColumnSettings"];
 		}
 		set
 		{
-			this["ChartInfoParseErrorColumnsSettings"] = value;
+			this["ChartInfoParseErrorCustomTableColumnSettings"] = value;
 		}
 	}
 
@@ -1402,50 +1387,50 @@ internal sealed class Settings : ApplicationSettingsBase
 		{
 			settings["AppearanceTheme"] = normalizedAppearanceTheme;
 		}
-		if (settings.StandardColumnsSettings == null)
+		if (settings.StandardCustomTableColumnSettings == null)
 		{
-			settings.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+			settings.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 		}
-		if (settings.ZeroNoteColumnsSettings == null)
+		if (settings.ZeroNoteCustomTableColumnSettings == null)
 		{
-			settings.ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
+			settings.ZeroNoteCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ZERO_NOTE);
 		}
-		if (settings.PlaylistColumnsSettings == null)
+		if (settings.PlaylistCustomTableColumnSettings == null)
 		{
-			settings.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
+			settings.PlaylistCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
 		}
-		if (settings.FullScanColumnsSettings == null)
+		if (settings.FullScanCustomTableColumnSettings == null)
 		{
-			settings.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
+			settings.FullScanCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN);
 		}
-		if (settings.DuplicateColumnsSettings == null)
+		if (settings.DuplicateCustomTableColumnSettings == null)
 		{
-			settings.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
+			settings.DuplicateCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
 		}
-		if (settings.EncodingColumnsSettings == null)
+		if (settings.EncodingCustomTableColumnSettings == null)
 		{
-			settings.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
+			settings.EncodingCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ENCODING);
 		}
-		if (settings.InstallColumnsSettings == null)
+		if (settings.InstallCustomTableColumnSettings == null)
 		{
-			settings.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
+			settings.InstallCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL);
 		}
-		if (settings.ChartInfoParseErrorColumnsSettings == null)
+		if (settings.ChartInfoParseErrorCustomTableColumnSettings == null)
 		{
-			settings.ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
+			settings.ChartInfoParseErrorCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR);
 		}
 		if (settings.PlaylistSummaryColumnsSettings == null)
 		{
 			settings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
 		}
-		settings.StandardColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.STANDARD);
-		settings.ZeroNoteColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ZERO_NOTE);
-		settings.PlaylistColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.PLAYLIST);
-		settings.FullScanColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.FULLSCAN);
-		settings.DuplicateColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.DUPLICATE);
-		settings.EncodingColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ENCODING);
-		settings.InstallColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.INSTALL);
-		settings.ChartInfoParseErrorColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
+		settings.StandardCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.STANDARD);
+		settings.ZeroNoteCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.ZERO_NOTE);
+		settings.PlaylistCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.PLAYLIST);
+		settings.FullScanCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.FULLSCAN);
+		settings.DuplicateCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.DUPLICATE);
+		settings.EncodingCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.ENCODING);
+		settings.InstallCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.INSTALL);
+		settings.ChartInfoParseErrorCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR);
 		if (settings.WindowPlacement.NormalPosition.Left >= settings.WindowPlacement.NormalPosition.Right || settings.WindowPlacement.NormalPosition.Top >= settings.WindowPlacement.NormalPosition.Bottom)
 		{
 			Win32API.WINDOWPLACEMENT windowPlacement = settings.WindowPlacement;

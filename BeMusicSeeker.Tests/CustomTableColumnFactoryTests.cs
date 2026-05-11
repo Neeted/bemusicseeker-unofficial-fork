@@ -16,7 +16,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_UsesVisiblePhaseThreePointFiveColumnsForStandardView()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
         string[] ids = CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id).ToArray();
 
@@ -60,8 +60,8 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_CanCreateAllMainTableColumns()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
@@ -131,7 +131,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_KeepsStatusColumnVisibleFirstAndFixed()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
 
         CustomTableColumn status = CustomTableColumnFactory.CreateMainColumns(settings).First();
 
@@ -146,7 +146,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_ReflectsVisibilityWidthAndDisplayIndex()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         settings.Status.Visibility = Visibility.Hidden;
         settings.Title.Visibility = Visibility.Hidden;
         settings.ChartJudge.DisplayIndex = 0;
@@ -259,8 +259,8 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsPhaseTwoSortMemberPaths()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.Visibility = Visibility.Visible;
         }
@@ -306,8 +306,8 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsPhaseFourEditableMetadata()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
@@ -342,7 +342,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_UsesActualUrlTextForUrlEditing()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
         settings.Url1.Visibility = Visibility.Visible;
         settings.Url2.Visibility = Visibility.Visible;
         var entry = new BMSTableEntry
@@ -363,8 +363,8 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsPhaseSevenTextStyles()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
@@ -382,8 +382,8 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsUndefinedBackgroundSelectors()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
@@ -410,8 +410,8 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsTooltipSelectors()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
@@ -441,7 +441,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_ConvertsUrlDownloadTextToIconGlyph()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
         settings.Url1.Visibility = Visibility.Visible;
         CustomTableColumn urlColumn = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "Url1");
         var row = new { UrlDownloadIconText = "download" };
@@ -452,8 +452,8 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_FormatsStatusAndSuffixColumns()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.Visibility = Visibility.Visible;
         }
@@ -479,7 +479,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableColumnLayout_ResolvesHorizontalOffset()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
         settings.Title.DisplayIndex = -1;
         settings.Artist.DisplayIndex = -1;
         settings.Path.DisplayIndex = -1;
@@ -554,7 +554,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableColumnLayout_ResizeHitPrefersResizableColumnBoundary()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
         settings.Title.DisplayIndex = -1;
         settings.Artist.DisplayIndex = -1;
         settings.Url1.DisplayIndex = -1;
@@ -623,7 +623,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableDataTransfer_BuildsVisibleColumnTsvAndNormalizesCellText()
     {
-        dataGridColumnsSettings settings = CreateOnlyTitleArtistSettings();
+        CustomTableColumnSettings settings = CreateOnlyTitleArtistSettings();
         CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
         var rows = new[]
         {
@@ -682,7 +682,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableDataTransfer_ReordersColumnsWithoutMovingStatus()
     {
-        dataGridColumnsSettings settings = CreateOnlyTitleArtistSettings(includeStatus: true);
+        CustomTableColumnSettings settings = CreateOnlyTitleArtistSettings(includeStatus: true);
         CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
         CustomTableColumn title = columns.Single(column => column.Id == "Title");
         CustomTableColumn artist = columns.Single(column => column.Id == "Artist");
@@ -697,10 +697,10 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(title.CanReorder);
     }
 
-    private static dataGridColumnsSettings CreateOnlyTitleArtistSettings(bool includeStatus = false)
+    private static CustomTableColumnSettings CreateOnlyTitleArtistSettings(bool includeStatus = false)
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings();
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Hidden;

@@ -3,7 +3,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Windows;
 
 namespace BeMusicSeeker.Tests;
 
@@ -16,7 +15,6 @@ public sealed class MainWindowViewModelBmsonMigrationTests
     {
         bool approvedForSession = false;
         bool migrationCalled = false;
-        bool resetColumnSettingsCalled = false;
         bool shutdownCalled = false;
         BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsBmsonAppSchemaMigration: false, RepairableBmsonSchemaIssues.None);
 
@@ -26,25 +24,20 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         }, delegate
         {
             shutdownCalled = true;
-        }, delegate
-        {
-            resetColumnSettingsCalled = true;
         });
 
         Assert.IsFalse(shouldContinue);
         Assert.IsFalse(approvedForSession);
         Assert.IsFalse(migrationCalled);
-        Assert.IsFalse(resetColumnSettingsCalled);
         Assert.IsTrue(shutdownCalled);
     }
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ApplyBmsonMigrationPreflightForStartup_Ok_AppliesMigrationResetsColumnsAndApprovesSession()
+    public void ApplyBmsonMigrationPreflightForStartup_Ok_AppliesMigrationAndApprovesSession()
     {
         bool approvedForSession = false;
         bool migrationCalled = false;
-        bool resetColumnSettingsCalled = false;
         bool shutdownCalled = false;
         string callOrder = string.Empty;
         BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsBmsonAppSchemaMigration: false, RepairableBmsonSchemaIssues.None);
@@ -56,18 +49,13 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         }, delegate
         {
             shutdownCalled = true;
-        }, delegate
-        {
-            resetColumnSettingsCalled = true;
-            callOrder += "columns;";
         });
 
         Assert.IsTrue(shouldContinue);
         Assert.IsTrue(approvedForSession);
         Assert.IsTrue(migrationCalled);
-        Assert.IsTrue(resetColumnSettingsCalled);
         Assert.IsFalse(shutdownCalled);
-        Assert.AreEqual("migration;columns;", callOrder);
+        Assert.AreEqual("migration;", callOrder);
     }
 
     [TestMethod]
@@ -87,7 +75,6 @@ public sealed class MainWindowViewModelBmsonMigrationTests
     {
         bool approvedForSession = false;
         bool migrationCalled = false;
-        bool resetColumnSettingsCalled = false;
         bool shutdownCalled = false;
         BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: false, needsChartDigestMapSchema: false, needsBmsonSongSchema: true, needsBmsonAppSchemaMigration: false, RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
@@ -97,15 +84,11 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         }, delegate
         {
             shutdownCalled = true;
-        }, delegate
-        {
-            resetColumnSettingsCalled = true;
         });
 
         Assert.IsTrue(shouldContinue);
         Assert.IsFalse(approvedForSession);
         Assert.IsTrue(migrationCalled);
-        Assert.IsFalse(resetColumnSettingsCalled);
         Assert.IsFalse(shutdownCalled);
         Assert.IsFalse(result.WarnRequired);
         Assert.IsTrue(result.RepairRequired);
@@ -117,7 +100,6 @@ public sealed class MainWindowViewModelBmsonMigrationTests
     {
         bool approvedForSession = false;
         bool migrationCalled = false;
-        bool resetColumnSettingsCalled = false;
         bool shutdownCalled = false;
         BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(
             needsPlaylistEntrySha256Migration: false,
@@ -133,69 +115,13 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         }, delegate
         {
             shutdownCalled = true;
-        }, delegate
-        {
-            resetColumnSettingsCalled = true;
         });
 
         Assert.IsTrue(shouldContinue);
         Assert.IsFalse(approvedForSession);
         Assert.IsTrue(migrationCalled);
-        Assert.IsFalse(resetColumnSettingsCalled);
         Assert.IsFalse(shutdownCalled);
         Assert.IsFalse(result.WarnRequired);
         Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void ResetBmsonColumnSettingsForMigrationIfNeeded_VersionZero_RegeneratesMainGridSettingsAndMarksVersion()
-    {
-        Settings settings = new Settings();
-        bool saveCalled = false;
-        PlaylistSummaryColumnSettings playlistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
-        dataGridColumnsSettings expectedStandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
-        dataGridColumnsSettings expectedChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
-        settings.BmsonColumnSettingsMigrationVersion = 0;
-        settings.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
-        settings.StandardColumnsSettings.Title.Visibility = Visibility.Hidden;
-        settings.StandardColumnsSettings.Title.DisplayIndex = 99;
-        settings.PlaylistSummaryColumnsSettings = playlistSummaryColumnsSettings;
-
-        bool reset = MainWindowViewModel.ResetBmsonColumnSettingsForMigrationIfNeeded(settings, delegate
-        {
-            saveCalled = true;
-        });
-
-        Assert.IsTrue(reset);
-        Assert.IsTrue(saveCalled);
-        Assert.AreEqual(MainWindowViewModel.CurrentBmsonColumnSettingsMigrationVersion, settings.BmsonColumnSettingsMigrationVersion);
-        Assert.AreEqual(expectedStandardColumnsSettings.Title.Visibility, settings.StandardColumnsSettings.Title.Visibility);
-        Assert.AreEqual(expectedStandardColumnsSettings.Title.DisplayIndex, settings.StandardColumnsSettings.Title.DisplayIndex);
-        Assert.AreEqual(expectedChartInfoParseErrorColumnsSettings.Warning.Visibility, settings.ChartInfoParseErrorColumnsSettings.Warning.Visibility);
-        Assert.AreEqual(expectedChartInfoParseErrorColumnsSettings.Warning.DisplayIndex, settings.ChartInfoParseErrorColumnsSettings.Warning.DisplayIndex);
-        Assert.AreSame(playlistSummaryColumnsSettings, settings.PlaylistSummaryColumnsSettings);
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void ResetBmsonColumnSettingsForMigrationIfNeeded_CurrentVersion_DoesNotOverwriteExistingChoices()
-    {
-        Settings settings = new Settings();
-        bool saveCalled = false;
-        settings.BmsonColumnSettingsMigrationVersion = MainWindowViewModel.CurrentBmsonColumnSettingsMigrationVersion;
-        settings.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
-        settings.StandardColumnsSettings.Title.Visibility = Visibility.Hidden;
-        settings.StandardColumnsSettings.Title.DisplayIndex = 99;
-
-        bool reset = MainWindowViewModel.ResetBmsonColumnSettingsForMigrationIfNeeded(settings, delegate
-        {
-            saveCalled = true;
-        });
-
-        Assert.IsFalse(reset);
-        Assert.IsFalse(saveCalled);
-        Assert.AreEqual(Visibility.Hidden, settings.StandardColumnsSettings.Title.Visibility);
-        Assert.AreEqual(99, settings.StandardColumnsSettings.Title.DisplayIndex);
     }
 }

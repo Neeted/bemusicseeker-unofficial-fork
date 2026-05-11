@@ -5,10 +5,10 @@ using Livet;
 namespace BeMusicSeeker.ViewModels;
 
 [Serializable]
-public class dataGridColumnsSettings : NotificationObject
+public class CustomTableColumnSettings : NotificationObject
 {
     [Serializable]
-    public class dataGridColumnlayouts : NotificationObject, ICustomTableColumnLayout
+    public class ColumnLayout : NotificationObject, ICustomTableColumnLayout
     {
         private int _Width = 50;
 
@@ -66,7 +66,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public enum viewType
+    public enum ViewKind
     {
         STANDARD,
         PLAYLIST,
@@ -78,111 +78,111 @@ public class dataGridColumnsSettings : NotificationObject
         CHART_INFO_PARSE_ERROR
     }
 
-    private dataGridColumnlayouts _Status;
+    private ColumnLayout _Status;
 
-    private dataGridColumnlayouts _Level;
+    private ColumnLayout _Level;
 
-    private dataGridColumnlayouts _EntryLevel;
+    private ColumnLayout _EntryLevel;
 
-    private dataGridColumnlayouts _Title;
+    private ColumnLayout _Title;
 
-    private dataGridColumnlayouts _Artist;
+    private ColumnLayout _Artist;
 
-    private dataGridColumnlayouts _Genre;
+    private ColumnLayout _Genre;
 
-    private dataGridColumnlayouts _Mode;
+    private ColumnLayout _Mode;
 
-    private dataGridColumnlayouts _Tag;
+    private ColumnLayout _Tag;
 
-    private dataGridColumnlayouts _Url1;
+    private ColumnLayout _Url1;
 
-    private dataGridColumnlayouts _Url2;
+    private ColumnLayout _Url2;
 
-    private dataGridColumnlayouts _Clear;
+    private ColumnLayout _Clear;
 
-    private dataGridColumnlayouts _Rank;
+    private ColumnLayout _Rank;
 
-    private dataGridColumnlayouts _Ranking;
+    private ColumnLayout _Ranking;
 
-    private dataGridColumnlayouts _RankingLastupdate;
+    private ColumnLayout _RankingLastupdate;
 
-    private dataGridColumnlayouts _TScore;
+    private ColumnLayout _TScore;
 
-    private dataGridColumnlayouts _ScoreDifficulty;
+    private ColumnLayout _ScoreDifficulty;
 
-    private dataGridColumnlayouts _Warning;
+    private ColumnLayout _Warning;
 
-    private dataGridColumnlayouts _Comment;
+    private ColumnLayout _Comment;
 
-    private dataGridColumnlayouts _Memo;
+    private ColumnLayout _Memo;
 
-    private dataGridColumnlayouts _Hash;
+    private ColumnLayout _Hash;
 
-    private dataGridColumnlayouts _Sha256;
+    private ColumnLayout _Sha256;
 
-    private dataGridColumnlayouts _Folder;
+    private ColumnLayout _Folder;
 
-    private dataGridColumnlayouts _Path;
+    private ColumnLayout _Path;
 
-    private dataGridColumnlayouts _InstallDst;
+    private ColumnLayout _InstallDst;
 
-    private dataGridColumnlayouts _InstallDstTitle;
+    private ColumnLayout _InstallDstTitle;
 
-    private dataGridColumnlayouts _InstallDstArtist;
+    private ColumnLayout _InstallDstArtist;
 
-    private dataGridColumnlayouts _WavHealth;
+    private ColumnLayout _WavHealth;
 
-    private dataGridColumnlayouts _BgaHealth;
+    private ColumnLayout _BgaHealth;
 
-    private dataGridColumnlayouts _MovieHealth;
+    private ColumnLayout _MovieHealth;
 
-    private dataGridColumnlayouts _PlaylistSymbols;
+    private ColumnLayout _PlaylistSymbols;
 
-    private dataGridColumnlayouts _CharcterEncoding;
+    private ColumnLayout _CharcterEncoding;
 
-    private dataGridColumnlayouts _Rate;
+    private ColumnLayout _Rate;
 
-    private dataGridColumnlayouts _Score;
+    private ColumnLayout _Score;
 
-    private dataGridColumnlayouts _Notes;
+    private ColumnLayout _Notes;
 
-    private dataGridColumnlayouts _Combo;
+    private ColumnLayout _Combo;
 
-    private dataGridColumnlayouts _Bp;
+    private ColumnLayout _Bp;
 
-    private dataGridColumnlayouts _ChartDifficulty;
+    private ColumnLayout _ChartDifficulty;
 
-    private dataGridColumnlayouts _ChartMainBpm;
+    private ColumnLayout _ChartMainBpm;
 
-    private dataGridColumnlayouts _ChartMaxBpm;
+    private ColumnLayout _ChartMaxBpm;
 
-    private dataGridColumnlayouts _ChartMinBpm;
+    private ColumnLayout _ChartMinBpm;
 
-    private dataGridColumnlayouts _ChartDuration;
+    private ColumnLayout _ChartDuration;
 
-    private dataGridColumnlayouts _ChartJudge;
+    private ColumnLayout _ChartJudge;
 
-    private dataGridColumnlayouts _ChartJudgePercent;
+    private ColumnLayout _ChartJudgePercent;
 
-    private dataGridColumnlayouts _ChartFeature;
+    private ColumnLayout _ChartFeature;
 
-    private dataGridColumnlayouts _ChartLongNotes;
+    private ColumnLayout _ChartLongNotes;
 
-    private dataGridColumnlayouts _ChartScratchNotes;
+    private ColumnLayout _ChartScratchNotes;
 
-    private dataGridColumnlayouts _ChartTotal;
+    private ColumnLayout _ChartTotal;
 
-    private dataGridColumnlayouts _ChartTotalPerNote;
+    private ColumnLayout _ChartTotalPerNote;
 
-    private dataGridColumnlayouts _ChartDensity;
+    private ColumnLayout _ChartDensity;
 
-    private dataGridColumnlayouts _ChartPeakDensity;
+    private ColumnLayout _ChartPeakDensity;
 
-    private dataGridColumnlayouts _ChartEndDensity;
+    private ColumnLayout _ChartEndDensity;
 
-    private dataGridColumnlayouts _ChartSoflan;
+    private ColumnLayout _ChartSoflan;
 
-    public dataGridColumnlayouts Status
+    public ColumnLayout Status
     {
         get
         {
@@ -198,7 +198,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Level
+    public ColumnLayout Level
     {
         get
         {
@@ -214,7 +214,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts EntryLevel
+    public ColumnLayout EntryLevel
     {
         get
         {
@@ -230,7 +230,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Title
+    public ColumnLayout Title
     {
         get
         {
@@ -246,7 +246,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Artist
+    public ColumnLayout Artist
     {
         get
         {
@@ -262,7 +262,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Genre
+    public ColumnLayout Genre
     {
         get
         {
@@ -278,7 +278,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Mode
+    public ColumnLayout Mode
     {
         get
         {
@@ -294,7 +294,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Tag
+    public ColumnLayout Tag
     {
         get
         {
@@ -310,7 +310,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Url1
+    public ColumnLayout Url1
     {
         get
         {
@@ -326,7 +326,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Url2
+    public ColumnLayout Url2
     {
         get
         {
@@ -342,7 +342,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Clear
+    public ColumnLayout Clear
     {
         get
         {
@@ -358,7 +358,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Rank
+    public ColumnLayout Rank
     {
         get
         {
@@ -374,7 +374,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Ranking
+    public ColumnLayout Ranking
     {
         get
         {
@@ -390,7 +390,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts RankingLastupdate
+    public ColumnLayout RankingLastupdate
     {
         get
         {
@@ -406,7 +406,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts TScore
+    public ColumnLayout TScore
     {
         get
         {
@@ -422,7 +422,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts ScoreDifficulty
+    public ColumnLayout ScoreDifficulty
     {
         get
         {
@@ -438,7 +438,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Warning
+    public ColumnLayout Warning
     {
         get
         {
@@ -454,7 +454,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Comment
+    public ColumnLayout Comment
     {
         get
         {
@@ -470,7 +470,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Memo
+    public ColumnLayout Memo
     {
         get
         {
@@ -486,7 +486,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Hash
+    public ColumnLayout Hash
     {
         get
         {
@@ -502,13 +502,13 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Sha256
+    public ColumnLayout Sha256
     {
         get
         {
             if (_Sha256 == null)
             {
-                _Sha256 = new dataGridColumnlayouts
+                _Sha256 = new ColumnLayout
                 {
                     Width = 480,
                     Visibility = Visibility.Hidden
@@ -526,7 +526,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Folder
+    public ColumnLayout Folder
     {
         get
         {
@@ -542,7 +542,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Path
+    public ColumnLayout Path
     {
         get
         {
@@ -558,7 +558,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts InstallDst
+    public ColumnLayout InstallDst
     {
         get
         {
@@ -574,7 +574,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts InstallDstTitle
+    public ColumnLayout InstallDstTitle
     {
         get
         {
@@ -590,7 +590,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts InstallDstArtist
+    public ColumnLayout InstallDstArtist
     {
         get
         {
@@ -606,7 +606,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts WavHealth
+    public ColumnLayout WavHealth
     {
         get
         {
@@ -622,7 +622,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts BgaHealth
+    public ColumnLayout BgaHealth
     {
         get
         {
@@ -638,7 +638,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts MovieHealth
+    public ColumnLayout MovieHealth
     {
         get
         {
@@ -654,7 +654,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts PlaylistSymbols
+    public ColumnLayout PlaylistSymbols
     {
         get
         {
@@ -670,7 +670,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts CharcterEncoding
+    public ColumnLayout CharcterEncoding
     {
         get
         {
@@ -686,7 +686,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Rate
+    public ColumnLayout Rate
     {
         get
         {
@@ -702,7 +702,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Score
+    public ColumnLayout Score
     {
         get
         {
@@ -718,7 +718,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Notes
+    public ColumnLayout Notes
     {
         get
         {
@@ -734,7 +734,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Combo
+    public ColumnLayout Combo
     {
         get
         {
@@ -750,7 +750,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts Bp
+    public ColumnLayout Bp
     {
         get
         {
@@ -766,178 +766,178 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public dataGridColumnlayouts ChartDifficulty
+    public ColumnLayout ChartDifficulty
     {
         get { return _ChartDifficulty ?? (_ChartDifficulty = CreateHiddenLayout(80)); }
         set { if (_ChartDifficulty != value) { _ChartDifficulty = value; RaisePropertyChanged("ChartDifficulty"); } }
     }
 
-    public dataGridColumnlayouts ChartMainBpm
+    public ColumnLayout ChartMainBpm
     {
         get { return _ChartMainBpm ?? (_ChartMainBpm = CreateHiddenLayout(40)); }
         set { if (_ChartMainBpm != value) { _ChartMainBpm = value; RaisePropertyChanged("ChartMainBpm"); } }
     }
 
-    public dataGridColumnlayouts ChartMaxBpm
+    public ColumnLayout ChartMaxBpm
     {
         get { return _ChartMaxBpm ?? (_ChartMaxBpm = CreateHiddenLayout(40)); }
         set { if (_ChartMaxBpm != value) { _ChartMaxBpm = value; RaisePropertyChanged("ChartMaxBpm"); } }
     }
 
-    public dataGridColumnlayouts ChartMinBpm
+    public ColumnLayout ChartMinBpm
     {
         get { return _ChartMinBpm ?? (_ChartMinBpm = CreateHiddenLayout(40)); }
         set { if (_ChartMinBpm != value) { _ChartMinBpm = value; RaisePropertyChanged("ChartMinBpm"); } }
     }
 
-    public dataGridColumnlayouts ChartDuration
+    public ColumnLayout ChartDuration
     {
         get { return _ChartDuration ?? (_ChartDuration = CreateHiddenLayout(50)); }
         set { if (_ChartDuration != value) { _ChartDuration = value; RaisePropertyChanged("ChartDuration"); } }
     }
 
-    public dataGridColumnlayouts ChartJudge
+    public ColumnLayout ChartJudge
     {
         get { return _ChartJudge ?? (_ChartJudge = CreateHiddenLayout(70)); }
         set { if (_ChartJudge != value) { _ChartJudge = value; RaisePropertyChanged("ChartJudge"); } }
     }
 
-    public dataGridColumnlayouts ChartJudgePercent
+    public ColumnLayout ChartJudgePercent
     {
         get { return _ChartJudgePercent ?? (_ChartJudgePercent = CreateHiddenLayout(60)); }
         set { if (_ChartJudgePercent != value) { _ChartJudgePercent = value; RaisePropertyChanged("ChartJudgePercent"); } }
     }
 
-    public dataGridColumnlayouts ChartFeature
+    public ColumnLayout ChartFeature
     {
         get { return _ChartFeature ?? (_ChartFeature = CreateHiddenLayout(60)); }
         set { if (_ChartFeature != value) { _ChartFeature = value; RaisePropertyChanged("ChartFeature"); } }
     }
 
-    public dataGridColumnlayouts ChartLongNotes
+    public ColumnLayout ChartLongNotes
     {
         get { return _ChartLongNotes ?? (_ChartLongNotes = CreateHiddenLayout(40)); }
         set { if (_ChartLongNotes != value) { _ChartLongNotes = value; RaisePropertyChanged("ChartLongNotes"); } }
     }
 
-    public dataGridColumnlayouts ChartScratchNotes
+    public ColumnLayout ChartScratchNotes
     {
         get { return _ChartScratchNotes ?? (_ChartScratchNotes = CreateHiddenLayout(40)); }
         set { if (_ChartScratchNotes != value) { _ChartScratchNotes = value; RaisePropertyChanged("ChartScratchNotes"); } }
     }
 
-    public dataGridColumnlayouts ChartTotal
+    public ColumnLayout ChartTotal
     {
         get { return _ChartTotal ?? (_ChartTotal = CreateHiddenLayout(40)); }
         set { if (_ChartTotal != value) { _ChartTotal = value; RaisePropertyChanged("ChartTotal"); } }
     }
 
-    public dataGridColumnlayouts ChartTotalPerNote
+    public ColumnLayout ChartTotalPerNote
     {
         get { return _ChartTotalPerNote ?? (_ChartTotalPerNote = CreateHiddenLayout(40)); }
         set { if (_ChartTotalPerNote != value) { _ChartTotalPerNote = value; RaisePropertyChanged("ChartTotalPerNote"); } }
     }
 
-    public dataGridColumnlayouts ChartDensity
+    public ColumnLayout ChartDensity
     {
         get { return _ChartDensity ?? (_ChartDensity = CreateHiddenLayout(40)); }
         set { if (_ChartDensity != value) { _ChartDensity = value; RaisePropertyChanged("ChartDensity"); } }
     }
 
-    public dataGridColumnlayouts ChartPeakDensity
+    public ColumnLayout ChartPeakDensity
     {
         get { return _ChartPeakDensity ?? (_ChartPeakDensity = CreateHiddenLayout(40)); }
         set { if (_ChartPeakDensity != value) { _ChartPeakDensity = value; RaisePropertyChanged("ChartPeakDensity"); } }
     }
 
-    public dataGridColumnlayouts ChartEndDensity
+    public ColumnLayout ChartEndDensity
     {
         get { return _ChartEndDensity ?? (_ChartEndDensity = CreateHiddenLayout(40)); }
         set { if (_ChartEndDensity != value) { _ChartEndDensity = value; RaisePropertyChanged("ChartEndDensity"); } }
     }
 
-    public dataGridColumnlayouts ChartSoflan
+    public ColumnLayout ChartSoflan
     {
         get { return _ChartSoflan ?? (_ChartSoflan = CreateHiddenLayout(40)); }
         set { if (_ChartSoflan != value) { _ChartSoflan = value; RaisePropertyChanged("ChartSoflan"); } }
     }
 
-    public dataGridColumnsSettings()
+    public CustomTableColumnSettings()
     {
-        Status = new dataGridColumnlayouts
+        Status = new ColumnLayout
         {
             Width = 18
         };
-        Level = new dataGridColumnlayouts
+        Level = new ColumnLayout
         {
             Width = 50
         };
-        EntryLevel = new dataGridColumnlayouts
+        EntryLevel = new ColumnLayout
         {
             Width = 80,
             Visibility = Visibility.Hidden
         };
-        Title = new dataGridColumnlayouts
+        Title = new ColumnLayout
         {
             Width = 200
         };
-        Artist = new dataGridColumnlayouts
+        Artist = new ColumnLayout
         {
             Width = 100
         };
-        Genre = new dataGridColumnlayouts
+        Genre = new ColumnLayout
         {
             Width = 100
         };
-        Mode = new dataGridColumnlayouts
+        Mode = new ColumnLayout
         {
             Width = 43
         };
-        Tag = new dataGridColumnlayouts
+        Tag = new ColumnLayout
         {
             Width = 50
         };
-        Url1 = new dataGridColumnlayouts
+        Url1 = new ColumnLayout
         {
             Width = 40
         };
-        Url2 = new dataGridColumnlayouts
+        Url2 = new ColumnLayout
         {
             Width = 40
         };
-        Clear = new dataGridColumnlayouts
+        Clear = new ColumnLayout
         {
             Width = 90
         };
-        Rank = new dataGridColumnlayouts
+        Rank = new ColumnLayout
         {
             Width = 60
         };
-        Ranking = new dataGridColumnlayouts
+        Ranking = new ColumnLayout
         {
             Width = 95
         };
-        RankingLastupdate = new dataGridColumnlayouts
+        RankingLastupdate = new ColumnLayout
         {
             Width = 95
         };
-        Rate = new dataGridColumnlayouts
+        Rate = new ColumnLayout
         {
             Width = 40
         };
-        Score = new dataGridColumnlayouts
+        Score = new ColumnLayout
         {
             Width = 40
         };
-        Notes = new dataGridColumnlayouts
+        Notes = new ColumnLayout
         {
             Width = 40
         };
-        Combo = new dataGridColumnlayouts
+        Combo = new ColumnLayout
         {
             Width = 40
         };
-        Bp = new dataGridColumnlayouts
+        Bp = new ColumnLayout
         {
             Width = 40
         };
@@ -957,84 +957,84 @@ public class dataGridColumnsSettings : NotificationObject
         ChartPeakDensity = CreateHiddenLayout(40);
         ChartEndDensity = CreateHiddenLayout(40);
         ChartSoflan = CreateHiddenLayout(40);
-        TScore = new dataGridColumnlayouts
+        TScore = new ColumnLayout
         {
             Width = 40
         };
-        ScoreDifficulty = new dataGridColumnlayouts
+        ScoreDifficulty = new ColumnLayout
         {
             Width = 40
         };
-        Warning = new dataGridColumnlayouts
+        Warning = new ColumnLayout
         {
             Width = 200
         };
-        Comment = new dataGridColumnlayouts
+        Comment = new ColumnLayout
         {
             Width = 200
         };
-        Memo = new dataGridColumnlayouts
+        Memo = new ColumnLayout
         {
             Width = 200
         };
-        Hash = new dataGridColumnlayouts
+        Hash = new ColumnLayout
         {
             Width = 240
         };
-        Sha256 = new dataGridColumnlayouts
+        Sha256 = new ColumnLayout
         {
             Width = 480,
             Visibility = Visibility.Hidden
         };
-        Folder = new dataGridColumnlayouts
+        Folder = new ColumnLayout
         {
             Width = 140
         };
-        Path = new dataGridColumnlayouts
+        Path = new ColumnLayout
         {
             Width = 250
         };
-        InstallDst = new dataGridColumnlayouts
+        InstallDst = new ColumnLayout
         {
             Width = 250
         };
-        InstallDstTitle = new dataGridColumnlayouts
+        InstallDstTitle = new ColumnLayout
         {
             Width = 200
         };
-        InstallDstArtist = new dataGridColumnlayouts
+        InstallDstArtist = new ColumnLayout
         {
             Width = 100
         };
-        WavHealth = new dataGridColumnlayouts
+        WavHealth = new ColumnLayout
         {
             Width = 40
         };
-        BgaHealth = new dataGridColumnlayouts
+        BgaHealth = new ColumnLayout
         {
             Width = 40
         };
-        MovieHealth = new dataGridColumnlayouts
+        MovieHealth = new ColumnLayout
         {
             Width = 40
         };
-        CharcterEncoding = new dataGridColumnlayouts
+        CharcterEncoding = new ColumnLayout
         {
             Width = 130
         };
-        PlaylistSymbols = new dataGridColumnlayouts
+        PlaylistSymbols = new ColumnLayout
         {
             Width = 70
         };
         ApplyColumnOrder(GetAllColumnLayouts());
     }
 
-    public dataGridColumnsSettings(viewType type)
+    public CustomTableColumnSettings(ViewKind type)
         : this()
     {
         switch (type)
         {
-            case viewType.STANDARD:
+            case ViewKind.STANDARD:
                 ApplyVisibleColumnOrder(
                     Status,
                     Title,
@@ -1067,7 +1067,7 @@ public class dataGridColumnsSettings : NotificationObject
                     ChartEndDensity,
                     PlaylistSymbols);
                 break;
-            case viewType.ZERO_NOTE:
+            case ViewKind.ZERO_NOTE:
                 ApplyVisibleColumnOrder(
                     Status,
                     Title,
@@ -1080,7 +1080,7 @@ public class dataGridColumnsSettings : NotificationObject
                     Path,
                     Hash);
                 break;
-            case viewType.CHART_INFO_PARSE_ERROR:
+            case ViewKind.CHART_INFO_PARSE_ERROR:
                 ApplyVisibleColumnOrder(
                     Status,
                     PlaylistSymbols,
@@ -1095,7 +1095,7 @@ public class dataGridColumnsSettings : NotificationObject
                     Path,
                     Hash);
                 break;
-            case viewType.PLAYLIST:
+            case ViewKind.PLAYLIST:
                 {
                     ApplyVisibleColumnOrder(
                         Status,
@@ -1129,12 +1129,12 @@ public class dataGridColumnsSettings : NotificationObject
                     Folder.Width = 80;
                     break;
                 }
-            case viewType.FULLSCAN:
+            case ViewKind.FULLSCAN:
                 {
                     ApplyInstallAndFullScanDefaults();
                     break;
                 }
-            case viewType.DUPLICATE:
+            case ViewKind.DUPLICATE:
                 ApplyVisibleColumnOrder(
                     Status,
                     PlaylistSymbols,
@@ -1149,7 +1149,7 @@ public class dataGridColumnsSettings : NotificationObject
                     Path,
                     Folder);
                 break;
-            case viewType.ENCODING:
+            case ViewKind.ENCODING:
                 ApplyVisibleColumnOrder(
                     Status,
                     CharcterEncoding,
@@ -1160,7 +1160,7 @@ public class dataGridColumnsSettings : NotificationObject
                     Folder,
                     Path);
                 break;
-            case viewType.INSTALL:
+            case ViewKind.INSTALL:
                 {
                     ApplyInstallAndFullScanDefaults();
                     break;
@@ -1168,7 +1168,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    private dataGridColumnlayouts[] GetAllColumnLayouts()
+    private ColumnLayout[] GetAllColumnLayouts()
     {
         return new[]
         {
@@ -1247,27 +1247,27 @@ public class dataGridColumnsSettings : NotificationObject
             Hash);
     }
 
-    private void ApplyVisibleColumnOrder(params dataGridColumnlayouts[] visibleLayouts)
+    private void ApplyVisibleColumnOrder(params ColumnLayout[] visibleLayouts)
     {
-        foreach (dataGridColumnlayouts layout in GetAllColumnLayouts())
+        foreach (ColumnLayout layout in GetAllColumnLayouts())
         {
             layout.Visibility = Visibility.Hidden;
         }
-        foreach (dataGridColumnlayouts layout in visibleLayouts)
+        foreach (ColumnLayout layout in visibleLayouts)
         {
             layout.Visibility = Visibility.Visible;
         }
         ApplyColumnOrder(visibleLayouts);
     }
 
-    private void ApplyColumnOrder(params dataGridColumnlayouts[] firstLayouts)
+    private void ApplyColumnOrder(params ColumnLayout[] firstLayouts)
     {
         int displayIndex = 0;
-        foreach (dataGridColumnlayouts layout in firstLayouts)
+        foreach (ColumnLayout layout in firstLayouts)
         {
             layout.DisplayIndex = displayIndex++;
         }
-        foreach (dataGridColumnlayouts layout in GetAllColumnLayouts())
+        foreach (ColumnLayout layout in GetAllColumnLayouts())
         {
             if (Array.IndexOf(firstLayouts, layout) < 0)
             {
@@ -1276,7 +1276,7 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
-    public void EnsureChartInfoColumnDefaults(viewType type)
+    public void EnsureChartInfoColumnDefaults(ViewKind type)
     {
         EnsureStatusColumnDefaults();
         _ = EntryLevel;
@@ -1298,9 +1298,9 @@ public class dataGridColumnsSettings : NotificationObject
         _ = ChartSoflan;
     }
 
-    private static dataGridColumnlayouts CreateHiddenLayout(int width)
+    private static ColumnLayout CreateHiddenLayout(int width)
     {
-        return new dataGridColumnlayouts
+        return new ColumnLayout
         {
             Width = width,
             Visibility = Visibility.Hidden
@@ -1311,7 +1311,7 @@ public class dataGridColumnsSettings : NotificationObject
     {
         if (_Status == null)
         {
-            Status = new dataGridColumnlayouts();
+            Status = new ColumnLayout();
         }
         Status.Width = 18;
         Status.Visibility = Visibility.Visible;

@@ -9,13 +9,13 @@ using System.Windows;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class DataGridColumnsSettingsTests
+public sealed class CustomTableColumnSettingsTests
 {
     [TestMethod]
     public void Constructor_PlaylistDefaultsMatchInitialColumnOrder()
     {
         AssertVisibleColumnOrder(
-            new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST),
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST),
             "Status",
             "Folder",
             "Title",
@@ -50,7 +50,7 @@ public sealed class DataGridColumnsSettingsTests
     public void Constructor_StandardDefaultsMatchInitialColumnOrder()
     {
         AssertVisibleColumnOrder(
-            new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD),
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD),
             "Status",
             "Title",
             "Artist",
@@ -105,15 +105,15 @@ public sealed class DataGridColumnsSettingsTests
             "Hash"
         };
 
-        AssertVisibleColumnOrder(new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL), expected);
-        AssertVisibleColumnOrder(new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN), expected);
+        AssertVisibleColumnOrder(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL), expected);
+        AssertVisibleColumnOrder(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN), expected);
     }
 
     [TestMethod]
     public void Constructor_ZeroNoteDefaultsMatchInitialColumnOrder()
     {
         AssertVisibleColumnOrder(
-            new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE),
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ZERO_NOTE),
             "Status",
             "Title",
             "Artist",
@@ -130,7 +130,7 @@ public sealed class DataGridColumnsSettingsTests
     public void Constructor_DuplicateDefaultsMatchInitialColumnOrder()
     {
         AssertVisibleColumnOrder(
-            new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE),
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE),
             "Status",
             "PlaylistSymbols",
             "WavHealth",
@@ -149,7 +149,7 @@ public sealed class DataGridColumnsSettingsTests
     public void Constructor_ChartInfoParseErrorDefaultsMatchInitialColumnOrder()
     {
         AssertVisibleColumnOrder(
-            new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR),
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR),
             "Status",
             "PlaylistSymbols",
             "WavHealth",
@@ -168,7 +168,7 @@ public sealed class DataGridColumnsSettingsTests
     public void Constructor_EncodingDefaultsMatchInitialColumnOrder()
     {
         AssertVisibleColumnOrder(
-            new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING),
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ENCODING),
             "Status",
             "CharcterEncoding",
             "Title",
@@ -182,12 +182,12 @@ public sealed class DataGridColumnsSettingsTests
     [TestMethod]
     public void Constructor_AssignsUniqueDisplayIndexToHiddenColumns()
     {
-        foreach (dataGridColumnsSettings.viewType viewType in Enum.GetValues(typeof(dataGridColumnsSettings.viewType)))
+        foreach (CustomTableColumnSettings.ViewKind ViewKind in Enum.GetValues(typeof(CustomTableColumnSettings.ViewKind)))
         {
-            dataGridColumnsSettings settings = new dataGridColumnsSettings(viewType);
+            CustomTableColumnSettings settings = new CustomTableColumnSettings(ViewKind);
             int[] displayIndexes = GetLayouts(settings).Select((item) => item.Layout.DisplayIndex).ToArray();
 
-            Assert.AreEqual(displayIndexes.Length, displayIndexes.Distinct().Count(), viewType.ToString());
+            Assert.AreEqual(displayIndexes.Length, displayIndexes.Distinct().Count(), ViewKind.ToString());
         }
     }
 
@@ -201,14 +201,14 @@ public sealed class DataGridColumnsSettingsTests
     [TestMethod]
     public void EnsureChartInfoColumnDefaults_CompletesMissingLayoutsWithoutOverwritingExistingChoices()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
         settings.EntryLevel.Visibility = Visibility.Visible;
         settings.EntryLevel.DisplayIndex = 77;
         settings.Level.Visibility = Visibility.Visible;
         settings.Level.DisplayIndex = 78;
         settings.ChartDifficulty = null;
 
-        settings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.PLAYLIST);
+        settings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.PLAYLIST);
 
         Assert.AreEqual(Visibility.Visible, settings.Status.Visibility);
         Assert.AreEqual(0, settings.Status.DisplayIndex);
@@ -223,12 +223,12 @@ public sealed class DataGridColumnsSettingsTests
     [TestMethod]
     public void EnsureChartInfoColumnDefaults_RecreatesMissingStatusLayout()
     {
-        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD)
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
         {
             Status = null
         };
 
-        settings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.STANDARD);
+        settings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.STANDARD);
 
         Assert.IsNotNull(settings.Status);
         Assert.AreEqual(Visibility.Visible, settings.Status.Visibility);
@@ -236,7 +236,7 @@ public sealed class DataGridColumnsSettingsTests
         Assert.AreEqual(18, settings.Status.Width);
     }
 
-    private static void AssertVisibleColumnOrder(dataGridColumnsSettings settings, params string[] expectedNames)
+    private static void AssertVisibleColumnOrder(CustomTableColumnSettings settings, params string[] expectedNames)
     {
         string[] actualNames = GetLayouts(settings)
             .Where((item) => item.Layout.Visibility == Visibility.Visible)
@@ -247,12 +247,12 @@ public sealed class DataGridColumnsSettingsTests
         CollectionAssert.AreEqual(expectedNames, actualNames);
     }
 
-    private static IReadOnlyList<(string Name, dataGridColumnsSettings.dataGridColumnlayouts Layout)> GetLayouts(dataGridColumnsSettings settings)
+    private static IReadOnlyList<(string Name, CustomTableColumnSettings.ColumnLayout Layout)> GetLayouts(CustomTableColumnSettings settings)
     {
-        return typeof(dataGridColumnsSettings)
+        return typeof(CustomTableColumnSettings)
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
-            .Where((property) => property.PropertyType == typeof(dataGridColumnsSettings.dataGridColumnlayouts))
-            .Select((property) => (property.Name, Layout: (dataGridColumnsSettings.dataGridColumnlayouts)property.GetValue(settings)))
+            .Where((property) => property.PropertyType == typeof(CustomTableColumnSettings.ColumnLayout))
+            .Select((property) => (property.Name, Layout: (CustomTableColumnSettings.ColumnLayout)property.GetValue(settings)))
             .ToArray();
     }
 }

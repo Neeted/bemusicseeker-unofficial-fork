@@ -5002,8 +5002,6 @@ public class MainWindowViewModel : ViewModel
 
     private bool initialSetupCompletionMessagePending;
 
-    internal const int CurrentBmsonColumnSettingsMigrationVersion = 1;
-
     private BMSLibrary files;
 
     private BMSPlaylist tables;
@@ -5146,7 +5144,7 @@ public class MainWindowViewModel : ViewModel
 
     private int _SelectedIndexBMSFilesView;
 
-    private dataGridColumnsSettings _ColumnsSettingsBMSFilesView;
+    private CustomTableColumnSettings _ColumnsSettingsBMSFilesView;
 
     private List<LibraryChartRow> folderSortSourceSnapshot;
 
@@ -8853,7 +8851,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public dataGridColumnsSettings ColumnsSettingsBMSFilesView
+    public CustomTableColumnSettings ColumnsSettingsBMSFilesView
     {
         get
         {
@@ -10688,7 +10686,7 @@ public class MainWindowViewModel : ViewModel
         return BeMusicSeeker.Properties.Resources.BmsonMigrationWarningMessage;
     }
 
-    internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action applyStartupMigration, Action shutdown, Action resetColumnSettings = null)
+    internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action applyStartupMigration, Action shutdown)
     {
         if (preflightResult == null)
         {
@@ -10712,40 +10710,6 @@ public class MainWindowViewModel : ViewModel
             approvedForSession = true;
         }
         applyStartupMigration();
-        if (preflightResult.WarnRequired)
-        {
-            resetColumnSettings?.Invoke();
-        }
-        return true;
-    }
-
-    internal static bool ResetBmsonColumnSettingsForMigrationIfNeeded(Settings settings, Action saveSettings = null)
-    {
-        if (settings == null)
-        {
-            throw new ArgumentNullException(nameof(settings));
-        }
-        if (settings.BmsonColumnSettingsMigrationVersion >= CurrentBmsonColumnSettingsMigrationVersion)
-        {
-            return false;
-        }
-        settings.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
-        settings.ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
-        settings.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
-        settings.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
-        settings.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
-        settings.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
-        settings.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
-        settings.ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
-        settings.BmsonColumnSettingsMigrationVersion = CurrentBmsonColumnSettingsMigrationVersion;
-        if (saveSettings != null)
-        {
-            saveSettings();
-        }
-        else
-        {
-            settings.Save();
-        }
         return true;
     }
 
@@ -10772,10 +10736,6 @@ public class MainWindowViewModel : ViewModel
         {
             ApplyBmsonStartupMigrationOrThrow(bmsonMigrationPreflightService, preflightResult);
         }).Logging("BmsonStartupMigration");
-        if (preflightResult.WarnRequired && ResetBmsonColumnSettingsForMigrationIfNeeded(Settings.Default))
-        {
-            LogInitStage("bmson_column_settings_reset", "Initialize");
-        }
         return true;
     }
 
@@ -10959,7 +10919,7 @@ public class MainWindowViewModel : ViewModel
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;
         }
-        ColumnsSettingsBMSFilesView = Settings.Default.StandardColumnsSettings;
+        ColumnsSettingsBMSFilesView = Settings.Default.StandardCustomTableColumnSettings;
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
         listenerForBMSPlaylist = new PropertyChangedEventListener(tables);
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
@@ -13629,13 +13589,13 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.PlaylistNotOwnedFilterSelected:
                 caseLabel = "playlist";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.PlaylistColumnsSettings == null)
+                if (isInit || Settings.Default.PlaylistCustomTableColumnSettings == null)
                 {
-                    Settings.Default.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
+                    Settings.Default.PlaylistCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.PlaylistColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.PlaylistCustomTableColumnSettings;
                 targetColumnSettingsVisibilityForPlaylist = Visibility.Visible;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
@@ -13643,37 +13603,37 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.UnregisteredFilterSelected:
                 caseLabel = "standard";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.StandardColumnsSettings == null)
+                if (isInit || Settings.Default.StandardCustomTableColumnSettings == null)
                 {
-                    Settings.Default.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+                    Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.StandardColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.StandardCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.ZeroNoteFilterSelected:
                 caseLabel = "zero-note";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.ZeroNoteColumnsSettings == null)
+                if (isInit || Settings.Default.ZeroNoteCustomTableColumnSettings == null)
                 {
-                    Settings.Default.ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
+                    Settings.Default.ZeroNoteCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ZERO_NOTE);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.ZeroNoteColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.ZeroNoteCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
                 caseLabel = "chart-info-parse-error";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.ChartInfoParseErrorColumnsSettings == null)
+                if (isInit || Settings.Default.ChartInfoParseErrorCustomTableColumnSettings == null)
                 {
-                    Settings.Default.ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
+                    Settings.Default.ChartInfoParseErrorCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.ChartInfoParseErrorColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
@@ -13682,50 +13642,50 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.NewlyInstalledFolderSelected:
                 caseLabel = "fullscan";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.FullScanColumnsSettings == null)
+                if (isInit || Settings.Default.FullScanCustomTableColumnSettings == null)
                 {
-                    Settings.Default.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
+                    Settings.Default.FullScanCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.FullScanColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.FullScanCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
                 caseLabel = "duplicate";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.DuplicateColumnsSettings == null)
+                if (isInit || Settings.Default.DuplicateCustomTableColumnSettings == null)
                 {
-                    Settings.Default.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
+                    Settings.Default.DuplicateCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.DuplicateColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.DuplicateCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.GarbledFilterSelected:
             case viewUpdateMode.GarbleFixedFilterSelected:
                 caseLabel = "encoding";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.EncodingColumnsSettings == null)
+                if (isInit || Settings.Default.EncodingCustomTableColumnSettings == null)
                 {
-                    Settings.Default.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
+                    Settings.Default.EncodingCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ENCODING);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.EncodingColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.EncodingCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.PendingInstallFolderSelected:
                 caseLabel = "install";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.InstallColumnsSettings == null)
+                if (isInit || Settings.Default.InstallCustomTableColumnSettings == null)
                 {
-                    Settings.Default.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
+                    Settings.Default.InstallCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL);
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.InstallColumnsSettings;
+                ColumnsSettingsBMSFilesView = Settings.Default.InstallCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
         }

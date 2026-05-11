@@ -81,7 +81,7 @@ public sealed class CustomTableView : Grid
 
     public static readonly DependencyProperty ColumnsSettingsProperty = DependencyProperty.Register(
         nameof(ColumnsSettings),
-        typeof(dataGridColumnsSettings),
+        typeof(CustomTableColumnSettings),
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(null, OnColumnsSettingsChanged));
 
@@ -383,9 +383,9 @@ public sealed class CustomTableView : Grid
         set => SetValue(ColumnsProperty, value);
     }
 
-    public dataGridColumnsSettings ColumnsSettings
+    public CustomTableColumnSettings ColumnsSettings
     {
-        get => (dataGridColumnsSettings)GetValue(ColumnsSettingsProperty);
+        get => (CustomTableColumnSettings)GetValue(ColumnsSettingsProperty);
         set => SetValue(ColumnsSettingsProperty, value);
     }
 

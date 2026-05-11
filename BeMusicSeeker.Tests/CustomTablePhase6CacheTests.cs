@@ -131,7 +131,7 @@ public sealed class CustomTablePhase6CacheTests
 
     private static CustomTableColumn CreateColumn(string id, int width)
     {
-        dataGridColumnsSettings.dataGridColumnlayouts layout = new dataGridColumnsSettings.dataGridColumnlayouts
+        CustomTableColumnSettings.ColumnLayout layout = new CustomTableColumnSettings.ColumnLayout
         {
             Width = width,
             Visibility = Visibility.Visible
