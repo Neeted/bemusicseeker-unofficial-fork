@@ -335,6 +335,8 @@ public sealed class CustomTableColumnFactoryTests
 
         Assert.AreEqual("Open", columns["Link"].GetText(row));
         Assert.AreEqual("https://example.com/", columns["Link"].GetTooltip(row));
+        Assert.AreEqual("https://example.com/", columns["Link"].GetEditText(row));
+        Assert.AreEqual("https://example.com/", CustomTableDataTransfer.BuildCellText(row, columns["Link"]));
         Assert.AreEqual(true, columns["IsExternalSync"].GetChecked(row));
         Assert.AreEqual(false, columns["IsRootFolder"].GetChecked(row));
         Assert.AreEqual("detail", columns["Status"].GetTooltip(row));

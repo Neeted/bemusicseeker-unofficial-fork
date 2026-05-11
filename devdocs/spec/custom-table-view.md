@@ -415,9 +415,11 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
 - `Enter`: current row の activate。
 - `F2` またはテキスト入力: 編集可能 cell なら inline edit 開始。
 - `Ctrl+A`: 全行選択。
-- `Ctrl+C`: current cell の表示値を clipboard へコピー。
+- `Ctrl+C`: current cell のコピー用文字列を clipboard へコピー。
 - `Ctrl+Shift+C`: 選択行を TSV として clipboard へコピー。
 - Context menu key: row context menu を要求する。
+
+コピー用文字列は `CustomTableColumn.GetEditText(...)` を使う。通常列は表示文字列と同じだが、`Url1` / `Url2` とプレイリストサマリー `Link` は画面上の icon / `Open` ではなく、開く URL 文字列をコピーする。
 
 ### ソート
 
