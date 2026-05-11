@@ -830,6 +830,8 @@ public class Resources
 
     public static string Keyword_search_completion_history_header => ResourceManager.GetString("Keyword_search_completion_history_header", resourceCulture);
 
+    public static string Keyword_search_completion_playlist_names_header => ResourceManager.GetString("Keyword_search_completion_playlist_names_header", resourceCulture);
+
     public static string Keyword_search_warning_unknown_field => ResourceManager.GetString("Keyword_search_warning_unknown_field", resourceCulture);
 
     public static string Keyword_search_warning_empty_field_term => ResourceManager.GetString("Keyword_search_warning_empty_field_term", resourceCulture);

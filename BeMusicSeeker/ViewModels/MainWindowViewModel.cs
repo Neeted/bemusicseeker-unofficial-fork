@@ -5634,9 +5634,15 @@ public class MainWindowViewModel : ViewModel
     /// <returns>popup 見出し。</returns>
     internal static string BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind kind)
     {
-        return kind == KeywordSearchSuggestionKind.History
-            ? BeMusicSeeker.Properties.Resources.Keyword_search_completion_history_header
-            : BeMusicSeeker.Properties.Resources.Keyword_search_completion_fields_header;
+        switch (kind)
+        {
+            case KeywordSearchSuggestionKind.History:
+                return BeMusicSeeker.Properties.Resources.Keyword_search_completion_history_header;
+            case KeywordSearchSuggestionKind.Value:
+                return BeMusicSeeker.Properties.Resources.Keyword_search_completion_playlist_names_header;
+            default:
+                return BeMusicSeeker.Properties.Resources.Keyword_search_completion_fields_header;
+        }
     }
 
     /// <summary>
@@ -9908,6 +9914,15 @@ public class MainWindowViewModel : ViewModel
             SetKeywordSearchSuggestions(targetSuggestions, fieldCompletion.Items, KeywordSearchSuggestionKind.Field, isPlaylistSummary);
             return;
         }
+        if (GridKeywordSearchCompletion.IsPlaylistValueCompletionContext(keywordFilter, caretIndex, context))
+        {
+            GridKeywordSearchCompletionResult playlistValueCompletion = GridKeywordSearchCompletion.CreatePlaylistValueCompletion(keywordFilter, caretIndex, context, GetKeywordSearchPlaylistNameCandidates(context));
+            if (playlistValueCompletion.Items.Count > 0)
+            {
+                SetKeywordSearchSuggestions(targetSuggestions, playlistValueCompletion.Items, KeywordSearchSuggestionKind.Value, isPlaylistSummary);
+                return;
+            }
+        }
         if (forceHistory)
         {
             IReadOnlyList<KeywordSearchSuggestionItem> historySuggestions = BuildKeywordSearchHistorySuggestions(history, keywordFilter);
@@ -9915,6 +9930,33 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         SetKeywordSearchSuggestions(targetSuggestions, Array.Empty<KeywordSearchSuggestionItem>(), KeywordSearchSuggestionKind.Field, isPlaylistSummary);
+    }
+
+    private IReadOnlyList<string> GetKeywordSearchPlaylistNameCandidates(GridKeywordSearchContext context)
+    {
+        if (context == GridKeywordSearchContext.PlaylistSummary || tables == null)
+        {
+            return Array.Empty<string>();
+        }
+        bool lockAcquired = false;
+        try
+        {
+            tables.AcquireReaderLockBMSTables();
+            lockAcquired = true;
+            return (BMSTables ?? Enumerable.Empty<BMSTable>())
+                .Where((BMSTable table) => !string.IsNullOrWhiteSpace(table?.name))
+                .Select((BMSTable table) => table.name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy((string name) => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        finally
+        {
+            if (lockAcquired)
+            {
+                tables.FreeReaderLockBMSTables();
+            }
+        }
     }
 
     private void SetKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, IReadOnlyList<KeywordSearchSuggestionItem> suggestions, KeywordSearchSuggestionKind kind, bool isPlaylistSummary)

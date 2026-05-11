@@ -45,6 +45,23 @@ tit
 field 補完は field 名だけを補完します。
 `title:alpha` のように `:` の後に検索語を入力している場合、field 補完は表示されません。
 
+### `playlist:` / `ref:` / `table:` のプレイリスト名補完
+
+メイン譜面一覧とプレイリスト詳細では、`playlist:` / `ref:` / `table:` の検索語を入力すると、導入済みプレイリスト名が候補として表示されます。
+
+```text
+playlist:Sat
+```
+
+上の例では `Satellite Sub` のようなプレイリスト名を候補として選べます。
+候補を確定すると、スペース、引用符、バックスラッシュ、`|` を含む名前だけが自動的にダブルクォートで囲まれます。
+
+```text
+playlist:"Satellite Sub"
+ref:GENOSIDE
+table:GENOSIDE
+```
+
 ### 検索履歴
 
 検索欄が空の状態でフォーカスしたとき、または `↓` を押したときに検索履歴が表示されます。
@@ -91,7 +108,7 @@ alpha artist
 - GENRE
 - TAG
 - PATH
-- 参照プレイリスト情報
+- PLAYLIST 列の表示記号
 - MD5
 - SHA256
 
@@ -145,10 +162,8 @@ title:alpha artist:xi
 | `genre` | GENRE |
 | `tag` | TAG |
 | `path` | PATH |
-| `playlist` | 参照プレイリスト情報 |
-| `ref` | `playlist` と同じ |
-| `md5` | MD5 |
-| `hash` | `md5` と同じ |
+| `playlist` / `ref` / `table` | 参照プレイリスト名。PLAYLIST 列の短い表示記号ではなく、ツールチップに表示されるフルのプレイリスト名を検索対象にします |
+| `md5` / `hash` | MD5 |
 | `sha256` | SHA256 |
 | `level` | `chart_info.level` |
 | `difficulty` | `chart_info.difficulty`。`beginner`, `normal`, `hyper`, `another`, `insane` も指定可 |

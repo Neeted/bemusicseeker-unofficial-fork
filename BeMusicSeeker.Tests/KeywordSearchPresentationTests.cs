@@ -51,11 +51,15 @@ public sealed class KeywordSearchPresentationTests
     public void BuildKeywordSearchSuggestionHeaderText_DescribesSuggestionKind()
     {
         string fieldHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.Field);
+        string valueHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.Value);
         string historyHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.History);
 
         Assert.IsFalse(string.IsNullOrWhiteSpace(fieldHeader));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(valueHeader));
         Assert.IsFalse(string.IsNullOrWhiteSpace(historyHeader));
         Assert.AreNotEqual(fieldHeader, historyHeader);
+        Assert.AreNotEqual(fieldHeader, valueHeader);
+        Assert.AreNotEqual(valueHeader, historyHeader);
     }
 
     [TestMethod]

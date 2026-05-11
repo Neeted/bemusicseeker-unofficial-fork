@@ -56,12 +56,12 @@ internal sealed class GridKeywordSearchQuery
         "clear", "rank", "djlevel", "dj", "rate", "score", "combo", "bp"
     };
 
-    private static readonly string[] BmsFileFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256" }
+    private static readonly string[] BmsFileFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256" }
         .Concat(BaseChartFields)
         .Concat(ScoreFields)
         .ToArray();
 
-    private static readonly string[] PlaylistDetailFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256", "memo", "comment" }
+    private static readonly string[] PlaylistDetailFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", "memo", "comment" }
         .Concat(BaseChartFields)
         .Concat(ScoreFields)
         .ToArray();
@@ -648,7 +648,11 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "playlist":
             case "ref":
-                yield return file.RefTablesSymbols;
+            case "table":
+                foreach (string name in GetPlaylistReferenceNames(file))
+                {
+                    yield return name;
+                }
                 break;
             case "md5":
             case "hash":
@@ -717,7 +721,11 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "playlist":
             case "ref":
-                yield return row.RefTablesSymbols;
+            case "table":
+                foreach (string name in GetPlaylistReferenceNames(row.BmsFile))
+                {
+                    yield return name;
+                }
                 break;
             case "md5":
             case "hash":
@@ -788,7 +796,11 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "playlist":
             case "ref":
-                yield return row.RefTablesSymbols;
+            case "table":
+                foreach (string name in SplitPlaylistReferenceNames(row.RefTablesNames))
+                {
+                    yield return name;
+                }
                 break;
             case "md5":
             case "hash":
@@ -830,6 +842,29 @@ internal sealed class GridKeywordSearchQuery
                 }
                 break;
         }
+    }
+
+    private static IEnumerable<string> GetPlaylistReferenceNames(BMSFile file)
+    {
+        if (file == null)
+        {
+            yield break;
+        }
+        foreach (BMSTable table in file.RefTables)
+        {
+            if (!string.IsNullOrWhiteSpace(table?.name))
+            {
+                yield return table.name;
+            }
+        }
+    }
+
+    private static IEnumerable<string> SplitPlaylistReferenceNames(string names)
+    {
+        return (names ?? string.Empty)
+            .Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries)
+            .Select((string name) => name.Trim())
+            .Where((string name) => name.Length > 0);
     }
 
     private static bool MatchesScoreAlternative(SearchAlternative alternative, string field, ClearType clear, RankType rank, double? rate, int? score, int? combo, int? bp)

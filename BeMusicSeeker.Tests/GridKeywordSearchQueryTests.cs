@@ -42,6 +42,30 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesBmsFile_PlaylistFieldSearchesReferenceNames()
+    {
+        TestableBmsFile file = CreateFile();
+        file.AddRefTables(new[]
+        {
+            CreateTable("Satellite sl", "★"),
+            CreateTable("Second Table", "★★"),
+            CreateTable("GENOSIDE", "▽")
+        });
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("ref:\"Second Table\"").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("table:GENOSIDE").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:re:^GENOSIDE$").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★★").MatchesBmsFile(file));
+
+        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(file);
+        PlaylistDetailSourceRow playlistRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesLibraryChartRow(libraryRow));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Second Table\"").MatchesPlaylistDetail(playlistRow));
+    }
+
+    [TestMethod]
     public void MatchesBmsFile_UnknownOrEmptyFieldQueryDoesNotMatch()
     {
         TestableBmsFile file = CreateFile();
@@ -312,6 +336,7 @@ public sealed class GridKeywordSearchQueryTests
         GridKeywordSearchCompletionResult clearResult = GridKeywordSearchCompletion.CreateFieldCompletion("cle", 3, GridKeywordSearchContext.BmsFile);
         GridKeywordSearchCompletionResult djResult = GridKeywordSearchCompletion.CreateFieldCompletion("dj", 2, GridKeywordSearchContext.BmsFile);
         GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult tableResult = GridKeywordSearchCompletion.CreateFieldCompletion("tab", 3, GridKeywordSearchContext.BmsFile);
 
         Assert.IsTrue(bmsResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "title:"));
         Assert.IsTrue(negatedResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "-artist:"));
@@ -322,6 +347,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(djResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "djlevel:"));
         Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rank:"));
         Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rate:"));
+        Assert.IsTrue(tableResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "table:"));
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.BmsFile).Items.Count);
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("D:", 2, GridKeywordSearchContext.BmsFile).Items.Count);
     }
@@ -332,6 +358,53 @@ public sealed class GridKeywordSearchQueryTests
         GridKeywordSearchCompletionResult result = GridKeywordSearchCompletion.CreateFieldCompletion("title:alpha", 11, GridKeywordSearchContext.BmsFile);
 
         Assert.AreEqual(0, result.Items.Count);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistValueCompletion_CompletesPlaylistNames()
+    {
+        string[] names =
+        {
+            "Satellite sl",
+            "NoSpace",
+            "A \"Quote\" \\ Path",
+            "Pipe|Name",
+            "Satellite sl"
+        };
+
+        KeywordSearchSuggestionItem spaced = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.BmsFile, names)
+            .Items
+            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Satellite sl");
+        KeywordSearchSuggestionItem noSpace = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("ref:No", "ref:No".Length, GridKeywordSearchContext.PlaylistDetail, names)
+            .Items
+            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "NoSpace");
+        KeywordSearchSuggestionItem table = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("table:No", "table:No".Length, GridKeywordSearchContext.BmsFile, names)
+            .Items
+            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "NoSpace");
+        KeywordSearchSuggestionItem escaped = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:A", "playlist:A".Length, GridKeywordSearchContext.BmsFile, names)
+            .Items
+            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "A \"Quote\" \\ Path");
+        KeywordSearchSuggestionItem pipe = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Pipe", "playlist:Pipe".Length, GridKeywordSearchContext.BmsFile, names)
+            .Items
+            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Pipe|Name");
+        KeywordSearchSuggestionItem quotedPrefix = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:\"Satellite s", "playlist:\"Satellite s".Length, GridKeywordSearchContext.BmsFile, names)
+            .Items
+            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Satellite sl");
+
+        Assert.AreEqual("playlist:\"Satellite sl\"", spaced.Apply("playlist:Sat", out int spacedCaret));
+        Assert.AreEqual("playlist:\"Satellite sl\"".Length, spacedCaret);
+        Assert.AreEqual("ref:NoSpace", noSpace.Apply("ref:No", out int noSpaceCaret));
+        Assert.AreEqual("ref:NoSpace".Length, noSpaceCaret);
+        Assert.AreEqual("table:NoSpace", table.Apply("table:No", out int tableCaret));
+        Assert.AreEqual("table:NoSpace".Length, tableCaret);
+        Assert.AreEqual("playlist:\"A \\\"Quote\\\" \\\\ Path\"", escaped.Apply("playlist:A", out int escapedCaret));
+        Assert.AreEqual("playlist:\"A \\\"Quote\\\" \\\\ Path\"".Length, escapedCaret);
+        Assert.AreEqual("playlist:\"Pipe|Name\"", pipe.Apply("playlist:Pipe", out int pipeCaret));
+        Assert.AreEqual("playlist:\"Pipe|Name\"".Length, pipeCaret);
+        Assert.AreEqual("playlist:\"Satellite sl\"", quotedPrefix.Apply("playlist:\"Satellite s", out int quotedPrefixCaret));
+        Assert.AreEqual("playlist:\"Satellite sl\"".Length, quotedPrefixCaret);
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreatePlaylistValueCompletion("title:Sat", "title:Sat".Length, GridKeywordSearchContext.BmsFile, names).Items.Count);
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.PlaylistSummary, names).Items.Count);
     }
 
     [TestMethod]
@@ -376,6 +449,15 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = new TestableBmsFile();
         file.ApplySnapshot();
         return file;
+    }
+
+    private static BMSTable CreateTable(string name, string symbol)
+    {
+        return new BMSTable
+        {
+            name = name,
+            symbol = symbol
+        };
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfo(int? level = 12, bool difficultyDefined = true, bool totalDefined = true)

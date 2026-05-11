@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -14,6 +15,11 @@ public enum KeywordSearchSuggestionKind
     /// 現在の token 内 field prefix を置換する候補です。
     /// </summary>
     Field,
+
+    /// <summary>
+    /// 現在の field token 内 value prefix を置換する候補です。
+    /// </summary>
+    Value,
 
     /// <summary>
     /// 検索欄全体を過去の検索文字列に置換する候補です。
@@ -161,17 +167,220 @@ internal static class GridKeywordSearchCompletion
         return new GridKeywordSearchCompletionResult(items);
     }
 
+    /// <summary>
+    /// playlist/ref/table field の値として使う playlist 名補完候補を作ります。
+    /// </summary>
+    /// <param name="keywordFilter">現在の検索文字列。</param>
+    /// <param name="caretIndex">現在の caret 位置。</param>
+    /// <param name="context">検索欄の文脈。</param>
+    /// <param name="playlistNames">候補に使う playlist 名。</param>
+    /// <returns>playlist 名補完候補。</returns>
+    internal static GridKeywordSearchCompletionResult CreatePlaylistValueCompletion(string keywordFilter, int caretIndex, GridKeywordSearchContext context, IEnumerable<string> playlistNames)
+    {
+        if (!TryGetPlaylistValueCompletionContext(keywordFilter, caretIndex, context, out int valueStart, out int replacementLength, out string rawValuePrefix))
+        {
+            return GridKeywordSearchCompletionResult.Empty;
+        }
+        string valuePrefix = NormalizeValuePrefix(rawValuePrefix);
+        string[] candidates = (playlistNames ?? Enumerable.Empty<string>())
+            .Select((string name) => (name ?? string.Empty).Trim())
+            .Where((string name) => name.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where((string name) => valuePrefix.Length == 0 || name.StartsWith(valuePrefix, StringComparison.OrdinalIgnoreCase))
+            .OrderBy((string name) => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return GridKeywordSearchCompletionResult.Empty;
+        }
+        KeywordSearchSuggestionItem[] items = candidates
+            .Select((string name) => new KeywordSearchSuggestionItem(
+                KeywordSearchSuggestionKind.Value,
+                name,
+                QuoteValueIfNeeded(name),
+                valueStart,
+                replacementLength))
+            .ToArray();
+        return new GridKeywordSearchCompletionResult(items);
+    }
+
+    /// <summary>
+    /// 現在の caret 位置が playlist/ref/table value 補完を出せる場所かどうかを返します。
+    /// 候補元 playlist を集める前の軽量判定に使います。
+    /// </summary>
+    /// <param name="keywordFilter">現在の検索文字列。</param>
+    /// <param name="caretIndex">現在の caret 位置。</param>
+    /// <param name="context">検索欄の文脈。</param>
+    /// <returns>playlist/ref/table value 補完対象なら true。</returns>
+    internal static bool IsPlaylistValueCompletionContext(string keywordFilter, int caretIndex, GridKeywordSearchContext context)
+    {
+        return TryGetPlaylistValueCompletionContext(keywordFilter, caretIndex, context, out _, out _, out _);
+    }
+
+    private static bool IsPlaylistValueCompletionField(string field)
+    {
+        return string.Equals(field, "playlist", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(field, "ref", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(field, "table", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryGetPlaylistValueCompletionContext(string keywordFilter, int caretIndex, GridKeywordSearchContext context, out int valueStart, out int replacementLength, out string rawValuePrefix)
+    {
+        valueStart = 0;
+        replacementLength = 0;
+        rawValuePrefix = string.Empty;
+        if (context == GridKeywordSearchContext.PlaylistSummary)
+        {
+            return false;
+        }
+        string text = keywordFilter ?? string.Empty;
+        int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
+        TokenSpan tokenSpan = FindCurrentToken(text, safeCaretIndex);
+        if (tokenSpan.Start >= safeCaretIndex)
+        {
+            return false;
+        }
+        string tokenPrefix = text.Substring(tokenSpan.Start, safeCaretIndex - tokenSpan.Start);
+        bool isNegated = tokenPrefix.Length > 1 && tokenPrefix[0] == '-';
+        int colonIndex = tokenPrefix.IndexOf(':');
+        if (colonIndex <= 0)
+        {
+            return false;
+        }
+        string field = tokenPrefix.Substring(isNegated ? 1 : 0, colonIndex - (isNegated ? 1 : 0));
+        if (!IsPlaylistValueCompletionField(field))
+        {
+            return false;
+        }
+        valueStart = tokenSpan.Start + colonIndex + 1;
+        if (valueStart > safeCaretIndex)
+        {
+            return false;
+        }
+        rawValuePrefix = text.Substring(valueStart, safeCaretIndex - valueStart);
+        if (rawValuePrefix.IndexOf('|') >= 0)
+        {
+            return false;
+        }
+        replacementLength = safeCaretIndex - valueStart;
+        return true;
+    }
+
+    private static string NormalizeValuePrefix(string rawValuePrefix)
+    {
+        string value = rawValuePrefix ?? string.Empty;
+        if (value.Length == 0 || value[0] != '"')
+        {
+            return value.Trim();
+        }
+        StringBuilder builder = new StringBuilder(value.Length);
+        bool escaping = false;
+        for (int i = 1; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (escaping)
+            {
+                builder.Append(c == '"' || c == '\\' ? c : '\\');
+                if (c != '"' && c != '\\')
+                {
+                    builder.Append(c);
+                }
+                escaping = false;
+                continue;
+            }
+            if (c == '\\')
+            {
+                escaping = true;
+                continue;
+            }
+            if (c == '"')
+            {
+                break;
+            }
+            builder.Append(c);
+        }
+        if (escaping)
+        {
+            builder.Append('\\');
+        }
+        return builder.ToString();
+    }
+
+    private static string QuoteValueIfNeeded(string value)
+    {
+        string text = value ?? string.Empty;
+        bool needsQuote = text.Length == 0 || text.Any((char c) => char.IsWhiteSpace(c) || c == '"' || c == '\\' || c == '|');
+        if (!needsQuote)
+        {
+            return text;
+        }
+        StringBuilder builder = new StringBuilder(text.Length + 2);
+        builder.Append('"');
+        foreach (char c in text)
+        {
+            if (c == '"' || c == '\\')
+            {
+                builder.Append('\\');
+            }
+            builder.Append(c);
+        }
+        builder.Append('"');
+        return builder.ToString();
+    }
+
     private static TokenSpan FindCurrentToken(string text, int caretIndex)
     {
-        int start = caretIndex;
-        while (start > 0 && !char.IsWhiteSpace(text[start - 1]))
+        text = text ?? string.Empty;
+        int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
+        int start = 0;
+        bool inQuote = false;
+        bool escaping = false;
+        for (int i = 0; i < safeCaretIndex; i++)
         {
-            start--;
+            char c = text[i];
+            if (escaping)
+            {
+                escaping = false;
+                continue;
+            }
+            if (c == '\\')
+            {
+                escaping = true;
+                continue;
+            }
+            if (c == '"')
+            {
+                inQuote = !inQuote;
+                continue;
+            }
+            if (char.IsWhiteSpace(c) && !inQuote)
+            {
+                start = i + 1;
+            }
         }
-        int end = caretIndex;
-        while (end < text.Length && !char.IsWhiteSpace(text[end]))
+        int end = safeCaretIndex;
+        for (; end < text.Length; end++)
         {
-            end++;
+            char c = text[end];
+            if (escaping)
+            {
+                escaping = false;
+                continue;
+            }
+            if (c == '\\')
+            {
+                escaping = true;
+                continue;
+            }
+            if (c == '"')
+            {
+                inQuote = !inQuote;
+                continue;
+            }
+            if (char.IsWhiteSpace(c) && !inQuote)
+            {
+                break;
+            }
         }
         return new TokenSpan(start, end);
     }
