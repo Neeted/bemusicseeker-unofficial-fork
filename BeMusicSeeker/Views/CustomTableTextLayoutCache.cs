@@ -79,6 +79,30 @@ internal sealed class CustomTableTextLayoutCache
         return total == 0 ? -1d : (double)hits / total;
     }
 
+    internal static bool WouldTrim(
+        string text,
+        double maxTextWidth,
+        CustomTableTextStyle textStyle,
+        FontFamily scoreFontFamily,
+        double pixelsPerDip,
+        CultureInfo culture)
+    {
+        if (string.IsNullOrEmpty(text) || maxTextWidth <= 0d)
+        {
+            return false;
+        }
+        CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
+        FormattedText measuredText = new FormattedText(
+            text,
+            culture ?? CultureInfo.CurrentUICulture,
+            FlowDirection.LeftToRight,
+            effectiveTextStyle.CreateTypeface(scoreFontFamily),
+            effectiveTextStyle.FontSize,
+            Brushes.Black,
+            pixelsPerDip);
+        return measuredText.WidthIncludingTrailingWhitespace > maxTextWidth + 0.5d;
+    }
+
     private void TrimToCapacity()
     {
         while (cache.Count > maxEntryCount && insertionOrder.Count > 0)

@@ -331,7 +331,9 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
 
 ## Tooltip
 
-`CustomTableColumn.GetTooltip(...)` は、列に `TooltipSelector` がある場合だけ tooltip 文字列を返す。selector が未設定、または結果が null / 空白の場合は tooltip を表示しない。
+`CustomTableColumn.GetTooltip(...)` は、列に `TooltipSelector` がある場合に意味付き tooltip 文字列を返す。意味付き tooltip は、セル本文が省略されていない場合でも常時表示する。
+
+意味付き tooltip がない通常テキスト列では、`AutoTrimTooltip=true` かつ描画時に省略 `...` が発生する幅の場合だけ、セル全文を tooltip 表示する。省略判定は描画と同じ text style / score font / DPI / culture を使う。`Status`, icon/action/checkbox 系や、短いスコア表示列など tooltip が不要な列は `AutoTrimTooltip=false` にする。
 
 ### メイン一覧
 
@@ -345,15 +347,32 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
 | Memo | `MEMO` | `memo` と同じ文字列。 |
 | PlaylistSymbols | `PLAYLIST` | `RefTablesNames`。セル本文は `RefTablesSymbols`。 |
 
-上記以外のメイン一覧カラムは、現行実装では tooltip selector を持たない。
+上記以外のメイン一覧カラムは、現行実装では tooltip selector を持たない。ただし以下を除く通常テキスト列は、省略時にセル全文を tooltip 表示する。
+
+- `Status`
+- `Mode`
+- `Clear`
+- `Rank`
+- `Rate`
+- `ChartDifficulty`
+- `ChartJudge`
+- `WavHealth`
+- `BgaHealth`
+- `MovieHealth`
 
 ### プレイリストサマリー
 
 | Column | Header | Tooltip |
 | --- | --- | --- |
+| Link | `LINK` | `LinkUri`。URL1 / URL2 と同様に、開く先の URL を表示する。 |
 | Status | `STATUS` | `StatusDetail`。 |
 
-上記以外のプレイリストサマリー列は、現行実装では tooltip selector を持たない。
+上記以外のプレイリストサマリー列は、現行実装では tooltip selector を持たない。ただし以下を除く通常テキスト列は、省略時にセル全文を tooltip 表示する。
+
+- `PlaylistId`
+- `Symbol`
+- `IsExternalSync`
+- `IsRootFolder`
 
 ## カラム定義の意味
 
@@ -370,6 +389,7 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
 | `TextSelector` | row object から表示文字列を作る。 |
 | `ForegroundSelector` / `BackgroundSelector` | スコア色、warning 色、未定義メタデータ背景などを返す。 |
 | `TooltipSelector` | tooltip 表示文字列を返す。 |
+| `AutoTrimTooltip` | 意味付き tooltip がない通常テキスト列で、省略時にセル全文 tooltip を表示するか。 |
 | `CheckedSelector` | checkbox cell 用。 |
 | `CellKind` | `Text`, `DownloadIcon`, `StatusIcon`, `ActionText`, `CheckBox`。 |
 | `EditPropertyName` | inline edit で更新する row property 名。未設定なら編集不可。 |

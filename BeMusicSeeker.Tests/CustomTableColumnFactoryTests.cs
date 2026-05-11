@@ -263,6 +263,60 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_AssignsAutoTrimTooltipPolicy()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+        string[] disabled =
+        {
+            "Status",
+            "Mode",
+            "Clear",
+            "Rank",
+            "Rate",
+            "ChartDifficulty",
+            "ChartJudge",
+            "WavHealth",
+            "BgaHealth",
+            "MovieHealth"
+        };
+
+        foreach (string id in disabled)
+        {
+            Assert.IsFalse(columns[id].AutoTrimTooltip, id);
+        }
+        Assert.IsTrue(columns["Title"].AutoTrimTooltip);
+        Assert.IsTrue(columns["Path"].AutoTrimTooltip);
+        Assert.IsTrue(columns["Hash"].AutoTrimTooltip);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistSummaryColumns_AssignsAutoTrimTooltipPolicy()
+    {
+        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+
+        var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
+
+        Assert.IsFalse(columns["PlaylistId"].AutoTrimTooltip);
+        Assert.IsFalse(columns["Symbol"].AutoTrimTooltip);
+        Assert.IsFalse(columns["IsExternalSync"].AutoTrimTooltip);
+        Assert.IsFalse(columns["IsRootFolder"].AutoTrimTooltip);
+        Assert.IsTrue(columns["Name"].AutoTrimTooltip);
+        Assert.IsTrue(columns["Link"].AutoTrimTooltip);
+    }
+
+    [TestMethod]
     public void CreatePlaylistSummaryColumns_FormatsActionsTooltipsAndFailureBackground()
     {
         PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
@@ -280,6 +334,7 @@ public sealed class CustomTableColumnFactoryTests
         };
 
         Assert.AreEqual("Open", columns["Link"].GetText(row));
+        Assert.AreEqual("https://example.com/", columns["Link"].GetTooltip(row));
         Assert.AreEqual(true, columns["IsExternalSync"].GetChecked(row));
         Assert.AreEqual(false, columns["IsRootFolder"].GetChecked(row));
         Assert.AreEqual("detail", columns["Status"].GetTooltip(row));

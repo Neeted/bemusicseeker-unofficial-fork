@@ -2025,7 +2025,7 @@ public sealed class CustomTableView : Grid
             CloseCellToolTip();
             return;
         }
-        string tooltip = hit.Column.GetTooltip(hit.Row);
+        string tooltip = ResolveCellToolTip(hit);
         if (string.IsNullOrWhiteSpace(tooltip))
         {
             CloseCellToolTip();
@@ -2046,6 +2046,34 @@ public sealed class CustomTableView : Grid
         {
             cellToolTip.IsOpen = true;
         }
+    }
+
+    private string ResolveCellToolTip(CustomTableHitTestResult hit)
+    {
+        string explicitTooltip = hit.Column.GetTooltip(hit.Row);
+        if (!string.IsNullOrWhiteSpace(explicitTooltip))
+        {
+            return explicitTooltip;
+        }
+        if (!hit.Column.AutoTrimTooltip)
+        {
+            return null;
+        }
+        CustomTableCellValue cellValue = GetCellValue(hit.Row, hit.Column, out _);
+        if (cellValue.CellKind != CustomTableCellKind.Text || string.IsNullOrWhiteSpace(cellValue.Text))
+        {
+            return null;
+        }
+        double maxTextWidth = Math.Max(1d, hit.Column.Width - 4d);
+        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        bool wouldTrim = CustomTableTextLayoutCache.WouldTrim(
+            cellValue.Text,
+            maxTextWidth,
+            cellValue.TextStyle,
+            ScoreFontFamily,
+            pixelsPerDip,
+            CultureInfo.CurrentUICulture);
+        return wouldTrim ? cellValue.Text : null;
     }
 
     private void CloseCellToolTip()

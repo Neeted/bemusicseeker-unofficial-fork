@@ -73,6 +73,28 @@ public sealed class CustomTableTextLayoutCacheTests
         Assert.AreEqual(0.5d, CustomTableTextLayoutCache.CalculateHitRate(1, 1));
     }
 
+    [TestMethod]
+    public void WouldTrim_DetectsTextThatExceedsAvailableWidth()
+    {
+        RunOnSta(delegate
+        {
+            Assert.IsFalse(CustomTableTextLayoutCache.WouldTrim(
+                "Short",
+                200d,
+                CustomTableTextStyle.Normal,
+                null,
+                1d,
+                CultureInfo.GetCultureInfo("ja-JP")));
+            Assert.IsTrue(CustomTableTextLayoutCache.WouldTrim(
+                "Very very long title text",
+                20d,
+                CustomTableTextStyle.Normal,
+                null,
+                1d,
+                CultureInfo.GetCultureInfo("ja-JP")));
+        });
+    }
+
     private static void AssertKeyChangeMisses(Action<CustomTableTextLayoutCache> seed, Func<CustomTableTextLayoutCache, bool> candidate)
     {
         CustomTableTextLayoutCache cache = new CustomTableTextLayoutCache();
