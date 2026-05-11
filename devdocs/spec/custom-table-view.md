@@ -423,7 +423,7 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
 
 ヘッダー click 時に `SortRequested` を発火する。`SortMemberPath` がない列、または status 列は sort 対象外。
 
-同じ列を再 click すると昇順 / 降順を切り替える。sort glyph は `SortColumnName` と `SortDirection` が一致する列に描画される。
+同じ列を再 click すると昇順 / 降順を切り替える。sort glyph は `SortColumnName` と `SortDirection` が一致する列のヘッダー上部中央に描画される。
 
 ### 列操作
 

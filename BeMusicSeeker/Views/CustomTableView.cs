@@ -2637,16 +2637,17 @@ internal sealed class CustomTableSurface : FrameworkElement
 
     private void DrawSortGlyph(DrawingContext drawingContext, CustomTableColumn column, Rect cellRect)
     {
-        if (column == null || string.IsNullOrWhiteSpace(column.SortMemberPath) || !string.Equals(column.SortMemberPath, owner.SortColumnName, StringComparison.Ordinal) || !owner.SortDirection.HasValue || cellRect.Width < 12d || cellRect.Height < 8d)
+        if (column == null || string.IsNullOrWhiteSpace(column.SortMemberPath) || !string.Equals(column.SortMemberPath, owner.SortColumnName, StringComparison.Ordinal) || !owner.SortDirection.HasValue || cellRect.Width < 8d || cellRect.Height < 8d)
         {
             return;
         }
-        double centerX = cellRect.Right - 8d;
-        double centerY = cellRect.Top + cellRect.Height / 2d;
+        double centerX = cellRect.Left + cellRect.Width / 2d;
+        double top = cellRect.Top + 1d;
+        double bottom = top + 3.5d;
         bool ascending = owner.SortDirection == ListSortDirection.Ascending;
-        Point p1 = ascending ? new Point(centerX, centerY - 3d) : new Point(centerX, centerY + 3d);
-        Point p2 = ascending ? new Point(centerX - 4d, centerY + 2d) : new Point(centerX - 4d, centerY - 2d);
-        Point p3 = ascending ? new Point(centerX + 4d, centerY + 2d) : new Point(centerX + 4d, centerY - 2d);
+        Point p1 = ascending ? new Point(centerX, top) : new Point(centerX, bottom);
+        Point p2 = ascending ? new Point(centerX - 3d, bottom) : new Point(centerX - 3d, top);
+        Point p3 = ascending ? new Point(centerX + 3d, bottom) : new Point(centerX + 3d, top);
         StreamGeometry geometry = new StreamGeometry();
         using (StreamGeometryContext context = geometry.Open())
         {
