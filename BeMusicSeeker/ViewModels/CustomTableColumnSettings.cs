@@ -75,7 +75,8 @@ public class CustomTableColumnSettings : NotificationObject
         ENCODING,
         INSTALL,
         ZERO_NOTE,
-        CHART_INFO_PARSE_ERROR
+        CHART_INFO_PARSE_ERROR,
+        UNREGISTERED
     }
 
     private ColumnLayout _Status;
@@ -891,7 +892,7 @@ public class CustomTableColumnSettings : NotificationObject
         };
         Mode = new ColumnLayout
         {
-            Width = 43
+            Width = 50
         };
         Tag = new ColumnLayout
         {
@@ -923,7 +924,7 @@ public class CustomTableColumnSettings : NotificationObject
         };
         Rate = new ColumnLayout
         {
-            Width = 40
+            Width = 60
         };
         Score = new ColumnLayout
         {
@@ -945,7 +946,7 @@ public class CustomTableColumnSettings : NotificationObject
         ChartMainBpm = CreateHiddenLayout(40);
         ChartMaxBpm = CreateHiddenLayout(40);
         ChartMinBpm = CreateHiddenLayout(40);
-        ChartDuration = CreateHiddenLayout(50);
+        ChartDuration = CreateHiddenLayout(60);
         ChartJudge = CreateHiddenLayout(70);
         ChartJudgePercent = CreateHiddenLayout(60);
         ChartFeature = CreateHiddenLayout(60);
@@ -1065,6 +1066,18 @@ public class CustomTableColumnSettings : NotificationObject
                     ChartDensity,
                     ChartPeakDensity,
                     ChartEndDensity,
+                    PlaylistSymbols);
+                break;
+            case ViewKind.UNREGISTERED:
+                ApplyVisibleColumnOrder(
+                    Status,
+                    Warning,
+                    Title,
+                    Artist,
+                    Genre,
+                    Mode,
+                    Folder,
+                    Path,
                     PlaylistSymbols);
                 break;
             case ViewKind.ZERO_NOTE:

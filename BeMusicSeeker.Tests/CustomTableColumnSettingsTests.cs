@@ -84,6 +84,32 @@ public sealed class CustomTableColumnSettingsTests
     }
 
     [TestMethod]
+    public void Constructor_UnregisteredDefaultsMatchInitialColumnOrder()
+    {
+        AssertVisibleColumnOrder(
+            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.UNREGISTERED),
+            "Status",
+            "Warning",
+            "Title",
+            "Artist",
+            "Genre",
+            "Mode",
+            "Folder",
+            "Path",
+            "PlaylistSymbols");
+    }
+
+    [TestMethod]
+    public void Constructor_AssignsSharedAdjustedDefaultWidths()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+
+        Assert.AreEqual(50, settings.Mode.Width);
+        Assert.AreEqual(60, settings.Rate.Width);
+        Assert.AreEqual(60, settings.ChartDuration.Width);
+    }
+
+    [TestMethod]
     public void Constructor_InstallAndFullScanDefaultsMatchInitialColumnOrder()
     {
         string[] expected =

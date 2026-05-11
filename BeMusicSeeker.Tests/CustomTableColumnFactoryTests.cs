@@ -144,6 +144,38 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_KeepsModeColumnFixedAtFifty()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+
+        CustomTableColumn mode = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "Mode");
+
+        Assert.AreEqual(50, mode.Width);
+        Assert.AreEqual(50, mode.MinWidth);
+        Assert.AreEqual(50, mode.MaxWidth);
+        Assert.IsFalse(mode.CanResize);
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_UsesExpectedWidthConstraintsForHashAndRanking()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+
+        Assert.AreEqual(40, columns["Hash"].MinWidth);
+        Assert.AreEqual(240, columns["Hash"].MaxWidth);
+        Assert.IsTrue(columns["Hash"].CanResize);
+        Assert.AreEqual(40, columns["Ranking"].MinWidth);
+        Assert.AreEqual(int.MaxValue, columns["Ranking"].MaxWidth);
+        Assert.IsTrue(columns["Ranking"].CanResize);
+    }
+
+    [TestMethod]
     public void CreateMainColumns_ReflectsVisibilityWidthAndDisplayIndex()
     {
         CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);

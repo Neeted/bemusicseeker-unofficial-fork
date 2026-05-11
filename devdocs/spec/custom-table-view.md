@@ -55,7 +55,8 @@
 
 | 画面 / filter | `viewUpdateMode` | 設定オブジェクト | `CustomTableColumnSettings.ViewKind` |
 | --- | --- | --- | --- |
-| 通常ライブラリ / フォルダ / 未登録 | `FolderFilterSelected`, `UnregisteredFilterSelected` | `Settings.Default.StandardCustomTableColumnSettings` | `STANDARD` |
+| 通常ライブラリ / フォルダ | `FolderFilterSelected` | `Settings.Default.StandardCustomTableColumnSettings` | `STANDARD` |
+| LR2非対応パス | `UnregisteredFilterSelected` | `Settings.Default.UnregisteredCustomTableColumnSettings` | `UNREGISTERED` |
 | プレイリスト詳細 / 未所持フィルタ | `PlaylistFilterSelected`, `PlaylistNotOwnedFilterSelected` | `Settings.Default.PlaylistCustomTableColumnSettings` | `PLAYLIST` |
 | ゼロノート | `ZeroNoteFilterSelected` | `Settings.Default.ZeroNoteCustomTableColumnSettings` | `ZERO_NOTE` |
 | 譜面メタデータ解析失敗 | `ChartInfoParseErrorFilterSelected` | `Settings.Default.ChartInfoParseErrorCustomTableColumnSettings` | `CHART_INFO_PARSE_ERROR` |
@@ -81,12 +82,12 @@
 | 2 | Title | `TITLE` | 200 |
 | 3 | Artist | `ARTIST` | 100 |
 | 4 | Genre | `GENRE` | 100 |
-| 5 | Mode | `KEYS` | 43 |
+| 5 | Mode | `KEYS` | 50 |
 | 6 | Folder | `FOLDER` | 140 |
 | 7 | Path | `PATH` | 250 |
 | 8 | Clear | `CLEAR` | 90 |
 | 9 | Rank | `DJ LEVEL` | 60 |
-| 10 | Rate | `RATE` | 40 |
+| 10 | Rate | `RATE` | 60 |
 | 11 | Bp | `BP` | 40 |
 | 12 | Level | `LEVEL` | 50 |
 | 13 | ChartDifficulty | `DIFFICULTY` | 80 |
@@ -101,12 +102,30 @@
 | 22 | ChartSoflan | `SOFLAN` | 40 |
 | 23 | ChartTotal | `TOTAL` | 40 |
 | 24 | ChartTotalPerNote | `T/N` | 40 |
-| 25 | ChartDuration | `DURATION` | 50 |
+| 25 | ChartDuration | `DURATION` | 60 |
 | 26 | ChartFeature | `FEATURE` | 60 |
 | 27 | ChartDensity | `DENSITY` | 40 |
 | 28 | ChartPeakDensity | `PEAK` | 40 |
 | 29 | ChartEndDensity | `END` | 40 |
 | 30 | PlaylistSymbols | `PLAYLIST` | 70 |
+
+### LR2非対応パス
+
+`UNREGISTERED`
+
+LR2非対応パス画面は、通常ライブラリよりも警告内容の確認を優先するため、`Warning` を初期表示に含める。
+
+| Order | Column | Header | Width |
+| ---: | --- | --- | ---: |
+| 1 | Status | `♬` | 18 |
+| 2 | Warning | `WARNING` | 200 |
+| 3 | Title | `TITLE` | 200 |
+| 4 | Artist | `ARTIST` | 100 |
+| 5 | Genre | `GENRE` | 100 |
+| 6 | Mode | `KEYS` | 50 |
+| 7 | Folder | `FOLDER` | 140 |
+| 8 | Path | `PATH` | 250 |
+| 9 | PlaylistSymbols | `PLAYLIST` | 70 |
 
 ### プレイリスト詳細
 
@@ -123,7 +142,7 @@
 | 7 | Comment | `COMMENT` | 200 |
 | 8 | Clear | `CLEAR` | 90 |
 | 9 | Rank | `DJ LEVEL` | 60 |
-| 10 | Rate | `RATE` | 40 |
+| 10 | Rate | `RATE` | 60 |
 | 11 | Bp | `BP` | 40 |
 | 12 | ChartJudge | `JUDGE` | 70 |
 | 13 | ChartJudgePercent | `JUDGE%` | 60 |
@@ -136,7 +155,7 @@
 | 20 | ChartSoflan | `SOFLAN` | 40 |
 | 21 | ChartTotal | `TOTAL` | 40 |
 | 22 | ChartTotalPerNote | `T/N` | 40 |
-| 23 | ChartDuration | `DURATION` | 50 |
+| 23 | ChartDuration | `DURATION` | 60 |
 | 24 | ChartFeature | `FEATURE` | 60 |
 | 25 | ChartDensity | `DENSITY` | 40 |
 | 26 | ChartPeakDensity | `PEAK` | 40 |
@@ -154,7 +173,7 @@
 | 1 | Status | `♬` | 18 |
 | 2 | Title | `TITLE` | 200 |
 | 3 | Artist | `ARTIST` | 100 |
-| 4 | Mode | `KEYS` | 43 |
+| 4 | Mode | `KEYS` | 50 |
 | 5 | Warning | `WARNING` | 200 |
 | 6 | Notes | `NOTES` | 40 |
 | 7 | PlaylistSymbols | `PLAYLIST` | 70 |
@@ -176,7 +195,7 @@
 | 6 | Warning | `WARNING` | 200 |
 | 7 | Title | `TITLE` | 200 |
 | 8 | Artist | `ARTIST` | 100 |
-| 9 | Mode | `KEYS` | 43 |
+| 9 | Mode | `KEYS` | 50 |
 | 10 | Folder | `FOLDER` | 140 |
 | 11 | Path | `PATH` | 250 |
 | 12 | Hash | `MD5 HASH` | 240 |
@@ -198,7 +217,7 @@
 | 9 | Title | `TITLE` | 200 |
 | 10 | InstallDstArtist | `INSTALL DST ARTIST` | 100 |
 | 11 | Artist | `ARTIST` | 100 |
-| 12 | Mode | `KEYS` | 43 |
+| 12 | Mode | `KEYS` | 50 |
 | 13 | Folder | `FOLDER` | 140 |
 | 14 | Path | `PATH` | 250 |
 | 15 | Hash | `MD5 HASH` | 240 |
@@ -226,7 +245,7 @@
 | 7 | Hash | `MD5 HASH` | 240 |
 | 8 | Title | `TITLE` | 200 |
 | 9 | Artist | `ARTIST` | 100 |
-| 10 | Mode | `KEYS` | 43 |
+| 10 | Mode | `KEYS` | 50 |
 | 11 | Path | `PATH` | 250 |
 | 12 | Folder | `FOLDER` | 140 |
 
@@ -241,7 +260,7 @@
 | 3 | Title | `TITLE` | 200 |
 | 4 | Artist | `ARTIST` | 100 |
 | 5 | Genre | `GENRE` | 100 |
-| 6 | Mode | `KEYS` | 43 |
+| 6 | Mode | `KEYS` | 50 |
 | 7 | Folder | `FOLDER` | 140 |
 | 8 | Path | `PATH` | 250 |
 
@@ -284,6 +303,57 @@
 - `Combo` (`COMBO`, 40)
 - `TScore` (`T-SCORE`, 40)
 - `ScoreDifficulty` (`ΔMAX`, 40)
+
+## 列幅制約
+
+`CustomTableColumn` の既定制約は `MinWidth=40`, `MaxWidth=unbounded`, `CanResize=true`, `CanReorder=true` である。以下の列だけ個別指定がある。
+
+### メイン一覧
+
+| Column | Header | MinWidth | MaxWidth | CanResize | CanReorder | 備考 |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| Status | `♬` | 18 | 18 | false | false | 固定 icon 列 |
+| Mode | `KEYS` | 50 | 50 | false | true | 幅固定 |
+| Url1 | `URL1` | 40 | 40 | false | true | download icon 列 |
+| Url2 | `URL2` | 40 | 40 | false | true | download icon 列 |
+| Hash | `MD5 HASH` | 40 | 240 | true | true | 最大幅のみ制限 |
+| Sha256 | `SHA256 HASH` | 40 | 480 | true | true | 最大幅のみ制限 |
+| WavHealth | `WAV` | 40 | 50 | true | true | resource health |
+| BgaHealth | `BGA` | 40 | 50 | true | true | resource health |
+| MovieHealth | `MOVIE` | 40 | 50 | true | true | resource health |
+| CharcterEncoding | `ENCODING` | 40 | 130 | true | true | encoding 表示 |
+
+上記以外のメイン一覧カラムは既定制約を使う。`Ranking` も既定制約であり、初期幅は 95 だが `MinWidth=40`, `MaxWidth=unbounded` でリサイズ可能である。`Rate` と `ChartDuration` は初期幅を 60 にしているが、個別の最小幅 / 最大幅は指定していない。
+
+### プレイリストサマリー
+
+プレイリストサマリー列はすべて既定制約 (`MinWidth=40`, `MaxWidth=unbounded`, `CanResize=true`, `CanReorder=true`) を使う。
+
+## Tooltip
+
+`CustomTableColumn.GetTooltip(...)` は、列に `TooltipSelector` がある場合だけ tooltip 文字列を返す。selector が未設定、または結果が null / 空白の場合は tooltip を表示しない。
+
+### メイン一覧
+
+| Column | Header | Tooltip |
+| --- | --- | --- |
+| Status | `♬` | `status` flag に応じた説明。`PLAY`, `LOADING`, `PAUSE`, `FORWARD`, `BACKWARD`, `SEARCHING`, `SCORE_UNSENT` で表示し、`NONE` では表示しない。 |
+| Url1 | `URL1` | プレイリスト詳細 row の `UrlToolTipText`。 |
+| Url2 | `URL2` | プレイリスト詳細 row の `UrlDiffToolTipText`。 |
+| Warning | `WARNING` | `WarningTooltipText`。セル本文は短い `WarningDigestText` を使い、詳細は tooltip に出す。 |
+| Comment | `COMMENT` | `comment` と同じ文字列。 |
+| Memo | `MEMO` | `memo` と同じ文字列。 |
+| PlaylistSymbols | `PLAYLIST` | `RefTablesNames`。セル本文は `RefTablesSymbols`。 |
+
+上記以外のメイン一覧カラムは、現行実装では tooltip selector を持たない。
+
+### プレイリストサマリー
+
+| Column | Header | Tooltip |
+| --- | --- | --- |
+| Status | `STATUS` | `StatusDetail`。 |
+
+上記以外のプレイリストサマリー列は、現行実装では tooltip selector を持たない。
 
 ## カラム定義の意味
 

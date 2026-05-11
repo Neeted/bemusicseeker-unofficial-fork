@@ -13600,7 +13600,6 @@ public class MainWindowViewModel : ViewModel
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FolderFilterSelected:
-            case viewUpdateMode.UnregisteredFilterSelected:
                 caseLabel = "standard";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.StandardCustomTableColumnSettings == null)
@@ -13610,6 +13609,18 @@ public class MainWindowViewModel : ViewModel
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.StandardCustomTableColumnSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                break;
+            case viewUpdateMode.UnregisteredFilterSelected:
+                caseLabel = "unregistered";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                if (isInit || Settings.Default.UnregisteredCustomTableColumnSettings == null)
+                {
+                    Settings.Default.UnregisteredCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.UNREGISTERED);
+                }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                ColumnsSettingsBMSFilesView = Settings.Default.UnregisteredCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.ZeroNoteFilterSelected:

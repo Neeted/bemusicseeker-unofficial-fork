@@ -375,6 +375,20 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	public CustomTableColumnSettings UnregisteredCustomTableColumnSettings
+	{
+		get
+		{
+			return (CustomTableColumnSettings)this["UnregisteredCustomTableColumnSettings"];
+		}
+		set
+		{
+			this["UnregisteredCustomTableColumnSettings"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	public CustomTableColumnSettings ZeroNoteCustomTableColumnSettings
 	{
 		get
@@ -1391,6 +1405,10 @@ internal sealed class Settings : ApplicationSettingsBase
 		{
 			settings.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 		}
+		if (settings.UnregisteredCustomTableColumnSettings == null)
+		{
+			settings.UnregisteredCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.UNREGISTERED);
+		}
 		if (settings.ZeroNoteCustomTableColumnSettings == null)
 		{
 			settings.ZeroNoteCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ZERO_NOTE);
@@ -1424,6 +1442,7 @@ internal sealed class Settings : ApplicationSettingsBase
 			settings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
 		}
 		settings.StandardCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.STANDARD);
+		settings.UnregisteredCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.UNREGISTERED);
 		settings.ZeroNoteCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.ZERO_NOTE);
 		settings.PlaylistCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.PLAYLIST);
 		settings.FullScanCustomTableColumnSettings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.FULLSCAN);
