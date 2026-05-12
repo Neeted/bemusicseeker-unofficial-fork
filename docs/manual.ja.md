@@ -276,7 +276,7 @@ BeMusicSeeker の起動処理は段階的に進みます。
 ライブラリ一覧では、登録済み譜面を検索・再生・整理できます。
 
 **強力な検索構文を備えています。 [キーワード検索構文ガイド](keyword-search-syntax-guide.md) を参照してください。**
-`title:`、`artist:`、`playlist:`、`rate:` などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。
+`title:`、`artist:`、`playlist:`、`rate:` などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。`TOTAL`、`DIFFICULTY` などのカラムで背景色が付いているセルは未定義だったことを表しています。`total:undef` などで検索可能です。
 
 ![ライブラリ検索例](img/一覧_ライブラリ_検索例.PNG)
 
