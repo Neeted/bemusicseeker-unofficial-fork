@@ -251,6 +251,12 @@ public class Resources
 
     public static string FilePath_beatoraja_table => ResourceManager.GetString("FilePath_beatoraja_table", resourceCulture);
 
+    public static string FilePath_beatoraja_root => ResourceManager.GetString("FilePath_beatoraja_root", resourceCulture);
+
+    public static string Beatoraja_player => ResourceManager.GetString("Beatoraja_player", resourceCulture);
+
+    public static string Register_beatoraja_bmt_urls => ResourceManager.GetString("Register_beatoraja_bmt_urls", resourceCulture);
+
     public static string FilePath_songDB => ResourceManager.GetString("FilePath_songDB", resourceCulture);
 
     public static string FilePath_StageFile => ResourceManager.GetString("FilePath_StageFile", resourceCulture);
@@ -1110,6 +1116,8 @@ public class Resources
     public static string Error_InvalidBeatorajaScoreDbPath => ResourceManager.GetString("Error_InvalidBeatorajaScoreDbPath", resourceCulture);
 
     public static string Error_InvalidBeatorajaBmtTablePath => ResourceManager.GetString("Error_InvalidBeatorajaBmtTablePath", resourceCulture);
+
+    public static string Error_InvalidBeatorajaRootPath => ResourceManager.GetString("Error_InvalidBeatorajaRootPath", resourceCulture);
 
 
     public static string Warn_LR2LeapYearFolderDetected => ResourceManager.GetString("Warn_LR2LeapYearFolderDetected", resourceCulture);

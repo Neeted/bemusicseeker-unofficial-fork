@@ -260,11 +260,17 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempUseBeatorajaScoreDb;
 
+        private string tempBeatorajaRootPath;
+
+        private string tempBeatorajaPlayerId;
+
         private string tempBeatorajaScoreDbPath;
 
         private bool tempEnableBeatorajaBmtOutput;
 
         private string tempBeatorajaBmtTablePath;
+
+        private bool tempRegisterBeatorajaBmtUrls;
 
         private string tempuBMplayPath;
 
@@ -698,6 +704,59 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
+        public string BeatorajaRootPath
+        {
+            get
+            {
+                return Settings.Default.BeatorajaRootPath;
+            }
+            set
+            {
+                string path = value ?? string.Empty;
+                if (Settings.Default.BeatorajaRootPath == path)
+                {
+                    return;
+                }
+                Settings.Default.BeatorajaRootPath = path;
+                RefreshBeatorajaDerivedSettings();
+                RaisePropertyChanged("BeatorajaRootPath");
+                RaisePropertyChanged(() => AvailableBeatorajaPlayers);
+                RaisePropertyChanged(() => BeatorajaPlayerId);
+                RaisePropertyChanged(() => BeatorajaScoreDbPath);
+                RaisePropertyChanged(() => BeatorajaBmtTablePath);
+                RaiseValidationStateChanged();
+            }
+        }
+
+        public List<string> AvailableBeatorajaPlayers
+        {
+            get
+            {
+                return BeatorajaConfigService.GetPlayerIds(Settings.Default.BeatorajaRootPath);
+            }
+        }
+
+        public string BeatorajaPlayerId
+        {
+            get
+            {
+                return Settings.Default.BeatorajaPlayerId;
+            }
+            set
+            {
+                string playerId = value ?? string.Empty;
+                if (Settings.Default.BeatorajaPlayerId == playerId)
+                {
+                    return;
+                }
+                Settings.Default.BeatorajaPlayerId = playerId;
+                RefreshBeatorajaDerivedSettings();
+                RaisePropertyChanged("BeatorajaPlayerId");
+                RaisePropertyChanged(() => BeatorajaScoreDbPath);
+                RaiseValidationStateChanged();
+            }
+        }
+
         public string BeatorajaScoreDbPath
         {
             get
@@ -706,11 +765,6 @@ public class MainWindowViewModel : ViewModel
             }
             set
             {
-                if (Settings.Default.BeatorajaScoreDbPath == value)
-                {
-                    return;
-                }
-                Settings.Default.BeatorajaScoreDbPath = IsBeatorajaScoreDbPathValid(value) ? value : string.Empty;
                 RaisePropertyChanged("BeatorajaScoreDbPath");
                 RaiseValidationStateChanged();
             }
@@ -741,11 +795,23 @@ public class MainWindowViewModel : ViewModel
             }
             set
             {
-                string path = value ?? string.Empty;
-                if (Settings.Default.BeatorajaBmtTablePath != path)
+                RaisePropertyChanged("BeatorajaBmtTablePath");
+                RaiseValidationStateChanged();
+            }
+        }
+
+        public bool RegisterBeatorajaBmtUrls
+        {
+            get
+            {
+                return Settings.Default.RegisterBeatorajaBmtUrls;
+            }
+            set
+            {
+                if (Settings.Default.RegisterBeatorajaBmtUrls != value)
                 {
-                    Settings.Default.BeatorajaBmtTablePath = path;
-                    RaisePropertyChanged("BeatorajaBmtTablePath");
+                    Settings.Default.RegisterBeatorajaBmtUrls = value;
+                    RaisePropertyChanged("RegisterBeatorajaBmtUrls");
                     RaiseValidationStateChanged();
                 }
             }
@@ -2188,6 +2254,7 @@ public class MainWindowViewModel : ViewModel
                 lr2config = null;
             }
             RefreshStandaloneBmsRootPathsFromSettings();
+            RefreshBeatorajaDerivedSettings();
             backupSavedSettings();
         }
 
@@ -2388,7 +2455,7 @@ public class MainWindowViewModel : ViewModel
 
         private bool IsBeatorajaScoreDbPathValid()
         {
-            return IsBeatorajaScoreDbPathValid(Settings.Default.BeatorajaScoreDbPath);
+            return BeatorajaConfigService.IsPlayerScoreDbPathValid(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId);
         }
 
         private bool IsBeatorajaScoreDbPathValid(string value)
@@ -2406,6 +2473,31 @@ public class MainWindowViewModel : ViewModel
         private bool IsBeatorajaBmtTablePathValid(string value)
         {
             return string.IsNullOrWhiteSpace(value) || Directory.Exists(value);
+        }
+
+        private bool IsBeatorajaRootPathValid()
+        {
+            return BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath);
+        }
+
+        private void RefreshBeatorajaDerivedSettings()
+        {
+            if (!BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath))
+            {
+                Settings.Default.BeatorajaScoreDbPath = string.Empty;
+                Settings.Default.BeatorajaBmtTablePath = string.Empty;
+                return;
+            }
+            List<string> playerIds = BeatorajaConfigService.GetPlayerIds(Settings.Default.BeatorajaRootPath);
+            if (string.IsNullOrWhiteSpace(Settings.Default.BeatorajaPlayerId) || !playerIds.Contains(Settings.Default.BeatorajaPlayerId, StringComparer.OrdinalIgnoreCase))
+            {
+                string configuredPlayerId = BeatorajaConfigService.GetConfiguredPlayerId(Settings.Default.BeatorajaRootPath);
+                Settings.Default.BeatorajaPlayerId = playerIds.Contains(configuredPlayerId, StringComparer.OrdinalIgnoreCase)
+                    ? configuredPlayerId
+                    : (playerIds.FirstOrDefault() ?? string.Empty);
+            }
+            Settings.Default.BeatorajaScoreDbPath = BeatorajaConfigService.GetScoreDbPath(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId);
+            Settings.Default.BeatorajaBmtTablePath = BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath);
         }
 
         private bool IsuBMplayPathValid()
@@ -2972,9 +3064,12 @@ public class MainWindowViewModel : ViewModel
             tempLR2SongDBPath = Settings.Default.LR2SongDBPath;
             tempLR2ConfigXmlPath = Settings.Default.LR2ConfigXmlPath;
             tempUseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb;
+            tempBeatorajaRootPath = Settings.Default.BeatorajaRootPath;
+            tempBeatorajaPlayerId = Settings.Default.BeatorajaPlayerId;
             tempBeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath;
             tempEnableBeatorajaBmtOutput = Settings.Default.EnableBeatorajaBmtOutput;
             tempBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
+            tempRegisterBeatorajaBmtUrls = Settings.Default.RegisterBeatorajaBmtUrls;
             tempBMSRootPath = Settings.Default.BMSRootPath;
             tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
             tempuBMplayPath = Settings.Default.uBMplayPath;
@@ -3130,8 +3225,29 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
             }
-            if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
+            if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput
+                || tempRegisterBeatorajaBmtUrls != Settings.Default.RegisterBeatorajaBmtUrls
+                || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
             {
+                if (BeatorajaConfigService.IsBeatorajaRootPathValid(tempBeatorajaRootPath)
+                    && !string.IsNullOrWhiteSpace(tempBeatorajaBmtTablePath)
+                    && (!string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
+                        || !Settings.Default.EnableBeatorajaBmtOutput
+                        || !Settings.Default.RegisterBeatorajaBmtUrls))
+                {
+                    try
+                    {
+                        BeatorajaConfigService.SyncTableUrls(
+                            tempBeatorajaRootPath,
+                            Enumerable.Empty<string>(),
+                            BmtTableExportService.ReadManagedTableUrls(tempBeatorajaBmtTablePath).Select((BmtTableExportService.ManagedTableUrlEntry entry) => entry.Url));
+                    }
+                    catch (Exception ex)
+                    {
+                        NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
+                    }
+                }
                 ownerViewModel.tables.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
             }
         }
@@ -3165,12 +3281,17 @@ public class MainWindowViewModel : ViewModel
                 errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths + Environment.NewLine;
                 result = false;
             }
+            if ((UseBeatorajaScoreDb || EnableBeatorajaBmtOutput) && !IsBeatorajaRootPathValid())
+            {
+                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath + Environment.NewLine;
+                result = false;
+            }
             if (UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid())
             {
                 errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaScoreDbPath + Environment.NewLine;
                 result = false;
             }
-            if (!IsBeatorajaBmtTablePathValid())
+            if (EnableBeatorajaBmtOutput && IsBeatorajaRootPathValid() && string.IsNullOrWhiteSpace(BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath)))
             {
                 errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaBmtTablePath + Environment.NewLine;
                 result = false;
@@ -3270,6 +3391,7 @@ public class MainWindowViewModel : ViewModel
                 bool searchRootsChanged = isSearchRootsChanged;
                 bool lr2SearchRootsChanged = OperationModeLR2DB && searchRootsChanged;
                 PersistStandaloneBmsRootPathsToSettings();
+                RefreshBeatorajaDerivedSettings();
                 Settings.Default.OperationModeLR2DB = operationModeLR2DB;
                 Settings.Default.Save();
                 if (lr2SearchRootsChanged && lr2config != null)
@@ -3303,9 +3425,12 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.LR2RootPath = tempLR2RootPath;
             Settings.Default.LR2SongDBPath = tempLR2SongDBPath;
             Settings.Default.UseBeatorajaScoreDb = tempUseBeatorajaScoreDb;
+            Settings.Default.BeatorajaRootPath = tempBeatorajaRootPath;
+            Settings.Default.BeatorajaPlayerId = tempBeatorajaPlayerId;
             Settings.Default.BeatorajaScoreDbPath = tempBeatorajaScoreDbPath;
             Settings.Default.EnableBeatorajaBmtOutput = tempEnableBeatorajaBmtOutput;
             Settings.Default.BeatorajaBmtTablePath = tempBeatorajaBmtTablePath;
+            Settings.Default.RegisterBeatorajaBmtUrls = tempRegisterBeatorajaBmtUrls;
             Settings.Default.BMSRootPath = tempBMSRootPath;
             Settings.Default.StandaloneBmsRootPaths = tempStandaloneBmsRootPaths;
             Settings.Default.uBMplayPath = tempuBMplayPath;
@@ -3399,9 +3524,13 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => LR2SongDBPath);
             RaisePropertyChanged(() => LR2ConfigXmlPath);
             RaisePropertyChanged(() => UseBeatorajaScoreDb);
+            RaisePropertyChanged(() => BeatorajaRootPath);
+            RaisePropertyChanged(() => AvailableBeatorajaPlayers);
+            RaisePropertyChanged(() => BeatorajaPlayerId);
             RaisePropertyChanged(() => BeatorajaScoreDbPath);
             RaisePropertyChanged(() => EnableBeatorajaBmtOutput);
             RaisePropertyChanged(() => BeatorajaBmtTablePath);
+            RaisePropertyChanged(() => RegisterBeatorajaBmtUrls);
             RaisePropertyChanged(() => uBMplayPath);
             RaisePropertyChanged(() => BMIIDXViewPath);
             RaisePropertyChanged(() => UsePlayeruBMplay);
@@ -3471,6 +3600,8 @@ public class MainWindowViewModel : ViewModel
         {
             RestartMode restartMode = RestartMode.None;
             bool scoreSourceChanged = tempUseBeatorajaScoreDb != Settings.Default.UseBeatorajaScoreDb
+                || !string.Equals(tempBeatorajaRootPath, Settings.Default.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(tempBeatorajaPlayerId, Settings.Default.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaScoreDbPath, Settings.Default.BeatorajaScoreDbPath, StringComparison.OrdinalIgnoreCase);
             if (tempOperationModeLR2DB != OperationModeLR2DB)
             {

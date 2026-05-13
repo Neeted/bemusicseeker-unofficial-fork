@@ -888,6 +888,15 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="FilePath_beatoraja_table" xml:space="preserve">
     <value>table パス: </value>
   </data>
+  <data name="FilePath_beatoraja_root" xml:space="preserve">
+    <value>beatoraja ディレクトリ: </value>
+  </data>
+  <data name="Beatoraja_player" xml:space="preserve">
+    <value>プレイヤー</value>
+  </data>
+  <data name="Register_beatoraja_bmt_urls" xml:space="preserve">
+    <value>config_sys.jsonに.bmtのURLを登録する(選曲画面での並びが安定します)</value>
+  </data>
   <data name="Clear_reinstall_estimation" xml:space="preserve">
     <value>再インストール先をクリア</value>
   </data>
@@ -1691,6 +1700,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Error_InvalidBeatorajaBmtTablePath" xml:space="preserve">
     <value>beatoraja table パスが正しくありません</value>
+  </data>
+  <data name="Error_InvalidBeatorajaRootPath" xml:space="preserve">
+    <value>beatoraja ディレクトリが正しくありません</value>
   </data>
   <data name="Warn_LR2LeapYearFolderDetected" xml:space="preserve">
     <value>LR2で扱えない更新日時のフォルダを検出しました

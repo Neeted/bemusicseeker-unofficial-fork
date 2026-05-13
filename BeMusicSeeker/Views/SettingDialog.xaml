@@ -234,42 +234,30 @@
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_integration, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding settingDialog.UseBeatorajaScoreDb}" />
                     <DockPanel LastChildFill="False">
-                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}">
-                        <i:Interaction.Triggers>
-                          <i:EventTrigger EventName="Click">
-                            <v:CommonOpenFileDialogInteractionMessageAction>
-                              <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
-                                <l:OpeningFileSelectionMessage FileName="score.db" Filter="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FileDialogFilter_scoreDB, Mode=OneWay}" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_scoreDB, Mode=OneWay}" MessageKey="{Binding Path.Path, ElementName=bindingBeatorajaScoreDbPath}" InitialDirectory="{Binding settingDialog.BeatorajaScoreDbPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
-                              </l:DirectInteractionMessage>
-                            </v:CommonOpenFileDialogInteractionMessageAction>
-                          </i:EventTrigger>
-                        </i:Interaction.Triggers>
-                      </Button>
-                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                        <Binding x:Name="bindingBeatorajaScoreDbPath" Path="settingDialog.BeatorajaScoreDbPath" />
-                      </TextBox>
-                      <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_scoreDB, Mode=OneWay}" />
-                    </DockPanel>
-                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_bmt_output, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableBeatorajaBmtOutput}" />
-                    <DockPanel LastChildFill="False">
-                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}">
+                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
                             <v:CommonOpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
-                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingBeatorajaBmtTablePath}" SelectedPath="{Binding settingDialog.BeatorajaBmtTablePath}" />
+                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingBeatorajaRootPath}" SelectedPath="{Binding settingDialog.BeatorajaRootPath}" />
                               </l:DirectInteractionMessage>
                             </v:CommonOpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>
-                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
-                        <Binding x:Name="bindingBeatorajaBmtTablePath" Path="settingDialog.BeatorajaBmtTablePath" />
+                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
+                        <Binding x:Name="bindingBeatorajaRootPath" Path="settingDialog.BeatorajaRootPath" />
                       </TextBox>
-                      <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_beatoraja_table, Mode=OneWay}" />
+                      <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_beatoraja_root, Mode=OneWay}" />
                     </DockPanel>
+                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding settingDialog.UseBeatorajaScoreDb}" />
+                    <DockPanel LastChildFill="False">
+                      <ComboBox Width="160" Height="24" DockPanel.Dock="Right" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}" ItemsSource="{Binding settingDialog.AvailableBeatorajaPlayers}" SelectedItem="{Binding settingDialog.BeatorajaPlayerId}" />
+                      <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_player, Mode=OneWay}" />
+                    </DockPanel>
+                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_bmt_output, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableBeatorajaBmtOutput}" />
+                    <CheckBox Height="20" Margin="16,0,0,0" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Register_beatoraja_bmt_urls, Mode=OneWay}" IsChecked="{Binding settingDialog.RegisterBeatorajaBmtUrls}" />
                   </StackPanel>
                 </GroupBox>
               </StackPanel>

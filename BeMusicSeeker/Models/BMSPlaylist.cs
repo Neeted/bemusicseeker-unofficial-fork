@@ -949,22 +949,24 @@ public partial class BMSPlaylist : NotificationObject
 
     private bool IsBeatorajaBmtOutputEnabled()
     {
-        return Settings.Default.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(Settings.Default.BeatorajaBmtTablePath);
+        return Settings.Default.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(GetBeatorajaBmtTablePath());
     }
 
     internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)
     {
-        string outputPath = Settings.Default.BeatorajaBmtTablePath;
+        string outputPath = GetBeatorajaBmtTablePath();
         bool enabled = IsBeatorajaBmtOutputEnabled();
         Func<Task> work = async delegate
         {
             await Task.Yield();
             if (!string.IsNullOrWhiteSpace(cleanupTablePath) && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase)))
             {
+                SyncBeatorajaManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), new List<BmtTableExportService.ManagedTableUrlEntry>());
                 BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
             }
             if (!enabled)
             {
+                SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), new List<BmtTableExportService.ManagedTableUrlEntry>());
                 return;
             }
             List<BMSTable> tablesSnapshot;
@@ -981,7 +983,8 @@ public partial class BMSPlaylist : NotificationObject
                     tableDataSet.Add(Tuple.Create(GetBeatorajaBmtPlaylistIdentity(table), tableData));
                 }
             }
-            BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true);
+            BmtTableExportService.ExportResult exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true);
+            SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
         };
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
         {
@@ -1063,12 +1066,60 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     table = BMSTables?.FirstOrDefault((BMSTable candidate) => candidate != null && candidate.playlist_id == playlistId);
                 }
+                string tablePath = GetBeatorajaBmtTablePath();
+                List<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
                 JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason);
                 if (tableData != null)
                 {
-                    BmtTableExportService.ExportTableData(Settings.Default.BeatorajaBmtTablePath, tableData, GetBeatorajaBmtPlaylistIdentity(table));
+                    BmtTableExportService.ExportTableData(tablePath, tableData, GetBeatorajaBmtPlaylistIdentity(table));
+                    SyncBeatorajaManagedTableUrls(tablePath, previousManagedTables, BmtTableExportService.ReadManagedTableUrls(tablePath));
+                }
+                else
+                {
+                    BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistId.ToString(CultureInfo.InvariantCulture));
+                    SyncBeatorajaManagedTableUrls(GetBeatorajaBmtTablePath(), exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                 }
             }
+        }
+    }
+
+    private string GetBeatorajaBmtTablePath()
+    {
+        if (!string.IsNullOrWhiteSpace(Settings.Default.BeatorajaRootPath) && BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath))
+        {
+            return BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath);
+        }
+        return Settings.Default.BeatorajaBmtTablePath;
+    }
+
+    private void SyncBeatorajaManagedTableUrls(string tablePath, IEnumerable<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables, IEnumerable<BmtTableExportService.ManagedTableUrlEntry> currentManagedTables)
+    {
+        if (string.IsNullOrWhiteSpace(Settings.Default.BeatorajaRootPath) || !BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath))
+        {
+            return;
+        }
+        string configuredTablePath = BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath);
+        if (!string.IsNullOrWhiteSpace(tablePath) && !string.Equals(Path.GetFullPath(tablePath), Path.GetFullPath(configuredTablePath), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        List<string> previousUrls = (previousManagedTables ?? Enumerable.Empty<BmtTableExportService.ManagedTableUrlEntry>())
+            .Select((BmtTableExportService.ManagedTableUrlEntry entry) => entry?.Url)
+            .Where((string url) => !string.IsNullOrWhiteSpace(url))
+            .ToList();
+        List<string> currentUrls = Settings.Default.RegisterBeatorajaBmtUrls ? (currentManagedTables ?? Enumerable.Empty<BmtTableExportService.ManagedTableUrlEntry>())
+            .Where((BmtTableExportService.ManagedTableUrlEntry entry) => entry != null && !string.IsNullOrWhiteSpace(entry.Url))
+            .OrderBy((BmtTableExportService.ManagedTableUrlEntry entry) => entry.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy((BmtTableExportService.ManagedTableUrlEntry entry) => entry.PlaylistIdentity ?? string.Empty, StringComparer.Ordinal)
+            .Select((BmtTableExportService.ManagedTableUrlEntry entry) => entry.Url)
+            .ToList() : new List<string>();
+        try
+        {
+            BeatorajaConfigService.SyncTableUrls(Settings.Default.BeatorajaRootPath, currentUrls, previousUrls);
+        }
+        catch (Exception ex)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "beatoraja_table_url_sync_failed tablePath=" + FormatTextForLog(tablePath));
         }
     }
 

@@ -33,13 +33,15 @@ BeMusicSeeker は、BMS ファイルの管理、検索、再生、インスト�
 - 大規模ライブラリ向けの初期化・リロード・一覧表示高速化
 - `Everything 1.5 Alpha x64` を利用した高速ファイル列挙とリソース索引作成
 - 導入先推定、推定先インストール、重複フォルダマージの高速化
-- bmson 対応
-- スタンドアローンモードとポータブル設定ファイル
+- bmson 管理対応(再生は未対応)
+- LR2に依存しないスタンドアローンモード
+- ポータブルアプリ化
 - プレイリストサマリー、外部同期 STATUS、URL1/URL2 補完、単体 / 範囲リロード
 - インストール保留画面の強化、スマート上書き、ゼロノート譜面整理
 - LR2 非対応パス、解析エラー、重複ファイルチェックなどのメンテナンス画面
 - 構造化され情報が強化された WARNING 表示
 - 多言語対応とダークテーマ対応
+- beatoraja連携(スコア読み込み・難易度表更新)
 
 ### 注意
 
@@ -118,13 +120,19 @@ LR2 連携モードでは、初回準備や今後の更新で `song.db` に BeMu
 
 ![設定 一般](img/設定_一般.PNG)
 
-`一般` タブでは、言語、動作モード、BMS ディレクトリ、LR2 ディレクトリ、`song.db`、`config.xml`、beatoraja `score.db` などを設定します。
+`一般` タブでは、言語、動作モード、BMS ディレクトリ、LR2 ディレクトリ、`song.db`、`config.xml`、`beatoraja ディレクトリ` などを設定します。
 
 スタンドアローンモードでは BMS ディレクトリが重要です。LR2 連携モードでは LR2 ディレクトリと DB / XML パスが重要です。
 
-beatoraja については、スコア DB の読み込みや難易度表キャッシュ出力など一部連携に対応していますが、beatoraja 全体を管理するためのツールではありません。bmson もライブラリ上では譜面として扱いますが、再生や録音など一部機能には制限があります。**beatoraja のDB更新を高速に行いたい場合は [songdata-updater](https://github.com/Neeted/songdata-updater) をご利用ください。**
+#### beatoraja連携
 
-` .bmtを出力する(難易度表読み込み互換処理)` を有効にして `table パス` に beatoraja の `table` フォルダを指定すると、BeMusicSeeker の全プレイリストを beatoraja が読み込める `.bmt` キャッシュとして出力します。これは beatoraja 側の level 集約処理が重く、難易度表読み込みで遅延する環境向けの互換処理です。外部同期表は元の難易度表 URL、ローカルプレイリストは `bemusicseeker://playlist/{playlist_id}` を使って `.bmt` の保存名を決めます。出力先直下には BeMusicSeeker 管理用の `.bemusicseeker-bmt-manifest` が作られ、設定変更や再出力時の cleanup では、この manifest に記録された `.bmt` だけを削除対象にします。
+beatoraja については、スコア DB の読み込みや難易度表キャッシュ出力など一部連携に対応していますが、beatoraja 全体を管理するためのツールではありません。**beatoraja のDB更新を高速に行いたい場合は [songdata-updater](https://github.com/Neeted/songdata-updater) をご利用ください。**
+
+beatoraja 連携では beatoraja ディレクトリを指定します。直下の `config_sys.json` から `tablepath` と `playerpath` を読み取り、スコア読み込みでは選択したプレイヤーフォルダの `score.db` を使います。
+
+`.bmtを出力する(難易度表読み込み互換処理)` を有効にすると、BeMusicSeeker の全プレイリストを beatoraja が読み込める `.bmt` キャッシュとして `config_sys.json` の `tablepath` 配下へ出力します。これは beatoraja 側の level 集約処理が重く、難易度表読み込みで遅延する環境向けの互換処理です。外部同期表は元の難易度表 URL、ローカルプレイリストは `bemusicseeker://playlist/{playlist_id}` を使って `.bmt` の保存名を決めます。出力先直下には BeMusicSeeker 管理用の `.bemusicseeker-bmt-manifest` が作られ、設定変更や再出力時の cleanup では、この manifest に記録された `.bmt` だけを削除対象にします。
+
+`config_sys.jsonに.bmtのURLを登録する(選曲画面での並びが安定します)` が有効な場合、BeMusicSeeker 管理の `.bmt` URL を `config_sys.json` の `tableURL` へ登録します。管理外の `tableURL` は既存順を維持し、BeMusicSeeker 管理分はプレイリスト名順で後ろに並びます。
 
 ### 外観
 
@@ -221,7 +229,7 @@ URL 補完については [URL1/URL2 補完](#url1url2-補完) を参照して�
 
 `スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する` を有効にすると、`.bmx`、`.pmx`、`.txt` はスマート上書きで上書き対象になった場合でも、導入先の既存ファイルを残し、source 側を `name(1).txt` のような空き連番名で保存します。連番候補に同一内容のファイルが既にある場合は、同じファイルを増やさず source 側を削除します。内容が異なる場合、または hash 比較ができない場合は、空いている連番名へ移動します。
 
-bmson は譜面ファイルとして扱うため、この保護対象には含めません。BMS / PMS / bmson などの譜面ファイル本体は、同名衝突時に上書きせず、`chart_.bms` のように名前をずらして導入します。
+NOTE: BMS / PMS / bmson などの譜面ファイル本体は、同名衝突時に上書きせず、`chart_.bms` のように名前をずらして導入します。これはスマート上書き設定とは関係のない本アプリでの挙動です。
 
 この設定は、推定先へのインストール、既所持譜面のみパッケージのリソース上書き、重複フォルダのマージなど、既存フォルダへ同梱ファイルを移動する処理で使われます。未所持の新規作品を新しいフォルダへ丸ごと導入する場合は、そもそも同名ファイル衝突が少ないため、スマート上書きの影響は限定的です。
 

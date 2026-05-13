@@ -213,10 +213,12 @@ public sealed class MainWindowContextMenuResourceTests
         string[] keys =
         {
             "Beatoraja_integration",
+            "FilePath_beatoraja_root",
             "Use_beatoraja_scoreDB",
-            "FilePath_scoreDB",
-            "Open_scoreDB",
-            "FileDialogFilter_scoreDB",
+            "Beatoraja_player",
+            "Use_beatoraja_bmt_output",
+            "Register_beatoraja_bmt_urls",
+            "Error_InvalidBeatorajaRootPath",
             "Error_InvalidBeatorajaScoreDbPath"
         };
         foreach (string key in keys)
@@ -230,10 +232,12 @@ public sealed class MainWindowContextMenuResourceTests
             }
         }
         StringAssert.Contains(xaml, "Path=Resources.Beatoraja_integration");
+        StringAssert.Contains(xaml, "Path=Resources.FilePath_beatoraja_root");
         StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_scoreDB");
-        StringAssert.Contains(xaml, "Path=Resources.FilePath_scoreDB");
-        StringAssert.Contains(xaml, "Path=Resources.Open_scoreDB");
-        StringAssert.Contains(xaml, "Path=Resources.FileDialogFilter_scoreDB");
+        StringAssert.Contains(xaml, "Path=Resources.Beatoraja_player");
+        StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_bmt_output");
+        StringAssert.Contains(xaml, "Path=Resources.Register_beatoraja_bmt_urls");
+        StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaRootPath");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaScoreDbPath");
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
         StringAssert.Contains(settingDialogCode, "ReloadScoresOnly()");

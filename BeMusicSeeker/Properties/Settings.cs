@@ -113,6 +113,51 @@ internal sealed class Settings : ApplicationSettingsBase
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("")]
+	public string BeatorajaRootPath
+	{
+		get
+		{
+			return (string)this["BeatorajaRootPath"];
+		}
+		set
+		{
+			this["BeatorajaRootPath"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
+	public string BeatorajaPlayerId
+	{
+		get
+		{
+			return (string)this["BeatorajaPlayerId"];
+		}
+		set
+		{
+			this["BeatorajaPlayerId"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("True")]
+	public bool RegisterBeatorajaBmtUrls
+	{
+		get
+		{
+			return (bool)this["RegisterBeatorajaBmtUrls"];
+		}
+		set
+		{
+			this["RegisterBeatorajaBmtUrls"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
 	public string BeatorajaScoreDbPath
 	{
 		get

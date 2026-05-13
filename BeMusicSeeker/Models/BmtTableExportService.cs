@@ -20,14 +20,36 @@ internal static class BmtTableExportService
     {
         public HashSet<string> Files { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public Dictionary<string, string> PlaylistFiles { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+        public Dictionary<string, ManifestPlaylistEntry> Playlists { get; } = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
     }
 
-    internal static void ExportTables(string tablePath, IEnumerable<BMSTable> tables, bool cleanupStaleManagedFiles)
+    internal class ManagedTableUrlEntry
+    {
+        public string PlaylistIdentity { get; set; }
+
+        public string FileName { get; set; }
+
+        public string Url { get; set; }
+
+        public string Name { get; set; }
+    }
+
+    private sealed class ManifestPlaylistEntry : ManagedTableUrlEntry
+    {
+    }
+
+    internal sealed class ExportResult
+    {
+        public List<ManagedTableUrlEntry> PreviousManagedTables { get; } = new List<ManagedTableUrlEntry>();
+
+        public List<ManagedTableUrlEntry> CurrentManagedTables { get; } = new List<ManagedTableUrlEntry>();
+    }
+
+    internal static ExportResult ExportTables(string tablePath, IEnumerable<BMSTable> tables, bool cleanupStaleManagedFiles)
     {
         if (string.IsNullOrWhiteSpace(tablePath))
         {
-            return;
+            return new ExportResult();
         }
         Directory.CreateDirectory(tablePath);
         HashSet<string> exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -39,23 +61,24 @@ internal static class BmtTableExportService
                 exportedFiles.Add(fileName);
             }
         }
-        UpdateManifest(tablePath, exportedFiles, new Dictionary<string, string>(StringComparer.Ordinal), cleanupStaleManagedFiles);
+        return UpdateManifest(tablePath, exportedFiles, new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal), cleanupStaleManagedFiles);
     }
 
-    internal static void ExportTableDataSet(string tablePath, IEnumerable<JObject> tableDataSet, bool cleanupStaleManagedFiles)
+    internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<JObject> tableDataSet, bool cleanupStaleManagedFiles)
     {
-        ExportTableDataSet(tablePath, (tableDataSet ?? Enumerable.Empty<JObject>()).Select((JObject tableData) => Tuple.Create<string, JObject>(null, tableData)), cleanupStaleManagedFiles);
+        return ExportTableDataSet(tablePath, (tableDataSet ?? Enumerable.Empty<JObject>()).Select((JObject tableData) => Tuple.Create<string, JObject>(null, tableData)), cleanupStaleManagedFiles);
     }
 
-    internal static void ExportTableDataSet(string tablePath, IEnumerable<Tuple<string, JObject>> tableDataSet, bool cleanupStaleManagedFiles)
+    internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<Tuple<string, JObject>> tableDataSet, bool cleanupStaleManagedFiles)
     {
         if (string.IsNullOrWhiteSpace(tablePath))
         {
-            return;
+            return new ExportResult();
         }
         Directory.CreateDirectory(tablePath);
+        List<ManagedTableUrlEntry> previousManagedTables = ReadManagedTableUrls(tablePath);
         HashSet<string> exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, string> playlistFiles = new Dictionary<string, string>(StringComparer.Ordinal);
+        Dictionary<string, ManifestPlaylistEntry> playlists = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
         foreach (Tuple<string, JObject> item in tableDataSet ?? Enumerable.Empty<Tuple<string, JObject>>())
         {
             string fileName = ExportTableData(tablePath, item?.Item2, item?.Item1);
@@ -64,11 +87,14 @@ internal static class BmtTableExportService
                 exportedFiles.Add(fileName);
                 if (!string.IsNullOrWhiteSpace(item?.Item1))
                 {
-                    playlistFiles[item.Item1] = fileName;
+                    playlists[item.Item1] = CreateManifestPlaylistEntry(item.Item1, fileName, item.Item2);
                 }
             }
         }
-        UpdateManifest(tablePath, exportedFiles, playlistFiles, cleanupStaleManagedFiles);
+        ExportResult result = UpdateManifest(tablePath, exportedFiles, playlists, cleanupStaleManagedFiles);
+        result.PreviousManagedTables.Clear();
+        result.PreviousManagedTables.AddRange(previousManagedTables);
+        return result;
     }
 
     internal static string ExportTable(string tablePath, BMSTable table)
@@ -114,7 +140,7 @@ internal static class BmtTableExportService
                 writer.Write(tableData.ToString(Formatting.Indented));
             }
             ReplaceFile(tempPath, outputPath);
-            AddManagedFile(tablePath, fileName, playlistIdentity);
+            AddManagedFile(tablePath, fileName, playlistIdentity, tableData);
             return fileName;
         }
         finally
@@ -136,6 +162,41 @@ internal static class BmtTableExportService
                 TryDeleteFile(Path.Combine(tablePath, fileName));
             }
             TryDeleteFile(Path.Combine(tablePath, ManifestFileName));
+        }
+    }
+
+    internal static ExportResult RemoveManagedPlaylist(string tablePath, string playlistIdentity)
+    {
+        ExportResult result = new ExportResult();
+        if (string.IsNullOrWhiteSpace(tablePath) || string.IsNullOrWhiteSpace(playlistIdentity))
+        {
+            return result;
+        }
+        lock (ManifestLock)
+        {
+            ManifestState manifest = ReadManifest(tablePath);
+            result.PreviousManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
+            if (manifest.Playlists.TryGetValue(playlistIdentity, out ManifestPlaylistEntry oldEntry))
+            {
+                manifest.Files.Remove(oldEntry.FileName);
+                TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
+                manifest.Playlists.Remove(playlistIdentity);
+                WriteManifest(tablePath, manifest.Files, manifest.Playlists);
+            }
+            result.CurrentManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
+        }
+        return result;
+    }
+
+    internal static List<ManagedTableUrlEntry> ReadManagedTableUrls(string tablePath)
+    {
+        if (string.IsNullOrWhiteSpace(tablePath) || !Directory.Exists(tablePath))
+        {
+            return new List<ManagedTableUrlEntry>();
+        }
+        lock (ManifestLock)
+        {
+            return ReadManifest(tablePath).Playlists.Values.Select(CloneManagedTableUrlEntry).ToList();
         }
     }
 
@@ -537,11 +598,13 @@ internal static class BmtTableExportService
         return trophies;
     }
 
-    private static void UpdateManifest(string tablePath, HashSet<string> currentFiles, Dictionary<string, string> playlistFiles, bool cleanupStaleManagedFiles)
+    private static ExportResult UpdateManifest(string tablePath, HashSet<string> currentFiles, Dictionary<string, ManifestPlaylistEntry> playlists, bool cleanupStaleManagedFiles)
     {
+        ExportResult result = new ExportResult();
         lock (ManifestLock)
         {
             ManifestState previous = ReadManifest(tablePath);
+            result.PreviousManagedTables.AddRange(previous.Playlists.Values.Select(CloneManagedTableUrlEntry));
             if (cleanupStaleManagedFiles)
             {
                 foreach (string fileName in previous.Files.Where((string fileName) => !currentFiles.Contains(fileName)))
@@ -549,28 +612,30 @@ internal static class BmtTableExportService
                     TryDeleteFile(Path.Combine(tablePath, fileName));
                 }
             }
-            WriteManifest(tablePath, currentFiles, playlistFiles);
+            result.CurrentManagedTables.AddRange((playlists ?? new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal)).Values.Select(CloneManagedTableUrlEntry));
+            WriteManifest(tablePath, currentFiles, playlists);
         }
+        return result;
     }
 
-    private static void AddManagedFile(string tablePath, string fileName, string playlistIdentity)
+    private static void AddManagedFile(string tablePath, string fileName, string playlistIdentity, JObject tableData)
     {
         lock (ManifestLock)
         {
             ManifestState manifest = ReadManifest(tablePath);
             if (!string.IsNullOrWhiteSpace(playlistIdentity)
-                && manifest.PlaylistFiles.TryGetValue(playlistIdentity, out string oldFileName)
-                && !string.Equals(oldFileName, fileName, StringComparison.OrdinalIgnoreCase))
+                && manifest.Playlists.TryGetValue(playlistIdentity, out ManifestPlaylistEntry oldEntry)
+                && !string.Equals(oldEntry.FileName, fileName, StringComparison.OrdinalIgnoreCase))
             {
-                manifest.Files.Remove(oldFileName);
-                TryDeleteFile(Path.Combine(tablePath, oldFileName));
+                manifest.Files.Remove(oldEntry.FileName);
+                TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
             }
             manifest.Files.Add(fileName);
             if (!string.IsNullOrWhiteSpace(playlistIdentity))
             {
-                manifest.PlaylistFiles[playlistIdentity] = fileName;
+                manifest.Playlists[playlistIdentity] = CreateManifestPlaylistEntry(playlistIdentity, fileName, tableData);
             }
-            WriteManifest(tablePath, manifest.Files, manifest.PlaylistFiles);
+            WriteManifest(tablePath, manifest.Files, manifest.Playlists);
         }
     }
 
@@ -598,10 +663,18 @@ internal static class BmtTableExportService
             {
                 foreach (JProperty property in playlists.Properties())
                 {
-                    string fileName = Path.GetFileName(property.Value?.ToString());
-                    if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase))
+                    JObject value = property.Value as JObject;
+                    string fileName = Path.GetFileName(value?.Value<string>("file"));
+                    string url = value?.Value<string>("url");
+                    if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(url))
                     {
-                        state.PlaylistFiles[property.Name] = fileName;
+                        state.Playlists[property.Name] = new ManifestPlaylistEntry
+                        {
+                            PlaylistIdentity = property.Name,
+                            FileName = fileName,
+                            Url = url,
+                            Name = value.Value<string>("name") ?? string.Empty
+                        };
                         state.Files.Add(fileName);
                     }
                 }
@@ -618,25 +691,52 @@ internal static class BmtTableExportService
         WriteManifest(tablePath, fileNames, null);
     }
 
-    private static void WriteManifest(string tablePath, IEnumerable<string> fileNames, IDictionary<string, string> playlistFiles)
+    private static void WriteManifest(string tablePath, IEnumerable<string> fileNames, IDictionary<string, ManifestPlaylistEntry> playlists)
     {
         JObject manifest = new JObject
         {
             ["files"] = new JArray((fileNames ?? Enumerable.Empty<string>()).Where((string fileName) => !string.IsNullOrWhiteSpace(fileName)).OrderBy((string fileName) => fileName, StringComparer.OrdinalIgnoreCase))
         };
-        if (playlistFiles != null && playlistFiles.Count > 0)
+        if (playlists != null && playlists.Count > 0)
         {
-            JObject playlists = new JObject();
-            foreach (KeyValuePair<string, string> item in playlistFiles.OrderBy((KeyValuePair<string, string> item) => item.Key, StringComparer.Ordinal))
+            JObject playlistJson = new JObject();
+            foreach (KeyValuePair<string, ManifestPlaylistEntry> item in playlists.OrderBy((KeyValuePair<string, ManifestPlaylistEntry> item) => item.Key, StringComparer.Ordinal))
             {
-                if (!string.IsNullOrWhiteSpace(item.Key) && !string.IsNullOrWhiteSpace(item.Value))
+                if (!string.IsNullOrWhiteSpace(item.Key) && item.Value != null && !string.IsNullOrWhiteSpace(item.Value.FileName) && !string.IsNullOrWhiteSpace(item.Value.Url))
                 {
-                    playlists[item.Key] = item.Value;
+                    playlistJson[item.Key] = new JObject
+                    {
+                        ["file"] = item.Value.FileName,
+                        ["url"] = item.Value.Url,
+                        ["name"] = item.Value.Name ?? string.Empty
+                    };
                 }
             }
-            manifest["playlists"] = playlists;
+            manifest["playlists"] = playlistJson;
         }
         File.WriteAllText(Path.Combine(tablePath, ManifestFileName), manifest.ToString(Formatting.Indented), new UTF8Encoding(false));
+    }
+
+    private static ManifestPlaylistEntry CreateManifestPlaylistEntry(string playlistIdentity, string fileName, JObject tableData)
+    {
+        return new ManifestPlaylistEntry
+        {
+            PlaylistIdentity = playlistIdentity,
+            FileName = fileName,
+            Url = tableData?.Value<string>("url") ?? string.Empty,
+            Name = tableData?.Value<string>("name") ?? string.Empty
+        };
+    }
+
+    private static ManagedTableUrlEntry CloneManagedTableUrlEntry(ManagedTableUrlEntry entry)
+    {
+        return new ManagedTableUrlEntry
+        {
+            PlaylistIdentity = entry?.PlaylistIdentity,
+            FileName = entry?.FileName,
+            Url = entry?.Url,
+            Name = entry?.Name
+        };
     }
 
     private static void ReplaceFile(string sourcePath, string destinationPath)

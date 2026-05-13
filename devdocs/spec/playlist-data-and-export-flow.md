@@ -106,7 +106,11 @@ LR2 custom folder 出力は LR2 linked profile の機能であり、standalone p
 
 ## beatoraja `.bmt` 出力
 
-beatoraja `.bmt` 出力は LR2 linked profile に依存しない。設定 `EnableBeatorajaBmtOutput` が ON で `BeatorajaBmtTablePath` が非空の場合だけ有効になる。非空 path が存在しない場合は設定 validation error とし、空欄は未有効として保存可能にする。
+beatoraja `.bmt` 出力は LR2 linked profile に依存しない。設定 `EnableBeatorajaBmtOutput` が ON で、`BeatorajaRootPath` が有効な beatoraja ディレクトリを指す場合だけ有効になる。beatoraja ディレクトリは直下に `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` があることを条件にする。
+
+出力先は `config_sys.json` の `tablepath` から解決する。`tablepath` が相対 path の場合は beatoraja ディレクトリ基準、絶対 path の場合はそのまま使う。`BeatorajaBmtTablePath` は派生値として保持されるが、UI では直接編集しない。
+
+beatoraja score 読み込みも同じ beatoraja ディレクトリを起点にする。プレイヤー一覧は `config_sys.json` の `playerpath` 配下のフォルダから作り、選択した `BeatorajaPlayerId` の `score.db` を `BeatorajaScoreDbPath` の派生値として使う。
 
 ### 出力形式
 
@@ -136,13 +140,20 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 - プレイリストプロパティ保存後は対象 playlist を再出力する。
 - `.bmt` 設定の有効状態または table path が変わった場合は全 playlist を再出力する。旧 path がある場合は manifest cleanup する。
 - プレイリスト削除と backup restore 後は全出力系を使い、manifest cleanup により不要な managed `.bmt` を削除する。
+- `RegisterBeatorajaBmtUrls` が ON の場合、`.bmt` 出力後に `config_sys.json` の `tableURL` も同期する。
 
 ### Managed Cleanup
 
 出力先直下に `.bemusicseeker-bmt-manifest` を置く。拡張子 `.json` は付けない。
 
-manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から最後に出力した `.bmt` file への対応を記録する。cleanup は manifest に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。起動・`ReloadTables`・playlist 削除・restore・設定変更の全出力では、manifest を現在の active playlist set の投影として扱い、別 DB / 別 profile 由来で現在存在しない managed `.bmt` も削除する。
+manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から最後に出力した `.bmt` file / URL / playlist name への対応を記録する。cleanup は manifest に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。起動・`ReloadTables`・playlist 削除・restore・設定変更の全出力では、manifest を現在の active playlist set の投影として扱い、別 DB / 別 profile 由来で現在存在しない managed `.bmt` も削除する。
 
 同じ playlist ID の `.bmt` URL が変わり、ファイル名が変わった場合は、manifest に残る旧ファイルを削除してから新ファイルを管理対象にする。
 
 同名 `.bmt` が既に存在する場合は上書きする。管理外ファイルであっても、出力対象 URL の SHA-256 と同名なら BeMusicSeeker 出力が優先され、以後 manifest 管理対象になる。
+
+### config_sys.json tableURL 同期
+
+beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableURL` 配列順が優先される。配列にない `.bmt` は beatoraja の `tablepath` ディレクトリ列挙順に依存するため、BeMusicSeeker 管理 `.bmt` の順序安定化には `tableURL` 同期を使う。
+
+同期時は、既存 `tableURL` のうち BeMusicSeeker 管理外の URL を既存順のまま先頭側に残す。manifest に記録された前回 BeMusicSeeker 管理 URL は削除し、今回出力できた managed URL を playlist name 昇順で末尾に追加する。`RegisterBeatorajaBmtUrls` が OFF の場合は、前回管理 URL を `tableURL` から外す。

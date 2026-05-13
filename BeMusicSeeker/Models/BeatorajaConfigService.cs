@@ -1,0 +1,174 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace BeMusicSeeker.Models;
+
+internal static class BeatorajaConfigService
+{
+    internal const string ConfigFileName = "config_sys.json";
+
+    internal static bool IsBeatorajaRootPathValid(string rootPath)
+    {
+        return !string.IsNullOrWhiteSpace(rootPath)
+            && Directory.Exists(rootPath)
+            && File.Exists(GetConfigPath(rootPath))
+            && (File.Exists(Path.Combine(rootPath, "beatoraja.jar")) || File.Exists(Path.Combine(rootPath, "beatoraja.exe")))
+            && TryReadConfig(rootPath, out _);
+    }
+
+    internal static string GetConfigPath(string rootPath)
+    {
+        return string.IsNullOrWhiteSpace(rootPath) ? null : Path.Combine(rootPath, ConfigFileName);
+    }
+
+    internal static string GetTablePath(string rootPath)
+    {
+        JObject config = ReadConfigOrDefault(rootPath);
+        return ResolveConfiguredPath(rootPath, config.Value<string>("tablepath"), "table");
+    }
+
+    internal static string GetPlayerRootPath(string rootPath)
+    {
+        JObject config = ReadConfigOrDefault(rootPath);
+        return ResolveConfiguredPath(rootPath, config.Value<string>("playerpath"), "player");
+    }
+
+    internal static string GetConfiguredPlayerId(string rootPath)
+    {
+        JObject config = ReadConfigOrDefault(rootPath);
+        return config.Value<string>("playername") ?? string.Empty;
+    }
+
+    internal static string GetScoreDbPath(string rootPath, string playerId)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || string.IsNullOrWhiteSpace(playerId))
+        {
+            return string.Empty;
+        }
+        return Path.Combine(GetPlayerRootPath(rootPath), playerId, "score.db");
+    }
+
+    internal static List<string> GetPlayerIds(string rootPath)
+    {
+        string playerRoot = GetPlayerRootPath(rootPath);
+        if (string.IsNullOrWhiteSpace(playerRoot) || !Directory.Exists(playerRoot))
+        {
+            return new List<string>();
+        }
+        return Directory.EnumerateDirectories(playerRoot, "*", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where((string name) => !string.IsNullOrWhiteSpace(name))
+            .OrderBy((string name) => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    internal static bool IsPlayerScoreDbPathValid(string rootPath, string playerId)
+    {
+        string scoreDbPath = GetScoreDbPath(rootPath, playerId);
+        return !string.IsNullOrWhiteSpace(scoreDbPath)
+            && string.Equals(Path.GetFileName(scoreDbPath), "score.db", StringComparison.OrdinalIgnoreCase)
+            && File.Exists(scoreDbPath);
+    }
+
+    internal static void SyncTableUrls(string rootPath, IEnumerable<string> currentManagedUrls, IEnumerable<string> previousManagedUrls)
+    {
+        if (!IsBeatorajaRootPathValid(rootPath))
+        {
+            return;
+        }
+        string configPath = GetConfigPath(rootPath);
+        JObject config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+        HashSet<string> managedUrlSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string url in (previousManagedUrls ?? Enumerable.Empty<string>()).Concat(currentManagedUrls ?? Enumerable.Empty<string>()))
+        {
+            if (!string.IsNullOrWhiteSpace(url))
+            {
+                managedUrlSet.Add(url);
+            }
+        }
+        List<string> existingUrls = (config["tableURL"] as JArray ?? new JArray())
+            .Select((JToken token) => token.Type == JTokenType.String ? token.Value<string>() : null)
+            .Where((string url) => !string.IsNullOrWhiteSpace(url))
+            .Where((string url) => !managedUrlSet.Contains(url))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        List<string> appendedUrls = (currentManagedUrls ?? Enumerable.Empty<string>())
+            .Where((string url) => !string.IsNullOrWhiteSpace(url))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        JArray tableUrl = new JArray(existingUrls.Concat(appendedUrls));
+        if (JToken.DeepEquals(config["tableURL"], tableUrl))
+        {
+            return;
+        }
+        config["tableURL"] = tableUrl;
+        WriteConfigAtomic(configPath, config);
+    }
+
+    private static bool TryReadConfig(string rootPath, out JObject config)
+    {
+        config = null;
+        string configPath = GetConfigPath(rootPath);
+        if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
+        {
+            return false;
+        }
+        try
+        {
+            config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static JObject ReadConfigOrDefault(string rootPath)
+    {
+        return TryReadConfig(rootPath, out JObject config) ? config : new JObject();
+    }
+
+    private static string ResolveConfiguredPath(string rootPath, string configuredPath, string defaultPath)
+    {
+        string path = string.IsNullOrWhiteSpace(configuredPath) ? defaultPath : configuredPath;
+        if (Path.IsPathRooted(path))
+        {
+            return Path.GetFullPath(path);
+        }
+        return Path.GetFullPath(Path.Combine(rootPath ?? string.Empty, path));
+    }
+
+    private static void WriteConfigAtomic(string configPath, JObject config)
+    {
+        string tempPath = configPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(tempPath, config.ToString(Formatting.Indented), new UTF8Encoding(false));
+            if (File.Exists(configPath))
+            {
+                File.Replace(tempPath, configPath, null);
+                return;
+            }
+            File.Move(tempPath, configPath);
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+}

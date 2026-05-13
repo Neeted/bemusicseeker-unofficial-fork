@@ -173,6 +173,98 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_ReturnsManagedUrlsForConfigSync()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            JObject firstTableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            BmtTableExportService.ExportResult firstResult = BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
+            {
+                Tuple.Create("1", firstTableData)
+            }, cleanupStaleManagedFiles: true);
+            Assert.AreEqual(0, firstResult.PreviousManagedTables.Count);
+            Assert.AreEqual("bemusicseeker://playlist/1", firstResult.CurrentManagedTables.Single().Url);
+            Assert.AreEqual("First", firstResult.CurrentManagedTables.Single().Name);
+
+            JObject secondTableData = CreateLocalTableData("bemusicseeker://playlist/2", "Second");
+            BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
+            {
+                Tuple.Create("2", secondTableData)
+            }, cleanupStaleManagedFiles: true);
+
+            Assert.AreEqual("bemusicseeker://playlist/1", secondResult.PreviousManagedTables.Single().Url);
+            Assert.AreEqual("bemusicseeker://playlist/2", secondResult.CurrentManagedTables.Single().Url);
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void RemoveManagedPlaylist_WhenPlaylistIsUnknownKeepsCurrentManagedUrls()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            JObject tableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
+            {
+                Tuple.Create("1", tableData)
+            }, cleanupStaleManagedFiles: true);
+
+            BmtTableExportService.ExportResult result = BmtTableExportService.RemoveManagedPlaylist(tempDirectory, "missing");
+
+            Assert.AreEqual("bemusicseeker://playlist/1", result.PreviousManagedTables.Single().Url);
+            Assert.AreEqual("bemusicseeker://playlist/1", result.CurrentManagedTables.Single().Url);
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BeatorajaConfigService_SyncTableUrlsPreservesUnmanagedAndReplacesManaged()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string root = CreateBeatorajaRoot(tempDirectory);
+            string configPath = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(configPath, "{\"tablepath\":\"table\",\"playerpath\":\"player\",\"playername\":\"player2\",\"tableURL\":[\"https://external.example/table\",\"bemusicseeker://playlist/old\",\"https://keep.example/table\"]}", Encoding.UTF8);
+
+            BeatorajaConfigService.SyncTableUrls(
+                root,
+                new[] { "bemusicseeker://playlist/2", "bemusicseeker://playlist/1" },
+                new[] { "bemusicseeker://playlist/old", "bemusicseeker://playlist/1" });
+
+            JObject config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+            CollectionAssert.AreEqual(new[]
+            {
+                "https://external.example/table",
+                "https://keep.example/table",
+                "bemusicseeker://playlist/2",
+                "bemusicseeker://playlist/1"
+            }, config["tableURL"]!.Select((JToken token) => token.ToString()).ToArray());
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BeatorajaConfigService_ResolvesConfiguredTableAndPlayerPaths()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            string root = CreateBeatorajaRoot(tempDirectory);
+            string configPath = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            Directory.CreateDirectory(Path.Combine(root, "players", "player1"));
+            Directory.CreateDirectory(Path.Combine(root, "players", "player2"));
+            File.WriteAllText(Path.Combine(root, "players", "player2", "score.db"), string.Empty);
+            File.WriteAllText(configPath, "{\"tablepath\":\"tables\",\"playerpath\":\"players\",\"playername\":\"player2\",\"tableURL\":[]}", Encoding.UTF8);
+
+            Assert.IsTrue(BeatorajaConfigService.IsBeatorajaRootPathValid(root));
+            Assert.AreEqual(Path.Combine(root, "tables"), BeatorajaConfigService.GetTablePath(root));
+            Assert.AreEqual(Path.Combine(root, "players", "player2", "score.db"), BeatorajaConfigService.GetScoreDbPath(root, "player2"));
+            CollectionAssert.AreEqual(new[] { "player1", "player2" }, BeatorajaConfigService.GetPlayerIds(root).ToArray());
+            Assert.IsTrue(BeatorajaConfigService.IsPlayerScoreDbPathValid(root, "player2"));
+        });
+    }
+
     private static JObject ReadBmtJson(string path)
     {
         using FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -198,6 +290,17 @@ public sealed class BmtTableExportServiceTests
             }),
             ["course"] = new JArray()
         };
+    }
+
+    private static string CreateBeatorajaRoot(string tempDirectory)
+    {
+        string root = Path.Combine(tempDirectory, "beatoraja");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(Path.Combine(root, "table"));
+        Directory.CreateDirectory(Path.Combine(root, "player"));
+        File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+        File.WriteAllText(Path.Combine(root, BeatorajaConfigService.ConfigFileName), "{\"tablepath\":\"table\",\"playerpath\":\"player\",\"tableURL\":[]}", Encoding.UTF8);
+        return root;
     }
 
     private static void WithTemporaryDirectory(Action<string> testAction)

@@ -56,7 +56,9 @@ internal sealed class BmsLibraryOptionsSnapshot
             SkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking,
             EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent,
             UseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb,
-            BeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath,
+            BeatorajaScoreDbPath = BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath)
+                ? BeatorajaConfigService.GetScoreDbPath(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId)
+                : Settings.Default.BeatorajaScoreDbPath,
             EnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas,
             SkipInitFileCheck = Settings.Default.SkipInitFileCheck,
             FolderNameFormat = Settings.Default.FolderNameFormat,

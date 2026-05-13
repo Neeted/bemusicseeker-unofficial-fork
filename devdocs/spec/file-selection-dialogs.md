@@ -32,7 +32,7 @@
 | 一般 | LR2 ディレクトリ参照 | `FolderSelectionMessage` | Folder | LR2 root directory | N/A | N/A | N/A | N/A | `settingDialog.LR2RootPath` |
 | 一般 | `song.db` 参照 | `OpeningFileSelectionMessage` | File open | LR2 song DB (`*.db`) | `song.db (*.db)`, all files | `song.db` | `db` | Computed from FileName | `settingDialog.LR2SongDBPath` |
 | 一般 | `config.xml` 参照 | `OpeningFileSelectionMessage` | File open | LR2 `config.xml` / `config.xmh` | `config.xm?`, all files | `config.xml` | `xml` | Computed from FileName | `settingDialog.LR2ConfigXmlPath` |
-| 一般 | beatoraja `score.db` 参照 | `OpeningFileSelectionMessage` | File open | beatoraja score DB (`*.db`) | `Resources.FileDialogFilter_scoreDB` = `score.db (*.db)`, all files | `score.db` | `db` | Computed from FileName | `settingDialog.BeatorajaScoreDbPath` |
+| 一般 | beatoraja ディレクトリ参照 | `FolderSelectionMessage` | Folder | beatoraja root directory | N/A | N/A | N/A | N/A | `settingDialog.BeatorajaRootPath` |
 
 `config.xm?` は LR2 互換上の意図的な filter で、`config.xml` と `config.xmh` を許可する。既定拡張子は `FileName=config.xml` から算出されるため `xml` になる。
 
