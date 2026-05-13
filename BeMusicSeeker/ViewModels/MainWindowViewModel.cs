@@ -8265,6 +8265,7 @@ public class MainWindowViewModel : ViewModel
                         UpdatePlaylistSyncRuntimeStatus(result);
                     }, UpdatePlaylistSyncProgressStatus).ConfigureAwait(false);
                     int num = list?.Count ?? 0;
+                    tables.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + reason);
                     if (ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(updateCallbackAction))
                     {
                         ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason, operationToken);
@@ -10627,7 +10628,7 @@ public class MainWindowViewModel : ViewModel
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
             await Task.Run(delegate
             {
-                tables.ReloadTables(updateCallbackAction);
+                tables.ReloadTables(updateCallbackAction, queueBeatorajaBmtExportAfterHydration: false);
             }).Logging("ReloadTables");
             scheduleDeferredExternalSync = true;
         }
@@ -11498,7 +11499,7 @@ public class MainWindowViewModel : ViewModel
         SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
         Action taskAdd1 = delegate
         {
-            tables.Initialize(reloadExtPlaylist: false, null, semaphore);
+            tables.Initialize(reloadExtPlaylist: false, null, semaphore, queueBeatorajaBmtExportAfterHydration: Settings.Default.SkipInitPlaylistLoad);
         };
         Action taskAdd2 = delegate
         {
@@ -16770,6 +16771,7 @@ public class MainWindowViewModel : ViewModel
                 },
                 UpdatePlaylistSyncProgressStatus,
                 "manual_resync");
+            tables.QueueBeatorajaBmtExportAll("manual_resync");
             RefreshPlaylistSummaryIfVisible("manual_playlist_resync", invalidateTableCountCache: true);
             RefreshPlaylistDetailAfterReloadIfVisible();
             bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, list.Count);

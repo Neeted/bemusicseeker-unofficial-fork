@@ -130,8 +130,8 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 
 ### 出力契機
 
-- 起動時と `ReloadTables` 時は、playlist entries hydration 後に全 playlist を playlist 単位 queue へ入れる。現時点では前回から変化がなくても再出力する。
-- 外部同期では known content change と hash initialization のどちらでも DB 保存対象になり、callback により `.bmt` 出力対象になる。
+- 起動時と `ReloadTables` 時は、playlist entries hydration と deferred external sync が収束した後に全 playlist を active profile / DB の投影として全出力し、manifest 管理下で active set に含まれない `.bmt` を削除する。外部同期を行わない初期読み込みでは hydration 後に同じ全出力を行う。playlist が 0 件の場合も managed `.bmt` は空集合へ収束させる。
+- 外部同期では known content change と hash initialization のどちらでも DB 保存対象になる。手動再同期後は、対象 playlist が非出力状態になった場合の旧 managed `.bmt` も削除できるように全体投影を出力する。
 - ローカル編集で `ReOutputCustomFolderAndCommitToDB` または `CommitBMSTableEntry` を通る場合は対象 playlist を再出力する。
 - プレイリストプロパティ保存後は対象 playlist を再出力する。
 - `.bmt` 設定の有効状態または table path が変わった場合は全 playlist を再出力する。旧 path がある場合は manifest cleanup する。
@@ -141,7 +141,7 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 
 出力先直下に `.bemusicseeker-bmt-manifest` を置く。拡張子 `.json` は付けない。
 
-manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から最後に出力した `.bmt` file への対応を記録する。cleanup は manifest に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。
+manifest は BeMusicSeeker が管理した `.bmt` と playlist ID から最後に出力した `.bmt` file への対応を記録する。cleanup は manifest に記録された `.bmt` だけを削除対象にし、管理外の `.bmt` は削除しない。起動・`ReloadTables`・playlist 削除・restore・設定変更の全出力では、manifest を現在の active playlist set の投影として扱い、別 DB / 別 profile 由来で現在存在しない managed `.bmt` も削除する。
 
 同じ playlist ID の `.bmt` URL が変わり、ファイル名が変わった場合は、manifest に残る旧ファイルを削除してから新ファイルを管理対象にする。
 

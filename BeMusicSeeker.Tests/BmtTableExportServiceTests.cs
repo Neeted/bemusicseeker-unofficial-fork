@@ -126,12 +126,78 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_WithCleanupRemovesManagedFilesOutsideCurrentActiveSet()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            JObject firstTableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            JObject secondTableData = CreateLocalTableData("bemusicseeker://playlist/2", "Second");
+
+            BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
+            {
+                Tuple.Create("1", firstTableData),
+                Tuple.Create("2", secondTableData)
+            }, cleanupStaleManagedFiles: true);
+            string firstFileName = BMSTable.ComputeSha256Hex(firstTableData.Value<string>("url")) + ".bmt";
+            string secondFileName = BMSTable.ComputeSha256Hex(secondTableData.Value<string>("url")) + ".bmt";
+            Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, firstFileName)));
+            Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, secondFileName)));
+
+            BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
+            {
+                Tuple.Create("2", secondTableData)
+            }, cleanupStaleManagedFiles: true);
+
+            Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, firstFileName)));
+            Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, secondFileName)));
+        });
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_WithCleanupAndEmptyCurrentSetRemovesAllManagedFiles()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectory)
+        {
+            JObject tableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
+            string fileName = BmtTableExportService.ExportTableData(tempDirectory, tableData, "1");
+            string unmanagedPath = Path.Combine(tempDirectory, "unmanaged.bmt");
+            File.WriteAllText(unmanagedPath, "keep");
+
+            BmtTableExportService.ExportTableDataSet(tempDirectory, Array.Empty<Tuple<string, JObject>>(), cleanupStaleManagedFiles: true);
+
+            Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, fileName)));
+            Assert.IsTrue(File.Exists(unmanagedPath));
+        });
+    }
+
     private static JObject ReadBmtJson(string path)
     {
         using FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         using GZipStream gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
         using StreamReader reader = new StreamReader(gzipStream, Encoding.UTF8);
         return JObject.Parse(reader.ReadToEnd());
+    }
+
+    private static JObject CreateLocalTableData(string url, string name)
+    {
+        return new JObject
+        {
+            ["url"] = url,
+            ["name"] = name,
+            ["folder"] = new JArray(new JObject
+            {
+                ["name"] = "Alpha",
+                ["songs"] = new JArray(new JObject
+                {
+                    ["title"] = "Song",
+                    ["md5"] = Md5A
+                })
+            }),
+            ["course"] = new JArray()
+        };
     }
 
     private static void WithTemporaryDirectory(Action<string> testAction)
