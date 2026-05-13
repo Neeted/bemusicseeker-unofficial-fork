@@ -14,6 +14,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         SQLiteTable<install>.GetTableName(),
         SQLiteTable<maintenance>.GetTableName(),
         SQLiteTable<playlist>.GetTableName(),
+        SQLiteTable<playlist_course>.GetTableName(),
         SQLiteTable<playlist_entry>.GetTableName(),
         SQLiteTable<chart_digest_map>.GetTableName(),
         SQLiteTable<chart_info>.GetTableName(),
@@ -170,6 +171,12 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public virtual string data_url { get; protected set; }
 
+        public string tag { get; set; }
+
+        public string header_sha256 { get; set; }
+
+        public string data_sha256 { get; set; }
+
         public string compat_prefix { get; set; }
 
         public DateTime last_update { get; set; }
@@ -185,6 +192,21 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public string output_dir { get; protected set; }
 
         public bool is_root_folder { get; set; }
+    }
+
+    [Table("playlist_course")]
+    public class playlist_course : SQLiteTable<playlist_course>
+    {
+        [PrimaryKey]
+        [AutoIncrement]
+        public int? course_id { get; set; }
+
+        [NotNull]
+        public int? playlist_id { get; set; }
+
+        public int course_order { get; set; }
+
+        public string course_json { get; set; }
     }
 
     [Table("playlist_entry")]

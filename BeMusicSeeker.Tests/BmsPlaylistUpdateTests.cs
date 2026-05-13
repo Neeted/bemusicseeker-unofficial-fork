@@ -78,6 +78,7 @@ public sealed class BmsPlaylistUpdateTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Snapshot Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
             BMSPlaylist playlist = new BMSPlaylist(songDbPath);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
@@ -103,6 +104,73 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actualCallbackContext.OldEntriesSnapshot[0].md5);
             Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actualCallbackContext.NewEntriesSnapshot[0].md5);
             Assert.AreEqual(new string('b', 64), actualCallbackContext.NewEntriesSnapshot[0].sha256);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_HashInitializationPersistsWithoutUpdatedFlag()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"HashInitTable\",\r\n\"symbol\":\"H\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Hash Init Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.EnableExternalSync();
+            table.playlist_id = 900001;
+            table.header_sha256 = null;
+            table.data_sha256 = null;
+            DateTime existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
+            table.last_update = existingLastUpdate;
+            using (LR2SongDBExtended db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries)
+                {
+                    db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
+
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table }, new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
+            {
+                delegate(BMSPlaylist.PlaylistTableUpdateContext context)
+                {
+                    callbackContext = context;
+                }
+            }, reason: "test_hash_initialization");
+
+            Assert.AreEqual(1, results.Count);
+            Assert.IsFalse(results[0].Updated);
+            Assert.IsNotNull(callbackContext);
+            Assert.IsFalse(callbackContext!.Updated);
+            Assert.AreEqual(existingLastUpdate, results[0].ResultTable.last_update);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.header_sha256));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.data_sha256));
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single((LR2SongDBExtended.playlist row) => row.playlist_id == 900001);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.header_sha256));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.data_sha256));
+            Assert.AreEqual(existingLastUpdate, persisted.last_update);
         }
         finally
         {

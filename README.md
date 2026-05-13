@@ -109,6 +109,8 @@ The list below focuses on the main differences from the traditional build.
 - **Added automatic playlist URL completion**
   - When `url` / `url_diff` are missing, the app can now fill them at runtime by matching MD5 values against an external TSV and Stella Uploader data.
   - The TSV source URI is configurable from the settings screen, and can point to HTTP/HTTPS resources or a local TSV file. If a more comprehensive mapping source becomes available, it can be swapped in directly.
+- **Added beatoraja `.bmt` table cache output**
+  - BeMusicSeeker can export all playlists to beatoraja-compatible `.bmt` files under beatoraja's `table` directory. This is intended for environments where beatoraja's own level aggregation causes slow difficulty-table loading.
 
 #### Duplicate file checking
 

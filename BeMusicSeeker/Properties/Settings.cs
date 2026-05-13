@@ -127,6 +127,36 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool EnableBeatorajaBmtOutput
+	{
+		get
+		{
+			return (bool)this["EnableBeatorajaBmtOutput"];
+		}
+		set
+		{
+			this["EnableBeatorajaBmtOutput"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
+	public string BeatorajaBmtTablePath
+	{
+		get
+		{
+			return (string)this["BeatorajaBmtTablePath"];
+		}
+		set
+		{
+			this["BeatorajaBmtTablePath"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("")]
 	public string uBMplayPath
 	{

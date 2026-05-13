@@ -20,6 +20,7 @@ using Codeplex.Data;
 using Livet;
 using Livet.EventListeners;
 using Microsoft.VisualBasic.FileIO;
+using Newtonsoft.Json.Linq;
 using NLog;
 using Ribbit.Net;
 using Ribbit.Util;
@@ -70,6 +71,15 @@ public partial class BMSPlaylist : NotificationObject
         public IReadOnlyList<string> PersistedOnlySamples { get; set; }
 
         public IReadOnlyList<string> ReloadedOnlySamples { get; set; }
+    }
+
+    private sealed class PlaylistHashChangeResult
+    {
+        public bool HasKnownChanges { get; set; }
+
+        public bool HasHashInitialization { get; set; }
+
+        public bool HasStateToPersist => HasKnownChanges || HasHashInitialization;
     }
 
     public sealed class PlaylistTableUpdateContext
@@ -226,6 +236,12 @@ public partial class BMSPlaylist : NotificationObject
     private bool playlistEntriesHydrationPendingRunExternalSync;
 
     private readonly List<Action<PlaylistTableUpdateContext>> playlistEntriesHydrationPendingUpdateCallbacks = new List<Action<PlaylistTableUpdateContext>>();
+
+    private readonly object beatorajaBmtExportQueueLock = new object();
+
+    private readonly HashSet<int> pendingBeatorajaBmtExportPlaylistIds = new HashSet<int>();
+
+    private int beatorajaBmtExportQueued;
 
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
@@ -787,7 +803,7 @@ public partial class BMSPlaylist : NotificationObject
             SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-            QueueDeferredPlaylistEntriesHydration("Initialize", reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), updateCallbackAction });
+            QueueDeferredPlaylistEntriesHydration("Initialize", reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), CreateBeatorajaBmtOutputUpdateCallback(), updateCallbackAction });
         }
         stopwatchInitialize.Stop();
         LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
@@ -825,7 +841,7 @@ public partial class BMSPlaylist : NotificationObject
             SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-            QueueDeferredPlaylistEntriesHydration("ReloadTables", runExternalSyncAfterHydration: false, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), updateCallbackAction });
+            QueueDeferredPlaylistEntriesHydration("ReloadTables", runExternalSyncAfterHydration: false, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), CreateBeatorajaBmtOutputUpdateCallback(), updateCallbackAction });
         }
         stopwatchReloadTables.Stop();
         LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
@@ -841,6 +857,7 @@ public partial class BMSPlaylist : NotificationObject
             list = (from t in lR2SongDBExtended.Table<BMSTable>()
                     orderby t.name
                     select t).ToList();
+            AttachPersistedCourses(lR2SongDBExtended, list);
         }
         stopwatchLoadTables.Stop();
         foreach (BMSTable table in list)
@@ -849,6 +866,27 @@ public partial class BMSPlaylist : NotificationObject
         }
         loadTablesMs = stopwatchLoadTables.ElapsedMilliseconds;
         return list;
+    }
+
+    private static void AttachPersistedCourses(LR2SongDBExtended db, IEnumerable<BMSTable> tables)
+    {
+        List<BMSTable> tableList = tables?.Where((BMSTable table) => table != null && table.playlist_id.HasValue).ToList() ?? new List<BMSTable>();
+        if (tableList.Count == 0)
+        {
+            return;
+        }
+        Dictionary<int, List<LR2SongDBExtended.playlist_course>> coursesByPlaylistId = db.Table<LR2SongDBExtended.playlist_course>()
+            .ToList()
+            .Where((LR2SongDBExtended.playlist_course course) => course.playlist_id.HasValue)
+            .GroupBy((LR2SongDBExtended.playlist_course course) => course.playlist_id.Value)
+            .ToDictionary((IGrouping<int, LR2SongDBExtended.playlist_course> group) => group.Key, (IGrouping<int, LR2SongDBExtended.playlist_course> group) => group.OrderBy((LR2SongDBExtended.playlist_course course) => course.course_order).ToList());
+        foreach (BMSTable table in tableList)
+        {
+            if (coursesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<LR2SongDBExtended.playlist_course> courses))
+            {
+                table.SetPersistedCourses(courses);
+            }
+        }
     }
 
     private Action<PlaylistTableUpdateContext> CreateCustomFolderOutputUpdateCallback()
@@ -885,6 +923,161 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         };
+    }
+
+    private Action<PlaylistTableUpdateContext> CreateBeatorajaBmtOutputUpdateCallback()
+    {
+        return delegate (PlaylistTableUpdateContext updateContext)
+        {
+            BMSTable bMSTable = updateContext?.NewTable;
+            if (bMSTable != null)
+            {
+                QueueBeatorajaBmtExport(bMSTable, "playlist_update_callback");
+            }
+        };
+    }
+
+    private bool IsBeatorajaBmtOutputEnabled()
+    {
+        return Settings.Default.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(Settings.Default.BeatorajaBmtTablePath);
+    }
+
+    internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)
+    {
+        string outputPath = Settings.Default.BeatorajaBmtTablePath;
+        bool enabled = IsBeatorajaBmtOutputEnabled();
+        Func<Task> work = async delegate
+        {
+            await Task.Yield();
+            if (!string.IsNullOrWhiteSpace(cleanupTablePath) && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase)))
+            {
+                BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
+            }
+            if (!enabled)
+            {
+                return;
+            }
+            List<BMSTable> tablesSnapshot;
+            using (rwlockBMSTables.GetReaderGuard())
+            {
+                tablesSnapshot = BMSTables?.Where((BMSTable table) => table != null).ToList() ?? new List<BMSTable>();
+            }
+            List<Tuple<string, JObject>> tableDataSet = new List<Tuple<string, JObject>>();
+            foreach (BMSTable table in tablesSnapshot)
+            {
+                JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason);
+                if (tableData != null)
+                {
+                    tableDataSet.Add(Tuple.Create(GetBeatorajaBmtPlaylistIdentity(table), tableData));
+                }
+            }
+            BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true);
+        };
+        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
+        {
+            return;
+        }
+        Task.Run(work).Logging("QueueBeatorajaBmtExportAll");
+    }
+
+    internal void QueueBeatorajaBmtExportForTable(BMSTable table, string reason)
+    {
+        QueueBeatorajaBmtExport(table, reason);
+    }
+
+    private void QueueBeatorajaBmtExport(BMSTable table, string reason)
+    {
+        if (!IsBeatorajaBmtOutputEnabled() || table == null || !table.playlist_id.HasValue)
+        {
+            return;
+        }
+        lock (beatorajaBmtExportQueueLock)
+        {
+            pendingBeatorajaBmtExportPlaylistIds.Add(table.playlist_id.Value);
+        }
+        ScheduleBeatorajaBmtExportQueue(reason);
+    }
+
+    private void ScheduleBeatorajaBmtExportQueue(string reason)
+    {
+        if (Interlocked.Exchange(ref beatorajaBmtExportQueued, 1) != 0)
+        {
+            return;
+        }
+        Func<Task> work = async delegate
+        {
+            await Task.Yield();
+            try
+            {
+                ProcessBeatorajaBmtExportQueue(reason);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref beatorajaBmtExportQueued, 0);
+                bool hasPending;
+                lock (beatorajaBmtExportQueueLock)
+                {
+                    hasPending = pendingBeatorajaBmtExportPlaylistIds.Count > 0;
+                }
+                if (hasPending)
+                {
+                    ScheduleBeatorajaBmtExportQueue(reason ?? "reschedule");
+                }
+            }
+        };
+        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export", reason ?? "queue", null, work))
+        {
+            return;
+        }
+        Task.Run(work).Logging("QueueBeatorajaBmtExport");
+    }
+
+    private void ProcessBeatorajaBmtExportQueue(string reason)
+    {
+        while (IsBeatorajaBmtOutputEnabled())
+        {
+            List<int> playlistIds;
+            lock (beatorajaBmtExportQueueLock)
+            {
+                if (pendingBeatorajaBmtExportPlaylistIds.Count == 0)
+                {
+                    return;
+                }
+                playlistIds = pendingBeatorajaBmtExportPlaylistIds.ToList();
+                pendingBeatorajaBmtExportPlaylistIds.Clear();
+            }
+            foreach (int playlistId in playlistIds)
+            {
+                BMSTable table;
+                using (rwlockBMSTables.GetReaderGuard())
+                {
+                    table = BMSTables?.FirstOrDefault((BMSTable candidate) => candidate != null && candidate.playlist_id == playlistId);
+                }
+                JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason);
+                if (tableData != null)
+                {
+                    BmtTableExportService.ExportTableData(Settings.Default.BeatorajaBmtTablePath, tableData, GetBeatorajaBmtPlaylistIdentity(table));
+                }
+            }
+        }
+    }
+
+    private static string GetBeatorajaBmtPlaylistIdentity(BMSTable table)
+    {
+        return table?.playlist_id?.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private JObject BuildBeatorajaBmtTableDataSnapshot(BMSTable table, string reason)
+    {
+        if (table == null)
+        {
+            return null;
+        }
+        EnsurePlaylistEntriesLoaded(table, reason ?? "BeatorajaBmtExport");
+        using (table.ReaderWriterLock.GetReaderGuard())
+        {
+            return BmtTableExportService.BuildTableData(table);
+        }
     }
 
     private void SyncRootFolderOutputDirectoriesToLr2Config()
@@ -1139,9 +1332,30 @@ public partial class BMSPlaylist : NotificationObject
     private static void EnsurePlaylistTablesAndIndexes(LR2SongDBExtended db)
     {
         db.CreateTable<LR2SongDBExtended.playlist>();
+        db.CreateTable<LR2SongDBExtended.playlist_course>();
         db.CreateTable<LR2SongDBExtended.playlist_entry>();
+        EnsurePlaylistMetadataColumns(db);
         EnsurePlaylistEntrySha256Column(db);
+        EnsurePlaylistCourseIndexes(db);
         RebuildPlaylistEntryIndexes(db);
+    }
+
+    private static void EnsurePlaylistMetadataColumns(LR2SongDBExtended db)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.playlist>.GetTableName();
+        EnsureColumn(db, tableName, "tag", "TEXT NULL");
+        EnsureColumn(db, tableName, "header_sha256", "TEXT NULL");
+        EnsureColumn(db, tableName, "data_sha256", "TEXT NULL");
+    }
+
+    private static void EnsureColumn(LR2SongDBExtended db, string tableName, string columnName, string columnType)
+    {
+        string sql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + sqlQuote(tableName) + ";");
+        if (string.IsNullOrWhiteSpace(sql) || sql.IndexOf("\"" + columnName + "\"", StringComparison.OrdinalIgnoreCase) >= 0 || Regex.IsMatch(sql, "(^|[^A-Za-z0-9_])" + Regex.Escape(columnName) + "([^A-Za-z0-9_]|$)", RegexOptions.IgnoreCase))
+        {
+            return;
+        }
+        db.Execute("ALTER TABLE \"" + tableName + "\" ADD COLUMN \"" + columnName + "\" " + columnType + ";");
     }
 
     private static void EnsurePlaylistEntrySha256Column(LR2SongDBExtended db)
@@ -1151,6 +1365,24 @@ public partial class BMSPlaylist : NotificationObject
         if (string.IsNullOrWhiteSpace(sql) || sql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0)
         {
             db.Execute("ALTER TABLE \"" + tableName + "\" ADD COLUMN \"sha256\" TEXT NULL;");
+        }
+    }
+
+    private static void EnsurePlaylistCourseIndexes(LR2SongDBExtended db)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName();
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_course_idx_id", new string[1]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id)
+        });
+        long count = db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + sqlQuote("playlist_course_idx_uniq") + ";");
+        if (count == 0)
+        {
+            db.CreateIndex("playlist_course_idx_uniq", tableName, new string[2]
+            {
+                SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id),
+                SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.course_order)
+            }, unique: true);
         }
     }
 
@@ -2401,6 +2633,7 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         }
+        QueueBeatorajaBmtExport(bMSTable, "RegistrateExternalTableAsync");
         ApplyCachedPlaylistUrlCompletionToTable(bMSTable, "RegistrateExternalTableAsync");
         SchedulePlaylistUrlCompletionRefresh("RegistrateExternalTableAsync");
         return bMSTable;
@@ -2550,6 +2783,7 @@ public partial class BMSPlaylist : NotificationObject
         List<BMSTableEntry> oldEntriesSnapshot = null;
         List<BMSTableEntry> newEntriesSnapshot = null;
         bool updated = false;
+        bool hasStateToPersist = false;
         Exception failure = null;
         try
         {
@@ -2559,18 +2793,21 @@ public partial class BMSPlaylist : NotificationObject
             {
                 oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
                 IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
-                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out updated, logLastUpdateDecision: true);
+                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out updated, out hasStateToPersist, logLastUpdateDecision: true);
                 if (updated)
                 {
                     newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
                 }
                 else
                 {
-                    newTable = table;
                     newEntriesSnapshot = oldEntriesSnapshot;
+                    if (!hasStateToPersist)
+                    {
+                        newTable = table;
+                    }
                 }
             }
-            if (updated)
+            if (hasStateToPersist)
             {
                 CommitBMSTable(newTable);
                 ReplaceBMSTableInCollection(table, newTable);
@@ -2724,6 +2961,7 @@ public partial class BMSPlaylist : NotificationObject
                 deleteBMSTable(bmsTable);
             }
         }
+        QueueBeatorajaBmtExportAll("RemoveBMSTable");
     }
 
     /// <summary>
@@ -2912,6 +3150,7 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         }
+        QueueBeatorajaBmtExport(bmsTable, "ReOutputCustomFolderAndCommitToDB");
     }
 
     /// <summary>
@@ -3092,6 +3331,11 @@ public partial class BMSPlaylist : NotificationObject
 
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, bool logLastUpdateDecision = false)
     {
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out hasContentChanges, out _, logLastUpdateDecision);
+    }
+
+    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, bool logLastUpdateDecision = false)
+    {
         if (oldTable == null)
         {
             throw new ArgumentNullException("oldTable");
@@ -3106,7 +3350,9 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyList<ComparablePlaylistEntryRow> normalizedPersistedRows = (list != null) ? list : (IReadOnlyList<ComparablePlaylistEntryRow>)Array.Empty<ComparablePlaylistEntryRow>();
         IReadOnlyList<ComparablePlaylistEntryRow> normalizedReloadedRows = BuildComparablePlaylistEntryRows(newTable.entries);
         PlaylistContentDiffResult playlistContentDiffResult = AnalyzePlaylistContentDiff(normalizedPersistedRows, normalizedReloadedRows);
-        hasContentChanges = playlistContentDiffResult.HasChanges;
+        PlaylistHashChangeResult hashChangeResult = AnalyzePlaylistHashChanges(oldTable, newTable);
+        hasContentChanges = playlistContentDiffResult.HasChanges || hashChangeResult.HasKnownChanges;
+        hasStateToPersist = hasContentChanges || hashChangeResult.HasHashInitialization;
 
         Dictionary<string, List<BMSTableEntry>> newEntriesByMd5 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.md5, StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<BMSTableEntry>> newEntriesBySha256 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.sha256, StringComparer.OrdinalIgnoreCase);
@@ -3153,9 +3399,37 @@ public partial class BMSPlaylist : NotificationObject
             {
                 LogPlaylistContentDiff(newTable.name, playlistContentDiffResult);
             }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + hasContentChanges.ToString().ToLowerInvariant() + " structuralChanges=" + hasContentChanges.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + hasContentChanges.ToString().ToLowerInvariant() + " structuralChanges=" + playlistContentDiffResult.HasChanges.ToString().ToLowerInvariant() + " hashChanges=" + hashChangeResult.HasKnownChanges.ToString().ToLowerInvariant() + " hashInitialized=" + hashChangeResult.HasHashInitialization.ToString().ToLowerInvariant() + " persist=" + hasStateToPersist.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
         }
         return newTable;
+    }
+
+    private static PlaylistHashChangeResult AnalyzePlaylistHashChanges(BMSTable oldTable, BMSTable newTable)
+    {
+        PlaylistHashChangeResult result = new PlaylistHashChangeResult();
+        if (oldTable == null || newTable == null)
+        {
+            return result;
+        }
+        ApplyHashChange(result, oldTable.header_sha256, newTable.header_sha256);
+        ApplyHashChange(result, oldTable.data_sha256, newTable.data_sha256);
+        return result;
+    }
+
+    private static void ApplyHashChange(PlaylistHashChangeResult result, string oldHash, string newHash)
+    {
+        string normalizedOldHash = NormalizeHash(oldHash);
+        string normalizedNewHash = NormalizeHash(newHash);
+        if (string.Equals(normalizedOldHash, normalizedNewHash, StringComparison.Ordinal))
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(normalizedOldHash) && !string.IsNullOrWhiteSpace(normalizedNewHash))
+        {
+            result.HasHashInitialization = true;
+            return;
+        }
+        result.HasKnownChanges = true;
     }
 
     private static Dictionary<string, List<BMSTableEntry>> BuildEntryLookup(IEnumerable<BMSTableEntry> entries, Func<BMSTableEntry, string> keySelector, IEqualityComparer<string> comparer)
@@ -3557,6 +3831,7 @@ public partial class BMSPlaylist : NotificationObject
                 foreach (BMSTable bmsTable in tableList)
                 {
                     lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
+                    ReplacePersistedCourses(lr2Song, bmsTable);
                     lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
                     bmsTable.entries.ForEach(delegate (BMSTableEntry e)
                     {
@@ -3608,6 +3883,10 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw;
         }
+        if (owningTable != null)
+        {
+            QueueBeatorajaBmtExport(owningTable, "CommitBMSTableEntry");
+        }
     }
 
     /// <summary>
@@ -3635,6 +3914,7 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     lR2SongDBExtended.Delete<LR2SongDBExtended.playlist>(bmsTable.playlist_id);
                     lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                    lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
                 }
             }
             lR2SongDBExtended.Commit();
@@ -3656,11 +3936,38 @@ public partial class BMSPlaylist : NotificationObject
             using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
             lR2SongDBExtended.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
+            ReplacePersistedCourses(lR2SongDBExtended, bmsTable);
             lR2SongDBExtended.Commit();
         }
         catch
         {
             throw;
+        }
+    }
+
+    private static void ReplacePersistedCourses(LR2SongDBExtended db, BMSTable bmsTable)
+    {
+        if (db == null || bmsTable == null || !bmsTable.playlist_id.HasValue)
+        {
+            return;
+        }
+        string tableName = SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName();
+        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id);
+        db.Execute("DELETE FROM " + tableName + " WHERE " + playlistIdColumn + " = " + bmsTable.playlist_id + ";");
+        int order = 0;
+        foreach (LR2SongDBExtended.playlist_course course in bmsTable.Courses ?? Array.Empty<LR2SongDBExtended.playlist_course>())
+        {
+            if (string.IsNullOrWhiteSpace(course?.course_json))
+            {
+                continue;
+            }
+            LR2SongDBExtended.playlist_course row = new LR2SongDBExtended.playlist_course
+            {
+                playlist_id = bmsTable.playlist_id,
+                course_order = order++,
+                course_json = course.course_json
+            };
+            db.InsertOrReplace(row, typeof(LR2SongDBExtended.playlist_course));
         }
     }
 
@@ -3671,9 +3978,14 @@ public partial class BMSPlaylist : NotificationObject
     public string GetPlaylistDump()
     {
         using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-        return string.Join("\v" + Environment.NewLine, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist>()
-                                                       select c.Replace("\v" + Environment.NewLine, Environment.NewLine)) + "\v" + Environment.NewLine + string.Join("\v" + Environment.NewLine, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist_entry>()
-                                                                                                                                                                                                 select c.Replace("\v" + Environment.NewLine, Environment.NewLine));
+        string separator = "\v" + Environment.NewLine;
+        string playlistDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist>()
+                                                    select c.Replace(separator, Environment.NewLine));
+        string courseDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist_course>()
+                                                  select c.Replace(separator, Environment.NewLine));
+        string entryDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist_entry>()
+                                                 select c.Replace(separator, Environment.NewLine));
+        return string.Join(separator, new string[3] { playlistDump, courseDump, entryDump });
     }
 
     /// <summary>
@@ -3689,6 +4001,7 @@ public partial class BMSPlaylist : NotificationObject
             try
             {
                 lR2SongDBExtended.DropTable<LR2SongDBExtended.playlist>();
+                lR2SongDBExtended.DropTable<LR2SongDBExtended.playlist_course>();
                 lR2SongDBExtended.DropTable<LR2SongDBExtended.playlist_entry>();
                 EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
                 string[] source = sql.Split(new string[1] { "\v" + Environment.NewLine }, StringSplitOptions.None);

@@ -252,6 +252,24 @@
                       </TextBox>
                       <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_scoreDB, Mode=OneWay}" />
                     </DockPanel>
+                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_bmt_output, Mode=OneWay}" IsChecked="{Binding settingDialog.EnableBeatorajaBmtOutput}" />
+                    <DockPanel LastChildFill="False">
+                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}">
+                        <i:Interaction.Triggers>
+                          <i:EventTrigger EventName="Click">
+                            <v:CommonOpenFileDialogInteractionMessageAction>
+                              <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
+                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingBeatorajaBmtTablePath}" SelectedPath="{Binding settingDialog.BeatorajaBmtTablePath}" />
+                              </l:DirectInteractionMessage>
+                            </v:CommonOpenFileDialogInteractionMessageAction>
+                          </i:EventTrigger>
+                        </i:Interaction.Triggers>
+                      </Button>
+                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" IsEnabled="{Binding settingDialog.EnableBeatorajaBmtOutput}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
+                        <Binding x:Name="bindingBeatorajaBmtTablePath" Path="settingDialog.BeatorajaBmtTablePath" />
+                      </TextBox>
+                      <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_beatoraja_table, Mode=OneWay}" />
+                    </DockPanel>
                   </StackPanel>
                 </GroupBox>
               </StackPanel>

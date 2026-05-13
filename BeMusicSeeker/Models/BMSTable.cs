@@ -2,9 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Codeplex.Data;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
 
@@ -21,6 +25,8 @@ public enum PlaylistEntriesLoadState
 public class BMSTable : LR2SongDBExtended.playlist
 {
     private List<string> _Folder_order;
+
+    private List<LR2SongDBExtended.playlist_course> _Courses = new List<LR2SongDBExtended.playlist_course>();
 
     protected List<BMSTableEntry> _entries;
 
@@ -154,6 +160,24 @@ public class BMSTable : LR2SongDBExtended.playlist
     }
 
     public Uri Data_url { get; set; }
+
+    public IReadOnlyList<LR2SongDBExtended.playlist_course> Courses => _Courses;
+
+    internal void SetPersistedCourses(IEnumerable<LR2SongDBExtended.playlist_course> courses)
+    {
+        _Courses = (courses ?? Enumerable.Empty<LR2SongDBExtended.playlist_course>())
+            .Where((LR2SongDBExtended.playlist_course course) => course != null && !string.IsNullOrWhiteSpace(course.course_json))
+            .OrderBy((LR2SongDBExtended.playlist_course course) => course.course_order)
+            .Select((LR2SongDBExtended.playlist_course course, int index) => new LR2SongDBExtended.playlist_course
+            {
+                course_id = course.course_id,
+                playlist_id = course.playlist_id,
+                course_order = index,
+                course_json = NormalizeJsonOrNull(course.course_json)
+            })
+            .Where((LR2SongDBExtended.playlist_course course) => !string.IsNullOrWhiteSpace(course.course_json))
+            .ToList();
+    }
 
     private static bool TryParseStoredUri(string value, UriKind uriKind, out Uri uri, out Exception exception)
     {
@@ -434,6 +458,17 @@ public class BMSTable : LR2SongDBExtended.playlist
         val.folder_sort_ascending = base.folder_sort_ascending;
         val.entry_type = base.entry_type.ToStringName();
         val.data_url = data_url;
+        if (!string.IsNullOrWhiteSpace(base.tag))
+        {
+            val.tag = base.tag;
+        }
+        if (_Courses.Count > 0)
+        {
+            val.course = _Courses
+                .OrderBy((LR2SongDBExtended.playlist_course course) => course.course_order)
+                .Select((LR2SongDBExtended.playlist_course course) => DynamicJson.Parse(course.course_json))
+                .ToArray();
+        }
         val.compat_prefix = base.compat_prefix;
         val.last_update = base.last_update.ToShortDateString();
         val.editor_name = "BeMusicSeeker";
@@ -477,6 +512,8 @@ public class BMSTable : LR2SongDBExtended.playlist
         try
         {
             dynamic val = DynamicJson.Parse(_header_json);
+            base.header_sha256 = ComputeSha256Hex(_header_json);
+            LoadCourseJsonFromHeader(_header_json);
             if (val.IsDefined("name") && val.name != null)
             {
                 string text = (base.org_name = val.name.ToString());
@@ -486,6 +523,10 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 string text = (base.org_symbol = val.symbol.ToString());
                 base.symbol = text;
+            }
+            if (val.IsDefined("tag") && val.tag != null)
+            {
+                base.tag = val.tag.ToString();
             }
             if (val.IsDefined("folder_sort_key") && val.folder_sort_key != null)
             {
@@ -585,6 +626,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         try
         {
             dynamic val = DynamicJson.Parse(_data_json);
+            base.data_sha256 = ComputeSha256Hex(_data_json);
             entries = ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where((BMSTableEntry entry) => BMSPlaylist.CreateComparablePlaylistEntryRow(entry) != null).ToList();
         }
         catch (Exception ex)
@@ -946,5 +988,79 @@ public class BMSTable : LR2SongDBExtended.playlist
     public string ConvertBackFolderNameToCompatibleLevelName(string folderName)
     {
         return folderName.ReplaceFromStart(base.compat_prefix, "");
+    }
+
+    private void LoadCourseJsonFromHeader(string headerJson)
+    {
+        _Courses = new List<LR2SongDBExtended.playlist_course>();
+        try
+        {
+            JObject header = JObject.Parse(headerJson);
+            if (header["course"] == null)
+            {
+                return;
+            }
+            int order = 0;
+            foreach (JObject courseToken in EnumerateCourseObjects(header["course"]))
+            {
+                string courseJson = courseToken.ToString(Formatting.None);
+                _Courses.Add(new LR2SongDBExtended.playlist_course
+                {
+                    course_order = order++,
+                    course_json = courseJson
+                });
+            }
+        }
+        catch
+        {
+            _Courses = new List<LR2SongDBExtended.playlist_course>();
+        }
+    }
+
+    private static IEnumerable<JObject> EnumerateCourseObjects(JToken token)
+    {
+        if (token is JObject obj)
+        {
+            yield return obj;
+            yield break;
+        }
+        if (token is JArray array)
+        {
+            foreach (JToken item in array)
+            {
+                foreach (JObject course in EnumerateCourseObjects(item))
+                {
+                    yield return course;
+                }
+            }
+        }
+    }
+
+    private static string NormalizeJsonOrNull(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+        try
+        {
+            return JToken.Parse(json).ToString(Formatting.None);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static string ComputeSha256Hex(string value)
+    {
+        using SHA256 sha256 = SHA256.Create();
+        byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
+        StringBuilder builder = new StringBuilder(hash.Length * 2);
+        foreach (byte b in hash)
+        {
+            builder.Append(b.ToString("x2"));
+        }
+        return builder.ToString();
     }
 }

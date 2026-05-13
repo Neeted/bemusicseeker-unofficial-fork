@@ -262,6 +262,10 @@ public class MainWindowViewModel : ViewModel
 
         private string tempBeatorajaScoreDbPath;
 
+        private bool tempEnableBeatorajaBmtOutput;
+
+        private string tempBeatorajaBmtTablePath;
+
         private string tempuBMplayPath;
 
         private string tempBMIIDXViewPath;
@@ -709,6 +713,41 @@ public class MainWindowViewModel : ViewModel
                 Settings.Default.BeatorajaScoreDbPath = IsBeatorajaScoreDbPathValid(value) ? value : string.Empty;
                 RaisePropertyChanged("BeatorajaScoreDbPath");
                 RaiseValidationStateChanged();
+            }
+        }
+
+        public bool EnableBeatorajaBmtOutput
+        {
+            get
+            {
+                return Settings.Default.EnableBeatorajaBmtOutput;
+            }
+            set
+            {
+                if (Settings.Default.EnableBeatorajaBmtOutput != value)
+                {
+                    Settings.Default.EnableBeatorajaBmtOutput = value;
+                    RaisePropertyChanged("EnableBeatorajaBmtOutput");
+                    RaiseValidationStateChanged();
+                }
+            }
+        }
+
+        public string BeatorajaBmtTablePath
+        {
+            get
+            {
+                return Settings.Default.BeatorajaBmtTablePath;
+            }
+            set
+            {
+                string path = value ?? string.Empty;
+                if (Settings.Default.BeatorajaBmtTablePath != path)
+                {
+                    Settings.Default.BeatorajaBmtTablePath = path;
+                    RaisePropertyChanged("BeatorajaBmtTablePath");
+                    RaiseValidationStateChanged();
+                }
             }
         }
 
@@ -2359,6 +2398,16 @@ public class MainWindowViewModel : ViewModel
                 && File.Exists(value);
         }
 
+        private bool IsBeatorajaBmtTablePathValid()
+        {
+            return IsBeatorajaBmtTablePathValid(Settings.Default.BeatorajaBmtTablePath);
+        }
+
+        private bool IsBeatorajaBmtTablePathValid(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) || Directory.Exists(value);
+        }
+
         private bool IsuBMplayPathValid()
         {
             return IsuBMplayPathValid(Settings.Default.uBMplayPath);
@@ -2924,6 +2973,8 @@ public class MainWindowViewModel : ViewModel
             tempLR2ConfigXmlPath = Settings.Default.LR2ConfigXmlPath;
             tempUseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb;
             tempBeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath;
+            tempEnableBeatorajaBmtOutput = Settings.Default.EnableBeatorajaBmtOutput;
+            tempBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
             tempBMSRootPath = Settings.Default.BMSRootPath;
             tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
             tempuBMplayPath = Settings.Default.uBMplayPath;
@@ -3079,6 +3130,10 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
             }
+            if (tempEnableBeatorajaBmtOutput != Settings.Default.EnableBeatorajaBmtOutput || !string.Equals(tempBeatorajaBmtTablePath, Settings.Default.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
+            {
+                ownerViewModel.tables.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
+            }
         }
 
         public bool CheckValidation()
@@ -3113,6 +3168,11 @@ public class MainWindowViewModel : ViewModel
             if (UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid())
             {
                 errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaScoreDbPath + Environment.NewLine;
+                result = false;
+            }
+            if (!IsBeatorajaBmtTablePathValid())
+            {
+                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaBmtTablePath + Environment.NewLine;
                 result = false;
             }
             if (UseExternalPanelImage && !IsStagefilePathValid())
@@ -3244,6 +3304,8 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.LR2SongDBPath = tempLR2SongDBPath;
             Settings.Default.UseBeatorajaScoreDb = tempUseBeatorajaScoreDb;
             Settings.Default.BeatorajaScoreDbPath = tempBeatorajaScoreDbPath;
+            Settings.Default.EnableBeatorajaBmtOutput = tempEnableBeatorajaBmtOutput;
+            Settings.Default.BeatorajaBmtTablePath = tempBeatorajaBmtTablePath;
             Settings.Default.BMSRootPath = tempBMSRootPath;
             Settings.Default.StandaloneBmsRootPaths = tempStandaloneBmsRootPaths;
             Settings.Default.uBMplayPath = tempuBMplayPath;
@@ -3338,6 +3400,8 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => LR2ConfigXmlPath);
             RaisePropertyChanged(() => UseBeatorajaScoreDb);
             RaisePropertyChanged(() => BeatorajaScoreDbPath);
+            RaisePropertyChanged(() => EnableBeatorajaBmtOutput);
+            RaisePropertyChanged(() => BeatorajaBmtTablePath);
             RaisePropertyChanged(() => uBMplayPath);
             RaisePropertyChanged(() => BMIIDXViewPath);
             RaisePropertyChanged(() => UsePlayeruBMplay);
@@ -4163,6 +4227,7 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.lr2config.Save();
                 }
             }
+            ownerViewModel.tables.QueueBeatorajaBmtExportForTable(bmsTable, "PlaylistPropertyDialog.SaveProperties");
             backupTableProperties();
         }
 
@@ -17500,6 +17565,8 @@ public class MainWindowViewModel : ViewModel
                     throw new TimeoutException(BeMusicSeeker.Properties.Resources.Msg_error_timeout_dblock_restore);
                 }
                 tables.LoadPlaylistDump(lines);
+                tables.ReloadTables();
+                tables.QueueBeatorajaBmtExportAll("RestoreBMSTables");
                 base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
             }
             catch (Exception ex)

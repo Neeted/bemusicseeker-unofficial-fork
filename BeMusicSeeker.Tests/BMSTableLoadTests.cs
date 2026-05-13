@@ -62,4 +62,19 @@ public sealed class BMSTableLoadTests
 
         Assert.IsNull(table.Data_url);
     }
+
+    [TestMethod]
+    public void LoadHeaderJson_StoresTagAndCoursesForRoundTrip()
+    {
+        BMSTable table = new BMSTable();
+
+        table.LoadHeaderJSON("{\"name\":\"Stella\",\"symbol\":\"sl\",\"tag\":\"st\",\"data_url\":\"data.json\",\"level_order\":[0],\"course\":[[{\"name\":\"段位\",\"constraint\":[\"grade_mirror\"],\"md5\":[\"11111111111111111111111111111111\"]}]]}");
+
+        Assert.AreEqual("st", table.tag);
+        Assert.AreEqual(1, table.Courses.Count);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(table.header_sha256));
+        StringAssert.Contains(table.HeaderToJson(), "\"tag\": \"st\"");
+        StringAssert.Contains(table.HeaderToJson(), "\"course\"");
+        StringAssert.Contains(table.HeaderToJson(), "\"grade_mirror\"");
+    }
 }

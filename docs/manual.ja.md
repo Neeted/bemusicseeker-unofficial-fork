@@ -122,7 +122,9 @@ LR2 連携モードでは、初回準備や今後の更新で `song.db` に BeMu
 
 スタンドアローンモードでは BMS ディレクトリが重要です。LR2 連携モードでは LR2 ディレクトリと DB / XML パスが重要です。
 
-beatoraja については、スコア DB の読み込みなど一部連携に対応していますが、beatoraja 全体を管理するためのツールではありません。bmson もライブラリ上では譜面として扱いますが、再生や録音など一部機能には制限があります。**beatoraja のDB更新を高速に行いたい場合は [songdata-updater](https://github.com/Neeted/songdata-updater) をご利用ください。**
+beatoraja については、スコア DB の読み込みや難易度表キャッシュ出力など一部連携に対応していますが、beatoraja 全体を管理するためのツールではありません。bmson もライブラリ上では譜面として扱いますが、再生や録音など一部機能には制限があります。**beatoraja のDB更新を高速に行いたい場合は [songdata-updater](https://github.com/Neeted/songdata-updater) をご利用ください。**
+
+` .bmtを出力する(難易度表読み込み互換処理)` を有効にして `table パス` に beatoraja の `table` フォルダを指定すると、BeMusicSeeker の全プレイリストを beatoraja が読み込める `.bmt` キャッシュとして出力します。これは beatoraja 側の level 集約処理が重く、難易度表読み込みで遅延する環境向けの互換処理です。外部同期表は元の難易度表 URL、ローカルプレイリストは `bemusicseeker://playlist/{playlist_id}` を使って `.bmt` の保存名を決めます。出力先直下には BeMusicSeeker 管理用の `.bemusicseeker-bmt-manifest` が作られ、設定変更や再出力時の cleanup では、この manifest に記録された `.bmt` だけを削除対象にします。
 
 ### 外観
 

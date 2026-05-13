@@ -744,6 +744,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Use_beatoraja_scoreDB" xml:space="preserve">
     <value>beatorajaのスコアを読み込む</value>
   </data>
+  <data name="Use_beatoraja_bmt_output" xml:space="preserve">
+    <value>.bmtを出力する(難易度表読み込み互換処理)</value>
+  </data>
   <data name="Diff_URL" xml:space="preserve">
     <value>差分URL</value>
   </data>
@@ -881,6 +884,9 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   </data>
   <data name="FilePath_scoreDB" xml:space="preserve">
     <value>score.db パス: </value>
+  </data>
+  <data name="FilePath_beatoraja_table" xml:space="preserve">
+    <value>table パス: </value>
   </data>
   <data name="Clear_reinstall_estimation" xml:space="preserve">
     <value>再インストール先をクリア</value>
@@ -1682,6 +1688,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Error_InvalidBeatorajaScoreDbPath" xml:space="preserve">
     <value>beatoraja score.db のパスが正しくありません</value>
+  </data>
+  <data name="Error_InvalidBeatorajaBmtTablePath" xml:space="preserve">
+    <value>beatoraja table パスが正しくありません</value>
   </data>
   <data name="Warn_LR2LeapYearFolderDetected" xml:space="preserve">
     <value>LR2で扱えない更新日時のフォルダを検出しました

@@ -73,6 +73,36 @@ public sealed class PlaylistSchemaMigrationTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void BMSPlaylist_EnsureSchema_AddsPlaylistMetadataAndCourseStorage()
+    {
+        string tempDbPath = CreateTempSongDbPath();
+        try
+        {
+            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            {
+                db.DropTable<LR2SongDBExtended.playlist_course>();
+            }
+
+            BMSPlaylist.EnsureSchema(tempDbPath);
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
+            string playlistSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist';");
+            StringAssert.Contains(playlistSql, "tag");
+            StringAssert.Contains(playlistSql, "header_sha256");
+            StringAssert.Contains(playlistSql, "data_sha256");
+            string courseSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_course';");
+            StringAssert.Contains(courseSql, "course_json");
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_course_idx_id';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_course_idx_uniq';"));
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void LoadPlaylistDump_RestoresSha256Indexes()
     {
         string tempDbPath = CreateEmptySongDbPath();
