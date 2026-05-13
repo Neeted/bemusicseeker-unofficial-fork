@@ -88,6 +88,10 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 - `header_sha256` / `data_sha256` が non-NULL 既知値から別値へ変わった場合は更新する。
 - `header_sha256` / `data_sha256` が NULL/空から初回値へ埋まっただけの場合は更新しない。
 - `tag` と `course` は header に含まれるため、単独では `last_update` 判定に使わない。
+- 外部表を初めて登録する場合は、取得した header の `last_update` があればそれを使い、無ければ登録時刻を初期 `last_update` として保存する。Walkure 系リコメンド表のように取得処理が更新日時を持つ場合は、その取得元日時を設定する。
+- ローカルの空プレイリストを新規作成する場合は、`CreateBMSTable()` 時点で作成時刻を初期 `last_update` として持つ。DB には後続のプロパティ保存など、通常のプレイリスト保存処理で反映される。
+- ローカル表の folder / entry 構成を手動編集した場合は、`RenameFolder`、`CreateNewFolder`、`AddBMSTableEntriesToFolder`、`RemoveBMSTableEntries` が `last_update` を編集時刻へ更新する。
+- プレイリスト名、symbol、URL、custom folder 出力先、folder sort/order などのプロパティ保存だけでは `last_update` を更新しない。これらは DB 保存や `.bmt` / LR2 custom folder 出力の対象にはなるが、譜面構成そのものの更新日時としては扱わない。
 
 この分離により、機能追加後の旧 DB 初回補完で `last_update` が現在時刻へ塗り替わることを避ける。
 
