@@ -50,7 +50,7 @@
 | `url` / `url_diff` / `name_diff` / `org_md5` | 入手先・差分・親 hash などの補助情報。`.bmt` song では対応範囲で `url`、`appendurl`、`org_md5` に出力する。 |
 | `memo` / `adddate` / `is_removed` | ローカル状態。外部同期時に一致行へ引き継ぐ。 |
 
-外部同期の entry 更新検知は、DB 永続 row と再取得 row を正規化した fingerprint 比較で行う。folder 名や `org_md5` だけの違いなど、ローカル状態・互換出力由来の差分は content change として扱わない。
+外部同期の entry 更新検知は `data_sha256` で行う。entry fingerprint 相当の比較は、再取得 row と既存 row の対応付けを補助し、`memo`、`adddate`、`is_removed` などのローカル状態を引き継ぐために使うが、`last_update` や `playlist_entry` 更新のトリガーにはしない。
 
 ### `playlist_course`
 
@@ -69,24 +69,26 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 外部同期では、再取得した header/data JSON から `BMSTable` と `BMSTableEntry` を作り、既存 DB と比較して既存ローカル状態を引き継ぐ。
 
-更新判定は次の 2 種類に分ける。
+更新判定は header JSON と data JSON の hash を分けて扱う。
 
 | 判定 | 内容 | `last_update` | DB 保存 | `.bmt` 出力 |
 | --- | --- | --- | --- | --- |
-| known content change | entry fingerprint 差分、または既存 non-NULL `header_sha256` / `data_sha256` から別 hash への変化 | 更新する | する | する |
-| hash initialization | NULL/空の `header_sha256` / `data_sha256` に初回値が入る | 更新しない | する | する |
+| header known change | 既存 non-NULL `header_sha256` から別 hash への変化 | 更新する | `playlist` / `playlist_course` を保存する。`playlist_entry` は更新しない | する |
+| header hash initialization | NULL/空の `header_sha256` に初回値が入る | 更新しない | `playlist` / `playlist_course` を保存する。`playlist_entry` は更新しない | する |
+| data known change | 既存 non-NULL `data_sha256` から別 hash への変化 | 更新する | `playlist` / `playlist_course` / `playlist_entry` を保存する | する |
+| data hash initialization | NULL/空の `data_sha256` に初回値が入る | 更新しない | `.bmt` 対応以前の DB 修復として `playlist` / `playlist_course` / `playlist_entry` を保存する | する |
 
 `header_sha256` は header JSON 全体を対象にするため、`tag`、`course`、`level_order`、`symbol`、`compat_prefix` などの header 由来変化を含む。
 
-`data_sha256` は data JSON 全体を対象にする。現時点では entry fingerprint 比較が主判定だが、raw data JSON が前回既知の値から変わった場合も known content change とする。将来、playlist_entry 更新検知を raw hash ベースへ寄せるかは別途検討する。
+`data_sha256` は data JSON 全体を対象にする。raw data JSON が前回既知の値から変わった場合、`playlist_entry` を再取得結果で全置換する。
 
 ## `last_update`
 
 `last_update` は「前回の正本状態を知っている状態から、外部同期で内容が変化した」ことを表す。
 
-- entry fingerprint が変わった場合は更新する。
 - `header_sha256` / `data_sha256` が non-NULL 既知値から別値へ変わった場合は更新する。
 - `header_sha256` / `data_sha256` が NULL/空から初回値へ埋まっただけの場合は更新しない。
+- entry fingerprint 差分だけでは更新しない。entry fingerprint 相当の比較はローカル状態引き継ぎの対応付け補助として扱う。
 - `tag` と `course` は header に含まれるため、単独では `last_update` 判定に使わない。
 - 外部表を初めて登録する場合は、取得した header の `last_update` があればそれを使い、無ければ登録時刻を初期 `last_update` として保存する。Walkure 系リコメンド表のように取得処理が更新日時を持つ場合は、その取得元日時を設定する。
 - ローカルの空プレイリストを新規作成する場合は、`CreateBMSTable()` 時点で作成時刻を初期 `last_update` として持つ。DB には後続のプロパティ保存など、通常のプレイリスト保存処理で反映される。
@@ -110,7 +112,7 @@ LR2 custom folder 出力は LR2 linked profile の機能であり、standalone p
 主な契機:
 
 - 起動・`ReloadTables` 後の playlist entries hydration callback。
-- 外部同期で known content change があった場合。
+- 外部同期で header/data hash の known change があった場合。
 - ローカル編集で DB 保存後に custom folder 再出力が必要になった場合。
 - プレイリストプロパティ変更で custom folder 出力先や root 設定が変わった場合。
 
@@ -147,7 +149,7 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 ### 出力契機
 
 - 起動時と `ReloadTables` 時は、playlist entries hydration と deferred external sync が収束した後に全 playlist を active profile / DB の投影として全出力し、manifest 管理下で active set に含まれない `.bmt` を削除する。外部同期を行わない初期読み込みでは hydration 後に同じ全出力を行う。playlist が 0 件の場合も managed `.bmt` は空集合へ収束させる。
-- 外部同期では known content change と hash initialization のどちらでも DB 保存対象になる。手動再同期後は、対象 playlist が非出力状態になった場合の旧 managed `.bmt` も削除できるように全体投影を出力する。
+- 外部同期では header/data hash の known change と initialization のどちらでも `.bmt` 再出力対象になる。手動再同期後は、対象 playlist が非出力状態になった場合の旧 managed `.bmt` も削除できるように全体投影を出力する。
 - ローカル編集で `playlist` / `playlist_entry` を保存した場合、または `CommitBMSTableEntry` を通る場合は対象 playlist を再出力する。
 - プレイリストプロパティ保存後は対象 playlist を再出力する。
 - `.bmt` 設定の有効状態または table path が変わった場合は全 playlist を再出力する。旧 path がある場合は manifest cleanup する。

@@ -45,11 +45,11 @@ public sealed class PlaylistReloadMergeTests
     }
 
     /// <summary>
-    /// 再取得側に更新日時が無く構成差分がある場合、現在時刻で更新日時を再採番することを検証します。
+    /// entry fingerprint 差分だけでは更新日時を再採番しないことを検証します。
     /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void MergeReloadedBMSTableState_StructuralChanges_RefreshesLastUpdate()
+    public void MergeReloadedBMSTableState_EntryFingerprintOnlyChangeDoesNotRefreshLastUpdate()
     {
         DateTime existingLastUpdate = new DateTime(2024, 5, 10, 11, 22, 33);
         BMSTable oldTable = CreateTable(
@@ -62,13 +62,16 @@ public sealed class PlaylistReloadMergeTests
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"),
             CreateEntry("cccccccccccccccccccccccccccccccc", "FolderC"));
 
-        DateTime beforeMerge = DateTime.Now;
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(oldTable, reloadedTable);
-        DateTime afterMerge = DateTime.Now;
+        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+            oldTable,
+            reloadedTable,
+            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)),
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
 
-        Assert.AreNotEqual(default(DateTime), mergedTable.last_update, "Changed reload must not leave last_update at default.");
-        Assert.IsTrue(mergedTable.last_update > existingLastUpdate, "Changed reload must move last_update forward.");
-        Assert.IsTrue(mergedTable.last_update >= beforeMerge && mergedTable.last_update <= afterMerge, "Changed reload must stamp the current local time.");
+        Assert.IsTrue(decision.EntryFingerprintChanged);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.IsFalse(decision.NeedsEntryPersistence);
+        Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
     [TestMethod]
@@ -118,7 +121,7 @@ public sealed class PlaylistReloadMergeTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void MergeReloadedBMSTableState_CommentChange_RefreshesLastUpdate()
+    public void MergeReloadedBMSTableState_CommentChangeWithoutDataHashChangeDoesNotRefreshLastUpdate()
     {
         DateTime existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
         BMSTable oldTable = CreateTable(
@@ -130,9 +133,15 @@ public sealed class PlaylistReloadMergeTests
             default(DateTime),
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "new"));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(oldTable, reloadedTable);
+        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+            oldTable,
+            reloadedTable,
+            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)),
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
 
-        Assert.IsTrue(mergedTable.last_update > existingLastUpdate);
+        Assert.IsTrue(decision.EntryFingerprintChanged);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
     [TestMethod]
@@ -166,6 +175,65 @@ public sealed class PlaylistReloadMergeTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_HeaderHashInitializationPersistsHeaderOnly()
+    {
+        DateTime existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
+        BMSTable oldTable = CreateTable(
+            "Playlist Header Hash Init",
+            existingLastUpdate,
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
+        oldTable.playlist_id = 1;
+        BMSTable reloadedTable = CreateTable(
+            "Playlist Header Hash Init",
+            default(DateTime),
+            CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "FolderB"));
+        reloadedTable.header_sha256 = new string('a', 64);
+
+        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+            oldTable,
+            reloadedTable,
+            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)),
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+
+        Assert.IsTrue(decision.HeaderHashInitialized);
+        Assert.IsTrue(decision.NeedsHeaderPersistence);
+        Assert.IsFalse(decision.NeedsEntryPersistence);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_DataHashInitializationPersistsEntriesWithoutRefreshingLastUpdate()
+    {
+        DateTime existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
+        BMSTable oldTable = CreateTable(
+            "Playlist Data Hash Init",
+            existingLastUpdate,
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
+        oldTable.playlist_id = 1;
+        BMSTable reloadedTable = CreateTable(
+            "Playlist Data Hash Init",
+            default(DateTime),
+            CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "FolderB"));
+        reloadedTable.data_sha256 = new string('b', 64);
+
+        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+            oldTable,
+            reloadedTable,
+            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)),
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+
+        Assert.IsTrue(decision.DataHashInitialized);
+        Assert.IsTrue(decision.NeedsHeaderPersistence);
+        Assert.IsTrue(decision.NeedsEntryPersistence);
+        Assert.IsFalse(decision.UpdatesLastUpdate);
+        Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
+        Assert.IsTrue(mergedTable.entries.Any((BMSTableEntry entry) => entry.md5 == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_KnownHeaderHashChangeRefreshesLastUpdate()
     {
         DateTime existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
@@ -186,11 +254,46 @@ public sealed class PlaylistReloadMergeTests
             reloadedTable,
             BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)),
             out bool hasContentChanges,
-            out bool hasStateToPersist);
+            out bool hasStateToPersist,
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsTrue(hasContentChanges);
         Assert.IsTrue(hasStateToPersist);
+        Assert.IsTrue(decision.HeaderKnownChanged);
+        Assert.IsTrue(decision.NeedsHeaderPersistence);
+        Assert.IsFalse(decision.NeedsEntryPersistence);
         Assert.IsTrue(mergedTable.last_update > existingLastUpdate);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_KnownDataHashChangeRefreshesLastUpdateAndPersistsEntries()
+    {
+        DateTime existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
+        BMSTable oldTable = CreateTable(
+            "Playlist Data Hash Change",
+            existingLastUpdate,
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
+        oldTable.playlist_id = 1;
+        oldTable.data_sha256 = new string('a', 64);
+        BMSTable reloadedTable = CreateTable(
+            "Playlist Data Hash Change",
+            default(DateTime),
+            CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "FolderB"));
+        reloadedTable.data_sha256 = new string('b', 64);
+
+        DateTime beforeMerge = DateTime.Now;
+        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+            oldTable,
+            reloadedTable,
+            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)),
+            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+        DateTime afterMerge = DateTime.Now;
+
+        Assert.IsTrue(decision.DataKnownChanged);
+        Assert.IsTrue(decision.NeedsEntryPersistence);
+        Assert.IsTrue(decision.UpdatesLastUpdate);
+        Assert.IsTrue(mergedTable.last_update >= beforeMerge && mergedTable.last_update <= afterMerge);
     }
 
     [TestMethod]

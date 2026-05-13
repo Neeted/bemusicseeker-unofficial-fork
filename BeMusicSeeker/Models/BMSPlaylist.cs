@@ -75,11 +75,36 @@ public partial class BMSPlaylist : NotificationObject
 
     private sealed class PlaylistHashChangeResult
     {
-        public bool HasKnownChanges { get; set; }
+        public bool HeaderKnownChanged { get; set; }
 
-        public bool HasHashInitialization { get; set; }
+        public bool HeaderHashInitialized { get; set; }
 
-        public bool HasStateToPersist => HasKnownChanges || HasHashInitialization;
+        public bool DataKnownChanged { get; set; }
+
+        public bool DataHashInitialized { get; set; }
+    }
+
+    internal sealed class PlaylistReloadPersistenceDecision
+    {
+        public bool EntryFingerprintChanged { get; internal set; }
+
+        public bool HeaderKnownChanged { get; internal set; }
+
+        public bool HeaderHashInitialized { get; internal set; }
+
+        public bool DataKnownChanged { get; internal set; }
+
+        public bool DataHashInitialized { get; internal set; }
+
+        public bool UpdatesLastUpdate => HeaderKnownChanged || DataKnownChanged;
+
+        public bool NeedsHeaderPersistence => HeaderKnownChanged || HeaderHashInitialized || DataKnownChanged || DataHashInitialized;
+
+        public bool NeedsEntryPersistence => DataKnownChanged || DataHashInitialized;
+
+        public bool NeedsStatePersistence => NeedsHeaderPersistence || NeedsEntryPersistence;
+
+        public bool NeedsBmtExport => NeedsStatePersistence;
     }
 
     public sealed class PlaylistTableUpdateContext
@@ -2869,8 +2894,8 @@ public partial class BMSPlaylist : NotificationObject
         BMSTable newTable = table;
         List<BMSTableEntry> oldEntriesSnapshot = null;
         List<BMSTableEntry> newEntriesSnapshot = null;
+        PlaylistReloadPersistenceDecision persistenceDecision = null;
         bool updated = false;
-        bool hasStateToPersist = false;
         Exception failure = null;
         try
         {
@@ -2880,24 +2905,38 @@ public partial class BMSPlaylist : NotificationObject
             {
                 oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
                 IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
-                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out updated, out hasStateToPersist, logLastUpdateDecision: true);
-                if (updated)
+                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out persistenceDecision, logLastUpdateDecision: true);
+                updated = persistenceDecision.UpdatesLastUpdate;
+                if (persistenceDecision.NeedsEntryPersistence)
                 {
                     newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
                 }
                 else
                 {
                     newEntriesSnapshot = oldEntriesSnapshot;
-                    if (!hasStateToPersist)
+                    if (persistenceDecision.NeedsHeaderPersistence)
+                    {
+                        newTable.entries = oldEntriesSnapshot.ToList();
+                    }
+                    if (!persistenceDecision.NeedsStatePersistence)
                     {
                         newTable = table;
                     }
                 }
             }
-            if (hasStateToPersist)
+            if (persistenceDecision?.NeedsEntryPersistence == true)
             {
                 CommitBMSTable(newTable);
                 ReplaceBMSTableInCollection(table, newTable);
+            }
+            else if (persistenceDecision?.NeedsHeaderPersistence == true)
+            {
+                commitBMSTableHeaderOnly(newTable);
+                ReplaceBMSTableInCollection(table, newTable);
+            }
+            if (persistenceDecision?.NeedsBmtExport == true)
+            {
+                QueueBeatorajaBmtExport(newTable, reason);
             }
             ApplyCachedPlaylistUrlCompletionToTable(newTable, reason);
             syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated));
@@ -2997,7 +3036,7 @@ public partial class BMSPlaylist : NotificationObject
 
     /// <summary>
     /// 指定した外部プレイリストを再取得し、既存のローカル状態を維持しながら差分同期結果へ置き換えます。
-    /// <c>is_external_sync</c> の有無に関わらず明示指定されたプレイリストを対象にし、<c>last_update</c> は実際の構成差分に応じて維持または更新されます。
+    /// <c>is_external_sync</c> の有無に関わらず明示指定されたプレイリストを対象にし、<c>last_update</c> は header/data hash の既知値変化に応じて維持または更新されます。
     /// </summary>
     /// <param name="bmsTable">再同期対象のプレイリスト。</param>
     /// <param name="pageUri">再取得に使用する URI。省略時は対象プレイリストに保持された URL を使用します。</param>
@@ -3406,7 +3445,7 @@ public partial class BMSPlaylist : NotificationObject
         }
         BMSTable reloadedTable = reloadBMSTable(oldTable, pageUri);
         EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingState");
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out bool _, logLastUpdateDecision);
     }
 
     private async Task<BMSTable> MergeReloadedBMSTableWithExistingStateAsync(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false, CancellationToken cancellationToken = default(CancellationToken))
@@ -3417,7 +3456,7 @@ public partial class BMSPlaylist : NotificationObject
         }
         BMSTable reloadedTable = await reloadBMSTableAsync(oldTable, pageUri, cancellationToken).ConfigureAwait(false);
         EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingStateAsync");
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out bool _, logLastUpdateDecision);
     }
 
     /// <summary>
@@ -3430,7 +3469,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentNullException"><paramref name="oldTable"/> または <paramref name="reloadedTable"/> が <see langword="null"/> の場合。</exception>
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, bool logLastUpdateDecision = false)
     {
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out bool _, logLastUpdateDecision);
     }
 
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, bool logLastUpdateDecision = false)
@@ -3439,6 +3478,19 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, bool logLastUpdateDecision = false)
+    {
+        BMSTable mergedTable = MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out PlaylistReloadPersistenceDecision persistenceDecision, logLastUpdateDecision);
+        hasContentChanges = persistenceDecision.UpdatesLastUpdate;
+        hasStateToPersist = persistenceDecision.NeedsStatePersistence;
+        return mergedTable;
+    }
+
+    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out PlaylistReloadPersistenceDecision persistenceDecision, bool logLastUpdateDecision = false)
+    {
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out _, out _, out persistenceDecision, logLastUpdateDecision);
+    }
+
+    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, out PlaylistReloadPersistenceDecision persistenceDecision, bool logLastUpdateDecision = false)
     {
         if (oldTable == null)
         {
@@ -3455,8 +3507,16 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyList<ComparablePlaylistEntryRow> normalizedReloadedRows = BuildComparablePlaylistEntryRows(newTable.entries);
         PlaylistContentDiffResult playlistContentDiffResult = AnalyzePlaylistContentDiff(normalizedPersistedRows, normalizedReloadedRows);
         PlaylistHashChangeResult hashChangeResult = AnalyzePlaylistHashChanges(oldTable, newTable);
-        hasContentChanges = playlistContentDiffResult.HasChanges || hashChangeResult.HasKnownChanges;
-        hasStateToPersist = hasContentChanges || hashChangeResult.HasHashInitialization;
+        persistenceDecision = new PlaylistReloadPersistenceDecision
+        {
+            EntryFingerprintChanged = playlistContentDiffResult.HasChanges,
+            HeaderKnownChanged = hashChangeResult.HeaderKnownChanged,
+            HeaderHashInitialized = hashChangeResult.HeaderHashInitialized,
+            DataKnownChanged = hashChangeResult.DataKnownChanged,
+            DataHashInitialized = hashChangeResult.DataHashInitialized
+        };
+        hasContentChanges = persistenceDecision.UpdatesLastUpdate;
+        hasStateToPersist = persistenceDecision.NeedsStatePersistence;
 
         Dictionary<string, List<BMSTableEntry>> newEntriesByMd5 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.md5, StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<BMSTableEntry>> newEntriesBySha256 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.sha256, StringComparer.OrdinalIgnoreCase);
@@ -3479,9 +3539,9 @@ public partial class BMSPlaylist : NotificationObject
         DateTime reloadedLastUpdate = newTable.last_update;
         if (oldTable.playlist_id.HasValue)
         {
-            newTable.last_update = hasContentChanges ? DateTime.Now : oldTable.last_update;
+            newTable.last_update = persistenceDecision.UpdatesLastUpdate ? DateTime.Now : oldTable.last_update;
         }
-        else if (hasContentChanges)
+        else if (persistenceDecision.UpdatesLastUpdate)
         {
             newTable.last_update = ((reloadedLastUpdate != default(DateTime)) ? reloadedLastUpdate : DateTime.Now);
         }
@@ -3499,11 +3559,11 @@ public partial class BMSPlaylist : NotificationObject
         bool lastUpdateChanged = newTable.last_update != oldLastUpdate;
         if (logLastUpdateDecision)
         {
-            if (hasContentChanges)
+            if (playlistContentDiffResult.HasChanges)
             {
                 LogPlaylistContentDiff(newTable.name, playlistContentDiffResult);
             }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + hasContentChanges.ToString().ToLowerInvariant() + " structuralChanges=" + playlistContentDiffResult.HasChanges.ToString().ToLowerInvariant() + " hashChanges=" + hashChangeResult.HasKnownChanges.ToString().ToLowerInvariant() + " hashInitialized=" + hashChangeResult.HasHashInitialization.ToString().ToLowerInvariant() + " persist=" + hasStateToPersist.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + persistenceDecision.UpdatesLastUpdate.ToString().ToLowerInvariant() + " entryFingerprintChanged=" + playlistContentDiffResult.HasChanges.ToString().ToLowerInvariant() + " headerChanged=" + hashChangeResult.HeaderKnownChanged.ToString().ToLowerInvariant() + " dataChanged=" + hashChangeResult.DataKnownChanged.ToString().ToLowerInvariant() + " headerInitialized=" + hashChangeResult.HeaderHashInitialized.ToString().ToLowerInvariant() + " dataInitialized=" + hashChangeResult.DataHashInitialized.ToString().ToLowerInvariant() + " persistHeader=" + persistenceDecision.NeedsHeaderPersistence.ToString().ToLowerInvariant() + " persistEntry=" + persistenceDecision.NeedsEntryPersistence.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
         }
         return newTable;
     }
@@ -3515,12 +3575,20 @@ public partial class BMSPlaylist : NotificationObject
         {
             return result;
         }
-        ApplyHashChange(result, oldTable.header_sha256, newTable.header_sha256);
-        ApplyHashChange(result, oldTable.data_sha256, newTable.data_sha256);
+        ApplyHashChange(
+            oldTable.header_sha256,
+            newTable.header_sha256,
+            () => result.HeaderHashInitialized = true,
+            () => result.HeaderKnownChanged = true);
+        ApplyHashChange(
+            oldTable.data_sha256,
+            newTable.data_sha256,
+            () => result.DataHashInitialized = true,
+            () => result.DataKnownChanged = true);
         return result;
     }
 
-    private static void ApplyHashChange(PlaylistHashChangeResult result, string oldHash, string newHash)
+    private static void ApplyHashChange(string oldHash, string newHash, Action markInitialized, Action markKnownChanged)
     {
         string normalizedOldHash = NormalizeHash(oldHash);
         string normalizedNewHash = NormalizeHash(newHash);
@@ -3530,10 +3598,10 @@ public partial class BMSPlaylist : NotificationObject
         }
         if (string.IsNullOrWhiteSpace(normalizedOldHash) && !string.IsNullOrWhiteSpace(normalizedNewHash))
         {
-            result.HasHashInitialization = true;
+            markInitialized?.Invoke();
             return;
         }
-        result.HasKnownChanges = true;
+        markKnownChanged?.Invoke();
     }
 
     private static Dictionary<string, List<BMSTableEntry>> BuildEntryLookup(IEnumerable<BMSTableEntry> entries, Func<BMSTableEntry, string> keySelector, IEqualityComparer<string> comparer)

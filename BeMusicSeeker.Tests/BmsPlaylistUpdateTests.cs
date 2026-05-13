@@ -148,6 +148,7 @@ public sealed class BmsPlaylistUpdateTests
                     db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
                 }
             }
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Hash Init Song\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Repaired Song\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
 
@@ -166,11 +167,13 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual(existingLastUpdate, results[0].ResultTable.last_update);
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.header_sha256));
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.data_sha256));
+            Assert.AreEqual(2, results[0].ResultTable.entries.Count((BMSTableEntry entry) => !entry.is_removed));
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single((LR2SongDBExtended.playlist row) => row.playlist_id == 900001);
             Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.header_sha256));
             Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.data_sha256));
             Assert.AreEqual(existingLastUpdate, persisted.last_update);
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = 900001 AND is_removed = 0;"));
         }
         finally
         {
