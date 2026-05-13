@@ -8,7 +8,7 @@
 
 概略:
 
-1. bmson migration preflight / startup migration / final preflight。
+1. app schema preflight / repair / final preflight。
 2. metadata bundle import。
 3. catalog DB load。
 4. score DB load と LR2IR player score XML prefetch。

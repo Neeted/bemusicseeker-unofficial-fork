@@ -1634,15 +1634,15 @@ BMSファイルが重複しないようにマージします。
   <data name="Warning_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>既所持譜面から導入先を特定できません。ライブラリの状態を確認してください。</value>
   </data>
-  <data name="BmsonMigrationWarningMessage" xml:space="preserve">
-    <value>bmson 対応のため、既存のプレイリストやハッシュ管理用・bmson カタログ用テーブルを現行形式へ移行します。
+  <data name="AppSchemaRepairWarningMessage" xml:space="preserve">
+    <value>BeMusicSeeker 関連データを現行形式へ修復します。
 
-移行中に SHA-256 生成が必要な場合は、ライブラリ規模によってかなり時間がかかります。
+修復中に SHA-256 生成が必要な場合は、ライブラリ規模によってかなり時間がかかります。
 更新後の DB は、従来版 BeMusicSeeker および本フォーク版 v1.2.1.0 以前と互換性がない可能性があります。
 互換性に不安がある場合は、事前に song.db などのバックアップを推奨します。</value>
   </data>
-  <data name="BmsonMigrationWarningTitle" xml:space="preserve">
-    <value>bmson 対応に伴う移行警告</value>
+  <data name="AppSchemaRepairWarningTitle" xml:space="preserve">
+    <value>BeMusicSeeker 関連データの修復確認</value>
   </data>
   <data name="Warning_DuplicateBmsFile" xml:space="preserve">
     <value>BMSファイルが重複しています</value>

@@ -18,40 +18,40 @@ internal enum RepairableBmsonSchemaIssues
     BmsonSongFolderIndexMissing = 0x40
 }
 
-internal sealed class BmsonMigrationPreflightResult
+internal sealed class AppSchemaPreflightResult
 {
-    public bool NeedsPlaylistEntrySha256Migration { get; }
+    public bool NeedsPlaylistEntrySha256Repair { get; }
 
     public bool NeedsChartDigestMapSchema { get; }
 
     public bool NeedsBmsonSongSchema { get; }
 
-    public bool NeedsBmsonAppSchemaMigration { get; }
+    public bool NeedsAppSchemaVersionRepair { get; }
 
-    public bool NeedsBmsonAppSchemaWarning { get; }
+    public bool NeedsAppSchemaVersionWarning { get; }
 
     public RepairableBmsonSchemaIssues RepairableBmsonSchemaIssues { get; }
 
-    public bool RepairRequired => RepairableBmsonSchemaIssues != 0;
+    public bool RepairRequired => NeedsPlaylistEntrySha256Repair || RepairableBmsonSchemaIssues != 0;
 
-    public bool WarnRequired => NeedsPlaylistEntrySha256Migration || NeedsBmsonAppSchemaWarning;
+    public bool WarnRequired => NeedsPlaylistEntrySha256Repair || NeedsAppSchemaVersionWarning;
 
     public bool RequiresWarning => WarnRequired;
 
-    public BmsonMigrationPreflightResult(bool needsPlaylistEntrySha256Migration, bool needsChartDigestMapSchema, bool needsBmsonSongSchema, bool needsBmsonAppSchemaMigration, RepairableBmsonSchemaIssues repairableBmsonSchemaIssues, bool? needsBmsonAppSchemaWarning = null)
+    public AppSchemaPreflightResult(bool needsPlaylistEntrySha256Repair, bool needsChartDigestMapSchema, bool needsBmsonSongSchema, bool needsAppSchemaVersionRepair, RepairableBmsonSchemaIssues repairableBmsonSchemaIssues, bool? needsAppSchemaVersionWarning = null)
     {
-        NeedsPlaylistEntrySha256Migration = needsPlaylistEntrySha256Migration;
+        NeedsPlaylistEntrySha256Repair = needsPlaylistEntrySha256Repair;
         NeedsChartDigestMapSchema = needsChartDigestMapSchema;
         NeedsBmsonSongSchema = needsBmsonSongSchema;
-        NeedsBmsonAppSchemaMigration = needsBmsonAppSchemaMigration;
-        NeedsBmsonAppSchemaWarning = needsBmsonAppSchemaWarning ?? needsBmsonAppSchemaMigration;
+        NeedsAppSchemaVersionRepair = needsAppSchemaVersionRepair;
+        NeedsAppSchemaVersionWarning = needsAppSchemaVersionWarning ?? needsAppSchemaVersionRepair;
         RepairableBmsonSchemaIssues = repairableBmsonSchemaIssues;
     }
 }
 
-internal sealed class BmsonMigrationPreflightService
+internal sealed class AppSchemaPreflightService
 {
-    public BmsonMigrationPreflightResult Inspect(string songDbPath)
+    public AppSchemaPreflightResult Inspect(string songDbPath)
     {
         if (songDbPath == null)
         {
@@ -65,14 +65,14 @@ internal sealed class BmsonMigrationPreflightService
         return Inspect(db);
     }
 
-    internal BmsonMigrationPreflightResult Inspect(SQLiteConnection db)
+    internal AppSchemaPreflightResult Inspect(SQLiteConnection db)
     {
         if (db == null)
         {
             throw new ArgumentNullException(nameof(db));
         }
         RepairableBmsonSchemaIssues repairableBmsonSchemaIssues = AnalyzeRepairableBmsonSchemaIssues(db);
-        bool needsPlaylistEntrySha256Migration = NeedsPlaylistEntrySha256Migration(db);
+        bool needsPlaylistEntrySha256Repair = NeedsPlaylistEntrySha256Repair(db);
         bool needsChartDigestMapSchema = repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.ChartDigestMapTableMissing)
             || repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.ChartDigestMapTableInvalid);
         bool needsBmsonSongSchema = repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongTableMissing)
@@ -80,17 +80,17 @@ internal sealed class BmsonMigrationPreflightService
             || repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongMd5IndexMissing)
             || repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongSha256IndexMissing)
             || repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongFolderIndexMissing);
-        BmsonAppSchemaPreflight appSchemaPreflight = InspectBmsonAppSchema(db);
-        return new BmsonMigrationPreflightResult(
-            needsPlaylistEntrySha256Migration,
+        AppSchemaVersionPreflight appSchemaPreflight = InspectAppSchemaVersion(db);
+        return new AppSchemaPreflightResult(
+            needsPlaylistEntrySha256Repair,
             needsChartDigestMapSchema,
             needsBmsonSongSchema,
-            appSchemaPreflight.NeedsMigration,
+            appSchemaPreflight.NeedsRepair,
             repairableBmsonSchemaIssues,
             appSchemaPreflight.NeedsWarning);
     }
 
-    private static bool NeedsPlaylistEntrySha256Migration(SQLiteConnection db)
+    private static bool NeedsPlaylistEntrySha256Repair(SQLiteConnection db)
     {
         string playlistEntryTableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
         if (!TableExists(db, playlistEntryTableName))
@@ -171,33 +171,40 @@ internal sealed class BmsonMigrationPreflightService
         return issues;
     }
 
-    private static BmsonAppSchemaPreflight InspectBmsonAppSchema(SQLiteConnection db)
+    private static AppSchemaVersionPreflight InspectAppSchemaVersion(SQLiteConnection db)
     {
         string tableName = SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName();
         if (!TableExists(db, tableName))
         {
-            return new BmsonAppSchemaPreflight(needsMigration: true, needsWarning: AppOwnedBmsonTablesExist(db));
+            return new AppSchemaVersionPreflight(needsRepair: true, needsWarning: AppOwnedSchemaExists(db));
         }
         long currentCount = db.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + tableName
-            + " WHERE name = " + BMSPlaylist.SqlQuoteForTest(BmsLibraryDbGateway.BmsonAppSchemaVersionName)
-            + " AND version >= " + BmsLibraryDbGateway.CurrentBmsonAppSchemaVersion + ";");
+            + " WHERE name = " + BMSPlaylist.SqlQuoteForTest(BmsLibraryDbGateway.AppSchemaVersionName)
+            + " AND version >= " + BmsLibraryDbGateway.CurrentAppSchemaVersion + ";");
         if (currentCount > 0)
         {
-            return new BmsonAppSchemaPreflight(needsMigration: false, needsWarning: false);
+            return new AppSchemaVersionPreflight(needsRepair: false, needsWarning: false);
         }
         long rowCount = db.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + tableName
-            + " WHERE name = " + BMSPlaylist.SqlQuoteForTest(BmsLibraryDbGateway.BmsonAppSchemaVersionName) + ";");
-        bool rowExists = rowCount > 0;
-        bool needsWarning = rowExists || AppOwnedBmsonTablesExist(db);
-        return new BmsonAppSchemaPreflight(needsMigration: true, needsWarning: needsWarning);
+            + " WHERE name = " + BMSPlaylist.SqlQuoteForTest(BmsLibraryDbGateway.AppSchemaVersionName) + ";");
+        bool schemaRowExists = rowCount > 0;
+        bool needsWarning = schemaRowExists || AppOwnedSchemaExists(db);
+        return new AppSchemaVersionPreflight(needsRepair: true, needsWarning: needsWarning);
     }
 
-    private static bool AppOwnedBmsonTablesExist(SQLiteConnection db)
+    private static bool AppOwnedSchemaExists(SQLiteConnection db)
     {
-        return TableExists(db, SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName())
-            || TableExists(db, SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName());
+        return TableExists(db, SQLiteTable<LR2SongDBExtended.playlist>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.chart_info>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName())
+            || TableExists(db, SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName());
     }
 
     private static bool TableExists(SQLiteConnection db, string tableName)
@@ -210,15 +217,15 @@ internal sealed class BmsonMigrationPreflightService
         return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + BMSPlaylist.SqlQuoteForTest(indexName) + ";") > 0;
     }
 
-    private readonly struct BmsonAppSchemaPreflight
+    private readonly struct AppSchemaVersionPreflight
     {
-        public BmsonAppSchemaPreflight(bool needsMigration, bool needsWarning)
+        public AppSchemaVersionPreflight(bool needsRepair, bool needsWarning)
         {
-            NeedsMigration = needsMigration;
+            NeedsRepair = needsRepair;
             NeedsWarning = needsWarning;
         }
 
-        public bool NeedsMigration { get; }
+        public bool NeedsRepair { get; }
 
         public bool NeedsWarning { get; }
     }

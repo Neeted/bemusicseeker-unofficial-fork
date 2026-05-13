@@ -760,6 +760,15 @@ public partial class BMSPlaylist : NotificationObject
         EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
     }
 
+    internal static void EnsureSchema(LR2SongDBExtended db)
+    {
+        if (db == null)
+        {
+            throw new ArgumentNullException(nameof(db));
+        }
+        EnsurePlaylistTablesAndIndexes(db);
+    }
+
     /// <summary>
     /// DB からプレイリストを読み込み、必要に応じて外部同期とカスタムフォルダ出力まで実行します。
     /// 初期化済み一覧が空でない場合は、既存一覧を土台に同期処理のみ進めます。

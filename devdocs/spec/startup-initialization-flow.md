@@ -14,14 +14,14 @@
 2026-05-09 時点では、通常起動と空 DB 初回構築を分けて読む。
 
 - 通常起動 / 差分なしに近い起動では、導入可能 readiness は概ね 20 秒前後、UI 操作可能は 21 秒前後まで短縮済みである。この場合の background tail は `chart_info_hydration` が中心で、`startup_initialization_complete` は 39 秒前後まで短縮済みである。
-- 空 DB 初回構築では、`song` / `bmson_song` / `maintenance` / inline `chart_info` を新規構築するため、全 chart file bytes の read が支配的になる。`chart_digest_map` はこの file read の副産物として必要範囲が追加・更新される partial cache であり、startup migration が全量補完するものではない。直近ログでは `parse_read_bytes_estimate=14067633086`、`startup_install_estimation_ready elapsedMs=401434`、`startup_ready_operable elapsedMs=463762`、`startup_initialization_complete elapsedMs=667710` である。同じ 14GB 級の単純 read benchmark が `453.572 sec` であるため、この環境では初回 song/maintenance table 構築の高速化は一旦完了扱いとし、以後は通常起動や background tail と分けて評価する。
+- 空 DB 初回構築では、`song` / `bmson_song` / `maintenance` / inline `chart_info` を新規構築するため、全 chart file bytes の read が支配的になる。`chart_digest_map` はこの file read の副産物として必要範囲が追加・更新される partial cache であり、app schema repair が全量補完するものではない。直近ログでは `parse_read_bytes_estimate=14067633086`、`startup_install_estimation_ready elapsedMs=401434`、`startup_ready_operable elapsedMs=463762`、`startup_initialization_complete elapsedMs=667710` である。同じ 14GB 級の単純 read benchmark が `453.572 sec` であるため、この環境では初回 song/maintenance table 構築の高速化は一旦完了扱いとし、以後は通常起動や background tail と分けて評価する。
 
 ## Startup
 
 ```text
 Startup
-  -> LR2 mode の場合だけ bmson migration preflight
-  -> 必要なら警告と startup migration
+  -> LR2 mode の場合だけ app schema preflight
+  -> 必要なら警告と app schema repair
   -> LR2 mode の場合だけ final preflight
   -> metadata bundle import
   -> catalog DB load
@@ -34,7 +34,7 @@ Startup
   -> startup background scheduler
 ```
 
-`Startup` の migration と metadata import は DB load より前に完了させる。`chart_info` hydration/backfill は bmson schema migration の代替ではない。
+`Startup` の app schema repair と metadata import は DB load より前に完了させる。`chart_info` hydration/backfill は app schema repair の代替ではない。
 
 ## Library Profile
 
@@ -63,7 +63,7 @@ LR2 linked / standalone の profile 切替は、同一プロセス内の `FullRe
 
 | Mode | 入口 | 目的 | 主な処理 |
 | --- | --- | --- | --- |
-| `Startup` | アプリ起動 | DB と file system から正本 catalog / resource index / UI を構築する | migration、metadata import、catalog load、file diff、background hydration |
+| `Startup` | アプリ起動 | DB と file system から正本 catalog / resource index / UI を構築する | app schema repair、metadata import、catalog load、file diff、background hydration |
 | `FullReinitialize` | ライブラリ右クリック `初期化再実行` | 外部 DB 編集や状態修復を想定して library 初期化を再実行する | catalog load、file enumeration、file diff、必要な background 補完 |
 | `ReloadFileDiff` | ライブラリ右クリック `リロード` | DB は読み直さず、所持ファイルの追加・削除・更新だけを memory / DB に反映する | file enumeration、file diff、playlist reference apply |
 | `ReloadTables` | playlist/table reload | playlist/table 系だけを再読込し、外部 playlist 同期を再スケジュールする | table header reload、playlist entries hydration、external playlist sync |
@@ -77,23 +77,23 @@ BMS search root の追加・削除は mode 切替ではないため、保存後�
 
 起動時 UI ではプレイリスト root を常に展開する。これは root item の展開だけで、配下 playlist の再帰展開ではない。
 
-## bmson Migration
+## App Schema Repair
 
-`BmsonMigrationPreflightService.Inspect()` は read-only 判定だけを行う。
+`AppSchemaPreflightService.Inspect()` は read-only 判定だけを行う。
 
 | 判定 | 意味 | 起動時の扱い |
 | --- | --- | --- |
-| `NeedsPlaylistEntrySha256Migration` | 既存 `playlist_entry` schema が現行ではない | 警告対象。OK 後に `BMSPlaylist.EnsureSchema()` で移行 |
-| `NeedsBmsonAppSchemaMigration` | `app_schema_version(name='bmson_app_schema')` が現行ではない | 必ずしも警告対象ではない。既存 bmson app-owned table や旧 version row がある場合だけ警告対象 |
-| `RepairRequired` | `chart_digest_map` / `bmson_song` / index の schema が欠損または互換外 | 警告なしで startup preparation / repair により収束させる。`chart_digest_map` の row coverage は判定しない |
+| `NeedsPlaylistEntrySha256Repair` | 既存 `playlist_entry` schema が現行ではない | 警告対象。OK 後に app schema repair で修復 |
+| `NeedsAppSchemaVersionRepair` | `app_schema_version(name='app_schema')` が無い、または version が `CurrentAppSchemaVersion` 未満 | app-owned schema が既に存在する場合は警告対象。完全な初回 LR2 DB では警告なし |
+| `RepairRequired` | `chart_digest_map` / `bmson_song` / index の schema が欠損または互換外 | 警告なしで app schema repair により収束させる。`chart_digest_map` の row coverage は判定しない |
 
-startup migration 後は必ず final preflight を行い、上記の未収束が残る場合は起動失敗として扱う。
+app schema repair 後は必ず final preflight を行い、上記の未収束が残る場合は起動失敗として扱う。
 
-`playlist` / `playlist_entry` が存在しない LR2 `song.db` へ app 用 playlist schema を追加するだけの場合や、`chart_digest_map` / `bmson_song` / `app_schema_version` を初回連携用に追加するだけの場合は、互換性に影響する migration warning を出さない。既存 `playlist_entry` に `sha256` を足す、既存 `playlist_entry_idx_uniq` を作り直す、既存 `bmson_app_schema` version を更新する、または version row が無い状態で既存 `chart_digest_map` / `bmson_song` を持つ場合は、既存 app-owned schema/data へ手を入れる migration として警告対象にする。
+`playlist` / `playlist_entry` が存在しない LR2 `song.db` へ app 用 playlist schema を追加するだけの場合や、`chart_digest_map` / `bmson_song` / `app_schema_version` を初回連携用に追加して `app_schema = 1` を記録するだけの場合は、互換性に影響する警告を出さない。既存 `playlist_entry` に `sha256` を足す、既存 `playlist_entry_idx_uniq` を作り直す、既存 app-owned schema がある状態で `app_schema` version を記録または更新する場合は警告対象にする。
 
-`BmsLibraryDbGateway.EnsureBmsonSchema()` は schema/index presence の修復 helper であり、migration 完了印を書かない。初回連携用に bmson app-owned tables を作って current version を記録するだけの場合は `EnsureBmsonStartupSchema()` を使う。既存 app-owned data の schema 正規化と current version 記録が必要な場合は `CompleteBmsonStartupMigration()` を使う。
+`BmsLibraryDbGateway.EnsureAppOwnedSchema()` は playlist / bmson / chart_info / IR / lookup index を現行 schema へ揃え、`app_schema = 1` を記録する。既存 `chart_digest_map` の `md5` / `sha256` row を保持しながら current schema へ正規化する場合は `RepairAppOwnedSchema()` を使う。
 
-`CompleteBmsonStartupMigration()` は既存 `chart_digest_map` の `md5` / `sha256` row を保持しながら current schema へ正規化するが、`song` table 全件を走査して実ファイルから SHA-256 を生成しない。missing digest は file diff / install / inline `chart_info` / chart info backfill など、譜面 bytes を読む後続 pipeline の責務とする。
+app schema repair は `song` table 全件を走査して実ファイルから SHA-256 を生成しない。missing digest は file diff / install / inline `chart_info` / chart info backfill など、譜面 bytes を読む後続 pipeline の責務とする。
 
 初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、startup scheduler が idle になり `startup_initialization_complete` を記録した後に表示する。これにより、初回完了メッセージは critical path だけでなく通常の起動時 background 初期化まで終えた境界を表す。
 
@@ -104,11 +104,11 @@ metadata bundle は所持譜面から生成した DB 由来情報ではなく、
 - import は `Startup` の DB load 前に行う。
 - import 済み bundle は `imported_metadata/` へ退避する。
 - `FullReinitialize` / `ReloadFileDiff` では再 import しない。
-- bundle import は bmson migration の代替ではない。
+- bundle import は app schema repair の代替ではない。bundle manifest の `chart_info_schema_version` は import/export 互換値であり、DB 内 `app_schema` version とは別物である。
 
 ## Library Load
 
-`Startup` / `FullReinitialize` の library load は、migration と metadata import が終わった DB を前提にする。
+`Startup` / `FullReinitialize` の library load は、app schema repair と metadata import が終わった DB を前提にする。
 
 | Phase | 正本の処理 | 備考 |
 | --- | --- | --- |
@@ -172,7 +172,7 @@ startup hydration の主要 read phase は `OpenSongDbReadOnly()` / `OpenScoreDb
 
 read-only hydration loader のルール:
 
-- loader 内で `CreateTable`、schema ensure、migration、repair を行わない。
+- loader 内で `CreateTable`、schema ensure、app schema repair を行わない。
 - DB read phase は row / DTO / dictionary を返すだけにし、DB connection を閉じてから memory owner attach を行う。
 - cleanup、backfill、metadata update、`ir_score` replace、`ir_data` upsert、file diff commit は短い write-capable transaction path として明示する。
 - loader log は `readOnly=true` と `dbLockWaitMs` を出す。
@@ -286,8 +286,8 @@ ScoreOnly
 
 ## 守るべき境界
 
-- migration 完了印を `chart_info` backfill の副作用として書かない。
-- startup hydration worker 内で schema ensure、migration、repair、hidden write を行わない。
+- app schema version を `chart_info` backfill の副作用として書かない。
+- startup hydration worker 内で schema ensure、app schema repair、hidden write を行わない。
 - read-only loader と write-capable transaction path を同じ phase に混ぜない。
 - DB connection を保持したまま、大量の memory owner attach や UI notification を行わない。
 - 導入可能 readiness を、playlist hydration、score/ranking refresh、chart_info hydration、maintenance hydration の完了に依存させない。

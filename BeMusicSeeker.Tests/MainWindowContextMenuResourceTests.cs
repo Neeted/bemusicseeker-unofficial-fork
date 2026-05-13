@@ -461,7 +461,7 @@ public sealed class MainWindowContextMenuResourceTests
         string validationFailure = ExtractBetween(
             initialize,
             "if (!settingDialog.CheckValidation())",
-            "if (Settings.Default.OperationModeLR2DB && !await EnsureBmsonMigrationApprovedForStartupAsync())");
+            "if (Settings.Default.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync())");
 
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
         StringAssert.Contains(validationFailure, "base.Messenger.Raise(new InteractionMessage(\"InitialSetupLanguageDialog\"));");
@@ -505,21 +505,21 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
         StringAssert.Contains(initialize, "initialSetupCompletionMessagePending = true;");
         Assert.IsFalse(initialize.Contains("Resources.Msg_init_completed"));
-        StringAssert.Contains(initialize, "await EnsureBmsonMigrationApprovedForStartupAsync()");
-        string bmsonStartupPreflight = ExtractBetween(
+        StringAssert.Contains(initialize, "await EnsureAppSchemaRepairApprovedForStartupAsync()");
+        string appSchemaStartupPreflight = ExtractBetween(
             viewModelCode,
-            "private async Task<bool> EnsureBmsonMigrationApprovedForStartupAsync()",
-            "private void ApplyBmsonStartupMigrationOrThrow");
+            "private async Task<bool> EnsureAppSchemaRepairApprovedForStartupAsync()",
+            "private void ApplyAppSchemaRepairForStartupOrThrow");
         string gatewayCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDbGateway.cs"));
-        string completeBmsonMigration = ExtractBetween(
+        string repairAppOwnedSchema = ExtractBetween(
             gatewayCode,
-            "internal static void CompleteBmsonStartupMigration(LR2SongDBExtended songDb)",
-            "internal static void EnsureBmsonStartupSchema(LR2SongDBExtended songDb)");
-        StringAssert.Contains(bmsonStartupPreflight, "base.Messenger.Raise(confirmationMessage);");
-        StringAssert.Contains(bmsonStartupPreflight, "await Task.Run(delegate");
-        StringAssert.Contains(bmsonStartupPreflight, "ApplyBmsonStartupMigrationOrThrow(bmsonMigrationPreflightService, preflightResult);");
-        Assert.IsFalse(completeBmsonMigration.Contains("RepairChartDigestMapConsistency"));
-        Assert.IsFalse(completeBmsonMigration.Contains("BMSFile.GetSHA256Hash"));
+            "internal static void RepairAppOwnedSchema(LR2SongDBExtended songDb)",
+            "internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)");
+        StringAssert.Contains(appSchemaStartupPreflight, "base.Messenger.Raise(confirmationMessage);");
+        StringAssert.Contains(appSchemaStartupPreflight, "await Task.Run(delegate");
+        StringAssert.Contains(appSchemaStartupPreflight, "ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult);");
+        Assert.IsFalse(repairAppOwnedSchema.Contains("RepairChartDigestMapConsistency"));
+        Assert.IsFalse(repairAppOwnedSchema.Contains("BMSFile.GetSHA256Hash"));
         StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
         StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");

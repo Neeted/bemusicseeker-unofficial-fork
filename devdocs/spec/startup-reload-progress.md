@@ -4,7 +4,7 @@
 
 ステータスバーの初期化・リロード進捗は `MainWindowViewModel` の `StartupProgressPhase` を基に表示する。
 
-起動時の bmson migration preflight / startup migration は、`BMSLibrary.Initialize()` 本体に入る前の前提整備として扱う。詳細は `devdocs/spec/startup-initialization-flow.md` を参照する。
+起動時の app schema preflight / repair は、`BMSLibrary.Initialize()` 本体に入る前の前提整備として扱う。詳細は `devdocs/spec/startup-initialization-flow.md` を参照する。
 
 進捗の分母は operation 開始時に固定され、後続の background request で増えない。発生しない phase は skip 完了扱いにし、ゲージが巻き戻って見えないようにしている。
 
@@ -88,7 +88,7 @@ BMS search root の追加・削除は `ReloadFileDiff` として扱う。実行�
 
 `InstallableMaintenanceDeferredDone` には bounded 並列の cache-aware resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
 
-`ChartDigestBackfillDone` は startup migration の一部ではない。bmson startup migration は `chart_digest_map` の schema と既存 row の保持だけを扱い、`song` table 全件から実ファイルを読んで digest を補完しない。missing digest がある場合は file diff / install / chart_info pipeline 側の補完として扱う。
+`ChartDigestBackfillDone` は app schema repair の一部ではない。startup repair は `chart_digest_map` の schema と既存 row の保持だけを扱い、`song` table 全件から実ファイルを読んで digest を補完しない。missing digest がある場合は file diff / install / chart_info pipeline 側の補完として扱う。
 
 Startup / FullReinitialize では `chart_info_hydration` と `maintenance_hydration` が完了してから、`InstallableMaintenanceDeferredDone` の task を開始する。これにより、譜面メタデータの大量 hydration/backfill と保守情報更新が同時に走って UI 更新や DB commit が競合する状態を避ける。
 

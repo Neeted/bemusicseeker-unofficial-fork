@@ -14,7 +14,7 @@
 
 ## DB Schema
 
-プレイリスト関連の app-owned table は `playlist`、`playlist_entry`、`playlist_course` である。
+プレイリスト関連の app-owned table は `playlist`、`playlist_entry`、`playlist_course` である。これらは BeMusicSeeker 全体の app-owned schema version `app_schema = 1` の一部であり、プレイリスト専用の schema version row は持たない。
 
 ### `playlist`
 

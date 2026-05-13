@@ -70,11 +70,9 @@ internal sealed class BmsLibraryDbGateway
     private const string ChartInfoColumnList =
         "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at";
 
-    internal const string BmsonAppSchemaVersionName = "bmson_app_schema";
+    internal const string AppSchemaVersionName = "app_schema";
 
-    internal const int CurrentBmsonAppSchemaVersion = 1;
-
-    internal const string ChartInfoSchemaVersionName = "chart_info_schema";
+    internal const int CurrentAppSchemaVersion = 1;
 
     internal const int CurrentChartInfoSchemaVersion = 4;
 
@@ -517,13 +515,13 @@ internal sealed class BmsLibraryDbGateway
         }
     }
 
-    public void EnsureBmsonStartupSchema()
+    public void EnsureAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         string savepoint = songDb.SaveTransactionPoint();
         try
         {
-            EnsureBmsonStartupSchema(songDb);
+            EnsureAppOwnedSchema(songDb);
             songDb.Commit();
         }
         catch (Exception)
@@ -552,13 +550,13 @@ internal sealed class BmsLibraryDbGateway
         }
     }
 
-    public void CompleteBmsonStartupMigration()
+    public void RepairAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         string savepoint = songDb.SaveTransactionPoint();
         try
         {
-            CompleteBmsonStartupMigration(songDb);
+            RepairAppOwnedSchema(songDb);
             songDb.Commit();
         }
         catch (Exception)
@@ -569,7 +567,7 @@ internal sealed class BmsLibraryDbGateway
     }
 
     /// <summary>
-    /// chart_info schema version が現行かどうかを返します。
+    /// chart_info schema と app-owned schema version が現行かどうかを返します。
     /// </summary>
     /// <returns>現行 schema であれば true。</returns>
     public bool IsChartInfoSchemaCurrent()
@@ -579,7 +577,7 @@ internal sealed class BmsLibraryDbGateway
     }
 
     /// <summary>
-    /// chart_info schema version を現行として記録します。
+    /// app-owned schema version を現行として記録します。
     /// </summary>
     public void MarkChartInfoSchemaCurrent()
     {
@@ -587,7 +585,7 @@ internal sealed class BmsLibraryDbGateway
         string savepoint = songDb.SaveTransactionPoint();
         try
         {
-            SetChartInfoSchemaVersion(songDb, CurrentChartInfoSchemaVersion);
+            SetCurrentAppSchemaVersion(songDb);
             songDb.Commit();
         }
         catch (Exception)
@@ -1431,7 +1429,7 @@ internal sealed class BmsLibraryDbGateway
             throw new ArgumentNullException(nameof(songDb));
         }
         songDb.CreateTable<LR2SongDBExtended.app_schema_version>();
-        RepairableBmsonSchemaIssues issues = BmsonMigrationPreflightService.AnalyzeRepairableBmsonSchemaIssues(songDb);
+        RepairableBmsonSchemaIssues issues = AppSchemaPreflightService.AnalyzeRepairableBmsonSchemaIssues(songDb);
         bool rebuildChartDigestMapTable = issues.HasFlag(RepairableBmsonSchemaIssues.ChartDigestMapTableMissing)
             || issues.HasFlag(RepairableBmsonSchemaIssues.ChartDigestMapTableInvalid);
         bool rebuildBmsonSongTable = issues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongTableMissing)
@@ -1522,7 +1520,7 @@ internal sealed class BmsLibraryDbGateway
         }
         songDb.CreateTable<LR2SongDBExtended.chart_info_import_history>();
         EnsureIndex(songDb, "chart_info_import_history_idx_bundle_sha256", importHistoryTableName, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName((LR2SongDBExtended.chart_info_import_history row) => row.bundle_sha256));
-        SetChartInfoSchemaVersion(songDb, CurrentChartInfoSchemaVersion);
+        SetCurrentAppSchemaVersion(songDb);
     }
 
     internal static void UpsertChartDigest(LR2SongDBExtended songDb, BMSFile file)
@@ -1543,26 +1541,38 @@ internal sealed class BmsLibraryDbGateway
         songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
     }
 
-    internal static void CompleteBmsonStartupMigration(LR2SongDBExtended songDb)
+    internal static void RepairAppOwnedSchema(LR2SongDBExtended songDb)
     {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
         }
         Dictionary<string, string> reusableDigests = LoadReusableChartDigestMap(songDb);
-        EnsureBmsonSchema(songDb);
+        EnsureAppOwnedSchema(songDb, stampVersion: false);
         RebuildChartDigestMap(songDb, reusableDigests);
-        SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
+        SetCurrentAppSchemaVersion(songDb);
     }
 
-    internal static void EnsureBmsonStartupSchema(LR2SongDBExtended songDb)
+    internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)
+    {
+        EnsureAppOwnedSchema(songDb, stampVersion: true);
+    }
+
+    private static void EnsureAppOwnedSchema(LR2SongDBExtended songDb, bool stampVersion)
     {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
         }
+        BMSPlaylist.EnsureSchema(songDb);
         EnsureBmsonSchema(songDb);
-        SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
+        EnsureChartInfoSchema(songDb);
+        EnsureIrDataSchema(songDb);
+        EnsureSongLookupIndexes(songDb);
+        if (stampVersion)
+        {
+            SetCurrentAppSchemaVersion(songDb);
+        }
     }
 
     internal static void RepairChartDigestMapConsistency(LR2SongDBExtended songDb)
@@ -1759,27 +1769,19 @@ internal sealed class BmsLibraryDbGateway
         long count = songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.name)
-            + " = " + BMSPlaylist.SqlQuoteForTest(ChartInfoSchemaVersionName)
+            + " = " + BMSPlaylist.SqlQuoteForTest(AppSchemaVersionName)
             + " AND " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.version)
-            + " >= " + CurrentChartInfoSchemaVersion + ";");
+            + " >= " + CurrentAppSchemaVersion + ";");
         return count > 0;
     }
 
-    private static void SetChartInfoSchemaVersion(LR2SongDBExtended songDb, int version)
+    private static void SetCurrentAppSchemaVersion(LR2SongDBExtended songDb)
     {
+        songDb.CreateTable<LR2SongDBExtended.app_schema_version>();
         songDb.InsertOrReplace(new LR2SongDBExtended.app_schema_version
         {
-            name = ChartInfoSchemaVersionName,
-            version = version
-        }, typeof(LR2SongDBExtended.app_schema_version));
-    }
-
-    private static void SetBmsonAppSchemaVersion(LR2SongDBExtended songDb, int version)
-    {
-        songDb.InsertOrReplace(new LR2SongDBExtended.app_schema_version
-        {
-            name = BmsonAppSchemaVersionName,
-            version = version
+            name = AppSchemaVersionName,
+            version = CurrentAppSchemaVersion
         }, typeof(LR2SongDBExtended.app_schema_version));
     }
 

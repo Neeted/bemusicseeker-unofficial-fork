@@ -14,7 +14,7 @@
   - BMS と同じ LR2 再生 capability を持つとは扱わない。
 - digest / metadata
   - `chart_digest_map` は chart identity と chart_info hydration の橋渡しに使う partial cache である。
-  - `chart_digest_map` は migration 直後や初回 scan 前に完全である必要はない。missing SHA-256 は file diff / install / inline chart_info / chart info backfill など、譜面 bytes を読む処理で必要範囲を補完する。
+  - `chart_digest_map` は app schema repair 直後や初回 scan 前に完全である必要はない。missing SHA-256 は file diff / install / inline chart_info / chart info backfill など、譜面 bytes を読む処理で必要範囲を補完する。
   - `chart_info` と current parse failure は startup background hydration で memory owner / session index へ適用する。
 
 ## Startup DB Projection
@@ -103,24 +103,24 @@ LR2 ranking 系は 2 table に分かれる。
 
 startup hydration の read phase は read-only connection を使う。
 
-- read-only loader は schema ensure / migration / repair を行わない。
+- read-only loader は schema ensure / repair を行わない。
 - write が必要な cleanup / backfill / metadata update / file diff commit は write-capable transaction path に分ける。
-- `bmson_app_schema` などの migration 状態は startup migration phase で収束させる。
+- `app_schema_version(name='app_schema')` は startup app schema repair で収束させる。
 
 `song` table は LR2 互換の lookup index を前提にする。LR2 が作成する `song.db` と同様に `hashidx(song.hash)` と `parentidx(song.parent)` を ensure し、アプリ側で使う `song_idx_folder(song.folder)` も維持する。スタンドアローン DB 作成時だけでなく、通常の DB schema ensure でも不足 index を補う。
 
-bmson startup preflight は、警告が必要な migration と警告不要の初回準備を分ける。
+app schema preflight は、警告が必要な修復と警告不要の初回準備を分ける。
 
 - warning target:
   - 既存 `playlist_entry` に `sha256` column / index を追加する。
   - 既存 `playlist_entry_idx_uniq` を `sha256` 込みへ作り直す。
-  - 既存 `bmson_app_schema` version row を更新する。
+  - 既存 app-owned schema がある状態で `app_schema` version row を記録または更新する。
   - version row が無い状態で既存 `chart_digest_map` / `bmson_song` があり、app-owned schema/data を現行化する。
 - no-warning startup preparation:
   - LR2 `song.db` に playlist tables が無く、初回連携用に追加する。
-  - `chart_digest_map` / `bmson_song` / `app_schema_version` が無く、初回連携用に追加して current version を記録する。
+  - `chart_digest_map` / `bmson_song` / `app_schema_version` が無く、初回連携用に追加して `app_schema = 1` を記録する。
 
-`EnsureBmsonStartupSchema()` は no-warning preparation 用で、schema/index ensure と `bmson_app_schema` current version stamp だけを行う。既存 app-owned data の schema 正規化と current version stamp が必要な場合は `CompleteBmsonStartupMigration()` を使う。どちらも `song` table 全件から実ファイルを読んで `chart_digest_map` を全量補完しない。
+`EnsureAppOwnedSchema()` は playlist / bmson / chart_info / IR / lookup index を現行 schema へ揃え、`app_schema = 1` を記録する。既存 `chart_digest_map` の row を保持しながら schema 正規化と current version stamp が必要な場合は `RepairAppOwnedSchema()` を使う。どちらも `song` table 全件から実ファイルを読んで `chart_digest_map` を全量補完しない。metadata bundle manifest の `chart_info_schema_version` は import/export 互換値であり、DB 内 `app_schema` version とは別物である。
 
 設定ダイアログの「BeMusicSeeker関連データをLR2データベースから削除」は、LR2 native tables (`song`, `folder`, `score` など) は保持し、`LR2SongDBExtended.BeMusicSeekerOwnedTableNames` に列挙した app-owned tables だけを drop する。app-owned table の AUTOINCREMENT 由来 `sqlite_sequence` row と、LR2 native table 上に作る app-owned index (`song_idx_folder`) も削除する。初期化・reload・background 更新中は実行不可とし、実行中は設定ダイアログ操作を無効化する。成功後はアプリを終了するため、uninstall は通常運用中の差分更新ではなく終了前の破壊的な単独操作として扱う。新しい app-owned table や native table 上の app-owned index を追加する場合は、この一覧と uninstall regression test も更新する。
 

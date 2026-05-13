@@ -11,7 +11,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class MigrationPreflightServiceTests
+public sealed class AppSchemaPreflightServiceTests
 {
     [TestMethod]
     [TestCategory("Playlist")]
@@ -29,11 +29,11 @@ public sealed class MigrationPreflightServiceTests
                 db.Execute("CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
             }
 
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
 
-            Assert.IsTrue(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
+            Assert.IsTrue(result.NeedsPlaylistEntrySha256Repair);
+            Assert.IsTrue(result.NeedsAppSchemaVersionRepair);
             Assert.IsTrue(result.WarnRequired);
             Assert.IsTrue(result.RequiresWarning);
 
@@ -58,13 +58,13 @@ public sealed class MigrationPreflightServiceTests
             BMSPlaylist.EnsureSchema(tempDbPath);
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureBmsonSchema();
-            gateway.CompleteBmsonStartupMigration();
+            gateway.RepairAppOwnedSchema();
 
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
 
-            Assert.IsFalse(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsFalse(result.NeedsBmsonAppSchemaMigration);
+            Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
+            Assert.IsFalse(result.NeedsAppSchemaVersionRepair);
             Assert.IsFalse(result.WarnRequired);
             Assert.IsFalse(result.RequiresWarning);
             Assert.IsFalse(result.RepairRequired);
@@ -85,11 +85,11 @@ public sealed class MigrationPreflightServiceTests
             BMSPlaylist.EnsureSchema(tempDbPath);
             new BmsLibraryDbGateway(tempDbPath).EnsureBmsonSchema();
 
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
 
-            Assert.IsFalse(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
+            Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
+            Assert.IsTrue(result.NeedsAppSchemaVersionRepair);
             Assert.IsTrue(result.WarnRequired);
             Assert.IsFalse(result.RepairRequired);
         }
@@ -106,11 +106,11 @@ public sealed class MigrationPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
 
-            Assert.IsFalse(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
+            Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
+            Assert.IsTrue(result.NeedsAppSchemaVersionRepair);
             Assert.IsFalse(result.WarnRequired);
             Assert.IsFalse(result.RequiresWarning);
         }
@@ -122,7 +122,7 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void EnsureBmsonStartupSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration()
+    public void EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
@@ -130,16 +130,16 @@ public sealed class MigrationPreflightServiceTests
             BMSPlaylist.EnsureSchema(tempDbPath);
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
 
-            gateway.EnsureBmsonStartupSchema();
+            gateway.EnsureAppOwnedSchema();
 
-            BmsonMigrationPreflightResult result = new BmsonMigrationPreflightService().Inspect(tempDbPath);
-            Assert.IsFalse(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsFalse(result.NeedsBmsonAppSchemaMigration);
+            AppSchemaPreflightResult result = new AppSchemaPreflightService().Inspect(tempDbPath);
+            Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
+            Assert.IsFalse(result.NeedsAppSchemaVersionRepair);
             Assert.IsFalse(result.RepairRequired);
             Assert.IsFalse(result.WarnRequired);
 
             using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'bmson_app_schema' AND version >= 1;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'app_schema' AND version >= 1;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'bmson_song';"));
         }
@@ -158,15 +158,15 @@ public sealed class MigrationPreflightServiceTests
         {
             BMSPlaylist.EnsureSchema(tempDbPath);
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
-            gateway.EnsureBmsonStartupSchema();
+            gateway.EnsureAppOwnedSchema();
             using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
             {
-                db.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'bmson_app_schema';");
+                db.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema';");
             }
 
-            BmsonMigrationPreflightResult result = new BmsonMigrationPreflightService().Inspect(tempDbPath);
+            AppSchemaPreflightResult result = new AppSchemaPreflightService().Inspect(tempDbPath);
 
-            Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
+            Assert.IsTrue(result.NeedsAppSchemaVersionRepair);
             Assert.IsTrue(result.WarnRequired);
             Assert.IsTrue(result.RequiresWarning);
         }
@@ -178,7 +178,7 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CompleteBmsonStartupMigration_MissingVersionRowConvergesPreflight()
+    public void RepairAppOwnedSchema_MissingVersionRowConvergesPreflight()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
@@ -187,15 +187,15 @@ public sealed class MigrationPreflightServiceTests
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureBmsonSchema();
 
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult before = service.Inspect(tempDbPath);
-            Assert.IsTrue(before.NeedsBmsonAppSchemaMigration);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult before = service.Inspect(tempDbPath);
+            Assert.IsTrue(before.NeedsAppSchemaVersionRepair);
 
-            gateway.CompleteBmsonStartupMigration();
+            gateway.RepairAppOwnedSchema();
 
-            BmsonMigrationPreflightResult after = service.Inspect(tempDbPath);
-            Assert.IsFalse(after.NeedsPlaylistEntrySha256Migration);
-            Assert.IsFalse(after.NeedsBmsonAppSchemaMigration);
+            AppSchemaPreflightResult after = service.Inspect(tempDbPath);
+            Assert.IsFalse(after.NeedsPlaylistEntrySha256Repair);
+            Assert.IsFalse(after.NeedsAppSchemaVersionRepair);
             Assert.IsFalse(after.RepairRequired);
             Assert.IsFalse(after.WarnRequired);
         }
@@ -207,7 +207,7 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CompleteBmsonStartupMigration_DoesNotBackfillMissingDigestFromSongFiles()
+    public void RepairAppOwnedSchema_DoesNotBackfillMissingDigestFromSongFiles()
     {
         string tempDbPath = CreateEmptySongDbPath();
         string chartPath = string.Empty;
@@ -224,11 +224,11 @@ public sealed class MigrationPreflightServiceTests
                 db.CreateTable<LR2SongDBExtended.chart_digest_map>();
             }
 
-            new BmsLibraryDbGateway(tempDbPath).CompleteBmsonStartupMigration();
+            new BmsLibraryDbGateway(tempDbPath).RepairAppOwnedSchema();
 
             using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'bmson_app_schema' AND version >= 1;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'app_schema' AND version >= 1;"));
         }
         finally
         {
@@ -246,7 +246,7 @@ public sealed class MigrationPreflightServiceTests
             BMSPlaylist.EnsureSchema(tempDbPath);
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureBmsonSchema();
-            gateway.CompleteBmsonStartupMigration();
+            gateway.RepairAppOwnedSchema();
 
             using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
             {
@@ -257,8 +257,8 @@ public sealed class MigrationPreflightServiceTests
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             }
 
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
 
             Assert.IsFalse(result.WarnRequired);
             Assert.IsFalse(result.RequiresWarning);
@@ -283,15 +283,15 @@ public sealed class MigrationPreflightServiceTests
                 db.Execute("CREATE TABLE bmson_song (path TEXT PRIMARY KEY, title TEXT NULL);");
             }
 
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult invalidResult = service.Inspect(tempDbPath);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult invalidResult = service.Inspect(tempDbPath);
             Assert.IsTrue(invalidResult.RepairRequired);
             Assert.IsTrue(invalidResult.RepairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.ChartDigestMapTableInvalid));
             Assert.IsTrue(invalidResult.RepairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongTableInvalid));
 
             new BmsLibraryDbGateway(tempDbPath).EnsureBmsonSchema();
 
-            BmsonMigrationPreflightResult repairedResult = service.Inspect(tempDbPath);
+            AppSchemaPreflightResult repairedResult = service.Inspect(tempDbPath);
             Assert.IsFalse(repairedResult.NeedsChartDigestMapSchema);
             Assert.IsFalse(repairedResult.NeedsBmsonSongSchema);
             Assert.IsFalse(repairedResult.RepairRequired);
@@ -318,7 +318,7 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CompleteBmsonStartupMigration_NormalizesChartDigestMapAndSetsVersion()
+    public void RepairAppOwnedSchema_NormalizesChartDigestMapAndSetsVersion()
     {
         string tempDbPath = CreateEmptySongDbPath();
         string chartPath = string.Empty;
@@ -341,7 +341,7 @@ public sealed class MigrationPreflightServiceTests
             }
 
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
-            gateway.CompleteBmsonStartupMigration();
+            gateway.RepairAppOwnedSchema();
 
             using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
             string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
@@ -349,7 +349,7 @@ public sealed class MigrationPreflightServiceTests
             Assert.IsFalse(chartDigestMapSql.IndexOf("updated_at", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = '" + md5 + "';"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'bmson_app_schema' AND version >= 1;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'app_schema' AND version >= 1;"));
         }
         finally
         {
@@ -359,29 +359,29 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CompleteBmsonStartupMigration_CurrentVersionWithInvalidDigestMapStillRepairsSchema()
+    public void RepairAppOwnedSchema_CurrentVersionWithInvalidDigestMapStillRepairsSchema()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
             BMSPlaylist.EnsureSchema(tempDbPath);
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
-            gateway.CompleteBmsonStartupMigration();
+            gateway.RepairAppOwnedSchema();
             using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
             {
                 db.DropTable<LR2SongDBExtended.chart_digest_map>();
                 db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, broken TEXT NULL);");
             }
 
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult before = service.Inspect(tempDbPath);
-            Assert.IsFalse(before.NeedsBmsonAppSchemaMigration);
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
+            AppSchemaPreflightResult before = service.Inspect(tempDbPath);
+            Assert.IsFalse(before.NeedsAppSchemaVersionRepair);
             Assert.IsTrue(before.RepairRequired);
 
-            gateway.CompleteBmsonStartupMigration();
+            gateway.RepairAppOwnedSchema();
 
-            BmsonMigrationPreflightResult after = service.Inspect(tempDbPath);
-            Assert.IsFalse(after.NeedsBmsonAppSchemaMigration);
+            AppSchemaPreflightResult after = service.Inspect(tempDbPath);
+            Assert.IsFalse(after.NeedsAppSchemaVersionRepair);
             Assert.IsFalse(after.RepairRequired);
             using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
             string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
@@ -472,9 +472,9 @@ public sealed class MigrationPreflightServiceTests
         try
         {
             Assert.IsTrue(lockTaken.Wait(TimeSpan.FromSeconds(5)));
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
+            AppSchemaPreflightService service = new AppSchemaPreflightService();
             Stopwatch stopwatch = Stopwatch.StartNew();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+            AppSchemaPreflightResult result = service.Inspect(tempDbPath);
             stopwatch.Stop();
 
             Assert.IsFalse(result.RequiresWarning);
@@ -492,7 +492,7 @@ public sealed class MigrationPreflightServiceTests
 
     private static string CreateEmptySongDbPath()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "MigrationPreflightServiceTests", Guid.NewGuid().ToString("N"));
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "AppSchemaPreflightServiceTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string tempDbPath = Path.Combine(tempDirectory, "song.db");
         using (LR2SongDBExtended _ = new LR2SongDBExtended(tempDbPath))
@@ -503,7 +503,7 @@ public sealed class MigrationPreflightServiceTests
 
     private static string CreateTempSongDbPath()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "MigrationPreflightServiceTests", Guid.NewGuid().ToString("N"));
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "AppSchemaPreflightServiceTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string sourceSongDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
         string tempDbPath = Path.Combine(tempDirectory, "song.db");
