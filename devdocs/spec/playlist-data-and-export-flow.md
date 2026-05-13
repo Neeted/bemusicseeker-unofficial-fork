@@ -91,6 +91,14 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 この分離により、機能追加後の旧 DB 初回補完で `last_update` が現在時刻へ塗り替わることを避ける。
 
+## プレイリスト正本の保存
+
+プレイリスト名、symbol、外部同期 URL、folder 順序、custom folder 出力設定、course などの正本は DB の `playlist` / `playlist_course` / `playlist_entry` に保存する。DB 保存は LR2 linked profile と standalone profile のどちらでも行う。
+
+プレイリストプロパティ保存では、まず `playlist` 本体と `playlist_course` を mode 非依存で保存する。その後、LR2 linked profile でのみ `.lr2folder` の移動・再生成や `config.xml` の BMS search directory 更新を行う。standalone profile では `.lr2folder` 実出力は行わないが、プレイリスト名などの DB 保存と beatoraja `.bmt` 再出力要求は行う。
+
+entry の追加・削除・folder 編集など、`playlist_entry` の全置換が必要なローカル編集では、DB 全体保存を行った後に LR2 linked profile でのみ custom folder を再出力する。custom folder 出力処理は DB 保存の副作用を持たず、DB 保存の有無は呼び出し元の正本更新処理で決める。
+
 ## LR2 Custom Folder 出力
 
 LR2 custom folder 出力は LR2 linked profile の機能であり、standalone profile では実ファイル出力しない。
@@ -99,7 +107,7 @@ LR2 custom folder 出力は LR2 linked profile の機能であり、standalone p
 
 - 起動・`ReloadTables` 後の playlist entries hydration callback。
 - 外部同期で known content change があった場合。
-- ローカル編集で `ReOutputCustomFolderAndCommitToDB` を通る場合。
+- ローカル編集で DB 保存後に custom folder 再出力が必要になった場合。
 - プレイリストプロパティ変更で custom folder 出力先や root 設定が変わった場合。
 
 出力先は `LR2CustomFolderOutputBaseDir` または root 用の `LR2CustomFolderOutputBaseDirRootType` と、playlist の `output_dir` から決まる。`ignore_folder_output` により level/user/alphabet/clear などの folder 種別を除外できる。
@@ -136,7 +144,7 @@ course constraints は header source の `grade_mirror` などから beatoraja e
 
 - 起動時と `ReloadTables` 時は、playlist entries hydration と deferred external sync が収束した後に全 playlist を active profile / DB の投影として全出力し、manifest 管理下で active set に含まれない `.bmt` を削除する。外部同期を行わない初期読み込みでは hydration 後に同じ全出力を行う。playlist が 0 件の場合も managed `.bmt` は空集合へ収束させる。
 - 外部同期では known content change と hash initialization のどちらでも DB 保存対象になる。手動再同期後は、対象 playlist が非出力状態になった場合の旧 managed `.bmt` も削除できるように全体投影を出力する。
-- ローカル編集で `ReOutputCustomFolderAndCommitToDB` または `CommitBMSTableEntry` を通る場合は対象 playlist を再出力する。
+- ローカル編集で `playlist` / `playlist_entry` を保存した場合、または `CommitBMSTableEntry` を通る場合は対象 playlist を再出力する。
 - プレイリストプロパティ保存後は対象 playlist を再出力する。
 - `.bmt` 設定の有効状態または table path が変わった場合は全 playlist を再出力する。旧 path がある場合は manifest cleanup する。
 - プレイリスト削除と backup restore 後は全出力系を使い、manifest cleanup により不要な managed `.bmt` を削除する。

@@ -340,6 +340,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
         StringAssert.Contains(viewModelCode, "return new List<string>();");
         StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable) : null;");
+        string saveFollowup = ExtractBetween(
+            viewModelCode,
+            "internal async Task ApplyPostSaveUpdatesAsync()",
+            "protected override void Dispose(bool disposing)");
+        int headerCommitIndex = saveFollowup.IndexOf("ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);", StringComparison.Ordinal);
+        int lr2CustomFolderIndex = saveFollowup.IndexOf("if (Settings.Default.OperationModeLR2DB)", StringComparison.Ordinal);
+        Assert.IsTrue(headerCommitIndex >= 0);
+        Assert.IsTrue(lr2CustomFolderIndex > headerCommitIndex);
         StringAssert.Contains(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs")), "public List<string> SearchTargets { get; set; } = new List<string>();");
         Assert.IsFalse(viewModelCode.Contains("throw new NotImplementedException();"));
     }

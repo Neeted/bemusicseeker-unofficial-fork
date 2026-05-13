@@ -2448,7 +2448,7 @@ public partial class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
-    /// プレイリストのカスタムフォルダ出力先変更を DB とファイルシステムの両方へ反映します。
+    /// プレイリストのカスタムフォルダ出力先変更をファイルシステムへ反映します。
     /// </summary>
     /// <param name="bmsTable">移行対象のプレイリスト。</param>
     /// <param name="outputDirPathBefore">変更前の出力先パス。</param>
@@ -2479,9 +2479,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
-                commitBMSTableHeaderOnly(bmsTable);
-                removeCustomFolder(outputDirPathBefore, outputDirPathAfter);
-                createCustomFolder(bmsTable, outputDirPathAfter);
+                migrateCustomFolderOutputDirectoryFiles(bmsTable, outputDirPathBefore, outputDirPathAfter);
             }
         }
     }
@@ -2511,11 +2509,21 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
-                CommitBMSTable(bmsTable);
-                removeCustomFolder(GetCustomFolderOutputDirectory(bmsTable), GetCustomFolderOutputDirectory(bmsTable));
-                createCustomFolder(bmsTable, GetCustomFolderOutputDirectory(bmsTable));
+                reOutputCustomFolderFiles(bmsTable);
             }
         }
+    }
+
+    private void reOutputCustomFolderFiles(BMSTable bmsTable)
+    {
+        string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bmsTable);
+        migrateCustomFolderOutputDirectoryFiles(bmsTable, customFolderOutputDirectory, customFolderOutputDirectory);
+    }
+
+    private void migrateCustomFolderOutputDirectoryFiles(BMSTable bmsTable, string outputDirPathBefore, string outputDirPathAfter)
+    {
+        removeCustomFolder(outputDirPathBefore, outputDirPathAfter);
+        createCustomFolder(bmsTable, outputDirPathAfter);
     }
 
     /// <summary>
@@ -3219,17 +3227,34 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
+                CommitBMSTable(bmsTable);
                 if (Settings.Default.OperationModeLR2DB)
                 {
-                    ReOutputCustomFolder(bmsTable);
-                }
-                else
-                {
-                    CommitBMSTable(bmsTable);
+                    reOutputCustomFolderFiles(bmsTable);
                 }
             }
         }
         QueueBeatorajaBmtExport(bmsTable, "ReOutputCustomFolderAndCommitToDB");
+    }
+
+    /// <summary>
+    /// プレイリスト本体のヘッダ情報を DB へ保存します。
+    /// </summary>
+    /// <param name="bmsTable">保存対象のプレイリスト。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
+    internal void CommitBMSTableHeaderToDB(BMSTable bmsTable)
+    {
+        if (bmsTable == null)
+        {
+            throw new ArgumentNullException("bmsTable");
+        }
+        using (bmsTable.ReaderWriterLock.GetWriterGuard())
+        {
+            if (BMSTables.Contains(bmsTable))
+            {
+                commitBMSTableHeaderOnly(bmsTable);
+            }
+        }
     }
 
     /// <summary>

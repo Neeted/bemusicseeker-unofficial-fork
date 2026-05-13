@@ -470,6 +470,54 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void CommitBMSTableHeaderToDB_PersistsPlaylistNameInStandaloneMode()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        Settings.Default.OperationModeLR2DB = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSTable table = new BMSTable
+            {
+                playlist_id = 7101,
+                name = "BeforeName",
+                symbol = "BN",
+                Output_dir = "BeforeName"
+            };
+            using (LR2SongDBExtended db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, folder) VALUES (7101, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Song', '1');");
+            }
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { table }),
+                Dispatcher.CurrentDispatcher);
+
+            table.name = "AfterName";
+            playlist.CommitBMSTableHeaderToDB(table);
+
+            using (LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual("AfterName", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 7101;"));
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = 7101;"));
+            }
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void LoadStartupPlaylistEntries_UsesPlaylistIdProjectionAndKeepsRemovedRows()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));

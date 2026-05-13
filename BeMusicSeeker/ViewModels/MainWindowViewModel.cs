@@ -4336,6 +4336,7 @@ public class MainWindowViewModel : ViewModel
                 ownerViewModel.files.RefreshReferenceDisplayForTable(bmsTable);
                 ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_changed", invalidateTableCountCache: true);
             }
+            ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);
             if (Settings.Default.OperationModeLR2DB)
             {
                 string customFolderOutputDirectory = BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);
