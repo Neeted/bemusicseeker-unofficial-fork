@@ -5540,8 +5540,6 @@ public class MainWindowViewModel : ViewModel
 
     private int pendingRegularBmsRowCachePrunedCount;
 
-    private readonly HashSet<BeMusicSeeker.Models.BMSFile> normalLibrarySortKeyObservedFiles = new HashSet<BeMusicSeeker.Models.BMSFile>(BmsFileReferenceComparer.Instance);
-
     private readonly Dictionary<string, LibraryChartRow> bmsonLibraryRowsByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
@@ -9542,50 +9540,6 @@ public class MainWindowViewModel : ViewModel
         return pruned;
     }
 
-    private void SyncNormalLibrarySortKeySourceSubscriptions(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
-    {
-        HashSet<BeMusicSeeker.Models.BMSFile> current = new HashSet<BeMusicSeeker.Models.BMSFile>(
-            (currentFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile file) => file != null),
-            BmsFileReferenceComparer.Instance);
-        List<BeMusicSeeker.Models.BMSFile> removed = normalLibrarySortKeyObservedFiles.Where((BeMusicSeeker.Models.BMSFile file) => !current.Contains(file)).ToList();
-        int added = 0;
-        foreach (BeMusicSeeker.Models.BMSFile file in removed)
-        {
-            PropertyChangedEventManager.RemoveHandler(file, OnNormalLibrarySourceSortKeyPropertyChanged, string.Empty);
-            normalLibrarySortKeyObservedFiles.Remove(file);
-        }
-        foreach (BeMusicSeeker.Models.BMSFile file in current)
-        {
-            if (normalLibrarySortKeyObservedFiles.Add(file))
-            {
-                PropertyChangedEventManager.AddHandler(file, OnNormalLibrarySourceSortKeyPropertyChanged, string.Empty);
-                added++;
-            }
-        }
-        if (added > 0 || removed.Count > 0)
-        {
-            LogMainViewBuild("normal_library_sort_key_subscription added=" + added
-                + " removed=" + removed.Count
-                + " total=" + normalLibrarySortKeyObservedFiles.Count);
-        }
-    }
-
-    private void OnNormalLibrarySourceSortKeyPropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        string propertyName = e?.PropertyName;
-        if (IsNormalLibrarySourceSortKeyProperty(propertyName))
-        {
-            OnNormalLibrarySortKeyChangedIfCached("bmsfile_" + (propertyName ?? string.Empty) + "_changed");
-        }
-    }
-
-    private static bool IsNormalLibrarySourceSortKeyProperty(string propertyName)
-    {
-        return string.IsNullOrEmpty(propertyName)
-            || string.Equals(propertyName, nameof(BeMusicSeeker.Models.BMSFile.Title), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(BeMusicSeeker.Models.BMSFile.path), StringComparison.Ordinal);
-    }
-
     private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(BeMusicSeeker.Models.BMSFile file)
     {
         LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
@@ -11977,7 +11931,7 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     public MainWindowViewModel()
     {
-        regularBmsLibraryRowCache = new NormalLibraryRowCache(null);
+        regularBmsLibraryRowCache = new NormalLibraryRowCache(OnNormalLibrarySortKeyChangedIfCached);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         settingDialog = new SettingDialogViewModel(this);
@@ -12427,7 +12381,6 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
             InvalidatePlaylistLibraryIndexSnapshot("library_bmsfiles_changed");
-            SyncNormalLibrarySortKeySourceSubscriptions(files?.BMSFiles);
             PruneRegularBmsLibraryRowCache(files?.BMSFiles);
             IncrementNormalLibrarySourceGeneration("library_bmsfiles_changed");
             ResetRegularDerivedViewCaches();
@@ -15136,21 +15089,6 @@ public class MainWindowViewModel : ViewModel
         }
 
         public int GetHashCode(LR2SongDBExtended.bmson_song obj)
-        {
-            return RuntimeHelpers.GetHashCode(obj);
-        }
-    }
-
-    private sealed class BmsFileReferenceComparer : IEqualityComparer<BeMusicSeeker.Models.BMSFile>
-    {
-        internal static readonly BmsFileReferenceComparer Instance = new BmsFileReferenceComparer();
-
-        public bool Equals(BeMusicSeeker.Models.BMSFile x, BeMusicSeeker.Models.BMSFile y)
-        {
-            return ReferenceEquals(x, y);
-        }
-
-        public int GetHashCode(BeMusicSeeker.Models.BMSFile obj)
         {
             return RuntimeHelpers.GetHashCode(obj);
         }
