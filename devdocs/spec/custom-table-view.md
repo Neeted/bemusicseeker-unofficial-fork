@@ -63,6 +63,8 @@
 
 `MainWindowViewModel.loadColumnSetting(...)` は、現在の `viewUpdateMode` に応じて `ColumnsSettingsBMSFilesView` を差し替える。
 
+`SortUpdated`、keyword 更新、mode 更新、`TreeViewFilterNotChanged` は列セットを直接表す mode ではないため、現在選択中の tree mode へ解決してから列設定を適用する。同じ解決済み mode の列設定がすでに適用済みで、対象 settings と playlist summary settings が存在する場合は、`loadColumnSetting` を再実行しない。特に `SortUpdated` は表示 mode を変えない操作なので、列設定再適用による `columnMs` を発生させない。
+
 | 画面 / filter | `viewUpdateMode` | 設定オブジェクト | `CustomTableColumnSettings.ViewKind` |
 | --- | --- | --- | --- |
 | 通常ライブラリ / フォルダ | `FolderFilterSelected` | `Settings.Default.StandardCustomTableColumnSettings` | `STANDARD` |

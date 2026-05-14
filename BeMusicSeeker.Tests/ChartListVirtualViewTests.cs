@@ -175,6 +175,51 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void DefaultVirtualOrderPrewarmDescriptors_AreTitleThenPathAscDesc()
+    {
+        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
+                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Descending),
+                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Ascending),
+                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending)
+            },
+            descriptors.ToArray());
+    }
+
+    [TestMethod]
+    public void DefaultVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization()
+    {
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
+        int createdCount = 0;
+
+        foreach (VirtualNormalLibrarySortDescriptor descriptor in MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest())
+        {
+            Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, descriptor.ColumnName, descriptor.Direction, out ChartListOrder order));
+            ChartListVirtualView view = new ChartListVirtualView(sourceRows, order, row =>
+            {
+                createdCount++;
+                return LibraryChartRow.FromBmsFile(row.BmsFile);
+            });
+
+            Assert.AreEqual(sourceRows.Count, view.Count);
+            Assert.AreEqual(0, view.RealizedRowCount);
+        }
+        Assert.AreEqual(0, createdCount);
+    }
+
+    [TestMethod]
+    public void VirtualOrderPrewarmStaleCheck_RequiresBothGenerationsToMatch()
+    {
+        Assert.IsFalse(MainWindowViewModel.IsVirtualNormalLibraryPrewarmStaleForTest(1, 2, 1, 2));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryPrewarmStaleForTest(1, 2, 3, 2));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryPrewarmStaleForTest(1, 2, 1, 3));
+    }
+
+    [TestMethod]
     public void SourceRow_ReadsCurrentBmsFileSortKeys()
     {
         TestableBmsFile file = new TestableBmsFile();

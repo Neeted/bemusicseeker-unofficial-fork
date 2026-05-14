@@ -183,6 +183,38 @@ internal sealed class VirtualNormalLibraryOrderCacheEntry
     internal long SortKeyFingerprint { get; }
 }
 
+internal readonly struct VirtualNormalLibrarySortDescriptor : IEquatable<VirtualNormalLibrarySortDescriptor>
+{
+    internal VirtualNormalLibrarySortDescriptor(string columnName, ListSortDirection direction)
+    {
+        ColumnName = columnName ?? string.Empty;
+        Direction = direction;
+    }
+
+    internal string ColumnName { get; }
+
+    internal ListSortDirection Direction { get; }
+
+    public bool Equals(VirtualNormalLibrarySortDescriptor other)
+    {
+        return string.Equals(ColumnName, other.ColumnName, StringComparison.Ordinal)
+            && Direction == other.Direction;
+    }
+
+    public override bool Equals(object obj)
+    {
+        return obj is VirtualNormalLibrarySortDescriptor other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            return ((ColumnName != null ? StringComparer.Ordinal.GetHashCode(ColumnName) : 0) * 397) ^ (int)Direction;
+        }
+    }
+}
+
 internal enum MainViewDataDependency
 {
     Unknown,
@@ -5458,9 +5490,17 @@ public class MainWindowViewModel : ViewModel
 
     private int virtualNormalLibrarySourceRowCacheRowCount;
 
+    private readonly object virtualNormalLibraryOrderPrewarmLock = new object();
+
+    private Task virtualNormalLibraryOrderPrewarmTask;
+
+    private int virtualNormalLibraryOrderPrewarmRunId;
+
     private long normalLibrarySourceGeneration;
 
     private long normalLibrarySortKeyGeneration;
+
+    private viewUpdateMode? lastAppliedMainColumnSettingMode;
 
     private int pendingRegularBmsRowCachePrunedCount;
 
@@ -6361,6 +6401,34 @@ public class MainWindowViewModel : ViewModel
     private static viewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
     {
         return (filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected) ? viewUpdateMode.PlaylistNotOwnedFilterSelected : viewUpdateMode.PlaylistFilterSelected;
+    }
+
+    /// <summary>
+    /// main view 更新契機を、実際に適用する列設定モードへ解決します。
+    /// </summary>
+    private static viewUpdateMode ResolveMainColumnSettingMode(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    {
+        switch (mode)
+        {
+            case viewUpdateMode.TreeViewFilterNotChanged:
+            case viewUpdateMode.KeywordFilterUpdated:
+            case viewUpdateMode.ModeFilterUpdated:
+            case viewUpdateMode.SortUpdated:
+                return currentTreeMode;
+            default:
+                return mode;
+        }
+    }
+
+    internal static int ResolveMainColumnSettingModeForTest(int mode, int currentTreeMode)
+    {
+        return (int)ResolveMainColumnSettingMode((viewUpdateMode)mode, (viewUpdateMode)currentTreeMode);
+    }
+
+    internal static bool ShouldReuseMainColumnSettingForTest(int resolvedMode, int? lastAppliedMode, bool targetSettingsReady, bool playlistSummarySettingsReady, bool isInit)
+    {
+        viewUpdateMode? typedLastAppliedMode = lastAppliedMode.HasValue ? (viewUpdateMode?)((viewUpdateMode)lastAppliedMode.Value) : null;
+        return CanReuseMainColumnSetting((viewUpdateMode)resolvedMode, typedLastAppliedMode, targetSettingsReady, playlistSummarySettingsReady, isInit);
     }
 
     /// <summary>
@@ -9251,7 +9319,7 @@ public class MainWindowViewModel : ViewModel
         {
             base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
         }
-        loadColumnSetting(mode);
+        bool columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
         long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         SetChartRowsView(nextRowsView);
 
@@ -9290,6 +9358,7 @@ public class MainWindowViewModel : ViewModel
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
             + " columnMs=" + columnStageMs
+            + " columnSettingReuse=" + columnSettingReuse
             + " callbackMs=0"
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
             + " folderCount=" + sourceRows.Count
@@ -9394,10 +9463,172 @@ public class MainWindowViewModel : ViewModel
         }
         lock (normalLibrarySortCacheLock)
         {
-            virtualNormalLibraryOrderCache[cacheKey] = new VirtualNormalLibraryOrderCacheEntry(order, sortKeyFingerprint);
+            if (normalLibrarySourceGeneration == sourceGeneration
+                && normalLibrarySortKeyGeneration == sortKeyGeneration)
+            {
+                virtualNormalLibraryOrderCache[cacheKey] = new VirtualNormalLibraryOrderCacheEntry(order, sortKeyFingerprint);
+            }
         }
         cacheHit = false;
         return order;
+    }
+
+    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()
+    {
+        return new[]
+        {
+            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
+            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Descending),
+            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Ascending),
+            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending)
+        };
+    }
+
+    internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest()
+    {
+        return CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors();
+    }
+
+    internal static bool IsVirtualNormalLibraryPrewarmStaleForTest(long expectedSourceGeneration, long expectedSortKeyGeneration, long currentSourceGeneration, long currentSortKeyGeneration)
+    {
+        return IsVirtualNormalLibraryGenerationStale(expectedSourceGeneration, expectedSortKeyGeneration, currentSourceGeneration, currentSortKeyGeneration);
+    }
+
+    private bool IsCurrentVirtualNormalLibraryGeneration(long sourceGeneration, long sortKeyGeneration)
+    {
+        lock (normalLibrarySortCacheLock)
+        {
+            return !IsVirtualNormalLibraryGenerationStale(sourceGeneration, sortKeyGeneration, normalLibrarySourceGeneration, normalLibrarySortKeyGeneration);
+        }
+    }
+
+    private static bool IsVirtualNormalLibraryGenerationStale(long expectedSourceGeneration, long expectedSortKeyGeneration, long currentSourceGeneration, long currentSortKeyGeneration)
+    {
+        return expectedSourceGeneration != currentSourceGeneration || expectedSortKeyGeneration != currentSortKeyGeneration;
+    }
+
+    private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason)
+    {
+        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors();
+        Task runningTask;
+        int runId;
+        lock (virtualNormalLibraryOrderPrewarmLock)
+        {
+            runningTask = virtualNormalLibraryOrderPrewarmTask;
+            if (runningTask != null && !runningTask.IsCompleted)
+            {
+                LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
+                    + " descriptorCount=" + descriptors.Count
+                    + " skipped=already_running");
+                return;
+            }
+            runId = ++virtualNormalLibraryOrderPrewarmRunId;
+            LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " descriptorCount=" + descriptors.Count);
+            virtualNormalLibraryOrderPrewarmTask = Task.Run(() => RunVirtualNormalLibraryOrderPrewarm(runId, reason, descriptors));
+        }
+    }
+
+    private void RunVirtualNormalLibraryOrderPrewarm(int runId, string reason, IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        int cacheHitCount = 0;
+        int builtCount = 0;
+        int descriptorCount = descriptors?.Count ?? 0;
+        bool sourceRowsCacheHit = false;
+        int rowCount = 0;
+        long sourceGeneration = 0L;
+        long sortKeyGeneration = 0L;
+        try
+        {
+            LogMainViewBuild("virtual_order_prewarm start reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " descriptorCount=" + descriptorCount);
+            bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode.FolderFilterSelected, viewUpdateMode.FolderFilterSelected);
+            List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
+                includeBmsonRows,
+                out sourceRowsCacheHit,
+                out sourceGeneration,
+                out sortKeyGeneration);
+            rowCount = sourceRows?.Count ?? 0;
+            if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+            {
+                stopwatch.Stop();
+                LogMainViewBuild("virtual_order_prewarm stale_skipped reason=" + (reason ?? string.Empty)
+                    + " runId=" + runId
+                    + " descriptorCount=" + descriptorCount
+                    + " completedDescriptors=0"
+                    + " rowCount=" + rowCount
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                return;
+            }
+            foreach (VirtualNormalLibrarySortDescriptor descriptor in descriptors ?? Array.Empty<VirtualNormalLibrarySortDescriptor>())
+            {
+                if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+                {
+                    stopwatch.Stop();
+                    LogMainViewBuild("virtual_order_prewarm stale_skipped reason=" + (reason ?? string.Empty)
+                        + " runId=" + runId
+                        + " descriptorCount=" + descriptorCount
+                        + " completedDescriptors=" + (cacheHitCount + builtCount)
+                        + " rowCount=" + rowCount
+                        + " cacheHit=" + cacheHitCount
+                        + " built=" + builtCount
+                        + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    return;
+                }
+                _ = GetOrCreateVirtualNormalLibraryOrder(
+                    sourceRows,
+                    descriptor.ColumnName,
+                    descriptor.Direction,
+                    sourceGeneration,
+                    sortKeyGeneration,
+                    out bool cacheHit);
+                if (cacheHit)
+                {
+                    cacheHitCount++;
+                }
+                else
+                {
+                    builtCount++;
+                }
+            }
+            stopwatch.Stop();
+            if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+            {
+                LogMainViewBuild("virtual_order_prewarm stale_skipped reason=" + (reason ?? string.Empty)
+                    + " runId=" + runId
+                    + " descriptorCount=" + descriptorCount
+                    + " completedDescriptors=" + (cacheHitCount + builtCount)
+                    + " rowCount=" + rowCount
+                    + " cacheHit=" + cacheHitCount
+                    + " built=" + builtCount
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                return;
+            }
+            LogMainViewBuild("virtual_order_prewarm done reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " descriptorCount=" + descriptorCount
+                + " rowCount=" + rowCount
+                + " sourceRowsReuse=" + sourceRowsCacheHit
+                + " cacheHit=" + cacheHitCount
+                + " built=" + builtCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            LogMainViewBuild("virtual_order_prewarm failed reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " descriptorCount=" + descriptorCount
+                + " rowCount=" + rowCount
+                + " cacheHit=" + cacheHitCount
+                + " built=" + builtCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " exception=" + ex.GetType().Name
+                + " message=" + SanitizeStartupBackgroundSummaryValue(ex.Message));
+        }
     }
 
     private static long ComputeVirtualNormalLibraryOrderFingerprint(IReadOnlyList<ChartListSourceRow> sourceRows, string normalizedColumnName)
@@ -14134,7 +14365,7 @@ public class MainWindowViewModel : ViewModel
         {
             base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
         }
-        loadColumnSetting((mode < viewUpdateMode.KeywordFilterUpdated) ? mode : treeViewFilterTypeSelected);
+        bool columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         SetChartRowsView(nextRowsView);
         callbackStageMs = 0L;
@@ -14154,7 +14385,7 @@ public class MainWindowViewModel : ViewModel
             Interlocked.Exchange(ref lastPlaylistDetailBuildCompletedTimestamp, mainViewBuildEndTimestamp);
             Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, viewBuildStopwatch.ElapsedMilliseconds);
         }
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " columnSettingReuse=" + columnSettingReuse + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
@@ -14553,6 +14784,65 @@ public class MainWindowViewModel : ViewModel
         loadColumnSetting(viewUpdateMode.TreeViewFilterNotChanged, isInit: true);
     }
 
+    private bool ApplyMainColumnSettingForViewUpdate(viewUpdateMode mode)
+    {
+        viewUpdateMode resolvedMode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
+        bool targetSettingsReady = IsMainColumnSettingTargetReady(resolvedMode);
+        bool playlistSummarySettingsReady = Settings.Default.PlaylistSummaryColumnsSettings != null;
+        if (CanReuseMainColumnSetting(resolvedMode, lastAppliedMainColumnSettingMode, targetSettingsReady, playlistSummarySettingsReady, isInit: false))
+        {
+            return true;
+        }
+        loadColumnSetting(resolvedMode);
+        return false;
+    }
+
+    private static bool CanReuseMainColumnSetting(
+        viewUpdateMode resolvedMode,
+        viewUpdateMode? lastAppliedMode,
+        bool targetSettingsReady,
+        bool playlistSummarySettingsReady,
+        bool isInit)
+    {
+        return !isInit
+            && lastAppliedMode.HasValue
+            && lastAppliedMode.Value == resolvedMode
+            && targetSettingsReady
+            && playlistSummarySettingsReady;
+    }
+
+    private bool IsMainColumnSettingTargetReady(viewUpdateMode mode)
+    {
+        switch (mode)
+        {
+            case viewUpdateMode.PlaylistFilterSelected:
+            case viewUpdateMode.PlaylistNotOwnedFilterSelected:
+                return Settings.Default.PlaylistCustomTableColumnSettings != null;
+            case viewUpdateMode.FolderFilterSelected:
+                return Settings.Default.StandardCustomTableColumnSettings != null;
+            case viewUpdateMode.UnregisteredFilterSelected:
+                return Settings.Default.UnregisteredCustomTableColumnSettings != null;
+            case viewUpdateMode.ZeroNoteFilterSelected:
+                return Settings.Default.ZeroNoteCustomTableColumnSettings != null;
+            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
+                return Settings.Default.ChartInfoParseErrorCustomTableColumnSettings != null;
+            case viewUpdateMode.FileMissingFilterSelected:
+            case viewUpdateMode.FileMissingIgnoredFilterSelected:
+            case viewUpdateMode.FullScanAllChartsFilterSelected:
+            case viewUpdateMode.NewlyInstalledFolderSelected:
+                return Settings.Default.FullScanCustomTableColumnSettings != null;
+            case viewUpdateMode.DuplicateFilterSelected:
+                return Settings.Default.DuplicateCustomTableColumnSettings != null;
+            case viewUpdateMode.GarbledFilterSelected:
+            case viewUpdateMode.GarbleFixedFilterSelected:
+                return Settings.Default.EncodingCustomTableColumnSettings != null;
+            case viewUpdateMode.PendingInstallFolderSelected:
+                return Settings.Default.InstallCustomTableColumnSettings != null;
+            default:
+                return false;
+        }
+    }
+
     private void loadColumnSetting(viewUpdateMode mode, bool isInit = false)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -14568,9 +14858,10 @@ public class MainWindowViewModel : ViewModel
 
         if (mode == viewUpdateMode.TreeViewFilterNotChanged)
         {
-            mode = treeViewFilterTypeSelected;
+            mode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
         }
         normalizeMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+        bool modeHandled = true;
         switch (mode)
         {
             case viewUpdateMode.PlaylistFilterSelected:
@@ -14687,6 +14978,9 @@ public class MainWindowViewModel : ViewModel
                 ColumnsSettingsBMSFilesView = Settings.Default.InstallCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
+            default:
+                modeHandled = false;
+                break;
         }
         stageStartMs = stopwatch.ElapsedMilliseconds;
         ColumnSettingsVisibilityForPlaylist = targetColumnSettingsVisibilityForPlaylist;
@@ -14701,6 +14995,10 @@ public class MainWindowViewModel : ViewModel
         stageStartMs = stopwatch.ElapsedMilliseconds;
         PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
         playlistSummaryAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+        if (modeHandled)
+        {
+            lastAppliedMainColumnSettingMode = mode;
+        }
 
         long totalMs = stopwatch.ElapsedMilliseconds;
         if (totalMs >= ColumnSettingSlowLogThresholdMs)
@@ -16369,6 +16667,7 @@ public class MainWindowViewModel : ViewModel
         LogUiSuppression(BuildStartupBackgroundSummaryLog(elapsedMs));
         if (!QueueDeferredStartupPresentationFlushAfterInitialization())
         {
+            ScheduleVirtualNormalLibraryOrderPrewarm("startup_initialization_complete");
             ShowInitialSetupCompletionMessageIfPending();
         }
     }
@@ -16392,6 +16691,7 @@ public class MainWindowViewModel : ViewModel
             FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken(), allowStartupPresentationDefer: false, logReadiness: false);
             stopwatch.Stop();
             LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
+            ScheduleVirtualNormalLibraryOrderPrewarm("startup_presentation_flush_done");
             ShowInitialSetupCompletionMessageIfPending();
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
