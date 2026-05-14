@@ -947,6 +947,8 @@ public class BMSLibrary : NotificationObject
 
     private int _ChartInfoBackfillProcessedCount;
 
+    private int _ChartInfoBackfillDigestBackfilledCount;
+
     private string _ChartInfoBackfillCurrentPath = string.Empty;
 
     private bool _ChartInfoHydrationRunning;
@@ -1818,6 +1820,25 @@ public class BMSLibrary : NotificationObject
             {
                 _ChartInfoBackfillProcessedCount = value;
                 RaisePropertyChanged(() => ChartInfoBackfillProcessedCount);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に完了した chart_info 構築で SHA-256 digest を補完した BMS 譜面数です。
+    /// </summary>
+    public int ChartInfoBackfillDigestBackfilledCount
+    {
+        get
+        {
+            return _ChartInfoBackfillDigestBackfilledCount;
+        }
+        private set
+        {
+            if (_ChartInfoBackfillDigestBackfilledCount != value)
+            {
+                _ChartInfoBackfillDigestBackfilledCount = value;
+                RaisePropertyChanged(() => ChartInfoBackfillDigestBackfilledCount);
             }
         }
     }
@@ -4993,6 +5014,7 @@ public class BMSLibrary : NotificationObject
         ChartInfoBackfillRequestedVersion = requestVersion;
         ChartInfoBackfillTotalCount = 0;
         ChartInfoBackfillProcessedCount = 0;
+        ChartInfoBackfillDigestBackfilledCount = 0;
         ChartInfoBackfillCurrentPath = string.Empty;
         ChartInfoBackfillCompletedVersion = requestVersion;
         ChartInfoBackfillRunning = false;
@@ -5027,6 +5049,7 @@ public class BMSLibrary : NotificationObject
         ChartInfoBackfillRequestedVersion = requestVersion;
         ChartInfoBackfillTotalCount = 0;
         ChartInfoBackfillProcessedCount = 0;
+        ChartInfoBackfillDigestBackfilledCount = 0;
         ChartInfoBackfillCurrentPath = string.Empty;
         LogInstallPerformance("chart_info_backfill queue"
             + " reason=" + (request.Reason ?? "unknown")
@@ -5208,6 +5231,7 @@ public class BMSLibrary : NotificationObject
             finally
             {
                 ChartInfoBackfillCurrentPath = string.Empty;
+                ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
                 ChartInfoBackfillCompletedVersion = requestVersion;
                 RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
                 lock (lockChartInfoBackfill)

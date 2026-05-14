@@ -5544,6 +5544,8 @@ public class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
 
+    private readonly Dictionary<string, BmsonLibrarySortKeySnapshot> bmsonLibrarySortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
+
     private readonly object mainSummaryFolderCountCacheLock = new object();
 
     private readonly Dictionary<MainViewSummaryCacheKey, int> mainSummaryFolderCountCache = new Dictionary<MainViewSummaryCacheKey, int>();
@@ -8346,7 +8348,15 @@ public class MainWindowViewModel : ViewModel
 
     private void RefreshChartInfoDependentViews()
     {
-        SyncBmsonLibraryRowCache(files?.BmsonSongs);
+        BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+        if (bmsonSyncResult.SortKeyChanged)
+        {
+            InvalidateNormalLibrarySortKeys("bmson_sort_key_changed");
+        }
+        if (bmsonSyncResult.MembershipChanged)
+        {
+            IncrementNormalLibrarySourceGeneration("bmson_membership_changed");
+        }
         ResetRegularDerivedViewCaches();
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
         {
@@ -9669,9 +9679,9 @@ public class MainWindowViewModel : ViewModel
             order.Count,
             order.ColumnName,
             order.Direction,
-            nameof(String),
+            order.PropertyTypeName,
             order.SortProfile,
-            "ordinal_ignore_case",
+            order.StringSortKind,
             sortStageMs,
             sortReuse: sortCacheHit,
             sortCacheKey: order.ColumnName,
@@ -9825,15 +9835,13 @@ public class MainWindowViewModel : ViewModel
 
     private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()
     {
-        return new[]
-        {
-            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
-            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Descending),
-            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Ascending),
-            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending),
-            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Ascending),
-            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Descending)
-        };
+        return ChartListOrder.GetDefaultPrewarmColumnNames()
+            .SelectMany(columnName => new[]
+            {
+                new VirtualNormalLibrarySortDescriptor(columnName, ListSortDirection.Ascending),
+                new VirtualNormalLibrarySortDescriptor(columnName, ListSortDirection.Descending)
+            })
+            .ToArray();
     }
 
     internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest()
@@ -12590,6 +12598,10 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCompletedVersion, delegate
         {
             TryCompleteStartupProgressChartInfoBackfill(files.ChartInfoBackfillCompletedVersion);
+            if ((files?.ChartInfoBackfillDigestBackfilledCount ?? 0) > 0)
+            {
+                InvalidateNormalLibrarySortKeys("chart_info_digest_backfilled");
+            }
             RefreshChartInfoDependentViews();
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillTotalCount, delegate
@@ -14886,28 +14898,7 @@ public class MainWindowViewModel : ViewModel
 
     private static bool TryNormalizeNormalLibrarySortCacheColumn(string columnName, out string normalizedColumnName)
     {
-        if (string.IsNullOrWhiteSpace(columnName))
-        {
-            normalizedColumnName = nameof(LibraryChartRow.Title);
-            return true;
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.Title), StringComparison.Ordinal))
-        {
-            normalizedColumnName = nameof(LibraryChartRow.Title);
-            return true;
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.path), StringComparison.Ordinal))
-        {
-            normalizedColumnName = nameof(LibraryChartRow.path);
-            return true;
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
-        {
-            normalizedColumnName = nameof(LibraryChartRow.Folder);
-            return true;
-        }
-        normalizedColumnName = null;
-        return false;
+        return ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out normalizedColumnName);
     }
 
     internal static bool IsNormalLibrarySortCacheCandidateForTest(string columnName)
@@ -14952,13 +14943,26 @@ public class MainWindowViewModel : ViewModel
 
     private static LibraryChartSortMetrics CreateNormalLibrarySortCacheMetrics(NormalLibrarySortCacheKey cacheKey, long sortMs, bool cacheHit)
     {
+        string sortProfile = "library_chart_string_fast_ordinal_ignore_case";
+        string stringSortKind = "ordinal_ignore_case";
+        string propertyTypeName = nameof(String);
+        if (ChartListOrder.TryGetVirtualSortColumnMetadata(cacheKey.ColumnName, out ChartListOrderColumnMetadata metadata))
+        {
+            propertyTypeName = metadata.PropertyTypeName;
+            stringSortKind = metadata.StringSortKind;
+            if (metadata.KeyKind == ChartListOrderKeyKind.Comparable)
+            {
+                sortProfile = "library_chart_typed";
+            }
+        }
+
         return new LibraryChartSortMetrics(
             cacheKey.RowCount,
             cacheKey.ColumnName,
             cacheKey.Direction,
-            nameof(String),
-            "library_chart_string_fast_ordinal_ignore_case",
-            "ordinal_ignore_case",
+            propertyTypeName,
+            sortProfile,
+            stringSortKind,
             sortMs,
             sortReuse: cacheHit,
             sortCacheKey: cacheKey.ColumnName,
@@ -15045,6 +15049,7 @@ public class MainWindowViewModel : ViewModel
         bool sortKeyChanged = membershipChanged;
         Dictionary<string, LibraryChartRow> nextByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
         Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
+        Dictionary<string, BmsonLibrarySortKeySnapshot> nextSortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDBExtended.bmson_song song in snapshot)
         {
             LibraryChartRow row = null;
@@ -15061,12 +15066,10 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                string previousTitle = row.Title;
-                string previousPath = row.path;
+                bool hasPreviousSortKeys = bmsonLibrarySortKeysByPath.TryGetValue(song.path, out BmsonLibrarySortKeySnapshot previousSortKeys);
                 row.UpdateFromBmsonSong(song);
                 ApplyResourceHealthProjectionProvider(row);
-                if (!string.Equals(previousTitle, row.Title, StringComparison.Ordinal)
-                    || !string.Equals(previousPath, row.path, StringComparison.Ordinal))
+                if (!hasPreviousSortKeys || previousSortKeys.HasChanged(row))
                 {
                     sortKeyChanged = true;
                 }
@@ -15075,6 +15078,7 @@ public class MainWindowViewModel : ViewModel
             {
                 nextByPath[song.path] = row;
                 nextBySong[song] = row;
+                nextSortKeysByPath[song.path] = BmsonLibrarySortKeySnapshot.Capture(row);
             }
         }
         bmsonLibraryRowsByPath.Clear();
@@ -15087,7 +15091,91 @@ public class MainWindowViewModel : ViewModel
         {
             bmsonLibraryRowsBySong[item3.Key] = item3.Value;
         }
+        bmsonLibrarySortKeysByPath.Clear();
+        foreach (KeyValuePair<string, BmsonLibrarySortKeySnapshot> item4 in nextSortKeysByPath)
+        {
+            bmsonLibrarySortKeysByPath[item4.Key] = item4.Value;
+        }
         return new BmsonLibraryRowCacheSyncResult(membershipChanged, sortKeyChanged);
+    }
+
+    internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
+    {
+        if (row == null)
+        {
+            return nextSong != null;
+        }
+        BmsonLibrarySortKeySnapshot previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
+        row.UpdateFromBmsonSong(nextSong);
+        return previousSortKeys.HasChanged(row);
+    }
+
+    internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
+    {
+        if (row?.BmsonSong == null || mutateCurrentSong == null)
+        {
+            return false;
+        }
+        BmsonLibrarySortKeySnapshot previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
+        mutateCurrentSong(row.BmsonSong);
+        return previousSortKeys.HasChanged(row);
+    }
+
+    internal static bool IsNormalLibraryVirtualSortKeyPropertyForTest(string propertyName)
+    {
+        return ChartListOrder.TryNormalizeVirtualSortColumn(propertyName, out _);
+    }
+
+    private readonly struct BmsonLibrarySortKeySnapshot
+    {
+        private readonly string title;
+
+        private readonly string artist;
+
+        private readonly string genre;
+
+        private readonly int? mode;
+
+        private readonly string folder;
+
+        private readonly string path;
+
+        private readonly string tag;
+
+        private readonly string hash;
+
+        private readonly string sha256;
+
+        private BmsonLibrarySortKeySnapshot(LibraryChartRow row)
+        {
+            title = row?.Title ?? string.Empty;
+            artist = row?.Artist ?? string.Empty;
+            genre = row?.genre ?? string.Empty;
+            mode = row?.mode;
+            folder = row?.Folder ?? string.Empty;
+            path = row?.path ?? string.Empty;
+            tag = row?.tag ?? string.Empty;
+            hash = row?.hash ?? string.Empty;
+            sha256 = row?.sha256 ?? string.Empty;
+        }
+
+        internal static BmsonLibrarySortKeySnapshot Capture(LibraryChartRow row)
+        {
+            return new BmsonLibrarySortKeySnapshot(row);
+        }
+
+        internal bool HasChanged(LibraryChartRow row)
+        {
+            return !string.Equals(title, row?.Title ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(artist, row?.Artist ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(genre, row?.genre ?? string.Empty, StringComparison.Ordinal)
+                || mode != row?.mode
+                || !string.Equals(folder, row?.Folder ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(path, row?.path ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(tag, row?.tag ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(hash, row?.hash ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(sha256, row?.sha256 ?? string.Empty, StringComparison.Ordinal);
+        }
     }
 
     private void SyncBmsonLibraryRowCacheWithoutRebuild(string reason = "bmson_sync_without_rebuild")

@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -167,6 +168,26 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void AdditionalSupportedOrders_MatchExistingDefaultLibraryChartRowSort()
+    {
+        string[] columns =
+        {
+            nameof(LibraryChartRow.Artist),
+            nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.tag),
+            nameof(LibraryChartRow.hash),
+            nameof(LibraryChartRow.sha256)
+        };
+
+        foreach (string column in columns)
+        {
+            AssertVirtualOrderMatchesExistingSort(column, ListSortDirection.Ascending);
+            AssertVirtualOrderMatchesExistingSort(column, ListSortDirection.Descending);
+        }
+    }
+
+    [TestMethod]
     public void PathDescendingOrder_KeepsTitleAscendingSecondaryKey()
     {
         List<BMSFile> files = new List<BMSFile>
@@ -190,8 +211,10 @@ public sealed class ChartListVirtualViewTests
     {
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
 
-        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "mode", ListSortDirection.Ascending, out _));
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "Path", ListSortDirection.Ascending, out _));
+        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, out _));
+        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.ChartLevelSortKey), ListSortDirection.Ascending, out _));
+        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
     }
 
     [TestMethod]
@@ -227,20 +250,12 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void DefaultVirtualOrderPrewarmDescriptors_AreTitlePathThenFolderAscDesc()
+    public void DefaultVirtualOrderPrewarmDescriptors_AreRegistryOrderAscDesc()
     {
         IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();
 
         CollectionAssert.AreEqual(
-            new[]
-            {
-                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
-                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Descending),
-                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Ascending),
-                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending),
-                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Ascending),
-                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Descending)
-            },
+            CreateExpectedDefaultPrewarmDescriptors(),
             descriptors.ToArray());
     }
 
@@ -326,11 +341,83 @@ public sealed class ChartListVirtualViewTests
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, null);
 
-        file.Apply(@"folder-a\new.bms", "New", "folder-a");
+        file.Apply(
+            @"folder-a\new.bms",
+            "New",
+            "folder-a",
+            artistName: "Artist",
+            genreName: "Genre",
+            modeValue: 7,
+            tagText: "Tag",
+            md5: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256Text: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
 
         Assert.AreEqual("New", sourceRows[0].Title);
+        Assert.AreEqual("Artist", sourceRows[0].Artist);
+        Assert.AreEqual("Genre", sourceRows[0].Genre);
         Assert.AreEqual(@"folder-a\new.bms", sourceRows[0].Path);
         Assert.AreEqual("folder-a", sourceRows[0].Folder);
+        Assert.AreEqual(7, sourceRows[0].Mode);
+        Assert.AreEqual("Tag", sourceRows[0].Tag);
+        Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sourceRows[0].Hash);
+        Assert.AreEqual("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", sourceRows[0].Sha256);
+    }
+
+    [TestMethod]
+    public void SourceRow_SortKeysMatchLibraryChartRowForBmsAndBmson()
+    {
+        BMSFile file = CreateFile(
+            @"folder-a\bms.bms",
+            "BmsTitle",
+            "folder-a",
+            artist: "BmsArtist",
+            genre: "BmsGenre",
+            mode: 5,
+            tag: "BmsTag",
+            hash: "11111111111111111111111111111111",
+            sha256: "1111111111111111111111111111111111111111111111111111111111111111");
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = @"folder-b\bmson.bmson",
+            folder = "folder-b",
+            title = "BmsonTitle",
+            subtitle = "Another",
+            artist = "BmsonArtist",
+            genre = "BmsonGenre",
+            mode_hint = "beat-7k",
+            md5 = "22222222222222222222222222222222",
+            sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+        };
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, new[] { bmson });
+
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsFile != null), LibraryChartRow.FromBmsFile(file));
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsonSong != null), LibraryChartRow.FromBmsonSong(bmson));
+    }
+
+    [TestMethod]
+    public void BmsonSortKeyChangeDetection_CoversVirtualRegistryColumns()
+    {
+        AssertBmsonSortKeyChange(song => song.title = "ChangedTitle");
+        AssertBmsonSortKeyChange(song => song.folder = "changed-folder");
+        AssertBmsonSortKeyChange(song => song.path = @"changed-folder\changed.bmson");
+        AssertBmsonSortKeyChange(song => song.artist = "ChangedArtist");
+        AssertBmsonSortKeyChange(song => song.genre = "ChangedGenre");
+        AssertBmsonSortKeyChange(song => song.mode_hint = "beat-5k");
+        AssertBmsonSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
+        AssertBmsonSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
+    }
+
+    [TestMethod]
+    public void BmsonSortKeyChangeDetection_CoversSameReferenceMutation()
+    {
+        AssertBmsonSameReferenceSortKeyChange(song => song.title = "ChangedTitle");
+        AssertBmsonSameReferenceSortKeyChange(song => song.folder = "changed-folder");
+        AssertBmsonSameReferenceSortKeyChange(song => song.path = @"changed-folder\changed.bmson");
+        AssertBmsonSameReferenceSortKeyChange(song => song.artist = "ChangedArtist");
+        AssertBmsonSameReferenceSortKeyChange(song => song.genre = "ChangedGenre");
+        AssertBmsonSameReferenceSortKeyChange(song => song.mode_hint = "beat-5k");
+        AssertBmsonSameReferenceSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
+        AssertBmsonSameReferenceSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
     }
 
     private static ChartListVirtualView CreateView(out Func<int> getCreatedCount, int distinctFolderCount = -1)
@@ -360,13 +447,16 @@ public sealed class ChartListVirtualViewTests
     private static void AssertVirtualOrderMatchesExistingSort(string columnName, ListSortDirection direction)
     {
         List<BMSFile> files = CreateSampleSortFiles();
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
+        List<LR2SongDBExtended.bmson_song> bmsons = CreateSampleSortBmsons();
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, bmsons);
         bool created = ChartListOrder.TryCreate(sourceRows, columnName, direction, out ChartListOrder order);
         Assert.IsTrue(created);
         ChartListVirtualView view = new ChartListVirtualView(
             sourceRows,
             order,
-            row => LibraryChartRow.FromBmsFile(row.BmsFile));
+            row => row.BmsFile != null
+                ? LibraryChartRow.FromBmsFile(row.BmsFile)
+                : LibraryChartRow.FromBmsonSong(row.BmsonSong));
         MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = columnName,
@@ -374,7 +464,7 @@ public sealed class ChartListVirtualViewTests
         };
 
         List<LibraryChartRow> legacySorted = LibraryChartRowSortEngine.SortForMainView(
-            files.Select(LibraryChartRow.FromBmsFile),
+            files.Select(LibraryChartRow.FromBmsFile).Concat(bmsons.Select(LibraryChartRow.FromBmsonSong)),
             sortParameters,
             isPlaylistDetailView: false,
             useLegacySortForDataGrid: false,
@@ -382,34 +472,182 @@ public sealed class ChartListVirtualViewTests
 
         CollectionAssert.AreEqual(
             legacySorted.Select(row => row.path).ToArray(),
-            Enumerable.Range(0, view.Count).Select(index => ((LibraryChartRow)view[index]).path).ToArray());
+            Enumerable.Range(0, view.Count).Select(index => ((LibraryChartRow)view[index]).path).ToArray(),
+            columnName + " " + direction + " order mismatch.");
     }
 
     private static List<BMSFile> CreateSampleSortFiles()
     {
         return new List<BMSFile>
         {
-            CreateFile(@"folder-a\z_item10.bms", "item10", "folder-a"),
-            CreateFile(@"folder-a\a_item2.bms", "item2", "folder-a"),
-            CreateFile(@"folder-b\m_alpha.bms", "Alpha", "folder-b")
+            CreateFile(
+                @"folder-a\z_item10.bms",
+                "item10",
+                "folder-a",
+                artist: "Zulu",
+                genre: "GenreC",
+                mode: 14,
+                tag: "TagC",
+                hash: "cccccccccccccccccccccccccccccccc",
+                sha256: "3333333333333333333333333333333333333333333333333333333333333333"),
+            CreateFile(
+                @"folder-a\a_item2.bms",
+                "item2",
+                "folder-a",
+                artist: "Alpha",
+                genre: "GenreB",
+                mode: 5,
+                tag: "TagB",
+                hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                sha256: "1111111111111111111111111111111111111111111111111111111111111111"),
+            CreateFile(
+                @"folder-b\m_alpha.bms",
+                "Alpha",
+                "folder-b",
+                artist: "Middle",
+                genre: "GenreA",
+                mode: null,
+                tag: "TagA",
+                hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256: "2222222222222222222222222222222222222222222222222222222222222222")
         };
     }
 
-    private static BMSFile CreateFile(string path, string title, string folder)
+    private static List<LR2SongDBExtended.bmson_song> CreateSampleSortBmsons()
+    {
+        return new List<LR2SongDBExtended.bmson_song>
+        {
+            new LR2SongDBExtended.bmson_song
+            {
+                path = @"folder-c\bmson-beta.bmson",
+                folder = "folder-c",
+                title = "BmsonBeta",
+                artist = "Beta",
+                genre = "GenreD",
+                mode_hint = "beat-7k",
+                md5 = "dddddddddddddddddddddddddddddddd",
+                sha256 = "4444444444444444444444444444444444444444444444444444444444444444"
+            },
+            new LR2SongDBExtended.bmson_song
+            {
+                path = @"folder-d\bmson-alpha.bmson",
+                folder = "folder-d",
+                title = "BmsonAlpha",
+                artist = "AlphaBmson",
+                genre = "Genre0",
+                mode_hint = "beat-5k",
+                md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                sha256 = "5555555555555555555555555555555555555555555555555555555555555555"
+            }
+        };
+    }
+
+    private static BMSFile CreateFile(
+        string path,
+        string title,
+        string folder,
+        string artist = "",
+        string genre = "",
+        int? mode = null,
+        string tag = "",
+        string hash = "0123456789abcdef0123456789abcdef",
+        string sha256 = "")
     {
         TestableBmsFile file = new TestableBmsFile();
-        file.Apply(path, title, folder);
+        file.Apply(path, title, folder, artist, genre, mode, tag, hash, sha256);
         return file;
+    }
+
+    private static VirtualNormalLibrarySortDescriptor[] CreateExpectedDefaultPrewarmDescriptors()
+    {
+        string[] columns =
+        {
+            nameof(LibraryChartRow.Title),
+            nameof(LibraryChartRow.path),
+            nameof(LibraryChartRow.Folder),
+            nameof(LibraryChartRow.Artist),
+            nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.tag),
+            nameof(LibraryChartRow.hash),
+            nameof(LibraryChartRow.sha256)
+        };
+        return columns
+            .SelectMany(column => new[]
+            {
+                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Ascending),
+                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Descending)
+            })
+            .ToArray();
+    }
+
+    private static void AssertSourceRowMatchesLibraryChartRow(ChartListSourceRow sourceRow, LibraryChartRow chartRow)
+    {
+        Assert.AreEqual(chartRow.Title, sourceRow.Title);
+        Assert.AreEqual(chartRow.Artist, sourceRow.Artist);
+        Assert.AreEqual(chartRow.genre, sourceRow.Genre);
+        Assert.AreEqual(chartRow.Folder, sourceRow.Folder);
+        Assert.AreEqual(chartRow.path, sourceRow.Path);
+        Assert.AreEqual(chartRow.mode, sourceRow.Mode);
+        Assert.AreEqual(chartRow.tag, sourceRow.Tag);
+        Assert.AreEqual(chartRow.hash, sourceRow.Hash);
+        Assert.AreEqual(chartRow.sha256, sourceRow.Sha256);
+    }
+
+    private static void AssertBmsonSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
+    {
+        LR2SongDBExtended.bmson_song original = CreateBmsonSong();
+        LR2SongDBExtended.bmson_song next = CreateBmsonSong();
+        mutate(next);
+
+        Assert.IsTrue(
+            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow.FromBmsonSong(original), next));
+    }
+
+    private static void AssertBmsonSameReferenceSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
+    {
+        Assert.IsTrue(
+            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow.FromBmsonSong(CreateBmsonSong()), mutate));
+    }
+
+    private static LR2SongDBExtended.bmson_song CreateBmsonSong()
+    {
+        return new LR2SongDBExtended.bmson_song
+        {
+            path = @"folder-b\bmson.bmson",
+            folder = "folder-b",
+            title = "BmsonTitle",
+            subtitle = "Subtitle",
+            artist = "BmsonArtist",
+            genre = "BmsonGenre",
+            mode_hint = "beat-7k",
+            md5 = "22222222222222222222222222222222",
+            sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+        };
     }
 
     private sealed class TestableBmsFile : BMSFile
     {
-        internal void Apply(string filePath, string fileTitle, string folderName)
+        internal void Apply(
+            string filePath,
+            string fileTitle,
+            string folderName,
+            string artistName = "",
+            string genreName = "",
+            int? modeValue = null,
+            string tagText = "",
+            string md5 = "0123456789abcdef0123456789abcdef",
+            string sha256Text = "")
         {
             path = filePath;
             title = fileTitle;
             folder = folderName;
-            hash = "0123456789abcdef0123456789abcdef";
+            artist = artistName;
+            genre = genreName;
+            mode = modeValue;
+            tag = tagText;
+            hash = md5;
+            sha256 = sha256Text;
         }
     }
 

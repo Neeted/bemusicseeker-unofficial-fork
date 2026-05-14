@@ -319,15 +319,39 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void NormalLibrarySortCacheCandidate_AllowsTitlePathAndFolder()
+    public void NormalLibrarySortCacheCandidate_AllowsVirtualRegistryColumns()
     {
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(null));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(string.Empty));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Title)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.path)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Folder)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Artist)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.genre)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.mode)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.tag)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.hash)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.sha256)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest("Path"));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Artist)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.rateDouble)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibraryVirtualSortKeyProperty_UsesVirtualRegistryColumns()
+    {
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.Title)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.path)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.Folder)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.Artist)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.genre)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.mode)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.tag)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.hash)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.sha256)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.instl_dst)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.rateDouble)));
     }
 
     [TestMethod]

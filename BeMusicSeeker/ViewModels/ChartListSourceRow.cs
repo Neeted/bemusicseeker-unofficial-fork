@@ -33,11 +33,21 @@ internal sealed class ChartListSourceRow
 
     internal string Title => BmsFile?.Title ?? bmsonTitle;
 
+    internal string Artist => BmsFile?.Artist ?? BmsonSong?.artist ?? string.Empty;
+
+    internal string Genre => BmsFile?.genre ?? BmsonSong?.genre ?? string.Empty;
+
     internal string Folder => BmsFile?.Folder ?? bmsonFolder;
 
     internal string Path => BmsFile?.path ?? bmsonPath;
 
     internal int? Mode => BmsFile?.mode ?? bmsonMode;
+
+    internal string Tag => BmsFile?.tag ?? string.Empty;
+
+    internal string Hash => BmsFile?.hash ?? BmsonSong?.md5 ?? string.Empty;
+
+    internal string Sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? string.Empty;
 
     internal static ChartListSourceRow FromBmsFile(BMSFile file)
     {

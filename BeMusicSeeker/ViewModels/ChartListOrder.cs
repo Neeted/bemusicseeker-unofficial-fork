@@ -8,12 +8,76 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class ChartListOrder
 {
-    private ChartListOrder(int[] indexes, string columnName, ListSortDirection direction, string sortProfile)
+    private static readonly ChartListOrderColumnDefinition[] columnDefinitions =
+    {
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.Title),
+            row => row?.Title ?? string.Empty,
+            "virtual_title_order",
+            prewarmByDefault: true,
+            null,
+            nameof(BMSFile.Title)),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.path),
+            row => row?.Path ?? string.Empty,
+            "virtual_path_order",
+            prewarmByDefault: true,
+            null,
+            nameof(BMSFile.path)),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.Folder),
+            row => row?.Folder ?? string.Empty,
+            "virtual_folder_order",
+            prewarmByDefault: true,
+            null,
+            nameof(BMSFile.Folder)),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.Artist),
+            row => row?.Artist ?? string.Empty,
+            "virtual_artist_order",
+            prewarmByDefault: true),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.genre),
+            row => row?.Genre ?? string.Empty,
+            "virtual_genre_order",
+            prewarmByDefault: true),
+        ChartListOrderColumnDefinition.Comparable(
+            nameof(LibraryChartRow.mode),
+            row => row?.Mode,
+            "virtual_mode_order",
+            typeof(int?).Name,
+            prewarmByDefault: true),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.tag),
+            row => row?.Tag ?? string.Empty,
+            "virtual_tag_order",
+            prewarmByDefault: true),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.hash),
+            row => row?.Hash ?? string.Empty,
+            "virtual_hash_order",
+            prewarmByDefault: true),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.sha256),
+            row => row?.Sha256 ?? string.Empty,
+            "virtual_sha256_order",
+            prewarmByDefault: true)
+    };
+
+    private ChartListOrder(
+        int[] indexes,
+        string columnName,
+        ListSortDirection direction,
+        string sortProfile,
+        string propertyTypeName,
+        string stringSortKind)
     {
         Indexes = indexes ?? Array.Empty<int>();
         ColumnName = columnName ?? string.Empty;
         Direction = direction;
         SortProfile = sortProfile ?? string.Empty;
+        PropertyTypeName = propertyTypeName ?? string.Empty;
+        StringSortKind = stringSortKind ?? string.Empty;
     }
 
     internal int[] Indexes { get; }
@@ -23,6 +87,10 @@ internal sealed class ChartListOrder
     internal ListSortDirection Direction { get; }
 
     internal string SortProfile { get; }
+
+    internal string PropertyTypeName { get; }
+
+    internal string StringSortKind { get; }
 
     internal int Count => Indexes.Length;
 
@@ -39,77 +107,240 @@ internal sealed class ChartListOrder
         out ChartListOrder order)
     {
         order = null;
-        if (!TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
+        if (!TryGetVirtualSortColumnDefinition(columnName, out ChartListOrderColumnDefinition definition))
         {
             return false;
         }
 
         IReadOnlyList<ChartListSourceRow> safeRows = rows ?? Array.Empty<ChartListSourceRow>();
-        Func<int, string> primaryKeySelector = CreateStringKeySelector(safeRows, normalizedColumnName);
         Func<int, string> titleKeySelector = index => safeRows[index]?.Title ?? string.Empty;
+        IOrderedEnumerable<int> orderedIndexes;
+        if (definition.KeyKind == ChartListOrderKeyKind.Comparable)
+        {
+            Func<int, IComparable> primaryKeySelector = index => definition.ComparableKeySelector(safeRows[index]);
+            IComparer<IComparable> comparer = Comparer<IComparable>.Create(CompareComparable);
+            orderedIndexes = direction == ListSortDirection.Descending
+                ? Enumerable.Range(0, safeRows.Count)
+                    .OrderByDescending(primaryKeySelector, comparer)
+                    .ThenBy(titleKeySelector, StringComparer.OrdinalIgnoreCase)
+                : Enumerable.Range(0, safeRows.Count)
+                    .OrderBy(primaryKeySelector, comparer)
+                    .ThenBy(titleKeySelector, StringComparer.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Func<int, string> primaryKeySelector = index => definition.StringKeySelector(safeRows[index]);
+            orderedIndexes = direction == ListSortDirection.Descending
+                ? Enumerable.Range(0, safeRows.Count)
+                    .OrderByDescending(primaryKeySelector, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(titleKeySelector, StringComparer.OrdinalIgnoreCase)
+                : Enumerable.Range(0, safeRows.Count)
+                    .OrderBy(primaryKeySelector, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(titleKeySelector, StringComparer.OrdinalIgnoreCase);
+        }
 
-        IOrderedEnumerable<int> orderedIndexes = direction == ListSortDirection.Descending
-            ? Enumerable.Range(0, safeRows.Count)
-                .OrderByDescending(primaryKeySelector, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(titleKeySelector, StringComparer.OrdinalIgnoreCase)
-            : Enumerable.Range(0, safeRows.Count)
-                .OrderBy(primaryKeySelector, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(titleKeySelector, StringComparer.OrdinalIgnoreCase);
-
-        string sortProfile = GetSortProfile(normalizedColumnName);
-        order = new ChartListOrder(orderedIndexes.ToArray(), normalizedColumnName, direction, sortProfile);
+        order = new ChartListOrder(
+            orderedIndexes.ToArray(),
+            definition.NormalizedColumnName,
+            direction,
+            definition.SortProfile,
+            definition.PropertyTypeName,
+            definition.StringSortKind);
         return true;
     }
 
-    private static Func<int, string> CreateStringKeySelector(IReadOnlyList<ChartListSourceRow> rows, string normalizedColumnName)
+    internal static IReadOnlyList<string> GetDefaultPrewarmColumnNames()
     {
-        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.path), StringComparison.Ordinal))
-        {
-            return index => rows[index]?.Path ?? string.Empty;
-        }
-        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
-        {
-            return index => rows[index]?.Folder ?? string.Empty;
-        }
-        return index => rows[index]?.Title ?? string.Empty;
+        return columnDefinitions
+            .Where(definition => definition.PrewarmByDefault)
+            .Select(definition => definition.NormalizedColumnName)
+            .ToArray();
     }
 
-    private static string GetSortProfile(string normalizedColumnName)
+    internal static bool TryGetVirtualSortColumnMetadata(string columnName, out ChartListOrderColumnMetadata metadata)
     {
-        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.path), StringComparison.Ordinal))
+        if (TryGetVirtualSortColumnDefinition(columnName, out ChartListOrderColumnDefinition definition))
         {
-            return "virtual_path_order";
+            metadata = new ChartListOrderColumnMetadata(
+                definition.NormalizedColumnName,
+                definition.KeyKind,
+                definition.PropertyTypeName,
+                definition.SortProfile,
+                definition.StringSortKind);
+            return true;
         }
-        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
-        {
-            return "virtual_folder_order";
-        }
-        return "virtual_title_order";
+
+        metadata = default;
+        return false;
     }
 
     internal static bool TryNormalizeVirtualSortColumn(string columnName, out string normalizedColumnName)
     {
-        if (string.IsNullOrWhiteSpace(columnName)
-            || string.Equals(columnName, nameof(LibraryChartRow.Title), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(BMSFile.Title), StringComparison.Ordinal))
+        if (TryGetVirtualSortColumnDefinition(columnName, out ChartListOrderColumnDefinition definition))
         {
-            normalizedColumnName = nameof(LibraryChartRow.Title);
-            return true;
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.path), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(BMSFile.path), StringComparison.Ordinal))
-        {
-            normalizedColumnName = nameof(LibraryChartRow.path);
-            return true;
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(BMSFile.Folder), StringComparison.Ordinal))
-        {
-            normalizedColumnName = nameof(LibraryChartRow.Folder);
+            normalizedColumnName = definition.NormalizedColumnName;
             return true;
         }
 
         normalizedColumnName = string.Empty;
         return false;
+    }
+
+    private static bool TryGetVirtualSortColumnDefinition(string columnName, out ChartListOrderColumnDefinition definition)
+    {
+        string lookup = string.IsNullOrWhiteSpace(columnName) ? nameof(LibraryChartRow.Title) : columnName;
+        foreach (ChartListOrderColumnDefinition candidate in columnDefinitions)
+        {
+            if (candidate.Matches(lookup))
+            {
+                definition = candidate;
+                return true;
+            }
+        }
+
+        definition = default;
+        return false;
+    }
+
+    private static int CompareComparable(IComparable left, IComparable right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return 0;
+        }
+        if (left == null)
+        {
+            return -1;
+        }
+        if (right == null)
+        {
+            return 1;
+        }
+        return left.CompareTo(right);
+    }
+}
+
+internal enum ChartListOrderKeyKind
+{
+    String,
+    Comparable
+}
+
+internal readonly struct ChartListOrderColumnMetadata
+{
+    internal ChartListOrderColumnMetadata(
+        string normalizedColumnName,
+        ChartListOrderKeyKind keyKind,
+        string propertyTypeName,
+        string sortProfile,
+        string stringSortKind)
+    {
+        NormalizedColumnName = normalizedColumnName ?? string.Empty;
+        KeyKind = keyKind;
+        PropertyTypeName = propertyTypeName ?? string.Empty;
+        SortProfile = sortProfile ?? string.Empty;
+        StringSortKind = stringSortKind ?? string.Empty;
+    }
+
+    internal string NormalizedColumnName { get; }
+
+    internal ChartListOrderKeyKind KeyKind { get; }
+
+    internal string PropertyTypeName { get; }
+
+    internal string SortProfile { get; }
+
+    internal string StringSortKind { get; }
+}
+
+internal readonly struct ChartListOrderColumnDefinition
+{
+    private readonly string[] aliases;
+
+    private ChartListOrderColumnDefinition(
+        string normalizedColumnName,
+        ChartListOrderKeyKind keyKind,
+        Func<ChartListSourceRow, string> stringKeySelector,
+        Func<ChartListSourceRow, IComparable> comparableKeySelector,
+        string sortProfile,
+        string propertyTypeName,
+        string stringSortKind,
+        bool prewarmByDefault,
+        string[] aliases)
+    {
+        NormalizedColumnName = normalizedColumnName ?? string.Empty;
+        KeyKind = keyKind;
+        StringKeySelector = stringKeySelector ?? (_ => string.Empty);
+        ComparableKeySelector = comparableKeySelector ?? (_ => null);
+        SortProfile = sortProfile ?? string.Empty;
+        PropertyTypeName = propertyTypeName ?? string.Empty;
+        StringSortKind = stringSortKind ?? string.Empty;
+        PrewarmByDefault = prewarmByDefault;
+        this.aliases = aliases ?? Array.Empty<string>();
+    }
+
+    internal string NormalizedColumnName { get; }
+
+    internal ChartListOrderKeyKind KeyKind { get; }
+
+    internal Func<ChartListSourceRow, string> StringKeySelector { get; }
+
+    internal Func<ChartListSourceRow, IComparable> ComparableKeySelector { get; }
+
+    internal string SortProfile { get; }
+
+    internal string PropertyTypeName { get; }
+
+    internal string StringSortKind { get; }
+
+    internal bool PrewarmByDefault { get; }
+
+    internal static ChartListOrderColumnDefinition String(
+        string normalizedColumnName,
+        Func<ChartListSourceRow, string> keySelector,
+        string sortProfile,
+        bool prewarmByDefault,
+        string propertyTypeName = null,
+        params string[] aliases)
+    {
+        return new ChartListOrderColumnDefinition(
+            normalizedColumnName,
+            ChartListOrderKeyKind.String,
+            keySelector,
+            null,
+            sortProfile,
+            propertyTypeName ?? nameof(String),
+            "ordinal_ignore_case",
+            prewarmByDefault,
+            aliases);
+    }
+
+    internal static ChartListOrderColumnDefinition Comparable(
+        string normalizedColumnName,
+        Func<ChartListSourceRow, IComparable> keySelector,
+        string sortProfile,
+        string propertyTypeName,
+        bool prewarmByDefault,
+        params string[] aliases)
+    {
+        return new ChartListOrderColumnDefinition(
+            normalizedColumnName,
+            ChartListOrderKeyKind.Comparable,
+            null,
+            keySelector,
+            sortProfile,
+            propertyTypeName,
+            "typed",
+            prewarmByDefault,
+            aliases);
+    }
+
+    internal bool Matches(string columnName)
+    {
+        if (string.Equals(columnName, NormalizedColumnName, StringComparison.Ordinal))
+        {
+            return true;
+        }
+        return aliases.Any(alias => string.Equals(columnName, alias, StringComparison.Ordinal));
     }
 }
