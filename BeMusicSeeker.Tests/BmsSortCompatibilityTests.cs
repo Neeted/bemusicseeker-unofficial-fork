@@ -350,8 +350,14 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.RefTablesSymbols)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.rateDouble)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.clear)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.rateDouble)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.score)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.maxcombo)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.minbp)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartTotalSortKey)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.WAVHealth)));
     }
 
     [TestMethod]
@@ -371,16 +377,22 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.InstallDestinationTitle)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.InstallDestinationArtist)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.RefTablesSymbols)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.rateDouble)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.clear)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.rateDouble)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.score)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.maxcombo)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.minbp)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.ChartLevelSortKey)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.WAVHealth)));
     }
 
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewSortColumnDependency_ClassifiesMainColumnFamilies()
     {
-        foreach (string columnName in ChartListOrder.GetVirtualSortColumnMetadata().Select(column => column.NormalizedColumnName))
+        foreach (ChartListOrderColumnMetadata column in ChartListOrder.GetVirtualSortColumnMetadata())
         {
-            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(columnName), columnName);
+            Assert.AreEqual(column.Dependency, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(column.NormalizedColumnName), column.NormalizedColumnName);
         }
         Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(null));
         Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.instl_dst)));
@@ -431,7 +443,9 @@ public sealed class BmsSortCompatibilityTests
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_SkipsScoreUpdateWhenFullNormalLibrarySortIsUnaffected()
     {
-        foreach (string columnName in ChartListOrder.GetVirtualSortColumnMetadata().Select(column => column.NormalizedColumnName))
+        foreach (string columnName in ChartListOrder.GetVirtualSortColumnMetadata()
+            .Where(column => column.Dependency != MainViewDataDependency.Score)
+            .Select(column => column.NormalizedColumnName))
         {
             MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
                 MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
@@ -445,7 +459,7 @@ public sealed class BmsSortCompatibilityTests
 
             Assert.AreEqual(MainViewRefreshAction.SkipMainViewRefresh, decision.Action, columnName);
             Assert.AreEqual(MainViewDataDependency.Score, decision.Dependency, columnName);
-            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency, columnName);
+            Assert.AreNotEqual(MainViewDataDependency.Score, decision.SortDependency, columnName);
         }
     }
 

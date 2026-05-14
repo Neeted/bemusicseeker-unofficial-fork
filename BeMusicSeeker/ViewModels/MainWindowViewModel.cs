@@ -124,9 +124,17 @@ internal readonly struct BmsonLibraryRowCacheSyncResult
 internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySortCacheKey>
 {
     internal NormalLibrarySortCacheKey(long sourceGeneration, long sortKeyGeneration, string columnName, ListSortDirection direction, int rowCount)
+        : this(sourceGeneration, sortKeyGeneration, 0, 0, 0, columnName, direction, rowCount)
+    {
+    }
+
+    internal NormalLibrarySortCacheKey(long sourceGeneration, long sortKeyGeneration, int scoreGeneration, int chartInfoGeneration, int maintenanceGeneration, string columnName, ListSortDirection direction, int rowCount)
     {
         SourceGeneration = sourceGeneration;
         SortKeyGeneration = sortKeyGeneration;
+        ScoreGeneration = scoreGeneration;
+        ChartInfoGeneration = chartInfoGeneration;
+        MaintenanceGeneration = maintenanceGeneration;
         ColumnName = columnName ?? string.Empty;
         Direction = direction;
         RowCount = rowCount;
@@ -135,6 +143,12 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
     internal long SourceGeneration { get; }
 
     internal long SortKeyGeneration { get; }
+
+    internal int ScoreGeneration { get; }
+
+    internal int ChartInfoGeneration { get; }
+
+    internal int MaintenanceGeneration { get; }
 
     internal string ColumnName { get; }
 
@@ -146,6 +160,9 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
     {
         return SourceGeneration == other.SourceGeneration
             && SortKeyGeneration == other.SortKeyGeneration
+            && ScoreGeneration == other.ScoreGeneration
+            && ChartInfoGeneration == other.ChartInfoGeneration
+            && MaintenanceGeneration == other.MaintenanceGeneration
             && string.Equals(ColumnName, other.ColumnName, StringComparison.Ordinal)
             && Direction == other.Direction
             && RowCount == other.RowCount;
@@ -162,6 +179,9 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
         {
             int hashCode = SourceGeneration.GetHashCode();
             hashCode = (hashCode * 397) ^ SortKeyGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ ScoreGeneration;
+            hashCode = (hashCode * 397) ^ ChartInfoGeneration;
+            hashCode = (hashCode * 397) ^ MaintenanceGeneration;
             hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(ColumnName ?? string.Empty);
             hashCode = (hashCode * 397) ^ (int)Direction;
             hashCode = (hashCode * 397) ^ RowCount;
@@ -9268,6 +9288,19 @@ public class MainWindowViewModel : ViewModel
             .Count();
     }
 
+    private static IReadOnlyList<ChartListSourceRow> SelectSourceRowsByOrder(IReadOnlyList<ChartListSourceRow> sourceRows, IReadOnlyList<int> orderedIndexes)
+    {
+        if (sourceRows == null || orderedIndexes == null)
+        {
+            return Array.Empty<ChartListSourceRow>();
+        }
+        return orderedIndexes
+            .Where(index => index >= 0 && index < sourceRows.Count)
+            .Select(index => sourceRows[index])
+            .Where(row => row != null)
+            .ToList();
+    }
+
     private bool TryGetMainSummaryFolderCount(MainViewSummaryCacheKey key, out int distinctFolderCount)
     {
         lock (mainSummaryFolderCountCacheLock)
@@ -9639,7 +9672,6 @@ public class MainWindowViewModel : ViewModel
             out bool sourceRowsCacheHit,
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
-        List<ChartListSourceRow> viewSourceRows = sourceRows;
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
         if (keywordQuery.HasTokens && !keywordQuery.CanMatchChartListSourceRow())
         {
@@ -9654,53 +9686,68 @@ public class MainWindowViewModel : ViewModel
             ModeFilter,
             files?.ScoreSnapshotVersion ?? 0,
             files?.ChartInfoIndexVersion ?? 0);
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        ChartListOrder fullOrder = GetOrCreateVirtualNormalLibraryOrder(
+            sourceRows,
+            normalizedSortColumn,
+            sortDirection,
+            sourceRowsSourceGeneration,
+            sourceRowsSortKeyGeneration,
+            useCache: true,
+            out bool sortCacheHit,
+            out NormalLibrarySortCacheKey sortCacheKey,
+            out long orderCacheLookupMs,
+            out long orderBuildMs);
+        long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        int[] viewOrderedIndexes = fullOrder.Indexes;
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (FolderFilter != null)
         {
-            viewSourceRows = viewSourceRows
-                .Where(row => row != null && FolderFilter(row.CreateFilterFile()))
-                .ToList();
+            viewOrderedIndexes = viewOrderedIndexes
+                .Where(index =>
+                {
+                    ChartListSourceRow row = sourceRows[index];
+                    return row != null && FolderFilter(row.CreateFilterFile());
+                })
+                .ToArray();
         }
-        int folderFilteredCount = viewSourceRows.Count;
+        int folderFilteredCount = viewOrderedIndexes.Length;
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (keywordQuery.HasTokens)
         {
-            viewSourceRows = viewSourceRows
+            viewOrderedIndexes = viewOrderedIndexes
                 .AsParallel()
-                .Where(row => keywordQuery.MatchesChartListSourceRow(row))
-                .ToList();
+                .AsOrdered()
+                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
+                .ToArray();
         }
-        int keywordFilteredCount = viewSourceRows.Count;
+        int keywordFilteredCount = viewOrderedIndexes.Length;
         long keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (ModeFilter != ModeFilterType.All)
         {
             HashSet<int?> modeValues = CreateModeFilterValueSet(ModeFilter);
-            viewSourceRows = viewSourceRows
-                .Where(row => row != null && modeValues.Contains(row.Mode))
-                .ToList();
+            viewOrderedIndexes = viewOrderedIndexes
+                .Where(index =>
+                {
+                    ChartListSourceRow row = sourceRows[index];
+                    return row != null && modeValues.Contains(row.Mode);
+                })
+                .ToArray();
         }
+        int modeFilteredCount = viewOrderedIndexes.Length;
         long modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListOrder order = GetOrCreateVirtualNormalLibraryOrder(
-            viewSourceRows,
-            normalizedSortColumn,
-            sortDirection,
-            sourceRowsSourceGeneration,
-            sourceRowsSortKeyGeneration,
-            filterIdentity == "normal_default",
-            out bool sortCacheHit,
-            out long orderCacheLookupMs,
-            out long orderBuildMs);
-        long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
 
         MainViewSummaryCacheKey summaryKey = new MainViewSummaryCacheKey(
             sourceRowsSourceGeneration,
             sourceRowsSortKeyGeneration,
-            viewSourceRows.Count,
+            modeFilteredCount,
             includeBmsonRows,
             filterIdentity);
         bool summaryCacheHit = TryGetMainSummaryFolderCount(summaryKey, out int distinctFolderCount);
@@ -9710,7 +9757,7 @@ public class MainWindowViewModel : ViewModel
         }
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListVirtualView nextRowsView = new ChartListVirtualView(viewSourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
+        ChartListVirtualView nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
         long prepareSwapMs = 0L;
         if (!ReferenceEquals(BMSFilesView, nextRowsView))
         {
@@ -9727,7 +9774,7 @@ public class MainWindowViewModel : ViewModel
         long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         if (!summaryCacheHit)
         {
-            ScheduleMainSummaryFolderCount(summaryKey, viewSourceRows, nextRowsView, mode.ToString());
+            ScheduleMainSummaryFolderCount(summaryKey, SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes), nextRowsView, mode.ToString());
         }
 
         long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
@@ -9747,7 +9794,7 @@ public class MainWindowViewModel : ViewModel
             sortStageMs,
             sortReuse: sortCacheHit,
             sortCacheKey: order.ColumnName,
-            sortCacheGeneration: sourceRowsSortKeyGeneration,
+            sortCacheGeneration: GetSortCacheGenerationForLog(sortCacheKey),
             sortCacheHit: sortCacheHit,
             orderCacheLookupMs: orderCacheLookupMs,
             orderBuildMs: orderBuildMs));
@@ -9775,12 +9822,12 @@ public class MainWindowViewModel : ViewModel
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
             + " folderCount=" + folderFilteredCount
             + " keywordCount=" + keywordFilteredCount
-            + " modeCount=" + viewSourceRows.Count
+            + " modeCount=" + modeFilteredCount
             + " viewCount=" + nextRowsView.Count
             + " sortColumn=" + sortColumn
             + " sortDirection=" + sortDirectionText
             + " virtual=True"
-            + " sourceRows=" + viewSourceRows.Count
+            + " sourceRows=" + sourceRows.Count
             + " orderedRows=" + order.Count
             + " viewRowsCreated=" + nextRowsView.RealizedRowCount
             + " distinctFolderCount=" + distinctFolderCount
@@ -9846,6 +9893,7 @@ public class MainWindowViewModel : ViewModel
         long sortKeyGeneration,
         bool useCache,
         out bool cacheHit,
+        out NormalLibrarySortCacheKey cacheKey,
         out long orderCacheLookupMs,
         out long orderBuildMs)
     {
@@ -9856,12 +9904,11 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentException("Unsupported virtual normal library sort column.", nameof(columnName));
         }
 
-        NormalLibrarySortCacheKey cacheKey;
         if (useCache)
         {
             lock (normalLibrarySortCacheLock)
             {
-                cacheKey = new NormalLibrarySortCacheKey(
+                cacheKey = CreateNormalLibrarySortCacheKey(
                     sourceGeneration,
                     sortKeyGeneration,
                     normalizedColumnName,
@@ -9904,6 +9951,59 @@ public class MainWindowViewModel : ViewModel
         orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
         orderBuildMs = buildStopwatch.ElapsedMilliseconds;
         return order;
+    }
+
+    private NormalLibrarySortCacheKey CreateNormalLibrarySortCacheKey(
+        long sourceGeneration,
+        long sortKeyGeneration,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount)
+    {
+        int scoreGeneration = 0;
+        int chartInfoGeneration = 0;
+        int maintenanceGeneration = 0;
+        if (ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
+        {
+            switch (metadata.Dependency)
+            {
+                case MainViewDataDependency.Score:
+                    scoreGeneration = files?.ScoreSnapshotVersion ?? 0;
+                    break;
+                case MainViewDataDependency.ChartInfo:
+                    chartInfoGeneration = files?.ChartInfoIndexVersion ?? 0;
+                    break;
+                case MainViewDataDependency.Maintenance:
+                    maintenanceGeneration = files?.MaintenanceHydrationCompletedVersion ?? 0;
+                    break;
+            }
+        }
+        return new NormalLibrarySortCacheKey(
+            sourceGeneration,
+            sortKeyGeneration,
+            scoreGeneration,
+            chartInfoGeneration,
+            maintenanceGeneration,
+            columnName,
+            direction,
+            rowCount);
+    }
+
+    private static long GetSortCacheGenerationForLog(NormalLibrarySortCacheKey key)
+    {
+        if (key.ScoreGeneration != 0)
+        {
+            return key.ScoreGeneration;
+        }
+        if (key.ChartInfoGeneration != 0)
+        {
+            return key.ChartInfoGeneration;
+        }
+        if (key.MaintenanceGeneration != 0)
+        {
+            return key.MaintenanceGeneration;
+        }
+        return key.SortKeyGeneration;
     }
 
     private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()
@@ -10019,6 +10119,7 @@ public class MainWindowViewModel : ViewModel
                     sortKeyGeneration,
                     useCache: true,
                     out bool cacheHit,
+                    out _,
                     out _,
                     out _);
                 if (cacheHit)
@@ -15271,6 +15372,7 @@ public class MainWindowViewModel : ViewModel
             nameof(LibraryChartRow.Title),
             nameof(LibraryChartRow.Artist),
             nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.level),
             nameof(LibraryChartRow.mode),
             nameof(LibraryChartRow.Folder),
             nameof(LibraryChartRow.path),
@@ -15280,7 +15382,33 @@ public class MainWindowViewModel : ViewModel
             nameof(LibraryChartRow.instl_dst),
             nameof(LibraryChartRow.InstallDestinationTitle),
             nameof(LibraryChartRow.InstallDestinationArtist),
-            nameof(LibraryChartRow.RefTablesSymbols)
+            nameof(LibraryChartRow.RefTablesSymbols),
+            nameof(LibraryChartRow.clear),
+            nameof(LibraryChartRow.rateDouble),
+            nameof(LibraryChartRow.score),
+            nameof(LibraryChartRow.maxcombo),
+            nameof(LibraryChartRow.minbp),
+            nameof(LibraryChartRow.rankingString),
+            nameof(LibraryChartRow.rankingLastupdate),
+            nameof(LibraryChartRow.stddevVal),
+            nameof(LibraryChartRow.scoreDifficulty),
+            nameof(LibraryChartRow.ChartLevelSortKey),
+            nameof(LibraryChartRow.ChartDifficultySortKey),
+            nameof(LibraryChartRow.ChartMainBpmSortKey),
+            nameof(LibraryChartRow.ChartMaxBpmSortKey),
+            nameof(LibraryChartRow.ChartMinBpmSortKey),
+            nameof(LibraryChartRow.ChartDurationSortKey),
+            nameof(LibraryChartRow.ChartJudgeSortKey),
+            nameof(LibraryChartRow.ChartFeatureSortKey),
+            nameof(LibraryChartRow.ChartNotes),
+            nameof(LibraryChartRow.ChartLongNotes),
+            nameof(LibraryChartRow.ChartScratchNotes),
+            nameof(LibraryChartRow.ChartTotalSortKey),
+            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
+            nameof(LibraryChartRow.ChartDensitySortKey),
+            nameof(LibraryChartRow.ChartPeakDensitySortKey),
+            nameof(LibraryChartRow.ChartEndDensitySortKey),
+            nameof(LibraryChartRow.ChartSoflanCount)
         };
 
         private readonly string title;
@@ -15288,6 +15416,10 @@ public class MainWindowViewModel : ViewModel
         private readonly string artist;
 
         private readonly string genre;
+
+        private readonly string levelText;
+
+        private readonly double? levelValue;
 
         private readonly int? mode;
 
@@ -15309,11 +15441,65 @@ public class MainWindowViewModel : ViewModel
 
         private readonly string refTablesSymbols;
 
+        private readonly ClearType clear;
+
+        private readonly double? rateDouble;
+
+        private readonly int? score;
+
+        private readonly int? maxCombo;
+
+        private readonly int? minBp;
+
+        private readonly string rankingString;
+
+        private readonly DateTime? rankingLastUpdate;
+
+        private readonly double? stdDevVal;
+
+        private readonly double? scoreDifficulty;
+
+        private readonly double? chartLevelSortKey;
+
+        private readonly int? chartDifficultySortKey;
+
+        private readonly double? chartMainBpmSortKey;
+
+        private readonly double? chartMaxBpmSortKey;
+
+        private readonly double? chartMinBpmSortKey;
+
+        private readonly int? chartDurationSortKey;
+
+        private readonly int? chartJudgeSortKey;
+
+        private readonly int? chartFeatureSortKey;
+
+        private readonly int? chartNotes;
+
+        private readonly int? chartLongNotes;
+
+        private readonly int? chartScratchNotes;
+
+        private readonly double? chartTotalSortKey;
+
+        private readonly double? chartTotalPerNoteSortKey;
+
+        private readonly double? chartDensitySortKey;
+
+        private readonly double? chartPeakDensitySortKey;
+
+        private readonly double? chartEndDensitySortKey;
+
+        private readonly int? chartSoflanCount;
+
         private BmsonLibrarySortKeySnapshot(LibraryChartRow row)
         {
             title = row?.Title ?? string.Empty;
             artist = row?.Artist ?? string.Empty;
             genre = row?.genre ?? string.Empty;
+            levelText = row?.Level ?? string.Empty;
+            levelValue = row?.level;
             mode = row?.mode;
             folder = row?.Folder ?? string.Empty;
             path = row?.path ?? string.Empty;
@@ -15324,6 +15510,32 @@ public class MainWindowViewModel : ViewModel
             installDestinationTitle = row?.InstallDestinationTitle ?? string.Empty;
             installDestinationArtist = row?.InstallDestinationArtist ?? string.Empty;
             refTablesSymbols = row?.RefTablesSymbols ?? string.Empty;
+            clear = row?.clear ?? ClearType.NO_SONG;
+            rateDouble = row?.rateDouble;
+            score = row?.score;
+            maxCombo = row?.maxcombo;
+            minBp = row?.minbp;
+            rankingString = row?.rankingString ?? string.Empty;
+            rankingLastUpdate = row?.rankingLastupdate;
+            stdDevVal = row?.stddevVal;
+            scoreDifficulty = row?.scoreDifficulty;
+            chartLevelSortKey = row?.ChartLevelSortKey;
+            chartDifficultySortKey = row?.ChartDifficultySortKey;
+            chartMainBpmSortKey = row?.ChartMainBpmSortKey;
+            chartMaxBpmSortKey = row?.ChartMaxBpmSortKey;
+            chartMinBpmSortKey = row?.ChartMinBpmSortKey;
+            chartDurationSortKey = row?.ChartDurationSortKey;
+            chartJudgeSortKey = row?.ChartJudgeSortKey;
+            chartFeatureSortKey = row?.ChartFeatureSortKey;
+            chartNotes = row?.ChartNotes;
+            chartLongNotes = row?.ChartLongNotes;
+            chartScratchNotes = row?.ChartScratchNotes;
+            chartTotalSortKey = row?.ChartTotalSortKey;
+            chartTotalPerNoteSortKey = row?.ChartTotalPerNoteSortKey;
+            chartDensitySortKey = row?.ChartDensitySortKey;
+            chartPeakDensitySortKey = row?.ChartPeakDensitySortKey;
+            chartEndDensitySortKey = row?.ChartEndDensitySortKey;
+            chartSoflanCount = row?.ChartSoflanCount;
         }
 
         internal static BmsonLibrarySortKeySnapshot Capture(LibraryChartRow row)
@@ -15336,6 +15548,8 @@ public class MainWindowViewModel : ViewModel
             return !string.Equals(title, row?.Title ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(artist, row?.Artist ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(genre, row?.genre ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(levelText, row?.Level ?? string.Empty, StringComparison.Ordinal)
+                || !object.Equals(levelValue, row?.level)
                 || mode != row?.mode
                 || !string.Equals(folder, row?.Folder ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(path, row?.path ?? string.Empty, StringComparison.Ordinal)
@@ -15345,7 +15559,33 @@ public class MainWindowViewModel : ViewModel
                 || !string.Equals(installDestination, row?.instl_dst ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(installDestinationTitle, row?.InstallDestinationTitle ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(installDestinationArtist, row?.InstallDestinationArtist ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(refTablesSymbols, row?.RefTablesSymbols ?? string.Empty, StringComparison.Ordinal);
+                || !string.Equals(refTablesSymbols, row?.RefTablesSymbols ?? string.Empty, StringComparison.Ordinal)
+                || clear != (row?.clear ?? ClearType.NO_SONG)
+                || !object.Equals(rateDouble, row?.rateDouble)
+                || score != row?.score
+                || maxCombo != row?.maxcombo
+                || minBp != row?.minbp
+                || !string.Equals(rankingString, row?.rankingString ?? string.Empty, StringComparison.Ordinal)
+                || !object.Equals(rankingLastUpdate, row?.rankingLastupdate)
+                || !object.Equals(stdDevVal, row?.stddevVal)
+                || !object.Equals(scoreDifficulty, row?.scoreDifficulty)
+                || !object.Equals(chartLevelSortKey, row?.ChartLevelSortKey)
+                || chartDifficultySortKey != row?.ChartDifficultySortKey
+                || !object.Equals(chartMainBpmSortKey, row?.ChartMainBpmSortKey)
+                || !object.Equals(chartMaxBpmSortKey, row?.ChartMaxBpmSortKey)
+                || !object.Equals(chartMinBpmSortKey, row?.ChartMinBpmSortKey)
+                || chartDurationSortKey != row?.ChartDurationSortKey
+                || chartJudgeSortKey != row?.ChartJudgeSortKey
+                || chartFeatureSortKey != row?.ChartFeatureSortKey
+                || chartNotes != row?.ChartNotes
+                || chartLongNotes != row?.ChartLongNotes
+                || chartScratchNotes != row?.ChartScratchNotes
+                || !object.Equals(chartTotalSortKey, row?.ChartTotalSortKey)
+                || !object.Equals(chartTotalPerNoteSortKey, row?.ChartTotalPerNoteSortKey)
+                || !object.Equals(chartDensitySortKey, row?.ChartDensitySortKey)
+                || !object.Equals(chartPeakDensitySortKey, row?.ChartPeakDensitySortKey)
+                || !object.Equals(chartEndDensitySortKey, row?.ChartEndDensitySortKey)
+                || chartSoflanCount != row?.ChartSoflanCount;
         }
     }
 

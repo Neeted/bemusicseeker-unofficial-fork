@@ -216,8 +216,6 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
 
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "Path", ListSortDirection.Ascending, out _));
-        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, out _));
-        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.ChartLevelSortKey), ListSortDirection.Ascending, out _));
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
     }
 
@@ -264,7 +262,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void VirtualSortRegistryMetadata_DescribesDefaultIdentityColumns()
+    public void VirtualSortRegistryMetadata_DescribesSupportedColumnsAndDependencies()
     {
         ChartListOrderColumnMetadata[] metadata = ChartListOrder.GetVirtualSortColumnMetadata().ToArray();
 
@@ -273,10 +271,13 @@ public sealed class ChartListVirtualViewTests
             metadata.Select(column => column.NormalizedColumnName).ToArray());
         foreach (ChartListOrderColumnMetadata column in metadata)
         {
-            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, column.Dependency, column.NormalizedColumnName);
             Assert.IsTrue(ChartListOrder.TryGetVirtualSortColumnMetadata(column.NormalizedColumnName, out ChartListOrderColumnMetadata resolved));
             Assert.AreEqual(column.Dependency, resolved.Dependency);
         }
+
+        AssertRegistryDependency(metadata, MainViewDataDependency.IdentitySortKey, nameof(LibraryChartRow.Title));
+        AssertRegistryDependency(metadata, MainViewDataDependency.Score, nameof(LibraryChartRow.rateDouble));
+        AssertRegistryDependency(metadata, MainViewDataDependency.ChartInfo, nameof(LibraryChartRow.ChartTotalSortKey));
     }
 
     [TestMethod]
@@ -325,6 +326,17 @@ public sealed class ChartListVirtualViewTests
         Assert.AreNotEqual(current, changedColumn);
         Assert.AreNotEqual(current, changedDirection);
         Assert.AreNotEqual(current, changedRowCount);
+
+        NormalLibrarySortCacheKey scoreAware = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey scoreAwareSame = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey changedScoreGeneration = new NormalLibrarySortCacheKey(7, 11, 2, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey changedChartInfoGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 3, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey changedMaintenanceGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 4, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+
+        Assert.AreEqual(scoreAware, scoreAwareSame);
+        Assert.AreNotEqual(scoreAware, changedScoreGeneration);
+        Assert.AreNotEqual(scoreAware, changedChartInfoGeneration);
+        Assert.AreNotEqual(scoreAware, changedMaintenanceGeneration);
     }
 
     [TestMethod]
@@ -409,10 +421,13 @@ public sealed class ChartListVirtualViewTests
             "folder-a",
             artist: "BmsArtist",
             genre: "BmsGenre",
+            level: 12,
             mode: 5,
             tag: "BmsTag",
             hash: "11111111111111111111111111111111",
             sha256: "1111111111111111111111111111111111111111111111111111111111111111");
+        file.bmsScore = CreateScore(file.hash, ClearType.HARD, RankType.AA, perfect: 800, great: 200, totalNotes: 1200, maxCombo: 999, minBp: 12, ranking: 42, rankingNum: 500, rankingLastUpdate: new DateTime(2026, 5, 15, 1, 2, 3, DateTimeKind.Local), stdDevVal: 51.5, scoreDifficulty: 78.25);
+        file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: 7, difficulty: 3, mainBpm: 150.5, total: 340.0));
         file.instl_dst = "Installed";
         file.InstallDestinationTitle = "Installed Title";
         file.InstallDestinationArtist = "Installed Artist";
@@ -426,8 +441,10 @@ public sealed class ChartListVirtualViewTests
             artist = "BmsonArtist",
             genre = "BmsonGenre",
             mode_hint = "beat-7k",
+            level = 9,
             md5 = "22222222222222222222222222222222",
-            sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+            sha256 = "2222222222222222222222222222222222222222222222222222222222222222",
+            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0)
         };
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, new[] { bmson });
 
@@ -450,6 +467,8 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSortKeyChange(song => song.mode_hint = "beat-5k");
         AssertBmsonSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
         AssertBmsonSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
+        AssertBmsonSortKeyChange(song => song.level = 10);
+        AssertBmsonSortKeyChange(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
     [TestMethod]
@@ -463,6 +482,8 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSameReferenceSortKeyChange(song => song.mode_hint = "beat-5k");
         AssertBmsonSameReferenceSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
         AssertBmsonSameReferenceSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
+        AssertBmsonSameReferenceSortKeyChange(song => song.level = 10);
+        AssertBmsonSameReferenceSortKeyChange(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
     private static ChartListVirtualView CreateView(out Func<int> getCreatedCount, int distinctFolderCount = -1)
@@ -531,6 +552,7 @@ public sealed class ChartListVirtualViewTests
                 "folder-a",
                 artist: "Zulu",
                 genre: "GenreC",
+                level: 10,
                 mode: 14,
                 tag: "TagC",
                 hash: "cccccccccccccccccccccccccccccccc",
@@ -538,13 +560,16 @@ public sealed class ChartListVirtualViewTests
                 installDestination: "InstallC",
                 installDestinationTitle: "InstallTitleC",
                 installDestinationArtist: "InstallArtistC",
-                refTableSymbol: "C"),
+                refTableSymbol: "C",
+                scoreSeed: 3,
+                chartSeed: 3),
             CreateFile(
                 @"folder-a\a_item2.bms",
                 "item2",
                 "folder-a",
                 artist: "Alpha",
                 genre: "GenreB",
+                level: 2,
                 mode: 5,
                 tag: "TagB",
                 hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -552,13 +577,16 @@ public sealed class ChartListVirtualViewTests
                 installDestination: "InstallA",
                 installDestinationTitle: "InstallTitleA",
                 installDestinationArtist: "InstallArtistA",
-                refTableSymbol: "A"),
+                refTableSymbol: "A",
+                scoreSeed: 1,
+                chartSeed: 1),
             CreateFile(
                 @"folder-b\m_alpha.bms",
                 "Alpha",
                 "folder-b",
                 artist: "Middle",
                 genre: "GenreA",
+                level: 7,
                 mode: null,
                 tag: "TagA",
                 hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -566,7 +594,9 @@ public sealed class ChartListVirtualViewTests
                 installDestination: "InstallB",
                 installDestinationTitle: "InstallTitleB",
                 installDestinationArtist: "InstallArtistB",
-                refTableSymbol: "B")
+                refTableSymbol: "B",
+                scoreSeed: 2,
+                chartSeed: 2)
         };
     }
 
@@ -582,8 +612,10 @@ public sealed class ChartListVirtualViewTests
                 artist = "Beta",
                 genre = "GenreD",
                 mode_hint = "beat-7k",
+                level = 8,
                 md5 = "dddddddddddddddddddddddddddddddd",
-                sha256 = "4444444444444444444444444444444444444444444444444444444444444444"
+                sha256 = "4444444444444444444444444444444444444444444444444444444444444444",
+                ChartInfo = CreateChartInfo("4444444444444444444444444444444444444444444444444444444444444444", "dddddddddddddddddddddddddddddddd", level: 6, difficulty: 2, mainBpm: 133.0, total: 270.0)
             },
             new LR2SongDBExtended.bmson_song
             {
@@ -593,8 +625,10 @@ public sealed class ChartListVirtualViewTests
                 artist = "AlphaBmson",
                 genre = "Genre0",
                 mode_hint = "beat-5k",
+                level = 3,
                 md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                sha256 = "5555555555555555555555555555555555555555555555555555555555555555"
+                sha256 = "5555555555555555555555555555555555555555555555555555555555555555",
+                ChartInfo = CreateChartInfo("5555555555555555555555555555555555555555555555555555555555555555", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 2, difficulty: 0, mainBpm: 90.0, total: 180.0)
             }
         };
     }
@@ -605,6 +639,7 @@ public sealed class ChartListVirtualViewTests
         string folder,
         string artist = "",
         string genre = "",
+        int? level = null,
         int? mode = null,
         string tag = "",
         string hash = "0123456789abcdef0123456789abcdef",
@@ -612,13 +647,38 @@ public sealed class ChartListVirtualViewTests
         string installDestination = "",
         string installDestinationTitle = "",
         string installDestinationArtist = "",
-        string refTableSymbol = "")
+        string refTableSymbol = "",
+        int? scoreSeed = null,
+        int? chartSeed = null)
     {
         TestableBmsFile file = new TestableBmsFile();
-        file.Apply(path, title, folder, artist, genre, mode, tag, hash, sha256);
+        file.Apply(path, title, folder, artist, genre, level, mode, tag, hash, sha256);
         file.instl_dst = installDestination;
         file.InstallDestinationTitle = installDestinationTitle;
         file.InstallDestinationArtist = installDestinationArtist;
+        if (scoreSeed.HasValue)
+        {
+            int seed = scoreSeed.Value;
+            file.bmsScore = CreateScore(
+                file.hash,
+                seed == 1 ? ClearType.HARD : seed == 2 ? ClearType.EASY : ClearType.FC,
+                seed == 1 ? RankType.A : seed == 2 ? RankType.AA : RankType.B,
+                perfect: 300 + seed * 100,
+                great: 50 + seed * 20,
+                totalNotes: 600 + seed * 100,
+                maxCombo: 400 + seed * 10,
+                minBp: seed == 2 ? -1 : seed * 5,
+                ranking: seed * 10,
+                rankingNum: 100,
+                rankingLastUpdate: new DateTime(2026, 5, 15, seed, 0, 0, DateTimeKind.Local),
+                stdDevVal: 40.0 + seed,
+                scoreDifficulty: 70.0 + seed);
+        }
+        if (chartSeed.HasValue)
+        {
+            int seed = chartSeed.Value;
+            file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: seed + 2, difficulty: seed, mainBpm: 100.0 + seed * 25.0, total: 200.0 + seed * 10.0));
+        }
         if (!string.IsNullOrEmpty(refTableSymbol))
         {
             file.AddRefTable(new BMSTable { symbol = refTableSymbol, name = refTableSymbol });
@@ -650,7 +710,29 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
             nameof(LibraryChartRow.sha256),
-            nameof(LibraryChartRow.RefTablesSymbols)
+            nameof(LibraryChartRow.RefTablesSymbols),
+            nameof(LibraryChartRow.clear),
+            nameof(LibraryChartRow.rateDouble),
+            nameof(LibraryChartRow.score),
+            nameof(LibraryChartRow.maxcombo),
+            nameof(LibraryChartRow.minbp),
+            nameof(LibraryChartRow.ChartLevelSortKey),
+            nameof(LibraryChartRow.ChartDifficultySortKey),
+            nameof(LibraryChartRow.ChartMainBpmSortKey),
+            nameof(LibraryChartRow.ChartMaxBpmSortKey),
+            nameof(LibraryChartRow.ChartMinBpmSortKey),
+            nameof(LibraryChartRow.ChartDurationSortKey),
+            nameof(LibraryChartRow.ChartJudgeSortKey),
+            nameof(LibraryChartRow.ChartFeatureSortKey),
+            nameof(LibraryChartRow.ChartNotes),
+            nameof(LibraryChartRow.ChartLongNotes),
+            nameof(LibraryChartRow.ChartScratchNotes),
+            nameof(LibraryChartRow.ChartTotalSortKey),
+            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
+            nameof(LibraryChartRow.ChartDensitySortKey),
+            nameof(LibraryChartRow.ChartPeakDensitySortKey),
+            nameof(LibraryChartRow.ChartEndDensitySortKey),
+            nameof(LibraryChartRow.ChartSoflanCount)
         };
     }
 
@@ -670,8 +752,43 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.instl_dst),
             nameof(LibraryChartRow.InstallDestinationTitle),
             nameof(LibraryChartRow.InstallDestinationArtist),
-            nameof(LibraryChartRow.RefTablesSymbols)
+            nameof(LibraryChartRow.RefTablesSymbols),
+            nameof(LibraryChartRow.level),
+            nameof(LibraryChartRow.clear),
+            nameof(LibraryChartRow.rateDouble),
+            nameof(LibraryChartRow.score),
+            nameof(LibraryChartRow.maxcombo),
+            nameof(LibraryChartRow.minbp),
+            nameof(LibraryChartRow.rankingString),
+            nameof(LibraryChartRow.rankingLastupdate),
+            nameof(LibraryChartRow.stddevVal),
+            nameof(LibraryChartRow.scoreDifficulty),
+            nameof(LibraryChartRow.ChartLevelSortKey),
+            nameof(LibraryChartRow.ChartDifficultySortKey),
+            nameof(LibraryChartRow.ChartMainBpmSortKey),
+            nameof(LibraryChartRow.ChartMaxBpmSortKey),
+            nameof(LibraryChartRow.ChartMinBpmSortKey),
+            nameof(LibraryChartRow.ChartDurationSortKey),
+            nameof(LibraryChartRow.ChartJudgeSortKey),
+            nameof(LibraryChartRow.ChartFeatureSortKey),
+            nameof(LibraryChartRow.ChartNotes),
+            nameof(LibraryChartRow.ChartLongNotes),
+            nameof(LibraryChartRow.ChartScratchNotes),
+            nameof(LibraryChartRow.ChartTotalSortKey),
+            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
+            nameof(LibraryChartRow.ChartDensitySortKey),
+            nameof(LibraryChartRow.ChartPeakDensitySortKey),
+            nameof(LibraryChartRow.ChartEndDensitySortKey),
+            nameof(LibraryChartRow.ChartSoflanCount)
         };
+    }
+
+    private static void AssertRegistryDependency(IEnumerable<ChartListOrderColumnMetadata> metadata, MainViewDataDependency dependency, string columnName)
+    {
+        Assert.AreEqual(
+            dependency,
+            metadata.Single(column => column.NormalizedColumnName == columnName).Dependency,
+            columnName);
     }
 
     private static void AssertSourceRowMatchesLibraryChartRow(ChartListSourceRow sourceRow, LibraryChartRow chartRow)
@@ -679,12 +796,45 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(chartRow.Title, sourceRow.Title);
         Assert.AreEqual(chartRow.Artist, sourceRow.Artist);
         Assert.AreEqual(chartRow.genre, sourceRow.Genre);
+        Assert.AreEqual(chartRow.Level, sourceRow.Level);
+        Assert.AreEqual(chartRow.level, sourceRow.LevelValue);
         Assert.AreEqual(chartRow.Folder, sourceRow.Folder);
         Assert.AreEqual(chartRow.path, sourceRow.Path);
         Assert.AreEqual(chartRow.mode, sourceRow.Mode);
         Assert.AreEqual(chartRow.tag, sourceRow.Tag);
         Assert.AreEqual(chartRow.hash, sourceRow.Hash);
         Assert.AreEqual(chartRow.sha256, sourceRow.Sha256);
+        Assert.AreEqual(chartRow.clear, sourceRow.Clear);
+        Assert.AreEqual(chartRow.rank, sourceRow.Rank);
+        Assert.AreEqual(chartRow.rateDouble, sourceRow.RateDouble);
+        Assert.AreEqual(chartRow.rate, sourceRow.Rate);
+        Assert.AreEqual(chartRow.score, sourceRow.Score);
+        Assert.AreEqual(chartRow.totalnotes, sourceRow.TotalNotes);
+        Assert.AreEqual(chartRow.maxcombo, sourceRow.MaxCombo);
+        Assert.AreEqual(chartRow.minbp, sourceRow.MinBp);
+        Assert.AreEqual(chartRow.ranking, sourceRow.Ranking);
+        Assert.AreEqual(chartRow.rankingNum, sourceRow.RankingNum);
+        Assert.AreEqual(chartRow.rankingString, sourceRow.RankingString);
+        Assert.AreEqual(chartRow.rankingLastupdate, sourceRow.RankingLastUpdate);
+        Assert.AreEqual(chartRow.stddevVal, sourceRow.StdDevVal);
+        Assert.AreEqual(chartRow.scoreDifficulty, sourceRow.ScoreDifficulty);
+        Assert.AreEqual(chartRow.ChartLevelSortKey, sourceRow.ChartLevelSortKey);
+        Assert.AreEqual(chartRow.ChartDifficultySortKey, sourceRow.ChartDifficultySortKey);
+        Assert.AreEqual(chartRow.ChartMainBpmSortKey, sourceRow.ChartMainBpmSortKey);
+        Assert.AreEqual(chartRow.ChartMaxBpmSortKey, sourceRow.ChartMaxBpmSortKey);
+        Assert.AreEqual(chartRow.ChartMinBpmSortKey, sourceRow.ChartMinBpmSortKey);
+        Assert.AreEqual(chartRow.ChartDurationSortKey, sourceRow.ChartDurationSortKey);
+        Assert.AreEqual(chartRow.ChartJudgeSortKey, sourceRow.ChartJudgeSortKey);
+        Assert.AreEqual(chartRow.ChartFeatureSortKey, sourceRow.ChartFeatureSortKey);
+        Assert.AreEqual(chartRow.ChartNotes, sourceRow.ChartNotes);
+        Assert.AreEqual(chartRow.ChartLongNotes, sourceRow.ChartLongNotes);
+        Assert.AreEqual(chartRow.ChartScratchNotes, sourceRow.ChartScratchNotes);
+        Assert.AreEqual(chartRow.ChartTotalSortKey, sourceRow.ChartTotalSortKey);
+        Assert.AreEqual(chartRow.ChartTotalPerNoteSortKey, sourceRow.ChartTotalPerNoteSortKey);
+        Assert.AreEqual(chartRow.ChartDensitySortKey, sourceRow.ChartDensitySortKey);
+        Assert.AreEqual(chartRow.ChartPeakDensitySortKey, sourceRow.ChartPeakDensitySortKey);
+        Assert.AreEqual(chartRow.ChartEndDensitySortKey, sourceRow.ChartEndDensitySortKey);
+        Assert.AreEqual(chartRow.ChartSoflanCount, sourceRow.ChartSoflanCount);
         Assert.AreEqual(chartRow.instl_dst, sourceRow.InstallDestination);
         Assert.AreEqual(chartRow.InstallDestinationTitle, sourceRow.InstallDestinationTitle);
         Assert.AreEqual(chartRow.InstallDestinationArtist, sourceRow.InstallDestinationArtist);
@@ -718,8 +868,71 @@ public sealed class ChartListVirtualViewTests
             artist = "BmsonArtist",
             genre = "BmsonGenre",
             mode_hint = "beat-7k",
+            level = 6,
             md5 = "22222222222222222222222222222222",
-            sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+            sha256 = "2222222222222222222222222222222222222222222222222222222222222222",
+            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 5, difficulty: 2, mainBpm: 120.0, total: 300.0)
+        };
+    }
+
+    private static BMSScore CreateScore(
+        string hash,
+        ClearType clear,
+        RankType rank,
+        int perfect,
+        int great,
+        int totalNotes,
+        int maxCombo,
+        int minBp,
+        int ranking,
+        int rankingNum,
+        DateTime rankingLastUpdate,
+        double stdDevVal,
+        double scoreDifficulty)
+    {
+        return new BMSScore
+        {
+            hash = hash,
+            clear = clear,
+            rank = rank,
+            perfect = perfect,
+            great = great,
+            totalnotes = totalNotes,
+            maxcombo = maxCombo,
+            minbp = minBp,
+            ranking = ranking,
+            rankingNum = rankingNum,
+            rankingLastupdate = rankingLastUpdate,
+            stddevVal = stdDevVal,
+            scoreDifficulty = scoreDifficulty
+        };
+    }
+
+    private static LR2SongDBExtended.chart_info CreateChartInfo(string sha256, string md5, int level, int difficulty, double mainBpm, double total)
+    {
+        return new LR2SongDBExtended.chart_info
+        {
+            sha256 = sha256,
+            md5 = md5,
+            level = level,
+            difficulty = difficulty,
+            difficulty_defined = true,
+            mainbpm = mainBpm,
+            maxbpm = mainBpm + 25.0,
+            minbpm = Math.Max(1.0, mainBpm - 25.0),
+            length = 120000 + level * 1000,
+            judge = 100 + difficulty,
+            feature = difficulty + 1,
+            notes = 1000 + level * 10,
+            ln = 100 + level,
+            s = 20 + difficulty,
+            ls = 5 + difficulty,
+            total = total,
+            total_defined = true,
+            density = 8.0 + level,
+            peakdensity = 16.0 + level,
+            enddensity = 4.0 + difficulty,
+            speedchange_count = difficulty + 2
         };
     }
 
@@ -731,6 +944,7 @@ public sealed class ChartListVirtualViewTests
             string folderName,
             string artistName = "",
             string genreName = "",
+            int? levelValue = null,
             int? modeValue = null,
             string tagText = "",
             string md5 = "0123456789abcdef0123456789abcdef",
@@ -741,6 +955,7 @@ public sealed class ChartListVirtualViewTests
             folder = folderName;
             artist = artistName;
             genre = genreName;
+            level = levelValue;
             mode = modeValue;
             tag = tagText;
             hash = md5;
