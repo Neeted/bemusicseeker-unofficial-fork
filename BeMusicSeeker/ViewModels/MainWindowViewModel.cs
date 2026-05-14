@@ -170,6 +170,19 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
     }
 }
 
+internal sealed class VirtualNormalLibraryOrderCacheEntry
+{
+    internal VirtualNormalLibraryOrderCacheEntry(ChartListOrder order, long sortKeyFingerprint)
+    {
+        Order = order;
+        SortKeyFingerprint = sortKeyFingerprint;
+    }
+
+    internal ChartListOrder Order { get; }
+
+    internal long SortKeyFingerprint { get; }
+}
+
 internal enum MainViewDataDependency
 {
     Unknown,
@@ -5431,11 +5444,19 @@ public class MainWindowViewModel : ViewModel
 
     private readonly object normalLibrarySortCacheLock = new object();
 
-    private NormalLibrarySortCacheKey virtualTitleOrderCacheKey;
+    private readonly Dictionary<NormalLibrarySortCacheKey, VirtualNormalLibraryOrderCacheEntry> virtualNormalLibraryOrderCache = new Dictionary<NormalLibrarySortCacheKey, VirtualNormalLibraryOrderCacheEntry>();
 
-    private ChartListOrder virtualTitleOrderCache;
+    private List<ChartListSourceRow> virtualNormalLibrarySourceRowCache;
 
-    private bool virtualTitleOrderCacheAvailable;
+    private bool virtualNormalLibrarySourceRowCacheAvailable;
+
+    private long virtualNormalLibrarySourceRowCacheSourceGeneration;
+
+    private long virtualNormalLibrarySourceRowCacheSortKeyGeneration;
+
+    private bool virtualNormalLibrarySourceRowCacheIncludeBmsonRows;
+
+    private int virtualNormalLibrarySourceRowCacheRowCount;
 
     private long normalLibrarySourceGeneration;
 
@@ -9058,10 +9079,9 @@ public class MainWindowViewModel : ViewModel
         lock (normalLibrarySortCacheLock)
         {
             normalLibrarySourceGeneration++;
-            cacheCount = normalLibrarySortCache.Count + (virtualTitleOrderCacheAvailable ? 1 : 0);
+            cacheCount = GetNormalLibraryCacheCountLocked();
             normalLibrarySortCache.Clear();
-            virtualTitleOrderCache = null;
-            virtualTitleOrderCacheAvailable = false;
+            ClearVirtualNormalLibraryCachesLocked();
         }
         LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
     }
@@ -9111,10 +9131,9 @@ public class MainWindowViewModel : ViewModel
         lock (normalLibrarySortCacheLock)
         {
             normalLibrarySortKeyGeneration++;
-            cacheCount = normalLibrarySortCache.Count + (virtualTitleOrderCacheAvailable ? 1 : 0);
+            cacheCount = GetNormalLibraryCacheCountLocked();
             normalLibrarySortCache.Clear();
-            virtualTitleOrderCache = null;
-            virtualTitleOrderCacheAvailable = false;
+            ClearVirtualNormalLibraryCachesLocked();
         }
         LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
     }
@@ -9124,12 +9143,26 @@ public class MainWindowViewModel : ViewModel
         int cacheCount;
         lock (normalLibrarySortCacheLock)
         {
-            cacheCount = normalLibrarySortCache.Count + (virtualTitleOrderCacheAvailable ? 1 : 0);
+            cacheCount = GetNormalLibraryCacheCountLocked();
             normalLibrarySortCache.Clear();
-            virtualTitleOrderCache = null;
-            virtualTitleOrderCacheAvailable = false;
+            ClearVirtualNormalLibraryCachesLocked();
         }
         LogNormalLibrarySortCacheInvalidation("clear", "explicit", cacheCount);
+    }
+
+    private int GetNormalLibraryCacheCountLocked()
+    {
+        return normalLibrarySortCache.Count
+            + virtualNormalLibraryOrderCache.Count
+            + (virtualNormalLibrarySourceRowCacheAvailable ? 1 : 0);
+    }
+
+    private void ClearVirtualNormalLibraryCachesLocked()
+    {
+        virtualNormalLibraryOrderCache.Clear();
+        virtualNormalLibrarySourceRowCache = null;
+        virtualNormalLibrarySourceRowCacheAvailable = false;
+        virtualNormalLibrarySourceRowCacheRowCount = 0;
     }
 
     private void LogNormalLibrarySortCacheInvalidation(string reason, string detail, int cacheCountBefore)
@@ -9188,18 +9221,28 @@ public class MainWindowViewModel : ViewModel
 
     private bool TryApplyVirtualDefaultNormalLibraryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, bool includeBmsonRows, Stopwatch viewBuildStopwatch)
     {
-        if (!IsVirtualDefaultNormalLibraryRequest(mode))
+        if (!IsVirtualDefaultNormalLibraryRequest(mode, SortParameters, out string normalizedSortColumn, out ListSortDirection sortDirection))
         {
             return false;
         }
         ResetRegularDerivedViewCaches();
 
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null);
+        List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
+            includeBmsonRows,
+            out bool sourceRowsCacheHit,
+            out long sourceRowsSourceGeneration,
+            out long sourceRowsSortKeyGeneration);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListOrder order = GetOrCreateVirtualTitleOrder(sourceRows, out bool sortCacheHit);
+        ChartListOrder order = GetOrCreateVirtualNormalLibraryOrder(
+            sourceRows,
+            normalizedSortColumn,
+            sortDirection,
+            sourceRowsSourceGeneration,
+            sourceRowsSortKeyGeneration,
+            out bool sortCacheHit);
         long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -9224,16 +9267,16 @@ public class MainWindowViewModel : ViewModel
             order.ColumnName,
             order.Direction,
             nameof(String),
-            "chart_list_source_title_ordinal_ignore_case",
+            order.SortProfile,
             "ordinal_ignore_case",
             sortStageMs,
             sortReuse: sortCacheHit,
-            sortCacheKey: nameof(LibraryChartRow.Title),
-            sortCacheGeneration: normalLibrarySortKeyGeneration,
+            sortCacheKey: order.ColumnName,
+            sortCacheGeneration: sourceRowsSortKeyGeneration,
             sortCacheHit: sortCacheHit));
 
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
-        string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
+        string sortDirectionText = SortParameters?.Direction.ToString() ?? "Ascending";
         string parameterType = parameter?.GetType().Name ?? "(null)";
         LogMainViewBuild("main_view_build mode=" + mode
             + " requestedMode=" + requestedMode
@@ -9243,7 +9286,7 @@ public class MainWindowViewModel : ViewModel
             + " modeMs=0"
             + " sortMs=" + sortStageMs
             + " sortReuse=" + sortCacheHit
-            + " sortProfile=" + (sortCacheHit ? "virtual_title_order_reuse" : "virtual_title_order")
+            + " sortProfile=" + order.SortProfile + (sortCacheHit ? "_reuse" : string.Empty)
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
             + " columnMs=" + columnStageMs
@@ -9254,68 +9297,174 @@ public class MainWindowViewModel : ViewModel
             + " modeCount=" + sourceRows.Count
             + " viewCount=" + nextRowsView.Count
             + " sortColumn=" + sortColumn
-            + " sortDirection=" + sortDirection
+            + " sortDirection=" + sortDirectionText
             + " virtual=True"
             + " sourceRows=" + sourceRows.Count
             + " orderedRows=" + order.Count
             + " viewRowsCreated=" + nextRowsView.RealizedRowCount
-            + " distinctFolderCount=" + nextRowsView.DistinctFolderCount);
+            + " distinctFolderCount=" + nextRowsView.DistinctFolderCount
+            + " sourceRowsReuse=" + sourceRowsCacheHit);
         return true;
     }
 
-    private ChartListOrder GetOrCreateVirtualTitleOrder(IReadOnlyList<ChartListSourceRow> sourceRows, out bool cacheHit)
+    private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
+        bool includeBmsonRows,
+        out bool cacheHit,
+        out long sourceGeneration,
+        out long sortKeyGeneration)
+    {
+        int bmsRowCount = CountIfCheap(BMSFiles);
+        int bmsonRowCount = includeBmsonRows ? CountIfCheap(files?.BmsonSongs) : 0;
+        int expectedRowCount = (bmsRowCount >= 0 && bmsonRowCount >= 0) ? bmsRowCount + bmsonRowCount : -1;
+        long sourceGenerationAtLookup;
+        long sortKeyGenerationAtLookup;
+        lock (normalLibrarySortCacheLock)
+        {
+            sourceGenerationAtLookup = normalLibrarySourceGeneration;
+            sortKeyGenerationAtLookup = normalLibrarySortKeyGeneration;
+            if (virtualNormalLibrarySourceRowCacheAvailable
+                && virtualNormalLibrarySourceRowCache != null
+                && virtualNormalLibrarySourceRowCacheSourceGeneration == sourceGenerationAtLookup
+                && virtualNormalLibrarySourceRowCacheSortKeyGeneration == sortKeyGenerationAtLookup
+                && virtualNormalLibrarySourceRowCacheIncludeBmsonRows == includeBmsonRows
+                && (expectedRowCount < 0 || virtualNormalLibrarySourceRowCacheRowCount == expectedRowCount))
+            {
+                cacheHit = true;
+                sourceGeneration = sourceGenerationAtLookup;
+                sortKeyGeneration = sortKeyGenerationAtLookup;
+                return virtualNormalLibrarySourceRowCache;
+            }
+        }
+
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null);
+        lock (normalLibrarySortCacheLock)
+        {
+            if (normalLibrarySourceGeneration == sourceGenerationAtLookup
+                && normalLibrarySortKeyGeneration == sortKeyGenerationAtLookup)
+            {
+                virtualNormalLibrarySourceRowCache = sourceRows;
+                virtualNormalLibrarySourceRowCacheAvailable = true;
+                virtualNormalLibrarySourceRowCacheSourceGeneration = sourceGenerationAtLookup;
+                virtualNormalLibrarySourceRowCacheSortKeyGeneration = sortKeyGenerationAtLookup;
+                virtualNormalLibrarySourceRowCacheIncludeBmsonRows = includeBmsonRows;
+                virtualNormalLibrarySourceRowCacheRowCount = sourceRows.Count;
+            }
+        }
+        cacheHit = false;
+        sourceGeneration = sourceGenerationAtLookup;
+        sortKeyGeneration = sortKeyGenerationAtLookup;
+        return sourceRows;
+    }
+
+    private ChartListOrder GetOrCreateVirtualNormalLibraryOrder(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        string columnName,
+        ListSortDirection direction,
+        long sourceGeneration,
+        long sortKeyGeneration,
+        out bool cacheHit)
     {
         int rowCount = sourceRows?.Count ?? 0;
+        if (!ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
+        {
+            throw new ArgumentException("Unsupported virtual normal library sort column.", nameof(columnName));
+        }
+        long sortKeyFingerprint = ComputeVirtualNormalLibraryOrderFingerprint(sourceRows, normalizedColumnName);
+
         NormalLibrarySortCacheKey cacheKey;
         lock (normalLibrarySortCacheLock)
         {
             cacheKey = new NormalLibrarySortCacheKey(
-                normalLibrarySourceGeneration,
-                normalLibrarySortKeyGeneration,
-                nameof(LibraryChartRow.Title),
-                ListSortDirection.Ascending,
+                sourceGeneration,
+                sortKeyGeneration,
+                normalizedColumnName,
+                direction,
                 rowCount);
-            if (virtualTitleOrderCacheAvailable && virtualTitleOrderCacheKey.Equals(cacheKey) && virtualTitleOrderCache != null)
+            if (virtualNormalLibraryOrderCache.TryGetValue(cacheKey, out VirtualNormalLibraryOrderCacheEntry cachedEntry)
+                && cachedEntry?.Order != null
+                && cachedEntry.SortKeyFingerprint == sortKeyFingerprint)
             {
                 cacheHit = true;
-                return virtualTitleOrderCache;
+                return cachedEntry.Order;
             }
         }
-        ChartListOrder order = ChartListOrder.CreateTitleAscending(sourceRows);
+        if (!ChartListOrder.TryCreate(sourceRows, normalizedColumnName, direction, out ChartListOrder order))
+        {
+            throw new ArgumentException("Unsupported virtual normal library sort column.", nameof(columnName));
+        }
         lock (normalLibrarySortCacheLock)
         {
-            virtualTitleOrderCacheKey = cacheKey;
-            virtualTitleOrderCache = order;
-            virtualTitleOrderCacheAvailable = true;
+            virtualNormalLibraryOrderCache[cacheKey] = new VirtualNormalLibraryOrderCacheEntry(order, sortKeyFingerprint);
         }
         cacheHit = false;
         return order;
     }
 
-    private bool IsVirtualDefaultNormalLibraryRequest(viewUpdateMode mode)
+    private static long ComputeVirtualNormalLibraryOrderFingerprint(IReadOnlyList<ChartListSourceRow> sourceRows, string normalizedColumnName)
     {
-        return mode == viewUpdateMode.FolderFilterSelected
-            && treeViewFilterTypeSelected == viewUpdateMode.FolderFilterSelected
-            && FolderFilter == null
-            && string.IsNullOrWhiteSpace(KeywordFilter)
-            && ModeFilter == ModeFilterType.All
-            && IsDefaultTitleAscendingSort(SortParameters);
+        unchecked
+        {
+            long hash = 1469598103934665603L;
+            if (sourceRows == null)
+            {
+                return hash;
+            }
+            bool includePath = string.Equals(normalizedColumnName, nameof(LibraryChartRow.path), StringComparison.Ordinal);
+            for (int index = 0; index < sourceRows.Count; index++)
+            {
+                ChartListSourceRow row = sourceRows[index];
+                hash = AddVirtualOrderFingerprintString(hash, row?.Title);
+                if (includePath)
+                {
+                    hash = AddVirtualOrderFingerprintString(hash, row?.Path);
+                }
+            }
+            return hash;
+        }
     }
 
-    private static bool IsDefaultTitleAscendingSort(cSortParameters sortParameters)
+    private static long AddVirtualOrderFingerprintString(long hash, string value)
     {
-        if (sortParameters == null)
+        unchecked
         {
-            return true;
+            string normalized = value ?? string.Empty;
+            hash = (hash ^ normalized.Length) * 1099511628211L;
+            for (int index = 0; index < normalized.Length; index++)
+            {
+                hash = (hash ^ char.ToUpperInvariant(normalized[index])) * 1099511628211L;
+            }
+            return hash;
         }
-        if (sortParameters.Direction != ListSortDirection.Ascending)
+    }
+
+    private bool IsVirtualDefaultNormalLibraryRequest(
+        viewUpdateMode mode,
+        cSortParameters sortParameters,
+        out string normalizedSortColumn,
+        out ListSortDirection sortDirection)
+    {
+        normalizedSortColumn = string.Empty;
+        sortDirection = ListSortDirection.Ascending;
+        bool supportedMode = mode == viewUpdateMode.FolderFilterSelected || mode == viewUpdateMode.SortUpdated;
+        if (!supportedMode
+            || treeViewFilterTypeSelected != viewUpdateMode.FolderFilterSelected
+            || FolderFilter != null
+            || !string.IsNullOrWhiteSpace(KeywordFilter)
+            || ModeFilter != ModeFilterType.All)
         {
             return false;
         }
-        string columnName = sortParameters.ColumnsName;
-        return string.IsNullOrWhiteSpace(columnName)
-            || string.Equals(columnName, nameof(LibraryChartRow.Title), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(BeMusicSeeker.Models.BMSFile.Title), StringComparison.Ordinal);
+        if (sortParameters == null)
+        {
+            normalizedSortColumn = nameof(LibraryChartRow.Title);
+            return true;
+        }
+        if (!ChartListOrder.TryNormalizeVirtualSortColumn(sortParameters.ColumnsName, out normalizedSortColumn))
+        {
+            return false;
+        }
+        sortDirection = sortParameters.Direction;
+        return true;
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)

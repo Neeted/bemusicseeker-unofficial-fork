@@ -9,27 +9,35 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class ChartListSourceRow
 {
+    private readonly string bmsonTitle;
+
+    private readonly string bmsonFolder;
+
+    private readonly string bmsonPath;
+
+    private readonly int? bmsonMode;
+
     private ChartListSourceRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong)
     {
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
-        Title = bmsFile?.Title ?? BmsonSongParser.ComposeDisplayTitle(bmsonSong);
-        Folder = bmsFile?.Folder ?? BmsonSongParser.ComposeDisplayFolder(bmsonSong);
-        Path = bmsFile?.path ?? bmsonSong?.path ?? string.Empty;
-        Mode = bmsFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(bmsonSong?.mode_hint);
+        bmsonTitle = BmsonSongParser.ComposeDisplayTitle(bmsonSong);
+        bmsonFolder = BmsonSongParser.ComposeDisplayFolder(bmsonSong);
+        bmsonPath = bmsonSong?.path ?? string.Empty;
+        bmsonMode = BmsonSongParser.ResolvePlaylistMode(bmsonSong?.mode_hint);
     }
 
     internal BMSFile BmsFile { get; }
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; }
 
-    internal string Title { get; }
+    internal string Title => BmsFile?.Title ?? bmsonTitle;
 
-    internal string Folder { get; }
+    internal string Folder => BmsFile?.Folder ?? bmsonFolder;
 
-    internal string Path { get; }
+    internal string Path => BmsFile?.path ?? bmsonPath;
 
-    internal int? Mode { get; }
+    internal int? Mode => BmsFile?.mode ?? bmsonMode;
 
     internal static ChartListSourceRow FromBmsFile(BMSFile file)
     {

@@ -37,7 +37,9 @@
 
 ### メイン一覧の仮想 `IList`
 
-`BMSFilesView` は `List<LibraryChartRow>` だけでなく、`IChartListViewMetadata` を実装した仮想 `IList` になり得る。通常ライブラリの default 表示では、`ChartListSourceRow` と `ChartListOrder` を全件分作り、`CustomTableView` からの `Count` と index access に応じて可視行だけ `LibraryChartRow` を生成する。
+`BMSFilesView` は `List<LibraryChartRow>` だけでなく、`IChartListViewMetadata` を実装した仮想 `IList` になり得る。通常ライブラリの default 表示と、その状態からの `Title` / `path` sort では、`ChartListSourceRow` と `ChartListOrder` を全件分作り、`CustomTableView` からの `Count` と index access に応じて可視行だけ `LibraryChartRow` を生成する。
+
+仮想 `ChartListOrder` は `Title` / `path` の Asc / Desc を保持する。文字列比較は `StringComparer.OrdinalIgnoreCase` で、Desc は Asc の反転ではなく対象 key 降順 + `Title` 昇順の secondary key とする。`Folder`、`Mode`、score、chart info 系列、keyword / folder / mode filter、playlist detail など未対応の表示条件は既存の materialized 経路を使う。
 
 `CustomTableView` は `ItemsSource` を全列挙しない。行数は `IList.Count`、描画・選択・tooltip・右クリックなどは対象 index の indexer だけを使う。summary 表示や旧 view の破棄処理も `IChartListViewMetadata` を優先し、仮想 view を列挙してはいけない。
 
