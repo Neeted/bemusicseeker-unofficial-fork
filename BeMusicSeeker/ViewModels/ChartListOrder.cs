@@ -14,6 +14,7 @@ internal sealed class ChartListOrder
             nameof(LibraryChartRow.Title),
             row => row?.Title ?? string.Empty,
             "virtual_title_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true,
             null,
             nameof(BMSFile.Title)),
@@ -21,6 +22,7 @@ internal sealed class ChartListOrder
             nameof(LibraryChartRow.path),
             row => row?.Path ?? string.Empty,
             "virtual_path_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true,
             null,
             nameof(BMSFile.path)),
@@ -28,6 +30,7 @@ internal sealed class ChartListOrder
             nameof(LibraryChartRow.Folder),
             row => row?.Folder ?? string.Empty,
             "virtual_folder_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true,
             null,
             nameof(BMSFile.Folder)),
@@ -35,32 +38,38 @@ internal sealed class ChartListOrder
             nameof(LibraryChartRow.Artist),
             row => row?.Artist ?? string.Empty,
             "virtual_artist_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.genre),
             row => row?.Genre ?? string.Empty,
             "virtual_genre_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.mode),
             row => row?.Mode,
             "virtual_mode_order",
             typeof(int?).Name,
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.tag),
             row => row?.Tag ?? string.Empty,
             "virtual_tag_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.hash),
             row => row?.Hash ?? string.Empty,
             "virtual_hash_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.sha256),
             row => row?.Sha256 ?? string.Empty,
             "virtual_sha256_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true)
     };
 
@@ -166,12 +175,26 @@ internal sealed class ChartListOrder
                 definition.KeyKind,
                 definition.PropertyTypeName,
                 definition.SortProfile,
-                definition.StringSortKind);
+                definition.StringSortKind,
+                definition.Dependency);
             return true;
         }
 
         metadata = default;
         return false;
+    }
+
+    internal static IReadOnlyList<ChartListOrderColumnMetadata> GetVirtualSortColumnMetadata()
+    {
+        return columnDefinitions
+            .Select(definition => new ChartListOrderColumnMetadata(
+                definition.NormalizedColumnName,
+                definition.KeyKind,
+                definition.PropertyTypeName,
+                definition.SortProfile,
+                definition.StringSortKind,
+                definition.Dependency))
+            .ToArray();
     }
 
     internal static bool TryNormalizeVirtualSortColumn(string columnName, out string normalizedColumnName)
@@ -233,13 +256,15 @@ internal readonly struct ChartListOrderColumnMetadata
         ChartListOrderKeyKind keyKind,
         string propertyTypeName,
         string sortProfile,
-        string stringSortKind)
+        string stringSortKind,
+        MainViewDataDependency dependency)
     {
         NormalizedColumnName = normalizedColumnName ?? string.Empty;
         KeyKind = keyKind;
         PropertyTypeName = propertyTypeName ?? string.Empty;
         SortProfile = sortProfile ?? string.Empty;
         StringSortKind = stringSortKind ?? string.Empty;
+        Dependency = dependency;
     }
 
     internal string NormalizedColumnName { get; }
@@ -251,6 +276,8 @@ internal readonly struct ChartListOrderColumnMetadata
     internal string SortProfile { get; }
 
     internal string StringSortKind { get; }
+
+    internal MainViewDataDependency Dependency { get; }
 }
 
 internal readonly struct ChartListOrderColumnDefinition
@@ -265,6 +292,7 @@ internal readonly struct ChartListOrderColumnDefinition
         string sortProfile,
         string propertyTypeName,
         string stringSortKind,
+        MainViewDataDependency dependency,
         bool prewarmByDefault,
         string[] aliases)
     {
@@ -275,6 +303,7 @@ internal readonly struct ChartListOrderColumnDefinition
         SortProfile = sortProfile ?? string.Empty;
         PropertyTypeName = propertyTypeName ?? string.Empty;
         StringSortKind = stringSortKind ?? string.Empty;
+        Dependency = dependency;
         PrewarmByDefault = prewarmByDefault;
         this.aliases = aliases ?? Array.Empty<string>();
     }
@@ -293,12 +322,15 @@ internal readonly struct ChartListOrderColumnDefinition
 
     internal string StringSortKind { get; }
 
+    internal MainViewDataDependency Dependency { get; }
+
     internal bool PrewarmByDefault { get; }
 
     internal static ChartListOrderColumnDefinition String(
         string normalizedColumnName,
         Func<ChartListSourceRow, string> keySelector,
         string sortProfile,
+        MainViewDataDependency dependency,
         bool prewarmByDefault,
         string propertyTypeName = null,
         params string[] aliases)
@@ -311,6 +343,7 @@ internal readonly struct ChartListOrderColumnDefinition
             sortProfile,
             propertyTypeName ?? nameof(String),
             "ordinal_ignore_case",
+            dependency,
             prewarmByDefault,
             aliases);
     }
@@ -320,6 +353,7 @@ internal readonly struct ChartListOrderColumnDefinition
         Func<ChartListSourceRow, IComparable> keySelector,
         string sortProfile,
         string propertyTypeName,
+        MainViewDataDependency dependency,
         bool prewarmByDefault,
         params string[] aliases)
     {
@@ -331,6 +365,7 @@ internal readonly struct ChartListOrderColumnDefinition
             sortProfile,
             propertyTypeName,
             "typed",
+            dependency,
             prewarmByDefault,
             aliases);
     }

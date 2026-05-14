@@ -8266,17 +8266,11 @@ public class MainWindowViewModel : ViewModel
 
     private static MainViewDataDependency GetMainViewSortColumnDependency(string columnName)
     {
-        if (string.IsNullOrWhiteSpace(columnName)
-            || string.Equals(columnName, nameof(LibraryChartRow.Title), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.Artist), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.genre), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.mode), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.tag), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.hash), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.sha256), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.path), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.instl_dst), StringComparison.Ordinal)
+        if (ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
+        {
+            return metadata.Dependency;
+        }
+        if (string.Equals(columnName, nameof(LibraryChartRow.instl_dst), StringComparison.Ordinal)
             || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationTitle), StringComparison.Ordinal)
             || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationArtist), StringComparison.Ordinal)
             || string.Equals(columnName, nameof(LibraryChartRow.RefTablesSymbols), StringComparison.Ordinal))
@@ -8351,7 +8345,7 @@ public class MainWindowViewModel : ViewModel
         BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
         if (bmsonSyncResult.SortKeyChanged)
         {
-            InvalidateNormalLibrarySortKeys("bmson_sort_key_changed");
+            InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
         }
         if (bmsonSyncResult.MembershipChanged)
         {
@@ -9490,6 +9484,10 @@ public class MainWindowViewModel : ViewModel
 
     private const string NormalLibraryBmsonPathChangedReason = "bmson_path_changed";
 
+    private const string NormalLibraryBmsonSortKeyChangedReason = "bmson_sort_key_changed";
+
+    private const string NormalLibraryChartInfoDigestBackfilledReason = "chart_info_digest_backfilled";
+
     private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
         List<string> reasons = new List<string>(2);
@@ -9507,6 +9505,18 @@ public class MainWindowViewModel : ViewModel
     internal static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasonsForTest(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
         return GetNormalLibraryPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
+    }
+
+    internal static IReadOnlyList<string> GetNormalLibrarySortKeyInvalidationReasonsForTest()
+    {
+        return new[]
+        {
+            NormalLibraryBmsTitleChangedReason,
+            NormalLibraryBmsPathChangedReason,
+            NormalLibraryBmsonPathChangedReason,
+            NormalLibraryBmsonSortKeyChangedReason,
+            NormalLibraryChartInfoDigestBackfilledReason
+        };
     }
 
     private void InvalidateNormalLibrarySortKeysAfterPathMutation(bool hasBmsPathMutation, bool hasBmsonPathMutation)
@@ -12447,7 +12457,7 @@ public class MainWindowViewModel : ViewModel
             BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (syncResult.SortKeyChanged)
             {
-                InvalidateNormalLibrarySortKeys("bmson_sort_key_changed");
+                InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
             }
             RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -12600,7 +12610,7 @@ public class MainWindowViewModel : ViewModel
             TryCompleteStartupProgressChartInfoBackfill(files.ChartInfoBackfillCompletedVersion);
             if ((files?.ChartInfoBackfillDigestBackfilledCount ?? 0) > 0)
             {
-                InvalidateNormalLibrarySortKeys("chart_info_digest_backfilled");
+                InvalidateNormalLibrarySortKeys(NormalLibraryChartInfoDigestBackfilledReason);
             }
             RefreshChartInfoDependentViews();
         });
@@ -14332,7 +14342,7 @@ public class MainWindowViewModel : ViewModel
             BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (bmsonSyncResult.SortKeyChanged)
             {
-                InvalidateNormalLibrarySortKeys("bmson_sort_key_changed");
+                InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
             }
             if (bmsonSyncResult.MembershipChanged)
             {
@@ -15121,6 +15131,11 @@ public class MainWindowViewModel : ViewModel
         return previousSortKeys.HasChanged(row);
     }
 
+    internal static IReadOnlyList<string> GetBmsonLibrarySortKeySnapshotColumnNamesForTest()
+    {
+        return BmsonLibrarySortKeySnapshot.ColumnNames;
+    }
+
     internal static bool IsNormalLibraryVirtualSortKeyPropertyForTest(string propertyName)
     {
         return ChartListOrder.TryNormalizeVirtualSortColumn(propertyName, out _);
@@ -15128,6 +15143,19 @@ public class MainWindowViewModel : ViewModel
 
     private readonly struct BmsonLibrarySortKeySnapshot
     {
+        internal static readonly IReadOnlyList<string> ColumnNames = new[]
+        {
+            nameof(LibraryChartRow.Title),
+            nameof(LibraryChartRow.Artist),
+            nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.Folder),
+            nameof(LibraryChartRow.path),
+            nameof(LibraryChartRow.tag),
+            nameof(LibraryChartRow.hash),
+            nameof(LibraryChartRow.sha256)
+        };
+
         private readonly string title;
 
         private readonly string artist;

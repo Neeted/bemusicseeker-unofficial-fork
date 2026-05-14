@@ -260,6 +260,22 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void VirtualSortRegistryMetadata_DescribesDefaultIdentityColumns()
+    {
+        ChartListOrderColumnMetadata[] metadata = ChartListOrder.GetVirtualSortColumnMetadata().ToArray();
+
+        CollectionAssert.AreEqual(
+            CreateExpectedDefaultPrewarmColumnNames(),
+            metadata.Select(column => column.NormalizedColumnName).ToArray());
+        foreach (ChartListOrderColumnMetadata column in metadata)
+        {
+            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, column.Dependency, column.NormalizedColumnName);
+            Assert.IsTrue(ChartListOrder.TryGetVirtualSortColumnMetadata(column.NormalizedColumnName, out ChartListOrderColumnMetadata resolved));
+            Assert.AreEqual(column.Dependency, resolved.Dependency);
+        }
+    }
+
+    [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization()
     {
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
@@ -293,10 +309,18 @@ public sealed class ChartListVirtualViewTests
     {
         NormalLibrarySortCacheKey current = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
         NormalLibrarySortCacheKey same = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey changedSourceGeneration = new NormalLibrarySortCacheKey(8, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
         NormalLibrarySortCacheKey changedSortKeyGeneration = new NormalLibrarySortCacheKey(7, 12, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey changedColumn = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Artist), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey changedDirection = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Descending, 3);
+        NormalLibrarySortCacheKey changedRowCount = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 4);
 
         Assert.AreEqual(current, same);
+        Assert.AreNotEqual(current, changedSourceGeneration);
         Assert.AreNotEqual(current, changedSortKeyGeneration);
+        Assert.AreNotEqual(current, changedColumn);
+        Assert.AreNotEqual(current, changedDirection);
+        Assert.AreNotEqual(current, changedRowCount);
     }
 
     [TestMethod]
@@ -397,6 +421,10 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void BmsonSortKeyChangeDetection_CoversVirtualRegistryColumns()
     {
+        CollectionAssert.AreEquivalent(
+            ChartListOrder.GetVirtualSortColumnMetadata().Select(column => column.NormalizedColumnName).ToArray(),
+            MainWindowViewModel.GetBmsonLibrarySortKeySnapshotColumnNamesForTest().ToArray());
+
         AssertBmsonSortKeyChange(song => song.title = "ChangedTitle");
         AssertBmsonSortKeyChange(song => song.folder = "changed-folder");
         AssertBmsonSortKeyChange(song => song.path = @"changed-folder\changed.bmson");
@@ -560,7 +588,18 @@ public sealed class ChartListVirtualViewTests
 
     private static VirtualNormalLibrarySortDescriptor[] CreateExpectedDefaultPrewarmDescriptors()
     {
-        string[] columns =
+        return CreateExpectedDefaultPrewarmColumnNames()
+            .SelectMany(column => new[]
+            {
+                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Ascending),
+                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Descending)
+            })
+            .ToArray();
+    }
+
+    private static string[] CreateExpectedDefaultPrewarmColumnNames()
+    {
+        return new[]
         {
             nameof(LibraryChartRow.Title),
             nameof(LibraryChartRow.path),
@@ -572,13 +611,6 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.hash),
             nameof(LibraryChartRow.sha256)
         };
-        return columns
-            .SelectMany(column => new[]
-            {
-                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Ascending),
-                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Descending)
-            })
-            .ToArray();
     }
 
     private static void AssertSourceRowMatchesLibraryChartRow(ChartListSourceRow sourceRow, LibraryChartRow chartRow)

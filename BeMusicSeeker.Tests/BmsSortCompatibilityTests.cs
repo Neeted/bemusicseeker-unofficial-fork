@@ -333,6 +333,10 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.hash)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.sha256)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest("Path"));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.instl_dst)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.RefTablesSymbols)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.rateDouble)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
     }
@@ -358,14 +362,35 @@ public sealed class BmsSortCompatibilityTests
     [TestCategory("SortEngine")]
     public void MainViewSortColumnDependency_ClassifiesMainColumnFamilies()
     {
+        foreach (string columnName in ChartListOrder.GetVirtualSortColumnMetadata().Select(column => column.NormalizedColumnName))
+        {
+            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(columnName), columnName);
+        }
         Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(null));
-        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.Title)));
-        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.Folder)));
-        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.path)));
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.instl_dst)));
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.RefTablesSymbols)));
         Assert.AreEqual(MainViewDataDependency.Score, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.rateDouble)));
         Assert.AreEqual(MainViewDataDependency.Score, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.rankingString)));
         Assert.AreEqual(MainViewDataDependency.ChartInfo, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.ChartTotalSortKey)));
         Assert.AreEqual(MainViewDataDependency.Maintenance, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.WAVHealth)));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibrarySortKeyInvalidationReasons_CoverVirtualOrderCacheInvalidators()
+    {
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "bms_title_changed",
+                "bms_path_changed",
+                "bmson_path_changed",
+                "bmson_sort_key_changed",
+                "chart_info_digest_backfilled"
+            },
+            MainWindowViewModel.GetNormalLibrarySortKeyInvalidationReasonsForTest().ToArray());
     }
 
     [TestMethod]
@@ -388,19 +413,22 @@ public sealed class BmsSortCompatibilityTests
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_SkipsScoreUpdateWhenFullNormalLibrarySortIsUnaffected()
     {
-        MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            folderFilterApplied: false,
-            keywordFilter: string.Empty,
-            modeFilter: MainWindowViewModel.ModeFilterType.All,
-            sortColumnName: nameof(LibraryChartRow.Title),
-            isPlaylistDetailView: false,
-            dependency: MainViewDataDependency.Score,
-            reason: "score_hydration_completed");
+        foreach (string columnName in ChartListOrder.GetVirtualSortColumnMetadata().Select(column => column.NormalizedColumnName))
+        {
+            MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+                MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+                folderFilterApplied: false,
+                keywordFilter: string.Empty,
+                modeFilter: MainWindowViewModel.ModeFilterType.All,
+                sortColumnName: columnName,
+                isPlaylistDetailView: false,
+                dependency: MainViewDataDependency.Score,
+                reason: "score_hydration_completed");
 
-        Assert.AreEqual(MainViewRefreshAction.SkipMainViewRefresh, decision.Action);
-        Assert.AreEqual(MainViewDataDependency.Score, decision.Dependency);
-        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency);
+            Assert.AreEqual(MainViewRefreshAction.SkipMainViewRefresh, decision.Action, columnName);
+            Assert.AreEqual(MainViewDataDependency.Score, decision.Dependency, columnName);
+            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency, columnName);
+        }
     }
 
     [TestMethod]
