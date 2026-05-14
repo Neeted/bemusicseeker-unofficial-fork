@@ -319,6 +319,19 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void VirtualNormalLibraryModeSupport_CoversNormalListRefreshAndFilterUpdates()
+    {
+        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ModeFilterUpdated));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.SortUpdated));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void NormalLibrarySortCacheCandidate_AllowsVirtualRegistryColumns()
     {
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(null));
@@ -333,10 +346,10 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.hash)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.sha256)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest("Path"));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.instl_dst)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.RefTablesSymbols)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.instl_dst)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.RefTablesSymbols)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.rateDouble)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
     }
@@ -354,7 +367,10 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.tag)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.hash)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.sha256)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.instl_dst)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.instl_dst)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.InstallDestinationTitle)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.InstallDestinationArtist)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.RefTablesSymbols)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.rateDouble)));
     }
 
@@ -388,7 +404,9 @@ public sealed class BmsSortCompatibilityTests
                 "bms_path_changed",
                 "bmson_path_changed",
                 "bmson_sort_key_changed",
-                "chart_info_digest_backfilled"
+                "chart_info_digest_backfilled",
+                "install_destination_changed",
+                "ref_tables_changed"
             },
             MainWindowViewModel.GetNormalLibrarySortKeyInvalidationReasonsForTest().ToArray());
     }

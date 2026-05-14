@@ -4460,6 +4460,7 @@ public class MainWindowViewModel : ViewModel
             if (flag)
             {
                 ownerViewModel.files.RefreshReferenceDisplayForTable(bmsTable);
+                ownerViewModel.InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
                 ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_changed", invalidateTableCountCache: true);
             }
             ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);
@@ -8756,6 +8757,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     LogDeferredPlaylistReference("playlist_ref_deferred run version=" + requestVersion + " tableCount=" + list.Count);
                     files.SynchronizeReferenceBMSTables(list, suppressFilePropertyChanged: true);
+                    InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
                     int presentationRequestVersion = requestVersion;
                     DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
                     {
@@ -9488,6 +9490,10 @@ public class MainWindowViewModel : ViewModel
 
     private const string NormalLibraryChartInfoDigestBackfilledReason = "chart_info_digest_backfilled";
 
+    private const string NormalLibraryInstallDestinationChangedReason = "install_destination_changed";
+
+    private const string NormalLibraryReferenceTablesChangedReason = "ref_tables_changed";
+
     private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
         List<string> reasons = new List<string>(2);
@@ -9515,7 +9521,9 @@ public class MainWindowViewModel : ViewModel
             NormalLibraryBmsPathChangedReason,
             NormalLibraryBmsonPathChangedReason,
             NormalLibraryBmsonSortKeyChangedReason,
-            NormalLibraryChartInfoDigestBackfilledReason
+            NormalLibraryChartInfoDigestBackfilledReason,
+            NormalLibraryInstallDestinationChangedReason,
+            NormalLibraryReferenceTablesChangedReason
         };
     }
 
@@ -9631,15 +9639,34 @@ public class MainWindowViewModel : ViewModel
             out bool sourceRowsCacheHit,
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
+        List<ChartListSourceRow> viewSourceRows = sourceRows;
+        string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(FolderFilter, ModeFilter);
+        if (FolderFilter != null)
+        {
+            viewSourceRows = viewSourceRows
+                .Where(row => row != null && FolderFilter(row.CreateFilterFile()))
+                .ToList();
+        }
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        if (ModeFilter != ModeFilterType.All)
+        {
+            HashSet<int?> modeValues = CreateModeFilterValueSet(ModeFilter);
+            viewSourceRows = viewSourceRows
+                .Where(row => row != null && modeValues.Contains(row.Mode))
+                .ToList();
+        }
+        long modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         ChartListOrder order = GetOrCreateVirtualNormalLibraryOrder(
-            sourceRows,
+            viewSourceRows,
             normalizedSortColumn,
             sortDirection,
             sourceRowsSourceGeneration,
             sourceRowsSortKeyGeneration,
+            filterIdentity == "normal_default",
             out bool sortCacheHit,
             out long orderCacheLookupMs,
             out long orderBuildMs);
@@ -9648,9 +9675,9 @@ public class MainWindowViewModel : ViewModel
         MainViewSummaryCacheKey summaryKey = new MainViewSummaryCacheKey(
             sourceRowsSourceGeneration,
             sourceRowsSortKeyGeneration,
-            sourceRows.Count,
+            viewSourceRows.Count,
             includeBmsonRows,
-            "normal_default");
+            filterIdentity);
         bool summaryCacheHit = TryGetMainSummaryFolderCount(summaryKey, out int distinctFolderCount);
         if (!summaryCacheHit)
         {
@@ -9658,7 +9685,7 @@ public class MainWindowViewModel : ViewModel
         }
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListVirtualView nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
+        ChartListVirtualView nextRowsView = new ChartListVirtualView(viewSourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
         long prepareSwapMs = 0L;
         if (!ReferenceEquals(BMSFilesView, nextRowsView))
         {
@@ -9675,7 +9702,7 @@ public class MainWindowViewModel : ViewModel
         long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         if (!summaryCacheHit)
         {
-            ScheduleMainSummaryFolderCount(summaryKey, sourceRows, nextRowsView, mode.ToString());
+            ScheduleMainSummaryFolderCount(summaryKey, viewSourceRows, nextRowsView, mode.ToString());
         }
 
         long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
@@ -9708,7 +9735,7 @@ public class MainWindowViewModel : ViewModel
             + " parameterType=" + parameterType
             + " folderMs=" + folderStageMs
             + " keywordMs=0"
-            + " modeMs=0"
+            + " modeMs=" + modeStageMs
             + " sortMs=" + sortStageMs
             + " sortReuse=" + sortCacheHit
             + " sortProfile=" + order.SortProfile + (sortCacheHit ? "_reuse" : string.Empty)
@@ -9721,14 +9748,14 @@ public class MainWindowViewModel : ViewModel
             + " columnSettingReuse=" + columnSettingReuse
             + " callbackMs=0"
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
-            + " folderCount=" + sourceRows.Count
-            + " keywordCount=" + sourceRows.Count
-            + " modeCount=" + sourceRows.Count
+            + " folderCount=" + (FolderFilter == null ? sourceRows.Count : viewSourceRows.Count)
+            + " keywordCount=" + (FolderFilter == null ? sourceRows.Count : viewSourceRows.Count)
+            + " modeCount=" + viewSourceRows.Count
             + " viewCount=" + nextRowsView.Count
             + " sortColumn=" + sortColumn
             + " sortDirection=" + sortDirectionText
             + " virtual=True"
-            + " sourceRows=" + sourceRows.Count
+            + " sourceRows=" + viewSourceRows.Count
             + " orderedRows=" + order.Count
             + " viewRowsCreated=" + nextRowsView.RealizedRowCount
             + " distinctFolderCount=" + distinctFolderCount
@@ -9792,6 +9819,7 @@ public class MainWindowViewModel : ViewModel
         ListSortDirection direction,
         long sourceGeneration,
         long sortKeyGeneration,
+        bool useCache,
         out bool cacheHit,
         out long orderCacheLookupMs,
         out long orderBuildMs)
@@ -9804,23 +9832,30 @@ public class MainWindowViewModel : ViewModel
         }
 
         NormalLibrarySortCacheKey cacheKey;
-        lock (normalLibrarySortCacheLock)
+        if (useCache)
         {
-            cacheKey = new NormalLibrarySortCacheKey(
-                sourceGeneration,
-                sortKeyGeneration,
-                normalizedColumnName,
-                direction,
-                rowCount);
-            if (virtualNormalLibraryOrderCache.TryGetValue(cacheKey, out ChartListOrder cachedOrder)
-                && cachedOrder != null)
+            lock (normalLibrarySortCacheLock)
             {
-                lookupStopwatch.Stop();
-                cacheHit = true;
-                orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
-                orderBuildMs = 0L;
-                return cachedOrder;
+                cacheKey = new NormalLibrarySortCacheKey(
+                    sourceGeneration,
+                    sortKeyGeneration,
+                    normalizedColumnName,
+                    direction,
+                    rowCount);
+                if (virtualNormalLibraryOrderCache.TryGetValue(cacheKey, out ChartListOrder cachedOrder)
+                    && cachedOrder != null)
+                {
+                    lookupStopwatch.Stop();
+                    cacheHit = true;
+                    orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+                    orderBuildMs = 0L;
+                    return cachedOrder;
+                }
             }
+        }
+        else
+        {
+            cacheKey = default;
         }
         lookupStopwatch.Stop();
         Stopwatch buildStopwatch = Stopwatch.StartNew();
@@ -9829,12 +9864,15 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentException("Unsupported virtual normal library sort column.", nameof(columnName));
         }
         buildStopwatch.Stop();
-        lock (normalLibrarySortCacheLock)
+        if (useCache)
         {
-            if (normalLibrarySourceGeneration == sourceGeneration
-                && normalLibrarySortKeyGeneration == sortKeyGeneration)
+            lock (normalLibrarySortCacheLock)
             {
-                virtualNormalLibraryOrderCache[cacheKey] = order;
+                if (normalLibrarySourceGeneration == sourceGeneration
+                    && normalLibrarySortKeyGeneration == sortKeyGeneration)
+                {
+                    virtualNormalLibraryOrderCache[cacheKey] = order;
+                }
             }
         }
         cacheHit = false;
@@ -9954,6 +9992,7 @@ public class MainWindowViewModel : ViewModel
                     descriptor.Direction,
                     sourceGeneration,
                     sortKeyGeneration,
+                    useCache: true,
                     out bool cacheHit,
                     out _,
                     out _);
@@ -10011,12 +10050,10 @@ public class MainWindowViewModel : ViewModel
     {
         normalizedSortColumn = string.Empty;
         sortDirection = ListSortDirection.Ascending;
-        bool supportedMode = mode == viewUpdateMode.FolderFilterSelected || mode == viewUpdateMode.SortUpdated;
-        if (!supportedMode
+        if (!IsVirtualNormalLibraryModeSupported(mode)
             || treeViewFilterTypeSelected != viewUpdateMode.FolderFilterSelected
-            || FolderFilter != null
             || !string.IsNullOrWhiteSpace(KeywordFilter)
-            || ModeFilter != ModeFilterType.All)
+            || IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
         {
             return false;
         }
@@ -10031,6 +10068,59 @@ public class MainWindowViewModel : ViewModel
         }
         sortDirection = sortParameters.Direction;
         return true;
+    }
+
+    internal static bool IsVirtualNormalLibraryModeSupportedForTest(int mode)
+    {
+        return IsVirtualNormalLibraryModeSupported((viewUpdateMode)mode);
+    }
+
+    private static bool IsVirtualNormalLibraryModeSupported(viewUpdateMode mode)
+    {
+        return mode == viewUpdateMode.TreeViewFilterNotChanged
+            || mode == viewUpdateMode.FolderFilterSelected
+            || mode == viewUpdateMode.KeywordFilterUpdated
+            || mode == viewUpdateMode.ModeFilterUpdated
+            || mode == viewUpdateMode.SortUpdated;
+    }
+
+    private static string CreateVirtualNormalLibraryFilterIdentity(Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter, ModeFilterType modeFilter)
+    {
+        if (folderFilter == null && modeFilter == ModeFilterType.All)
+        {
+            return "normal_default";
+        }
+        string folderIdentity = folderFilter == null
+            ? "none"
+            : RuntimeHelpers.GetHashCode(folderFilter).ToString(CultureInfo.InvariantCulture);
+        return "normal_filter:folder=" + folderIdentity
+            + ";mode=" + ((int)modeFilter).ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)
+    {
+        HashSet<int?> modeValues = new HashSet<int?> { null };
+        if ((modeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
+        {
+            modeValues.Add(5);
+        }
+        if ((modeFilter & ModeFilterType._7KEYS) == ModeFilterType._7KEYS)
+        {
+            modeValues.Add(7);
+        }
+        if ((modeFilter & ModeFilterType._9KEYS) == ModeFilterType._9KEYS)
+        {
+            modeValues.Add(9);
+        }
+        if ((modeFilter & ModeFilterType._10KEYS) == ModeFilterType._10KEYS)
+        {
+            modeValues.Add(10);
+        }
+        if ((modeFilter & ModeFilterType._14KEYS) == ModeFilterType._14KEYS)
+        {
+            modeValues.Add(14);
+        }
+        return modeValues;
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)
@@ -15153,7 +15243,11 @@ public class MainWindowViewModel : ViewModel
             nameof(LibraryChartRow.path),
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256)
+            nameof(LibraryChartRow.sha256),
+            nameof(LibraryChartRow.instl_dst),
+            nameof(LibraryChartRow.InstallDestinationTitle),
+            nameof(LibraryChartRow.InstallDestinationArtist),
+            nameof(LibraryChartRow.RefTablesSymbols)
         };
 
         private readonly string title;
@@ -15174,6 +15268,14 @@ public class MainWindowViewModel : ViewModel
 
         private readonly string sha256;
 
+        private readonly string installDestination;
+
+        private readonly string installDestinationTitle;
+
+        private readonly string installDestinationArtist;
+
+        private readonly string refTablesSymbols;
+
         private BmsonLibrarySortKeySnapshot(LibraryChartRow row)
         {
             title = row?.Title ?? string.Empty;
@@ -15185,6 +15287,10 @@ public class MainWindowViewModel : ViewModel
             tag = row?.tag ?? string.Empty;
             hash = row?.hash ?? string.Empty;
             sha256 = row?.sha256 ?? string.Empty;
+            installDestination = row?.instl_dst ?? string.Empty;
+            installDestinationTitle = row?.InstallDestinationTitle ?? string.Empty;
+            installDestinationArtist = row?.InstallDestinationArtist ?? string.Empty;
+            refTablesSymbols = row?.RefTablesSymbols ?? string.Empty;
         }
 
         internal static BmsonLibrarySortKeySnapshot Capture(LibraryChartRow row)
@@ -15202,7 +15308,11 @@ public class MainWindowViewModel : ViewModel
                 || !string.Equals(path, row?.path ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(tag, row?.tag ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(hash, row?.hash ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(sha256, row?.sha256 ?? string.Empty, StringComparison.Ordinal);
+                || !string.Equals(sha256, row?.sha256 ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(installDestination, row?.instl_dst ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(installDestinationTitle, row?.InstallDestinationTitle ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(installDestinationArtist, row?.InstallDestinationArtist ?? string.Empty, StringComparison.Ordinal)
+                || !string.Equals(refTablesSymbols, row?.RefTablesSymbols ?? string.Empty, StringComparison.Ordinal);
         }
     }
 
@@ -15750,6 +15860,7 @@ public class MainWindowViewModel : ViewModel
         {
             files.SearchEstimatedInstallationDirectory(packages);
         }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
     public void SearchMergeDestinationBMSFiles(IEnumerable<BMSPackage> packages)
@@ -15766,6 +15877,7 @@ public class MainWindowViewModel : ViewModel
                 files.SearchMergeDestination(list[num]);
             }
         }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
     /// <summary>
@@ -15788,6 +15900,7 @@ public class MainWindowViewModel : ViewModel
         {
             files.SearchEstimatedInstallationDirectory(chartFiles);
         }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
     public void SearchMergeDestinationBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -15805,6 +15918,7 @@ public class MainWindowViewModel : ViewModel
                 files.SearchMergeDestination(bmsFiles2);
             }
         }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
     /// <summary>
@@ -16009,6 +16123,7 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 files.AddReferenceBMSTables(BMSTables, list.SelectMany((BMSPackage p) => p.BMSFiles));
+                InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
             }
             finally
             {
@@ -18612,6 +18727,7 @@ public class MainWindowViewModel : ViewModel
             {
                 files.RemoveInstallDestination(list[num].BMSFiles);
             }
+            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }
 
@@ -18640,6 +18756,7 @@ public class MainWindowViewModel : ViewModel
                 files.RemoveInstallDestination(bMSPackages[num].BMSFiles);
             }
             files.RemoveInstallDestination(bmsFiles2);
+            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }
 
@@ -18655,7 +18772,12 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            return files.SetPendingInstallDestination(bmsFile, destinationDirectory);
+            bool changed = files.SetPendingInstallDestination(bmsFile, destinationDirectory);
+            if (changed)
+            {
+                InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            }
+            return changed;
         }
     }
 
@@ -18789,6 +18911,7 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 files.AddReferenceBMSTables(table);
+                InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
             }
             finally
             {
@@ -19125,6 +19248,7 @@ public class MainWindowViewModel : ViewModel
         tables.AcquireReaderLockBMSTables();
         files.AddReferenceBMSTables(bmsTable, resolvedFiles);
         tables.FreeReaderLockBMSTables();
+        InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
     internal void DeleteBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable)
@@ -19139,6 +19263,7 @@ public class MainWindowViewModel : ViewModel
         tables.AcquireReaderLockBMSTables();
         files.RemoveReferenceBMSTables(bmsTable, bmsEntries);
         tables.FreeReaderLockBMSTables();
+        InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
     private void updateBMSFilesViewForPlaylist(BMSTable bmsTableUpdated)
@@ -19182,6 +19307,7 @@ public class MainWindowViewModel : ViewModel
             lr2config.Save();
         }
         files.RemoveReferenceBMSTables(bmsTable);
+        InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
     internal BMSTable CreateBMSTable()

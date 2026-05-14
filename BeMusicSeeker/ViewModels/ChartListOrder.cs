@@ -70,6 +70,32 @@ internal sealed class ChartListOrder
             row => row?.Sha256 ?? string.Empty,
             "virtual_sha256_order",
             MainViewDataDependency.IdentitySortKey,
+            prewarmByDefault: true),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.instl_dst),
+            row => row?.InstallDestination ?? string.Empty,
+            "virtual_instl_dst_order",
+            MainViewDataDependency.IdentitySortKey,
+            prewarmByDefault: false,
+            null,
+            nameof(BMSFile.instl_dst)),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.InstallDestinationTitle),
+            row => row?.InstallDestinationTitle ?? string.Empty,
+            "virtual_install_destination_title_order",
+            MainViewDataDependency.IdentitySortKey,
+            prewarmByDefault: false),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.InstallDestinationArtist),
+            row => row?.InstallDestinationArtist ?? string.Empty,
+            "virtual_install_destination_artist_order",
+            MainViewDataDependency.IdentitySortKey,
+            prewarmByDefault: false),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.RefTablesSymbols),
+            row => row?.RefTablesSymbols ?? string.Empty,
+            "virtual_ref_tables_symbols_order",
+            MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true)
     };
 

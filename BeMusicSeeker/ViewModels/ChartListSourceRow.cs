@@ -49,6 +49,19 @@ internal sealed class ChartListSourceRow
 
     internal string Sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? string.Empty;
 
+    internal string InstallDestination => BmsFile?.instl_dst ?? string.Empty;
+
+    internal string InstallDestinationTitle => BmsFile?.InstallDestinationTitle ?? string.Empty;
+
+    internal string InstallDestinationArtist => BmsFile?.InstallDestinationArtist ?? string.Empty;
+
+    internal string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? string.Empty;
+
+    internal BMSFile CreateFilterFile()
+    {
+        return BmsFile ?? PendingChartEntry.CreateFromBmsonSong(BmsonSong);
+    }
+
     internal static ChartListSourceRow FromBmsFile(BMSFile file)
     {
         return file == null ? null : new ChartListSourceRow(file, null);

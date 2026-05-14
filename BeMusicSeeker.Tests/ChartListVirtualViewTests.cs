@@ -177,7 +177,11 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.mode),
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256)
+            nameof(LibraryChartRow.sha256),
+            nameof(LibraryChartRow.instl_dst),
+            nameof(LibraryChartRow.InstallDestinationTitle),
+            nameof(LibraryChartRow.InstallDestinationArtist),
+            nameof(LibraryChartRow.RefTablesSymbols)
         };
 
         foreach (string column in columns)
@@ -265,7 +269,7 @@ public sealed class ChartListVirtualViewTests
         ChartListOrderColumnMetadata[] metadata = ChartListOrder.GetVirtualSortColumnMetadata().ToArray();
 
         CollectionAssert.AreEqual(
-            CreateExpectedDefaultPrewarmColumnNames(),
+            CreateExpectedVirtualSortColumnNames(),
             metadata.Select(column => column.NormalizedColumnName).ToArray());
         foreach (ChartListOrderColumnMetadata column in metadata)
         {
@@ -375,6 +379,10 @@ public sealed class ChartListVirtualViewTests
             tagText: "Tag",
             md5: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256Text: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
+        file.instl_dst = "Destination";
+        file.InstallDestinationTitle = "Destination Title";
+        file.InstallDestinationArtist = "Destination Artist";
+        file.AddRefTable(new BMSTable { symbol = "REF", name = "Reference Table" });
 
         Assert.AreEqual("New", sourceRows[0].Title);
         Assert.AreEqual("Artist", sourceRows[0].Artist);
@@ -385,6 +393,10 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("Tag", sourceRows[0].Tag);
         Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sourceRows[0].Hash);
         Assert.AreEqual("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", sourceRows[0].Sha256);
+        Assert.AreEqual("Destination", sourceRows[0].InstallDestination);
+        Assert.AreEqual("Destination Title", sourceRows[0].InstallDestinationTitle);
+        Assert.AreEqual("Destination Artist", sourceRows[0].InstallDestinationArtist);
+        Assert.AreEqual("REF", sourceRows[0].RefTablesSymbols);
     }
 
     [TestMethod]
@@ -400,6 +412,10 @@ public sealed class ChartListVirtualViewTests
             tag: "BmsTag",
             hash: "11111111111111111111111111111111",
             sha256: "1111111111111111111111111111111111111111111111111111111111111111");
+        file.instl_dst = "Installed";
+        file.InstallDestinationTitle = "Installed Title";
+        file.InstallDestinationArtist = "Installed Artist";
+        file.AddRefTable(new BMSTable { symbol = "BMS", name = "BMS Table" });
         LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
         {
             path = @"folder-b\bmson.bmson",
@@ -517,7 +533,11 @@ public sealed class ChartListVirtualViewTests
                 mode: 14,
                 tag: "TagC",
                 hash: "cccccccccccccccccccccccccccccccc",
-                sha256: "3333333333333333333333333333333333333333333333333333333333333333"),
+                sha256: "3333333333333333333333333333333333333333333333333333333333333333",
+                installDestination: "InstallC",
+                installDestinationTitle: "InstallTitleC",
+                installDestinationArtist: "InstallArtistC",
+                refTableSymbol: "C"),
             CreateFile(
                 @"folder-a\a_item2.bms",
                 "item2",
@@ -527,7 +547,11 @@ public sealed class ChartListVirtualViewTests
                 mode: 5,
                 tag: "TagB",
                 hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                sha256: "1111111111111111111111111111111111111111111111111111111111111111"),
+                sha256: "1111111111111111111111111111111111111111111111111111111111111111",
+                installDestination: "InstallA",
+                installDestinationTitle: "InstallTitleA",
+                installDestinationArtist: "InstallArtistA",
+                refTableSymbol: "A"),
             CreateFile(
                 @"folder-b\m_alpha.bms",
                 "Alpha",
@@ -537,7 +561,11 @@ public sealed class ChartListVirtualViewTests
                 mode: null,
                 tag: "TagA",
                 hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            sha256: "2222222222222222222222222222222222222222222222222222222222222222")
+                sha256: "2222222222222222222222222222222222222222222222222222222222222222",
+                installDestination: "InstallB",
+                installDestinationTitle: "InstallTitleB",
+                installDestinationArtist: "InstallArtistB",
+                refTableSymbol: "B")
         };
     }
 
@@ -579,10 +607,21 @@ public sealed class ChartListVirtualViewTests
         int? mode = null,
         string tag = "",
         string hash = "0123456789abcdef0123456789abcdef",
-        string sha256 = "")
+        string sha256 = "",
+        string installDestination = "",
+        string installDestinationTitle = "",
+        string installDestinationArtist = "",
+        string refTableSymbol = "")
     {
         TestableBmsFile file = new TestableBmsFile();
         file.Apply(path, title, folder, artist, genre, mode, tag, hash, sha256);
+        file.instl_dst = installDestination;
+        file.InstallDestinationTitle = installDestinationTitle;
+        file.InstallDestinationArtist = installDestinationArtist;
+        if (!string.IsNullOrEmpty(refTableSymbol))
+        {
+            file.AddRefTable(new BMSTable { symbol = refTableSymbol, name = refTableSymbol });
+        }
         return file;
     }
 
@@ -609,7 +648,28 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.mode),
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256)
+            nameof(LibraryChartRow.sha256),
+            nameof(LibraryChartRow.RefTablesSymbols)
+        };
+    }
+
+    private static string[] CreateExpectedVirtualSortColumnNames()
+    {
+        return new[]
+        {
+            nameof(LibraryChartRow.Title),
+            nameof(LibraryChartRow.path),
+            nameof(LibraryChartRow.Folder),
+            nameof(LibraryChartRow.Artist),
+            nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.tag),
+            nameof(LibraryChartRow.hash),
+            nameof(LibraryChartRow.sha256),
+            nameof(LibraryChartRow.instl_dst),
+            nameof(LibraryChartRow.InstallDestinationTitle),
+            nameof(LibraryChartRow.InstallDestinationArtist),
+            nameof(LibraryChartRow.RefTablesSymbols)
         };
     }
 
@@ -624,6 +684,10 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(chartRow.tag, sourceRow.Tag);
         Assert.AreEqual(chartRow.hash, sourceRow.Hash);
         Assert.AreEqual(chartRow.sha256, sourceRow.Sha256);
+        Assert.AreEqual(chartRow.instl_dst, sourceRow.InstallDestination);
+        Assert.AreEqual(chartRow.InstallDestinationTitle, sourceRow.InstallDestinationTitle);
+        Assert.AreEqual(chartRow.InstallDestinationArtist, sourceRow.InstallDestinationArtist);
+        Assert.AreEqual(chartRow.RefTablesSymbols, sourceRow.RefTablesSymbols);
     }
 
     private static void AssertBmsonSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
