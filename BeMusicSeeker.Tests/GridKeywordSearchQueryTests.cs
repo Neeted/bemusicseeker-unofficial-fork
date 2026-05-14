@@ -66,6 +66,63 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesChartListSourceRow_UsesSafeIdentityFieldsWithoutLibraryChartRow()
+    {
+        TestableBmsFile file = CreateFile();
+        file.AddRefTables(new[]
+        {
+            CreateTable("Satellite sl", "★"),
+            CreateTable("GENOSIDE", "▽")
+        });
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsFile(file);
+
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
+
+        Assert.IsTrue(query.CanMatchChartListSourceRow());
+        Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
+        Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)), query.MatchesChartListSourceRow(sourceRow));
+    }
+
+    [TestMethod]
+    public void MatchesChartListSourceRow_UsesBmsonFallbackValues()
+    {
+        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\Bmson\chart.bmson",
+            folder = "BmsonFolder",
+            title = "BmsonTitle",
+            subtitle = "Sub",
+            artist = "BmsonArtist",
+            genre = "BmsonGenre",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        };
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsonSong(song);
+
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("title:BmsonTitle artist:BmsonArtist genre:BmsonGenre path:bmson md5:bbbb sha256:cccc");
+
+        Assert.IsTrue(query.CanMatchChartListSourceRow());
+        Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
+        Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsonSong(song)), query.MatchesChartListSourceRow(sourceRow));
+    }
+
+    [TestMethod]
+    public void MatchesChartListSourceRow_ScoreAndChartInfoFieldsMatchLibraryChartRow()
+    {
+        TestableBmsFile file = CreateFile();
+        file.SetChartInfo(CreateChartInfo());
+        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsFile(file);
+        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(file);
+
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000 clear:HC rank:AA score:>=1800 bp:<10");
+
+        Assert.IsTrue(query.CanMatchChartListSourceRow());
+        Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
+        Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
+    }
+
+    [TestMethod]
     public void MatchesBmsFile_UnknownOrEmptyFieldQueryDoesNotMatch()
     {
         TestableBmsFile file = CreateFile();

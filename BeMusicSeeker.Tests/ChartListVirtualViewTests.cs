@@ -397,6 +397,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("Destination Title", sourceRows[0].InstallDestinationTitle);
         Assert.AreEqual("Destination Artist", sourceRows[0].InstallDestinationArtist);
         Assert.AreEqual("REF", sourceRows[0].RefTablesSymbols);
+        Assert.AreEqual("Reference Table", sourceRows[0].RefTablesNames);
     }
 
     [TestMethod]

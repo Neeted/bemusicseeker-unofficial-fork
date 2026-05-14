@@ -9640,14 +9640,39 @@ public class MainWindowViewModel : ViewModel
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
         List<ChartListSourceRow> viewSourceRows = sourceRows;
-        string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(FolderFilter, ModeFilter);
+        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
+        if (keywordQuery.HasTokens && !keywordQuery.CanMatchChartListSourceRow())
+        {
+            LogMainViewBuild("main_view_virtual_fallback reason=keyword_requires_materialized mode=" + mode
+                + " requestedMode=" + requestedMode
+                + " keywordLength=" + (KeywordFilter?.Length ?? 0));
+            return false;
+        }
+        string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
+            FolderFilter,
+            KeywordFilter,
+            ModeFilter,
+            files?.ScoreSnapshotVersion ?? 0,
+            files?.ChartInfoIndexVersion ?? 0);
         if (FolderFilter != null)
         {
             viewSourceRows = viewSourceRows
                 .Where(row => row != null && FolderFilter(row.CreateFilterFile()))
                 .ToList();
         }
+        int folderFilteredCount = viewSourceRows.Count;
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        if (keywordQuery.HasTokens)
+        {
+            viewSourceRows = viewSourceRows
+                .AsParallel()
+                .Where(row => keywordQuery.MatchesChartListSourceRow(row))
+                .ToList();
+        }
+        int keywordFilteredCount = viewSourceRows.Count;
+        long keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (ModeFilter != ModeFilterType.All)
@@ -9734,7 +9759,7 @@ public class MainWindowViewModel : ViewModel
             + " requestedMode=" + requestedMode
             + " parameterType=" + parameterType
             + " folderMs=" + folderStageMs
-            + " keywordMs=0"
+            + " keywordMs=" + keywordStageMs
             + " modeMs=" + modeStageMs
             + " sortMs=" + sortStageMs
             + " sortReuse=" + sortCacheHit
@@ -9748,8 +9773,8 @@ public class MainWindowViewModel : ViewModel
             + " columnSettingReuse=" + columnSettingReuse
             + " callbackMs=0"
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
-            + " folderCount=" + (FolderFilter == null ? sourceRows.Count : viewSourceRows.Count)
-            + " keywordCount=" + (FolderFilter == null ? sourceRows.Count : viewSourceRows.Count)
+            + " folderCount=" + folderFilteredCount
+            + " keywordCount=" + keywordFilteredCount
             + " modeCount=" + viewSourceRows.Count
             + " viewCount=" + nextRowsView.Count
             + " sortColumn=" + sortColumn
@@ -10052,7 +10077,6 @@ public class MainWindowViewModel : ViewModel
         sortDirection = ListSortDirection.Ascending;
         if (!IsVirtualNormalLibraryModeSupported(mode)
             || treeViewFilterTypeSelected != viewUpdateMode.FolderFilterSelected
-            || !string.IsNullOrWhiteSpace(KeywordFilter)
             || IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
         {
             return false;
@@ -10084,16 +10108,25 @@ public class MainWindowViewModel : ViewModel
             || mode == viewUpdateMode.SortUpdated;
     }
 
-    private static string CreateVirtualNormalLibraryFilterIdentity(Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter, ModeFilterType modeFilter)
+    private static string CreateVirtualNormalLibraryFilterIdentity(Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)
     {
-        if (folderFilter == null && modeFilter == ModeFilterType.All)
+        if (folderFilter == null && string.IsNullOrWhiteSpace(keywordFilter) && modeFilter == ModeFilterType.All)
         {
             return "normal_default";
         }
+        string normalizedKeywordFilter = keywordFilter ?? string.Empty;
+        bool hasKeywordFilter = !string.IsNullOrWhiteSpace(normalizedKeywordFilter);
         string folderIdentity = folderFilter == null
             ? "none"
             : RuntimeHelpers.GetHashCode(folderFilter).ToString(CultureInfo.InvariantCulture);
-        return "normal_filter:folder=" + folderIdentity
+        string identity = "normal_filter:folder=" + folderIdentity
+            + ";keyword=" + StringComparer.Ordinal.GetHashCode(normalizedKeywordFilter).ToString(CultureInfo.InvariantCulture);
+        if (hasKeywordFilter)
+        {
+            identity += ";score=" + scoreSnapshotVersion.ToString(CultureInfo.InvariantCulture)
+                + ";chart=" + chartInfoIndexVersion.ToString(CultureInfo.InvariantCulture);
+        }
+        return identity
             + ";mode=" + ((int)modeFilter).ToString(CultureInfo.InvariantCulture);
     }
 

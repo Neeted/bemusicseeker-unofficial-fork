@@ -57,6 +57,22 @@ internal sealed class ChartListSourceRow
 
     internal string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? string.Empty;
 
+    internal string RefTablesNames => BmsFile?.RefTablesNames ?? string.Empty;
+
+    internal ClearType Clear => BmsFile?.clear ?? (string.IsNullOrWhiteSpace(Path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
+
+    internal RankType Rank => BmsFile?.rank ?? RankType.INVALID;
+
+    internal double? RateDouble => BmsFile?.rateDouble;
+
+    internal int? Score => BmsFile?.score;
+
+    internal int? MaxCombo => BmsFile?.maxcombo;
+
+    internal int? MinBp => BmsFile?.minbp;
+
+    internal LR2SongDBExtended.chart_info ChartInfo => BmsFile?.ChartInfo ?? BmsonSong?.ChartInfo;
+
     internal BMSFile CreateFilterFile()
     {
         return BmsFile ?? PendingChartEntry.CreateFromBmsonSong(BmsonSong);

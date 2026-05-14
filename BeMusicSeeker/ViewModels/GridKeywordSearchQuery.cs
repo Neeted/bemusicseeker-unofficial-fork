@@ -177,6 +177,31 @@ internal sealed class GridKeywordSearchQuery
         return true;
     }
 
+    internal bool CanMatchChartListSourceRow()
+    {
+        return true;
+    }
+
+    internal bool MatchesChartListSourceRow(ChartListSourceRow row)
+    {
+        if (!HasTokens)
+        {
+            return true;
+        }
+        if (row == null || !CanMatchChartListSourceRow())
+        {
+            return false;
+        }
+        foreach (SearchCondition condition in conditions)
+        {
+            if (!MatchesCondition(condition, row))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     internal bool MatchesPlaylistDetail(PlaylistDetailSourceRow row)
     {
         if (!HasTokens)
@@ -525,6 +550,20 @@ internal sealed class GridKeywordSearchQuery
         return condition.IsNegated ? !matched : matched;
     }
 
+    private static bool MatchesCondition(SearchCondition condition, ChartListSourceRow row)
+    {
+        if (condition.IsInvalid || !IsKnownBmsFileField(condition.Field))
+        {
+            return false;
+        }
+        bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
+            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
+            : IsScoreField(condition.Field) && !condition.IsRegex
+                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, row.Clear, row.Rank, row.RateDouble, row.Score, row.MaxCombo, row.MinBp))
+                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetChartListSourceRowValues(row, condition.Field)));
+        return condition.IsNegated ? !matched : matched;
+    }
+
     private static bool MatchesCondition(SearchCondition condition, PlaylistDetailSourceRow row)
     {
         if (condition.IsInvalid || !IsKnownPlaylistDetailField(condition.Field))
@@ -759,6 +798,53 @@ internal sealed class GridKeywordSearchQuery
                 {
                     yield return value;
                 }
+                break;
+        }
+    }
+
+    private static IEnumerable<string> GetChartListSourceRowValues(ChartListSourceRow row, string field)
+    {
+        switch (field)
+        {
+            case null:
+                yield return row.Title;
+                yield return row.Genre;
+                yield return row.Artist;
+                yield return row.Tag;
+                yield return row.Path;
+                yield return row.RefTablesSymbols;
+                yield return row.Hash;
+                yield return row.Sha256;
+                break;
+            case "title":
+                yield return row.Title;
+                break;
+            case "artist":
+                yield return row.Artist;
+                break;
+            case "genre":
+                yield return row.Genre;
+                break;
+            case "tag":
+                yield return row.Tag;
+                break;
+            case "path":
+                yield return row.Path;
+                break;
+            case "playlist":
+            case "ref":
+            case "table":
+                foreach (string name in SplitPlaylistReferenceNames(row.RefTablesNames))
+                {
+                    yield return name;
+                }
+                break;
+            case "md5":
+            case "hash":
+                yield return row.Hash;
+                break;
+            case "sha256":
+                yield return row.Sha256;
                 break;
         }
     }
