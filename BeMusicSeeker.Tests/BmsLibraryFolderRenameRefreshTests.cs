@@ -38,6 +38,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 int bmsFilesChangedCount = 0;
                 int folderChangedCount = 0;
+                int pathChangedCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
@@ -53,13 +54,19 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     {
                         Interlocked.Increment(ref folderChangedCount);
                     }
+                    if (e.PropertyName == nameof(BMSFile.path))
+                    {
+                        Interlocked.Increment(ref pathChangedCount);
+                    }
                 };
 
                 library.RenameBMSFolder(sourceDirectoryPath, "Renamed");
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref folderChangedCount) > 0));
+                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref pathChangedCount) > 0));
                 Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
                 Assert.IsTrue(Volatile.Read(ref folderChangedCount) > 0);
+                Assert.IsTrue(Volatile.Read(ref pathChangedCount) > 0);
                 Assert.AreEqual("Renamed", file.Folder);
                 Assert.IsTrue(file.path.Contains(Path.Combine("Renamed", "chart.bms")));
             }

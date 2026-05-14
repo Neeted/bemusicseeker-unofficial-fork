@@ -16,17 +16,14 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
     internal ChartListVirtualView(
         IReadOnlyList<ChartListSourceRow> sourceRows,
         ChartListOrder order,
-        Func<ChartListSourceRow, LibraryChartRow> rowFactory)
+        Func<ChartListSourceRow, LibraryChartRow> rowFactory,
+        int distinctFolderCount = -1)
     {
         this.sourceRows = sourceRows ?? Array.Empty<ChartListSourceRow>();
         orderedIndexes = order?.Indexes ?? Array.Empty<int>();
         this.rowFactory = rowFactory ?? throw new ArgumentNullException(nameof(rowFactory));
         realizedRows = new LibraryChartRow[orderedIndexes.Length];
-        distinctFolderCount = this.sourceRows
-            .Select(row => row?.Folder)
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
+        this.distinctFolderCount = distinctFolderCount;
     }
 
     public int Count => orderedIndexes.Length;

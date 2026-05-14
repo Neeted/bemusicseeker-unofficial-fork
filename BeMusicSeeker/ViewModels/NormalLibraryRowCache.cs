@@ -48,7 +48,10 @@ internal sealed class NormalLibraryRowCache
             return null;
         }
         rowsByFile[file] = row;
-        PropertyChangedEventManager.AddHandler(file, OnSourcePropertyChanged, string.Empty);
+        if (sortKeyChanged != null)
+        {
+            PropertyChangedEventManager.AddHandler(file, OnSourcePropertyChanged, string.Empty);
+        }
         if (stats != null)
         {
             stats.MissCount++;
@@ -64,7 +67,10 @@ internal sealed class NormalLibraryRowCache
         List<BMSFile> removed = rowsByFile.Keys.Where((BMSFile file) => !current.Contains(file)).ToList();
         foreach (BMSFile file in removed)
         {
-            PropertyChangedEventManager.RemoveHandler(file, OnSourcePropertyChanged, string.Empty);
+            if (sortKeyChanged != null)
+            {
+                PropertyChangedEventManager.RemoveHandler(file, OnSourcePropertyChanged, string.Empty);
+            }
             rowsByFile.Remove(file);
         }
         return removed.Count;
@@ -74,7 +80,10 @@ internal sealed class NormalLibraryRowCache
     {
         foreach (BMSFile file in rowsByFile.Keys.ToList())
         {
-            PropertyChangedEventManager.RemoveHandler(file, OnSourcePropertyChanged, string.Empty);
+            if (sortKeyChanged != null)
+            {
+                PropertyChangedEventManager.RemoveHandler(file, OnSourcePropertyChanged, string.Empty);
+            }
         }
         rowsByFile.Clear();
     }

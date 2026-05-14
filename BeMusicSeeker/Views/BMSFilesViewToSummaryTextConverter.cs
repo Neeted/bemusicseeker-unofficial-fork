@@ -16,26 +16,26 @@ internal class BMSFilesViewToSummaryTextConverter : IValueConverter
 	{
 		if (value is IChartListViewMetadata metadata)
 		{
-			string text = "[" + metadata.RowCount + Resources.Num_songs;
-			if (metadata.DistinctFolderCount > 1)
-			{
-				return text + " / " + metadata.DistinctFolderCount + Resources.Num_folders + "]";
-			}
-			return text + "]";
+			return FormatSummaryText(metadata.RowCount, metadata.DistinctFolderCount);
 		}
 		if (value is IEnumerable rows)
 		{
 			List<object> rowList = rows.Cast<object>().Where((object row) => row != null).ToList();
 			int count = rowList.Count;
 			int num = rowList.Select(GetFolderName).Where((string folder) => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-			string text = "[" + count + Resources.Num_songs;
-			if (num > 1)
-			{
-				return text + " / " + num + Resources.Num_folders + "]";
-			}
-			return text + "]";
+			return FormatSummaryText(count, num);
 		}
 		return string.Empty;
+	}
+
+	internal static string FormatSummaryText(int rowCount, int distinctFolderCount)
+	{
+		string text = "[" + rowCount + Resources.Num_songs;
+		if (distinctFolderCount > 1)
+		{
+			return text + " / " + distinctFolderCount + Resources.Num_folders + "]";
+		}
+		return text + "]";
 	}
 
 	private static string GetFolderName(object row)

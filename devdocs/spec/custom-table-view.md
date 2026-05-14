@@ -39,9 +39,9 @@
 
 `BMSFilesView` は `List<LibraryChartRow>` だけでなく、`IChartListViewMetadata` を実装した仮想 `IList` になり得る。通常ライブラリの default 表示と、その状態からの `Title` / `path` sort では、`ChartListSourceRow` と `ChartListOrder` を全件分作り、`CustomTableView` からの `Count` と index access に応じて可視行だけ `LibraryChartRow` を生成する。
 
-仮想 `ChartListOrder` は `Title` / `path` の Asc / Desc を保持する。文字列比較は `StringComparer.OrdinalIgnoreCase` で、Desc は Asc の反転ではなく対象 key 降順 + `Title` 昇順の secondary key とする。`Folder`、`Mode`、score、chart info 系列、keyword / folder / mode filter、playlist detail など未対応の表示条件は既存の materialized 経路を使う。
+仮想 `ChartListOrder` は `Title` / `path` の Asc / Desc を保持する。文字列比較は `StringComparer.OrdinalIgnoreCase` で、Desc は Asc の反転ではなく対象 key 降順 + `Title` 昇順の secondary key とする。order cache の正当性は `sourceGeneration + sortKeyGeneration + column + direction + rowCount` で保証し、fingerprint 再走査は行わない。`Title` / `path` など sort 対象値が変わる経路は必ず `sortKeyGeneration` を進める。`Folder`、`Mode`、score、chart info 系列、keyword / folder / mode filter、playlist detail など未対応の表示条件は既存の materialized 経路を使う。
 
-`CustomTableView` は `ItemsSource` を全列挙しない。行数は `IList.Count`、描画・選択・tooltip・右クリックなどは対象 index の indexer だけを使う。summary 表示や旧 view の破棄処理も `IChartListViewMetadata` を優先し、仮想 view を列挙してはいけない。
+`CustomTableView` は `ItemsSource` を全列挙しない。行数は `IList.Count`、描画・選択・tooltip・右クリックなどは対象 index の indexer だけを使う。旧 view の破棄処理も `IChartListViewMetadata` を優先し、仮想 view を列挙してはいけない。通常一覧の summary 表示は `GridSummaryText` を正本にし、仮想 view 作成時には folder count を同期計算しない。folder count 未計算時は曲数だけを表示し、後続の低優先度計算が current generation と一致した場合だけ `曲数 / フォルダ数` へ更新する。
 
 `Ctrl+Shift+C` のような選択行コピーや、ユーザーが明示した全行操作は対象行の実体化を許容する。これは一覧表示の初回描画とは別の明示操作であり、仮想 view の fallback として全件 `LibraryChartRow` を常時作る経路は持たない。
 
@@ -63,7 +63,7 @@
 
 `MainWindowViewModel.loadColumnSetting(...)` は、現在の `viewUpdateMode` に応じて `ColumnsSettingsBMSFilesView` を差し替える。
 
-`SortUpdated`、keyword 更新、mode 更新、`TreeViewFilterNotChanged` は列セットを直接表す mode ではないため、現在選択中の tree mode へ解決してから列設定を適用する。同じ解決済み mode の列設定がすでに適用済みで、対象 settings と playlist summary settings が存在する場合は、`loadColumnSetting` を再実行しない。特に `SortUpdated` は表示 mode を変えない操作なので、列設定再適用による `columnMs` を発生させない。
+`SortUpdated`、keyword 更新、mode 更新、`TreeViewFilterNotChanged` は列セットを直接表す mode ではないため、現在選択中の tree mode へ解決してから列設定を適用する。同じ解決済み mode の列設定がすでに適用済みで、対象 settings と playlist summary settings が存在する場合は、`loadColumnSetting` を再実行しない。特に `SortUpdated` は表示 mode を変えない操作なので、列設定再適用による `columnSettingMs` を発生させない。ログ上の互換 metric `columnMs` は `prepareSwapMs + columnSettingMs + setViewMs` の区間として扱う。
 
 | 画面 / filter | `viewUpdateMode` | 設定オブジェクト | `CustomTableColumnSettings.ViewKind` |
 | --- | --- | --- | --- |

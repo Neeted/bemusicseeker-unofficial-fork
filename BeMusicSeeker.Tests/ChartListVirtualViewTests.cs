@@ -64,9 +64,50 @@ public sealed class ChartListVirtualViewTests
         object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
 
         StringAssert.StartsWith(text.ToString(), "[3");
+        Assert.AreEqual(-1, view.DistinctFolderCount);
+        Assert.IsFalse(text.ToString().Contains("/"));
+        Assert.AreEqual(0, view.RealizedRowCount);
+        Assert.AreEqual(0, getCreatedCount());
+    }
+
+    [TestMethod]
+    public void SummaryConverter_UsesSuppliedFolderCountWithoutEnumeratingRows()
+    {
+        ChartListVirtualView view = CreateView(out Func<int> getCreatedCount, distinctFolderCount: 2);
+        BMSFilesViewToSummaryTextConverter converter = new BMSFilesViewToSummaryTextConverter();
+
+        object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
+
+        StringAssert.StartsWith(text.ToString(), "[3");
+        StringAssert.Contains(text.ToString(), "/ 2");
         Assert.AreEqual(2, view.DistinctFolderCount);
         Assert.AreEqual(0, view.RealizedRowCount);
         Assert.AreEqual(0, getCreatedCount());
+    }
+
+    [TestMethod]
+    public void Constructor_DoesNotReadFolderCountFromSourceRows()
+    {
+        ThrowingFolderBmsFile file = new ThrowingFolderBmsFile();
+        file.Apply(@"folder-a\alpha.bms", "Alpha");
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, null);
+        ChartListOrder order = ChartListOrder.CreateTitleAscending(sourceRows);
+
+        ChartListVirtualView view = new ChartListVirtualView(sourceRows, order, row => LibraryChartRow.FromBmsFile(row.BmsFile));
+
+        Assert.AreEqual(1, view.Count);
+        Assert.AreEqual(-1, view.DistinctFolderCount);
+    }
+
+    [TestMethod]
+    public void SummaryFormatter_OmitsUnknownFolderCount()
+    {
+        string unknown = MainWindowViewModel.FormatMainGridSummaryTextForTest(3, -1);
+        string known = MainWindowViewModel.FormatMainGridSummaryTextForTest(3, 2);
+
+        StringAssert.StartsWith(unknown, "[3");
+        Assert.IsFalse(unknown.Contains("/"));
+        StringAssert.Contains(known, "/ 2");
     }
 
     [TestMethod]
@@ -220,6 +261,52 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void NormalLibrarySortCacheKey_UsesSortKeyGenerationForOrderIdentity()
+    {
+        NormalLibrarySortCacheKey current = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey same = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        NormalLibrarySortCacheKey changedSortKeyGeneration = new NormalLibrarySortCacheKey(7, 12, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+
+        Assert.AreEqual(current, same);
+        Assert.AreNotEqual(current, changedSortKeyGeneration);
+    }
+
+    [TestMethod]
+    public void MainSummaryCacheKey_UsesGenerationsForIdentity()
+    {
+        MainViewSummaryCacheKey current = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
+        MainViewSummaryCacheKey same = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
+        MainViewSummaryCacheKey changedSortKeyGeneration = new MainViewSummaryCacheKey(7, 12, 3, includeBmsonRows: true, "normal_default");
+
+        Assert.AreEqual(current, same);
+        Assert.AreNotEqual(current, changedSortKeyGeneration);
+        Assert.IsFalse(MainWindowViewModel.IsMainSummaryFolderCountStaleForTest(current, 7, 11));
+        Assert.IsTrue(MainWindowViewModel.IsMainSummaryFolderCountStaleForTest(current, 7, 12));
+    }
+
+    [TestMethod]
+    public void LibraryChartSortMetrics_CarriesVirtualOrderTimingBreakdown()
+    {
+        LibraryChartSortMetrics metrics = new LibraryChartSortMetrics(
+            3,
+            nameof(LibraryChartRow.path),
+            ListSortDirection.Descending,
+            nameof(String),
+            "virtual_path_order",
+            "ordinal_ignore_case",
+            42,
+            sortReuse: true,
+            sortCacheKey: nameof(LibraryChartRow.path),
+            sortCacheGeneration: 5,
+            sortCacheHit: true,
+            orderCacheLookupMs: 1,
+            orderBuildMs: 0);
+
+        Assert.AreEqual(1, metrics.OrderCacheLookupMs);
+        Assert.AreEqual(0, metrics.OrderBuildMs);
+    }
+
+    [TestMethod]
     public void SourceRow_ReadsCurrentBmsFileSortKeys()
     {
         TestableBmsFile file = new TestableBmsFile();
@@ -233,7 +320,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("folder-a", sourceRows[0].Folder);
     }
 
-    private static ChartListVirtualView CreateView(out Func<int> getCreatedCount)
+    private static ChartListVirtualView CreateView(out Func<int> getCreatedCount, int distinctFolderCount = -1)
     {
         List<BMSFile> files = new List<BMSFile>
         {
@@ -251,7 +338,8 @@ public sealed class ChartListVirtualViewTests
             {
                 localCreatedCount++;
                 return LibraryChartRow.FromBmsFile(row.BmsFile);
-            });
+            },
+            distinctFolderCount);
         getCreatedCount = () => localCreatedCount;
         return view;
     }
@@ -309,6 +397,21 @@ public sealed class ChartListVirtualViewTests
             title = fileTitle;
             folder = folderName;
             hash = "0123456789abcdef0123456789abcdef";
+        }
+    }
+
+    private sealed class ThrowingFolderBmsFile : BMSFile
+    {
+        public override string Folder
+        {
+            get => throw new InvalidOperationException("Folder should not be read while constructing the virtual view.");
+            set => throw new NotSupportedException();
+        }
+
+        internal void Apply(string filePath, string fileTitle)
+        {
+            path = filePath;
+            title = fileTitle;
         }
     }
 }
