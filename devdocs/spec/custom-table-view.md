@@ -39,7 +39,7 @@
 
 `BMSFilesView` は `List<LibraryChartRow>` だけでなく、`IChartListViewMetadata` を実装した仮想 `IList` になり得る。通常ライブラリの default 表示と、その状態からの `Title` / `path` sort では、`ChartListSourceRow` と `ChartListOrder` を全件分作り、`CustomTableView` からの `Count` と index access に応じて可視行だけ `LibraryChartRow` を生成する。
 
-仮想 `ChartListOrder` は `Title` / `path` の Asc / Desc を保持する。文字列比較は `StringComparer.OrdinalIgnoreCase` で、Desc は Asc の反転ではなく対象 key 降順 + `Title` 昇順の secondary key とする。order cache の正当性は `sourceGeneration + sortKeyGeneration + column + direction + rowCount` で保証し、fingerprint 再走査は行わない。`Title` / `path` など sort 対象値が変わる経路は必ず `sortKeyGeneration` を進める。`Folder`、`Mode`、score、chart info 系列、keyword / folder / mode filter、playlist detail など未対応の表示条件は既存の materialized 経路を使う。
+仮想 `ChartListOrder` は `Title` / `path` の Asc / Desc を保持する。文字列比較は `StringComparer.OrdinalIgnoreCase` で、Desc は Asc の反転ではなく対象 key 降順 + `Title` 昇順の secondary key とする。order cache の正当性は `sourceGeneration + sortKeyGeneration + column + direction + rowCount` で保証し、fingerprint 再走査は行わない。`Title` / `path` / `Folder` など sort 対象値が変わる経路は、row cache の実体化状態に依存せず mutation source 側で必ず `sortKeyGeneration` を進める。`Folder`、`Mode`、score、chart info 系列、keyword / folder / mode filter、playlist detail など未対応の表示条件は既存の materialized 経路を使う。
 
 `CustomTableView` は `ItemsSource` を全列挙しない。行数は `IList.Count`、描画・選択・tooltip・右クリックなどは対象 index の indexer だけを使う。旧 view の破棄処理も `IChartListViewMetadata` を優先し、仮想 view を列挙してはいけない。通常一覧の summary 表示は `GridSummaryText` を正本にし、仮想 view 作成時には folder count を同期計算しない。folder count 未計算時は曲数だけを表示し、後続の低優先度計算が current generation と一致した場合だけ `曲数 / フォルダ数` へ更新する。
 

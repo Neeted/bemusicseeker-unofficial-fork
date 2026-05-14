@@ -9469,27 +9469,50 @@ public class MainWindowViewModel : ViewModel
         LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
     }
 
-    private void OnNormalLibrarySortKeyChangedIfCached(string propertyName)
+    private void InvalidateNormalLibrarySortKeys(string reason)
     {
-        int cacheCount;
-        bool hasSummaryCache;
-        lock (mainSummaryFolderCountCacheLock)
+        OnNormalLibrarySortKeyChanged(reason ?? string.Empty);
+    }
+
+    private const string NormalLibraryBmsPathChangedReason = "bms_path_changed";
+
+    private const string NormalLibraryBmsTitleChangedReason = "bms_title_changed";
+
+    private const string NormalLibraryBmsonPathChangedReason = "bmson_path_changed";
+
+    private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
+    {
+        List<string> reasons = new List<string>(2);
+        if (hasBmsPathMutation)
         {
-            hasSummaryCache = mainSummaryFolderCountCache.Count > 0;
+            reasons.Add(NormalLibraryBmsPathChangedReason);
         }
-        lock (normalLibrarySortCacheLock)
+        if (hasBmsonPathMutation)
         {
-            cacheCount = GetNormalLibraryCacheCountLocked();
-            if (cacheCount == 0 && !hasSummaryCache)
+            reasons.Add(NormalLibraryBmsonPathChangedReason);
+        }
+        return reasons;
+    }
+
+    internal static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasonsForTest(bool hasBmsPathMutation, bool hasBmsonPathMutation)
+    {
+        return GetNormalLibraryPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
+    }
+
+    private void InvalidateNormalLibrarySortKeysAfterPathMutation(bool hasBmsPathMutation, bool hasBmsonPathMutation)
+    {
+        IReadOnlyList<string> reasons = GetNormalLibraryPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
+        foreach (string reason in reasons)
+        {
+            if (string.Equals(reason, NormalLibraryBmsPathChangedReason, StringComparison.Ordinal))
             {
-                return;
+                InvalidateNormalLibrarySortKeys(reason);
             }
-            normalLibrarySortKeyGeneration++;
-            normalLibrarySortCache.Clear();
-            ClearVirtualNormalLibraryCachesLocked();
+            else if (string.Equals(reason, NormalLibraryBmsonPathChangedReason, StringComparison.Ordinal))
+            {
+                SyncBmsonLibraryRowCacheWithoutRebuild(reason);
+            }
         }
-        ClearMainSummaryFolderCountCache();
-        LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
     }
 
     private void ClearNormalLibrarySortCache()
@@ -11931,7 +11954,7 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     public MainWindowViewModel()
     {
-        regularBmsLibraryRowCache = new NormalLibraryRowCache(OnNormalLibrarySortKeyChangedIfCached);
+        regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         settingDialog = new SettingDialogViewModel(this);
@@ -12414,7 +12437,7 @@ public class MainWindowViewModel : ViewModel
             BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (syncResult.SortKeyChanged)
             {
-                OnNormalLibrarySortKeyChanged("bmson_sort_key_changed");
+                InvalidateNormalLibrarySortKeys("bmson_sort_key_changed");
             }
             RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -14295,7 +14318,7 @@ public class MainWindowViewModel : ViewModel
             BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (bmsonSyncResult.SortKeyChanged)
             {
-                OnNormalLibrarySortKeyChanged("bmson_sort_key_changed");
+                InvalidateNormalLibrarySortKeys("bmson_sort_key_changed");
             }
             if (bmsonSyncResult.MembershipChanged)
             {
@@ -15065,7 +15088,7 @@ public class MainWindowViewModel : ViewModel
         BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache(files?.BmsonSongs);
         if (result.SortKeyChanged)
         {
-            OnNormalLibrarySortKeyChanged(reason + "_sort_key_changed");
+            InvalidateNormalLibrarySortKeys(reason + "_sort_key_changed");
         }
         if (result.MembershipChanged)
         {
@@ -15431,6 +15454,7 @@ public class MainWindowViewModel : ViewModel
     public void FixEncodingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string encoding = "")
     {
         files.SetBMSFilesEncoding(bmsFiles, encoding);
+        InvalidateNormalLibrarySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
     public void ForceFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -19266,7 +19290,7 @@ public class MainWindowViewModel : ViewModel
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
             {
                 files.RenameBMSFolder(directoryNameSimple, newFolder, false);
-                SyncBmsonLibraryRowCacheWithoutRebuild();
+                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
         }
     }
@@ -19286,8 +19310,15 @@ public class MainWindowViewModel : ViewModel
             {
                 enumerable = enumerable.Where((BeMusicSeeker.Models.BMSFile f) => f.path.StartsWith(parentDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             }
-            files.AutoRenameBMSFolder(enumerable);
-            SyncBmsonLibraryRowCacheWithoutRebuild();
+            List<BeMusicSeeker.Models.BMSFile> targetCharts = enumerable
+                .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
+                .ToList();
+            if (targetCharts.Count == 0)
+            {
+                return;
+            }
+            files.AutoRenameBMSFolder(targetCharts);
+            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
 
@@ -19304,20 +19335,35 @@ public class MainWindowViewModel : ViewModel
 
     public void AutoRenameBMSFolder(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = (bmsFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
+            .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
+            .ToList();
+        if (chartFiles.Count == 0)
+        {
+            return;
+        }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(bmsFiles);
-            files.AutoRenameBMSFolder(bmsFiles);
-            SyncBmsonLibraryRowCacheWithoutRebuild();
+            stopPlayingBMSFile(chartFiles);
+            files.AutoRenameBMSFolder(chartFiles);
+            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
 
     public void MoveBMSFolder(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newParentDirectory)
     {
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = (bmsFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
+            .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
+            .ToList();
+        if (chartFiles.Count == 0)
+        {
+            return;
+        }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(bmsFiles);
-            files.MoveBMSRootFolder(bmsFiles, newParentDirectory, false);
+            stopPlayingBMSFile(chartFiles);
+            files.MoveBMSRootFolder(chartFiles, newParentDirectory, false);
+            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
 
@@ -19334,6 +19380,7 @@ public class MainWindowViewModel : ViewModel
         {
             stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select((LibraryChartRef chart) => chart.BmsFile));
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
+            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
 

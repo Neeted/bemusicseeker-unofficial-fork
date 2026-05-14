@@ -1514,8 +1514,7 @@ public sealed class PlaylistViewPipelineTests
         fileA.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
         TestableBmsFile fileB = new TestableBmsFile();
         fileB.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
-        int sortKeyChangedCount = 0;
-        NormalLibraryRowCache cache = new NormalLibraryRowCache(_ => sortKeyChangedCount++);
+        NormalLibraryRowCache cache = new NormalLibraryRowCache();
         LibraryRowCacheBuildStats firstStats = new LibraryRowCacheBuildStats();
         LibraryChartRow firstA = cache.GetOrCreate(fileA, firstStats);
         LibraryChartRow firstB = cache.GetOrCreate(fileB, firstStats);
@@ -1530,9 +1529,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, cache.Prune(new[] { fileA }));
         Assert.AreEqual(1, cache.Count);
         fileB.SetTitle("B2");
-        Assert.AreEqual(0, sortKeyChangedCount, "Pruned rows must not keep sort invalidation subscriptions.");
         fileA.SetTitle("A2");
-        Assert.AreEqual(1, sortKeyChangedCount);
         Assert.AreSame(firstA, cache.GetOrCreate(fileA, new LibraryRowCacheBuildStats()));
     }
 

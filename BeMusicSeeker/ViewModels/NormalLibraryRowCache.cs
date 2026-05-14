@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
@@ -19,11 +18,9 @@ internal sealed class LibraryRowCacheBuildStats
 internal sealed class NormalLibraryRowCache
 {
     private readonly Dictionary<BMSFile, LibraryChartRow> rowsByFile = new Dictionary<BMSFile, LibraryChartRow>(BmsFileReferenceComparer.Instance);
-    private readonly Action<string> sortKeyChanged;
 
-    internal NormalLibraryRowCache(Action<string> sortKeyChanged)
+    internal NormalLibraryRowCache()
     {
-        this.sortKeyChanged = sortKeyChanged;
     }
 
     internal int Count => rowsByFile.Count;
@@ -48,10 +45,6 @@ internal sealed class NormalLibraryRowCache
             return null;
         }
         rowsByFile[file] = row;
-        if (sortKeyChanged != null)
-        {
-            PropertyChangedEventManager.AddHandler(file, OnSourcePropertyChanged, string.Empty);
-        }
         if (stats != null)
         {
             stats.MissCount++;
@@ -67,10 +60,6 @@ internal sealed class NormalLibraryRowCache
         List<BMSFile> removed = rowsByFile.Keys.Where((BMSFile file) => !current.Contains(file)).ToList();
         foreach (BMSFile file in removed)
         {
-            if (sortKeyChanged != null)
-            {
-                PropertyChangedEventManager.RemoveHandler(file, OnSourcePropertyChanged, string.Empty);
-            }
             rowsByFile.Remove(file);
         }
         return removed.Count;
@@ -78,26 +67,7 @@ internal sealed class NormalLibraryRowCache
 
     internal void Clear()
     {
-        foreach (BMSFile file in rowsByFile.Keys.ToList())
-        {
-            if (sortKeyChanged != null)
-            {
-                PropertyChangedEventManager.RemoveHandler(file, OnSourcePropertyChanged, string.Empty);
-            }
-        }
         rowsByFile.Clear();
-    }
-
-    private void OnSourcePropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        string propertyName = e?.PropertyName;
-        if (string.IsNullOrEmpty(propertyName)
-            || string.Equals(propertyName, nameof(BMSFile.Title), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(BMSFile.path), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
-        {
-            sortKeyChanged?.Invoke(propertyName ?? string.Empty);
-        }
     }
 
     private sealed class BmsFileReferenceComparer : IEqualityComparer<BMSFile>

@@ -345,6 +345,22 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void NormalLibraryPathSortKeyInvalidationReasons_DistinguishBmsAndBmsonPathMutations()
+    {
+        CollectionAssert.AreEqual(
+            new[] { "bms_path_changed" },
+            MainWindowViewModel.GetNormalLibraryPathSortKeyInvalidationReasonsForTest(hasBmsPathMutation: true, hasBmsonPathMutation: false).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "bmson_path_changed" },
+            MainWindowViewModel.GetNormalLibraryPathSortKeyInvalidationReasonsForTest(hasBmsPathMutation: false, hasBmsonPathMutation: true).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "bms_path_changed", "bmson_path_changed" },
+            MainWindowViewModel.GetNormalLibraryPathSortKeyInvalidationReasonsForTest(hasBmsPathMutation: true, hasBmsonPathMutation: true).ToArray());
+        Assert.AreEqual(0, MainWindowViewModel.GetNormalLibraryPathSortKeyInvalidationReasonsForTest(hasBmsPathMutation: false, hasBmsonPathMutation: false).Count);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_SkipsScoreUpdateWhenFullNormalLibrarySortIsUnaffected()
     {
         MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
