@@ -8613,11 +8613,17 @@ public class MainWindowViewModel : ViewModel
                     }
                     LogDeferredPlaylistReference("playlist_ref_deferred run version=" + requestVersion + " tableCount=" + list.Count);
                     files.SynchronizeReferenceBMSTables(list, suppressFilePropertyChanged: true);
+                    int presentationRequestVersion = requestVersion;
                     DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
                     {
+                        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "playlist_ref_apply_completed"))
+                        {
+                            LogDeferredPlaylistReference("playlist_ref_deferred presentation_deferred version=" + presentationRequestVersion);
+                            return;
+                        }
                         makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
                     });
-                    LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " refreshed=true");
+                    LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " presentation=queued");
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
                     if (IsStartupProgressOperationTokenCurrent(operationToken))
                     {
