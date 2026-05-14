@@ -35,6 +35,14 @@
 - `HeaderHeight=22`
 - メイン一覧のみ `ScoreFontFamily="{StaticResource SovjetBox}"` を渡し、CLEAR / DJ LEVEL などのスコア系表示に使う。
 
+### メイン一覧の仮想 `IList`
+
+`BMSFilesView` は `List<LibraryChartRow>` だけでなく、`IChartListViewMetadata` を実装した仮想 `IList` になり得る。通常ライブラリの default 表示では、`ChartListSourceRow` と `ChartListOrder` を全件分作り、`CustomTableView` からの `Count` と index access に応じて可視行だけ `LibraryChartRow` を生成する。
+
+`CustomTableView` は `ItemsSource` を全列挙しない。行数は `IList.Count`、描画・選択・tooltip・右クリックなどは対象 index の indexer だけを使う。summary 表示や旧 view の破棄処理も `IChartListViewMetadata` を優先し、仮想 view を列挙してはいけない。
+
+`Ctrl+Shift+C` のような選択行コピーや、ユーザーが明示した全行操作は対象行の実体化を許容する。これは一覧表示の初回描画とは別の明示操作であり、仮想 view の fallback として全件 `LibraryChartRow` を常時作る経路は持たない。
+
 ## Column Layout
 
 列 layout は `ICustomTableColumnLayout` で統一される。

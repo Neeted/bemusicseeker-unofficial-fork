@@ -168,6 +168,8 @@ startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask
 
 `Startup` 中の presentation は、導入系 UI と所持譜面 / プレイリスト系 UI を分けて扱う。`InstallTree` は `startup_ready_ui` / `startup_ready_operable` の判定対象にするが、`LibraryMainView`、`LibraryFolderTree`、`PlaylistTree`、`DuplicateTree` は `startup_initialization_complete` 後に `startup_presentation_flush` としてまとめて反映する。これにより、初期選択がライブラリでも background hydration の途中で 20 万件規模の `LibraryChartRow` 投影や playlist presentation を作らず、`ranking`、`score`、`chart_info`、`maintenance`、`playlist_entries`、playlist reference apply が揃ったスナップショットを 1 回だけ表示する。
 
+通常ライブラリの default 表示では、presentation flush 後も全件 `LibraryChartRow` を作らない。`BMSFile` / bmson の軽量 source row と Title 昇順の `ChartListOrder` だけを全件分作り、`BMSFilesView` は仮想 `IList` として公開する。初回描画、クリック、tooltip、右クリックなどの表示系操作では `CustomTableView` が参照した index の行だけを `LibraryChartRow` に実体化する。`main_view_build` は `virtual=True`、`sourceRows`、`orderedRows`、`viewRowsCreated` を出し、`viewRowsCreated` は初回 build 直後は 0、描画後も可視行 + overscan 程度に留まる。
+
 直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `maintenance_hydration` は lane により並走するが、`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
 
 ## DB Access Policy

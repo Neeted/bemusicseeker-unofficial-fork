@@ -14,6 +14,15 @@ internal class BMSFilesViewToSummaryTextConverter : IValueConverter
 {
 	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
 	{
+		if (value is IChartListViewMetadata metadata)
+		{
+			string text = "[" + metadata.RowCount + Resources.Num_songs;
+			if (metadata.DistinctFolderCount > 1)
+			{
+				return text + " / " + metadata.DistinctFolderCount + Resources.Num_folders + "]";
+			}
+			return text + "]";
+		}
 		if (value is IEnumerable rows)
 		{
 			List<object> rowList = rows.Cast<object>().Where((object row) => row != null).ToList();
@@ -38,6 +47,10 @@ internal class BMSFilesViewToSummaryTextConverter : IValueConverter
 		if (row is PlaylistDetailRow playlistDetailRow)
 		{
 			return playlistDetailRow.Folder;
+		}
+		if (row is LibraryChartRow libraryChartRow)
+		{
+			return libraryChartRow.Folder;
 		}
 		return string.Empty;
 	}

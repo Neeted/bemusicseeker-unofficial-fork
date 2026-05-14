@@ -5431,6 +5431,12 @@ public class MainWindowViewModel : ViewModel
 
     private readonly object normalLibrarySortCacheLock = new object();
 
+    private NormalLibrarySortCacheKey virtualTitleOrderCacheKey;
+
+    private ChartListOrder virtualTitleOrderCache;
+
+    private bool virtualTitleOrderCacheAvailable;
+
     private long normalLibrarySourceGeneration;
 
     private long normalLibrarySortKeyGeneration;
@@ -9007,6 +9013,11 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        if (rows is IChartListViewMetadata metadata)
+        {
+            metadata.DisposeRealizedRows();
+            return;
+        }
         foreach (object row in rows)
         {
             if (row is IDisposable disposable)
@@ -9047,8 +9058,10 @@ public class MainWindowViewModel : ViewModel
         lock (normalLibrarySortCacheLock)
         {
             normalLibrarySourceGeneration++;
-            cacheCount = normalLibrarySortCache.Count;
+            cacheCount = normalLibrarySortCache.Count + (virtualTitleOrderCacheAvailable ? 1 : 0);
             normalLibrarySortCache.Clear();
+            virtualTitleOrderCache = null;
+            virtualTitleOrderCacheAvailable = false;
         }
         LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
     }
@@ -9098,8 +9111,10 @@ public class MainWindowViewModel : ViewModel
         lock (normalLibrarySortCacheLock)
         {
             normalLibrarySortKeyGeneration++;
-            cacheCount = normalLibrarySortCache.Count;
+            cacheCount = normalLibrarySortCache.Count + (virtualTitleOrderCacheAvailable ? 1 : 0);
             normalLibrarySortCache.Clear();
+            virtualTitleOrderCache = null;
+            virtualTitleOrderCacheAvailable = false;
         }
         LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
     }
@@ -9109,8 +9124,10 @@ public class MainWindowViewModel : ViewModel
         int cacheCount;
         lock (normalLibrarySortCacheLock)
         {
-            cacheCount = normalLibrarySortCache.Count;
+            cacheCount = normalLibrarySortCache.Count + (virtualTitleOrderCacheAvailable ? 1 : 0);
             normalLibrarySortCache.Clear();
+            virtualTitleOrderCache = null;
+            virtualTitleOrderCacheAvailable = false;
         }
         LogNormalLibrarySortCacheInvalidation("clear", "explicit", cacheCount);
     }
@@ -9152,6 +9169,153 @@ public class MainWindowViewModel : ViewModel
     private void ApplyResourceHealthProjectionProvider(LibraryChartRow row)
     {
         row?.SetResourceHealthProjectionProvider(GetResourceHealthProjectionForRow);
+    }
+
+    private LibraryChartRow CreateVirtualNormalLibraryRow(ChartListSourceRow sourceRow)
+    {
+        if (sourceRow == null)
+        {
+            return null;
+        }
+        if (sourceRow.BmsFile != null)
+        {
+            return GetOrCreateRegularBmsLibraryRow(sourceRow.BmsFile, null);
+        }
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
+        ApplyResourceHealthProjectionProvider(row);
+        return row;
+    }
+
+    private bool TryApplyVirtualDefaultNormalLibraryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, bool includeBmsonRows, Stopwatch viewBuildStopwatch)
+    {
+        if (!IsVirtualDefaultNormalLibraryRequest(mode))
+        {
+            return false;
+        }
+        ResetRegularDerivedViewCaches();
+
+        long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null);
+        long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        ChartListOrder order = GetOrCreateVirtualTitleOrder(sourceRows, out bool sortCacheHit);
+        long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        ChartListVirtualView nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow);
+        if (!ReferenceEquals(BMSFilesView, nextRowsView))
+        {
+            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+        }
+        loadColumnSetting(mode);
+        long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        SetChartRowsView(nextRowsView);
+
+        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
+        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
+        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
+        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
+        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
+
+        LogMainSortDetail(new LibraryChartSortMetrics(
+            order.Count,
+            order.ColumnName,
+            order.Direction,
+            nameof(String),
+            "chart_list_source_title_ordinal_ignore_case",
+            "ordinal_ignore_case",
+            sortStageMs,
+            sortReuse: sortCacheHit,
+            sortCacheKey: nameof(LibraryChartRow.Title),
+            sortCacheGeneration: normalLibrarySortKeyGeneration,
+            sortCacheHit: sortCacheHit));
+
+        string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
+        string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
+        string parameterType = parameter?.GetType().Name ?? "(null)";
+        LogMainViewBuild("main_view_build mode=" + mode
+            + " requestedMode=" + requestedMode
+            + " parameterType=" + parameterType
+            + " folderMs=" + folderStageMs
+            + " keywordMs=0"
+            + " modeMs=0"
+            + " sortMs=" + sortStageMs
+            + " sortReuse=" + sortCacheHit
+            + " sortProfile=" + (sortCacheHit ? "virtual_title_order_reuse" : "virtual_title_order")
+            + " sortEngine=virtual fastSortEnabled=True"
+            + " isPlaylistDetailView=False"
+            + " columnMs=" + columnStageMs
+            + " callbackMs=0"
+            + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
+            + " folderCount=" + sourceRows.Count
+            + " keywordCount=" + sourceRows.Count
+            + " modeCount=" + sourceRows.Count
+            + " viewCount=" + nextRowsView.Count
+            + " sortColumn=" + sortColumn
+            + " sortDirection=" + sortDirection
+            + " virtual=True"
+            + " sourceRows=" + sourceRows.Count
+            + " orderedRows=" + order.Count
+            + " viewRowsCreated=" + nextRowsView.RealizedRowCount
+            + " distinctFolderCount=" + nextRowsView.DistinctFolderCount);
+        return true;
+    }
+
+    private ChartListOrder GetOrCreateVirtualTitleOrder(IReadOnlyList<ChartListSourceRow> sourceRows, out bool cacheHit)
+    {
+        int rowCount = sourceRows?.Count ?? 0;
+        NormalLibrarySortCacheKey cacheKey;
+        lock (normalLibrarySortCacheLock)
+        {
+            cacheKey = new NormalLibrarySortCacheKey(
+                normalLibrarySourceGeneration,
+                normalLibrarySortKeyGeneration,
+                nameof(LibraryChartRow.Title),
+                ListSortDirection.Ascending,
+                rowCount);
+            if (virtualTitleOrderCacheAvailable && virtualTitleOrderCacheKey.Equals(cacheKey) && virtualTitleOrderCache != null)
+            {
+                cacheHit = true;
+                return virtualTitleOrderCache;
+            }
+        }
+        ChartListOrder order = ChartListOrder.CreateTitleAscending(sourceRows);
+        lock (normalLibrarySortCacheLock)
+        {
+            virtualTitleOrderCacheKey = cacheKey;
+            virtualTitleOrderCache = order;
+            virtualTitleOrderCacheAvailable = true;
+        }
+        cacheHit = false;
+        return order;
+    }
+
+    private bool IsVirtualDefaultNormalLibraryRequest(viewUpdateMode mode)
+    {
+        return mode == viewUpdateMode.FolderFilterSelected
+            && treeViewFilterTypeSelected == viewUpdateMode.FolderFilterSelected
+            && FolderFilter == null
+            && string.IsNullOrWhiteSpace(KeywordFilter)
+            && ModeFilter == ModeFilterType.All
+            && IsDefaultTitleAscendingSort(SortParameters);
+    }
+
+    private static bool IsDefaultTitleAscendingSort(cSortParameters sortParameters)
+    {
+        if (sortParameters == null)
+        {
+            return true;
+        }
+        if (sortParameters.Direction != ListSortDirection.Ascending)
+        {
+            return false;
+        }
+        string columnName = sortParameters.ColumnsName;
+        return string.IsNullOrWhiteSpace(columnName)
+            || string.Equals(columnName, nameof(LibraryChartRow.Title), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(BeMusicSeeker.Models.BMSFile.Title), StringComparison.Ordinal);
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)
@@ -13453,6 +13617,11 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(mode, treeViewFilterTypeSelected);
+        ClearPlaylistSourceRows();
+        if (TryApplyVirtualDefaultNormalLibraryView(mode, requestedMode, parameter, includeBmsonRows, viewBuildStopwatch))
+        {
+            return;
+        }
         if (includeBmsonRows)
         {
             BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
@@ -13465,7 +13634,6 @@ public class MainWindowViewModel : ViewModel
                 IncrementNormalLibrarySourceGeneration("bmson_membership_changed");
             }
         }
-        ClearPlaylistSourceRows();
         if (ShouldRebuildRegularFolderStage(mode, ChartRowsFolderView, ChartRowsKeywordFilterView, ChartRowsModeFilterView, treeViewFilterTypeSelected))
         {
             mode = treeViewFilterTypeSelected;
