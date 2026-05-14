@@ -45,9 +45,7 @@ internal sealed class ChartListOrder
         }
 
         IReadOnlyList<ChartListSourceRow> safeRows = rows ?? Array.Empty<ChartListSourceRow>();
-        Func<int, string> primaryKeySelector = normalizedColumnName == nameof(LibraryChartRow.path)
-            ? index => safeRows[index]?.Path ?? string.Empty
-            : index => safeRows[index]?.Title ?? string.Empty;
+        Func<int, string> primaryKeySelector = CreateStringKeySelector(safeRows, normalizedColumnName);
         Func<int, string> titleKeySelector = index => safeRows[index]?.Title ?? string.Empty;
 
         IOrderedEnumerable<int> orderedIndexes = direction == ListSortDirection.Descending
@@ -58,11 +56,35 @@ internal sealed class ChartListOrder
                 .OrderBy(primaryKeySelector, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(titleKeySelector, StringComparer.OrdinalIgnoreCase);
 
-        string sortProfile = normalizedColumnName == nameof(LibraryChartRow.path)
-            ? "virtual_path_order"
-            : "virtual_title_order";
+        string sortProfile = GetSortProfile(normalizedColumnName);
         order = new ChartListOrder(orderedIndexes.ToArray(), normalizedColumnName, direction, sortProfile);
         return true;
+    }
+
+    private static Func<int, string> CreateStringKeySelector(IReadOnlyList<ChartListSourceRow> rows, string normalizedColumnName)
+    {
+        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.path), StringComparison.Ordinal))
+        {
+            return index => rows[index]?.Path ?? string.Empty;
+        }
+        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
+        {
+            return index => rows[index]?.Folder ?? string.Empty;
+        }
+        return index => rows[index]?.Title ?? string.Empty;
+    }
+
+    private static string GetSortProfile(string normalizedColumnName)
+    {
+        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.path), StringComparison.Ordinal))
+        {
+            return "virtual_path_order";
+        }
+        if (string.Equals(normalizedColumnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
+        {
+            return "virtual_folder_order";
+        }
+        return "virtual_title_order";
     }
 
     internal static bool TryNormalizeVirtualSortColumn(string columnName, out string normalizedColumnName)
@@ -78,6 +100,12 @@ internal sealed class ChartListOrder
             || string.Equals(columnName, nameof(BMSFile.path), StringComparison.Ordinal))
         {
             normalizedColumnName = nameof(LibraryChartRow.path);
+            return true;
+        }
+        if (string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(BMSFile.Folder), StringComparison.Ordinal))
+        {
+            normalizedColumnName = nameof(LibraryChartRow.Folder);
             return true;
         }
 

@@ -1031,7 +1031,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     public void PrepareMainTableSwap()
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
         customTableView?.PrepareForItemsSourceSwap();
+        stopwatch.Stop();
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info("main_table_prepare_swap totalMs=" + stopwatch.ElapsedMilliseconds + " hasCustomTable=" + (customTableView != null));
+        }
     }
 
     /// <summary>

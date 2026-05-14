@@ -9830,7 +9830,9 @@ public class MainWindowViewModel : ViewModel
             new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
             new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Descending),
             new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Ascending),
-            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending)
+            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending),
+            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Ascending),
+            new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Descending)
         };
     }
 
@@ -14897,6 +14899,11 @@ public class MainWindowViewModel : ViewModel
         if (string.Equals(columnName, nameof(LibraryChartRow.path), StringComparison.Ordinal))
         {
             normalizedColumnName = nameof(LibraryChartRow.path);
+            return true;
+        }
+        if (string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
+        {
+            normalizedColumnName = nameof(LibraryChartRow.Folder);
             return true;
         }
         normalizedColumnName = null;

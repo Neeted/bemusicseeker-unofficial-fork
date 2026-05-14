@@ -319,12 +319,13 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void NormalLibrarySortCacheCandidate_OnlyAllowsTitleAndLowercasePath()
+    public void NormalLibrarySortCacheCandidate_AllowsTitlePathAndFolder()
     {
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(null));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(string.Empty));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Title)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.path)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Folder)));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest("Path"));
         Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Artist)));
     }

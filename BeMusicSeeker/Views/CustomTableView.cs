@@ -906,9 +906,22 @@ public sealed class CustomTableView : Grid
 
     public void PrepareForItemsSourceSwap()
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        long commitStartMs = stopwatch.ElapsedMilliseconds;
         CommitActiveEdit();
+        long commitActiveEditMs = stopwatch.ElapsedMilliseconds - commitStartMs;
+        long clearHitStartMs = stopwatch.ElapsedMilliseconds;
         currentCellHit = null;
+        long clearHitMs = stopwatch.ElapsedMilliseconds - clearHitStartMs;
+        long suppressStartMs = stopwatch.ElapsedMilliseconds;
         BeginPendingItemsSourceSwapColumnRedrawSuppression();
+        long suppressMs = stopwatch.ElapsedMilliseconds - suppressStartMs;
+        stopwatch.Stop();
+        installPerformanceLogger?.Info(
+            "custom_table_prepare_items_source_swap totalMs=" + stopwatch.ElapsedMilliseconds
+            + " commitActiveEditMs=" + commitActiveEditMs
+            + " clearHitMs=" + clearHitMs
+            + " suppressColumnRedrawMs=" + suppressMs);
     }
 
     private void BeginPendingItemsSourceSwapColumnRedrawSuppression()

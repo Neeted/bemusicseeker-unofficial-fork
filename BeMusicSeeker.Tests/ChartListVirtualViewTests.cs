@@ -155,6 +155,18 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void FolderAscendingOrder_MatchesExistingDefaultLibraryChartRowSort()
+    {
+        AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.Folder), ListSortDirection.Ascending);
+    }
+
+    [TestMethod]
+    public void FolderDescendingOrder_MatchesExistingDefaultLibraryChartRowSort()
+    {
+        AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.Folder), ListSortDirection.Descending);
+    }
+
+    [TestMethod]
     public void PathDescendingOrder_KeepsTitleAscendingSecondaryKey()
     {
         List<BMSFile> files = new List<BMSFile>
@@ -178,7 +190,6 @@ public sealed class ChartListVirtualViewTests
     {
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
 
-        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.Folder), ListSortDirection.Ascending, out _));
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "mode", ListSortDirection.Ascending, out _));
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "Path", ListSortDirection.Ascending, out _));
     }
@@ -216,7 +227,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void DefaultVirtualOrderPrewarmDescriptors_AreTitleThenPathAscDesc()
+    public void DefaultVirtualOrderPrewarmDescriptors_AreTitlePathThenFolderAscDesc()
     {
         IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();
 
@@ -226,7 +237,9 @@ public sealed class ChartListVirtualViewTests
                 new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
                 new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Descending),
                 new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Ascending),
-                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending)
+                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.path), ListSortDirection.Descending),
+                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Ascending),
+                new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Folder), ListSortDirection.Descending)
             },
             descriptors.ToArray());
     }
