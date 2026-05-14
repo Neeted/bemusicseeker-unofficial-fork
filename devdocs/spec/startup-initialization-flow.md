@@ -145,9 +145,11 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 | --- | --- |
 | `startup_install_estimation_ready` | pending estimate queue を開始できる |
 | `startup_install_ready` | 現行では install estimation readiness と同じ境界 |
-| `startup_ready_data` / `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | UI 側の表示・操作可能境界 |
+| `startup_ready_data` | 導入判定に必要な catalog / resource index が揃った |
+| `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | BMS package drop など導入系 UI を操作できる境界。所持譜面一覧 / プレイリスト一覧の完全操作可能境界ではない |
 | `startup_initialization_complete` | expected background phase と startup scheduler queue が空になった |
 | `startup_background_summary` | background task の queue/start/complete/failed/elapsed/lane/dependency summary |
+| `startup_presentation_flush` | 起動中に遅延した所持譜面 / プレイリスト系 presentation を、初期化完了後にまとめて反映した |
 
 ## Startup Background Scheduler
 
@@ -163,6 +165,8 @@ startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask
 全体 concurrency は 3。`startup_background_summary` は task ごとに lane と dependency を出す。
 
 `Startup` では scheduler は `startup_ready_operable` 到達まで開始しない。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation 開始時の reset 後も scheduler を runnable に保つ。これは reload 中に `playlist_entries_hydration`、`external_playlist_sync`、`score_hydration_deferred`、`ranking_refresh_deferred` など operation ごとの background task を queue したまま止めないための仕様である。`ReloadTables` 自体は score/ranking を queue しない。
+
+`Startup` 中の presentation は、導入系 UI と所持譜面 / プレイリスト系 UI を分けて扱う。`InstallTree` は `startup_ready_ui` / `startup_ready_operable` の判定対象にするが、`LibraryMainView`、`LibraryFolderTree`、`PlaylistTree`、`DuplicateTree` は `startup_initialization_complete` 後に `startup_presentation_flush` としてまとめて反映する。これにより、初期選択がライブラリでも background hydration の途中で 20 万件規模の `LibraryChartRow` 投影や playlist presentation を作らず、`ranking`、`score`、`chart_info`、`maintenance`、`playlist_entries` が揃ったスナップショットを 1 回だけ表示する。
 
 直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `maintenance_hydration` は lane により並走するが、`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
 
@@ -201,6 +205,10 @@ read-only hydration loader のルール:
 | `installable_maintenance` | `chart_info_hydration` と `maintenance_hydration` 完了後に missing/stale maintenance を補完する |
 | `score_hydration_deferred` | DB ではなく memory score snapshot を `BMSFile` へ attach する |
 | `ranking_refresh_deferred` | `ir_score` 系の未送信検出と `ir_data` / cache XML 系の ranking 情報を更新する |
+
+background hydration 完了時の通常ライブラリ一覧更新は、起動中と起動後で扱いを分ける。`Startup` 中は `Score` / `Ranking` / `ChartInfo` / `Maintenance` / `PlaylistEntries` のいずれも所持譜面・プレイリスト系 presentation へ即時反映せず、`startup_initialization_complete` 後の `startup_presentation_flush` でまとめて反映する。起動後の reload / score-only update では、現在の表示条件と sort/filter が依存するデータ種別に基づいて更新を判定する。`Score` / `Ranking` 完了は score 系列 (`Clear`、`Rank`、`Rate`、`Score`、`BP`、`Ranking` など) の値を更新するが、`Title`、`Folder`、`path` などの identity sort key には影響しない。このため、通常ライブラリ全体表示で keyword/filter が空、かつ現在の sort が score 系列に依存しない場合は、全件 `main_view_build` を行わず、既存 row の property change による表示更新に任せる。
+
+`ChartInfo` hydration は `Level`、BPM、notes、TOTAL、density など chart info 系列に影響するが、`Title`、`Folder`、`path` には影響しない。通常ライブラリの sort cache は、所持譜面 membership 変更や identity sort key 変更で無効化し、chart info / score / maintenance の完了だけで identity sort cache を落とさない。ChartInfo hydrate は大量 owner へ silent attach するため、起動後に表示中の chart info 列を反映する main view refresh は維持するが、その refresh で identity sort cache を破棄しない。
 
 `playlist_url_completion` は、MD5-URL mapping TSV と Stella Uploader Full (`score_upload_full.json`) を process-local snapshot として保持する。同じ起動中の playlist reload / external sync / reset では再 download せず、保持済み snapshot を再適用する。設定画面で TSV URI または Stella Uploader Full 補完設定が変わった場合だけ、次回 schedule で必要な source を再取得してよい。候補適用時は TSV を優先し、TSV に同じ MD5 がない場合だけ Stella Full の `url` / `url_diff` を URL1/URL2 補完に使う。
 

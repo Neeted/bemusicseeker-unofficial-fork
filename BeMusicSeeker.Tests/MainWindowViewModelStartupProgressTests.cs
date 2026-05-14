@@ -68,6 +68,23 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupReadyUiMask_RequiresInstallTreeOnly()
+    {
+        Assert.IsFalse(MainWindowViewModel.IsStartupReadyUiMaskSatisfiedForTest(
+            installTree: false,
+            libraryMainView: true,
+            playlistTree: true));
+        Assert.IsTrue(MainWindowViewModel.IsStartupReadyUiMaskSatisfiedForTest(
+            installTree: true,
+            libraryMainView: false,
+            playlistTree: false));
+        Assert.IsTrue(MainWindowViewModel.IsStartupReadyUiMaskSatisfiedForTest(
+            installTree: true,
+            libraryMainView: true,
+            playlistTree: true));
+    }
+
+    [TestMethod]
     public void StartupProgress_ReloadFileDiff_TracksOnlyFileDiffAndPlaylistPhases()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(

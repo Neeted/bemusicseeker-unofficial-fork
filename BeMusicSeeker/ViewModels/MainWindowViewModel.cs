@@ -170,6 +170,51 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
     }
 }
 
+internal enum MainViewDataDependency
+{
+    Unknown,
+    SourceMembership,
+    IdentitySortKey,
+    ChartInfo,
+    Score,
+    Maintenance
+}
+
+internal enum MainViewRefreshAction
+{
+    Refresh,
+    SkipMainViewRefresh
+}
+
+internal readonly struct MainViewRefreshDecision
+{
+    internal MainViewRefreshDecision(
+        MainViewRefreshAction action,
+        MainViewDataDependency dependency,
+        MainViewDataDependency sortDependency,
+        string reason,
+        string detail)
+    {
+        Action = action;
+        Dependency = dependency;
+        SortDependency = sortDependency;
+        Reason = reason ?? string.Empty;
+        Detail = detail ?? string.Empty;
+    }
+
+    internal MainViewRefreshAction Action { get; }
+
+    internal MainViewDataDependency Dependency { get; }
+
+    internal MainViewDataDependency SortDependency { get; }
+
+    internal string Reason { get; }
+
+    internal string Detail { get; }
+
+    internal bool ShouldRefresh => Action == MainViewRefreshAction.Refresh;
+}
+
 /// <summary>
 /// BeMusicSeeker のメイン画面を制御する ViewModel です。
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
@@ -5206,6 +5251,12 @@ public class MainWindowViewModel : ViewModel
         DuplicateTree = 16
     }
 
+    private const UiRefreshChannel StartupDeferredPresentationChannels =
+        UiRefreshChannel.LibraryMainView
+        | UiRefreshChannel.LibraryFolderTree
+        | UiRefreshChannel.PlaylistTree
+        | UiRefreshChannel.DuplicateTree;
+
     private PlaylistPropertyDialogViewModel _playlistPropertyDialog;
 
     private bool initializationCompleted;
@@ -5255,6 +5306,8 @@ public class MainWindowViewModel : ViewModel
     private UiRefreshChannel suppressedUiRefreshMask = UiRefreshChannel.None;
 
     private UiRefreshChannel pendingUiRefreshMask = UiRefreshChannel.None;
+
+    private UiRefreshChannel deferredStartupPresentationMask = UiRefreshChannel.None;
 
     private object lockUiSuppression = new object();
 
@@ -7254,6 +7307,74 @@ public class MainWindowViewModel : ViewModel
         return suppressed;
     }
 
+    private bool TryDeferStartupPresentationRefresh(UiRefreshChannel channel, string reason)
+    {
+        if (channel == UiRefreshChannel.None)
+        {
+            return false;
+        }
+        long operationToken = GetActiveStartupProgressOperationToken();
+        if (!ShouldDeferStartupPresentationRefresh(channel, operationToken))
+        {
+            return false;
+        }
+        UiRefreshChannel deferredChannel = channel & StartupDeferredPresentationChannels;
+        if (deferredChannel == UiRefreshChannel.None)
+        {
+            return false;
+        }
+        UiRefreshChannel pendingMask;
+        lock (lockUiSuppression)
+        {
+            deferredStartupPresentationMask |= deferredChannel;
+            pendingMask = deferredStartupPresentationMask;
+        }
+        LogUiSuppression("startup_presentation_deferred reason=" + (reason ?? string.Empty) + " channel=" + deferredChannel + " pending=" + pendingMask);
+        return true;
+    }
+
+    private bool ShouldDeferStartupPresentationRefresh(UiRefreshChannel channel, long operationToken)
+    {
+        if ((channel & StartupDeferredPresentationChannels) == 0)
+        {
+            return false;
+        }
+        if (!IsStartupProgressOperationTokenCurrent(operationToken))
+        {
+            return false;
+        }
+        bool initializationCompleteLogged;
+        lock (startupBackgroundTaskLock)
+        {
+            initializationCompleteLogged = startupInitializationCompleteLogged;
+        }
+        if (initializationCompleteLogged)
+        {
+            return false;
+        }
+        lock (startupProgressLock)
+        {
+            return startupProgressState.IsActive && startupProgressState.OperationKind == StartupProgressOperationKind.Startup;
+        }
+    }
+
+    private UiRefreshChannel DeferStartupPresentationChannels(UiRefreshChannel mask, long operationToken, string reason)
+    {
+        UiRefreshChannel deferredChannel = mask & StartupDeferredPresentationChannels;
+        if (deferredChannel == UiRefreshChannel.None || !ShouldDeferStartupPresentationRefresh(deferredChannel, operationToken))
+        {
+            return mask;
+        }
+        UiRefreshChannel pendingMask;
+        lock (lockUiSuppression)
+        {
+            deferredStartupPresentationMask |= deferredChannel;
+            pendingMask = deferredStartupPresentationMask;
+        }
+        LogUiSuppression("startup_presentation_deferred reason=" + (reason ?? string.Empty) + " channel=" + deferredChannel + " pending=" + pendingMask);
+        return mask & ~deferredChannel;
+    }
+
     private bool IsUiUpdateSuppressed()
     {
         lock (lockUiSuppression)
@@ -7458,8 +7579,7 @@ public class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyUi(UiRefreshChannel mask, long operationToken)
     {
-        UiRefreshChannel uiRefreshChannel = UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryMainView;
-        if ((mask & uiRefreshChannel) != uiRefreshChannel)
+        if (!IsStartupReadyUiMaskSatisfied(mask))
         {
             return;
         }
@@ -7478,6 +7598,29 @@ public class MainWindowViewModel : ViewModel
         MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi);
     }
 
+    private static bool IsStartupReadyUiMaskSatisfied(UiRefreshChannel mask)
+    {
+        return (mask & UiRefreshChannel.InstallTree) != 0;
+    }
+
+    internal static bool IsStartupReadyUiMaskSatisfiedForTest(bool installTree, bool libraryMainView, bool playlistTree)
+    {
+        UiRefreshChannel mask = UiRefreshChannel.None;
+        if (installTree)
+        {
+            mask |= UiRefreshChannel.InstallTree;
+        }
+        if (libraryMainView)
+        {
+            mask |= UiRefreshChannel.LibraryMainView;
+        }
+        if (playlistTree)
+        {
+            mask |= UiRefreshChannel.PlaylistTree;
+        }
+        return IsStartupReadyUiMaskSatisfied(mask);
+    }
+
     private void TryLogStartupReadyInstall(UiRefreshChannel mask)
     {
         TryLogStartupReadyInstall(mask, GetActiveStartupProgressOperationToken());
@@ -7485,7 +7628,7 @@ public class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyInstall(UiRefreshChannel mask, long operationToken)
     {
-        if ((mask & UiRefreshChannel.InstallTree) == 0 || (mask & UiRefreshChannel.LibraryMainView) == 0)
+        if (!IsStartupReadyInstallMaskSatisfied(mask))
         {
             return;
         }
@@ -7501,6 +7644,11 @@ public class MainWindowViewModel : ViewModel
         startupReadyInstallStopwatch = null;
         startupReadyDataLogged = false;
         startupReadyUiLogged = false;
+    }
+
+    private static bool IsStartupReadyInstallMaskSatisfied(UiRefreshChannel mask)
+    {
+        return (mask & UiRefreshChannel.InstallTree) != 0;
     }
 
     private void TryLogStartupReadyOperable()
@@ -7885,10 +8033,187 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void RefreshLibraryMainViewForDataDependency(MainViewDataDependency dependency, string reason)
+    {
+        MainViewRefreshDecision decision = BuildMainViewRefreshDecision(
+            treeViewFilterTypeSelected,
+            FolderFilter != null,
+            KeywordFilter,
+            ModeFilter,
+            SortParameters?.ColumnsName,
+            IsPlaylistDetailViewActive,
+            dependency,
+            reason);
+        LogMainViewBuild("main_view_refresh_decision reason=" + decision.Reason
+            + " dependency=" + decision.Dependency
+            + " sortDependency=" + decision.SortDependency
+            + " action=" + decision.Action
+            + " detail=" + decision.Detail
+            + " mode=" + treeViewFilterTypeSelected
+            + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
+            + " keywordEmpty=" + string.IsNullOrWhiteSpace(KeywordFilter).ToString().ToLowerInvariant()
+            + " modeFilter=" + ModeFilter
+            + " folderFilterApplied=" + (FolderFilter != null).ToString().ToLowerInvariant()
+            + " isPlaylistDetailView=" + IsPlaylistDetailViewActive.ToString().ToLowerInvariant());
+        if (!decision.ShouldRefresh)
+        {
+            return;
+        }
+        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, reason))
+        {
+            return;
+        }
+        RefreshLibraryMainViewForCurrentFilter();
+    }
+
+    internal static MainViewRefreshDecision BuildMainViewRefreshDecisionForTest(
+        viewUpdateMode currentMode,
+        bool folderFilterApplied,
+        string keywordFilter,
+        ModeFilterType modeFilter,
+        string sortColumnName,
+        bool isPlaylistDetailView,
+        MainViewDataDependency dependency,
+        string reason)
+    {
+        return BuildMainViewRefreshDecision(currentMode, folderFilterApplied, keywordFilter, modeFilter, sortColumnName, isPlaylistDetailView, dependency, reason);
+    }
+
+    private static MainViewRefreshDecision BuildMainViewRefreshDecision(
+        viewUpdateMode currentMode,
+        bool folderFilterApplied,
+        string keywordFilter,
+        ModeFilterType modeFilter,
+        string sortColumnName,
+        bool isPlaylistDetailView,
+        MainViewDataDependency dependency,
+        string reason)
+    {
+        MainViewDataDependency sortDependency = GetMainViewSortColumnDependency(sortColumnName);
+        bool fullNormalLibraryView = currentMode == viewUpdateMode.FolderFilterSelected
+            && !folderFilterApplied
+            && string.IsNullOrWhiteSpace(keywordFilter)
+            && modeFilter == ModeFilterType.All
+            && !isPlaylistDetailView;
+        if (!fullNormalLibraryView)
+        {
+            return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "not_full_normal_library");
+        }
+        if (dependency == MainViewDataDependency.Score && IsSortUnaffectedByDependency(sortDependency, dependency))
+        {
+            return new MainViewRefreshDecision(MainViewRefreshAction.SkipMainViewRefresh, dependency, sortDependency, reason, "score_update_does_not_affect_current_sort_or_filter");
+        }
+        return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "dependency_affects_current_view");
+    }
+
+    private static bool IsSortUnaffectedByDependency(MainViewDataDependency sortDependency, MainViewDataDependency changedDependency)
+    {
+        if (sortDependency == MainViewDataDependency.Unknown || sortDependency == changedDependency)
+        {
+            return false;
+        }
+        return changedDependency == MainViewDataDependency.Score
+            && (sortDependency == MainViewDataDependency.IdentitySortKey
+                || sortDependency == MainViewDataDependency.ChartInfo
+                || sortDependency == MainViewDataDependency.Maintenance);
+    }
+
+    internal static MainViewDataDependency GetMainViewSortColumnDependencyForTest(string columnName)
+    {
+        return GetMainViewSortColumnDependency(columnName);
+    }
+
+    private static MainViewDataDependency GetMainViewSortColumnDependency(string columnName)
+    {
+        if (string.IsNullOrWhiteSpace(columnName)
+            || string.Equals(columnName, nameof(LibraryChartRow.Title), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.Artist), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.genre), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.mode), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.tag), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.hash), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.sha256), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.path), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.instl_dst), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationTitle), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationArtist), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.RefTablesSymbols), StringComparison.Ordinal))
+        {
+            return MainViewDataDependency.IdentitySortKey;
+        }
+        if (IsMainViewScoreSortColumn(columnName))
+        {
+            return MainViewDataDependency.Score;
+        }
+        if (IsMainViewChartInfoSortColumn(columnName))
+        {
+            return MainViewDataDependency.ChartInfo;
+        }
+        if (IsMainViewMaintenanceSortColumn(columnName))
+        {
+            return MainViewDataDependency.Maintenance;
+        }
+        return MainViewDataDependency.Unknown;
+    }
+
+    private static bool IsMainViewScoreSortColumn(string columnName)
+    {
+        return string.Equals(columnName, nameof(LibraryChartRow.clear), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.rate), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.rateDouble), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.score), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.totalnotes), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.maxcombo), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.minbp), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ranking), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.rankingNum), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.rankingString), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.rankingLastupdate), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.stddevVal), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.scoreDifficulty), StringComparison.Ordinal);
+    }
+
+    private static bool IsMainViewChartInfoSortColumn(string columnName)
+    {
+        return string.Equals(columnName, nameof(LibraryChartRow.ChartLevelSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartDifficultySortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartMainBpmSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartMaxBpmSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartMinBpmSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartDurationSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartJudgeSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartFeatureSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartNotes), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartLongNotes), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartScratchNotes), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartTotalSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartTotalPerNoteSortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartDensitySortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartPeakDensitySortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartEndDensitySortKey), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.ChartSoflanCount), StringComparison.Ordinal);
+    }
+
+    private static bool IsMainViewMaintenanceSortColumn(string columnName)
+    {
+        return string.Equals(columnName, nameof(LibraryChartRow.WarningDigestText), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.WAVHealth), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.BGAHealth), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.MovieHealth), StringComparison.Ordinal)
+            || string.Equals(columnName, nameof(LibraryChartRow.encoding), StringComparison.Ordinal);
+    }
+
     private void RefreshChartInfoDependentViews()
     {
         SyncBmsonLibraryRowCache(files?.BmsonSongs);
         ResetRegularDerivedViewCaches();
+        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
+        {
+            RequestDeferredPlaylistSummaryRefresh();
+            return;
+        }
         RefreshPlaylistSummaryIfVisible("chart_info_dependent_views", invalidateTableCountCache: true);
         RefreshPlaylistDetailAfterReloadIfVisible();
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -8014,7 +8339,17 @@ public class MainWindowViewModel : ViewModel
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken)
     {
+        FlushPendingUiRefresh(mask, operationToken, allowStartupPresentationDefer: true, logReadiness: true);
+    }
+
+    private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken, bool allowStartupPresentationDefer, bool logReadiness)
+    {
         LogUiSuppression("ui_suppress flush mask=" + mask);
+        UiRefreshChannel requestedMask = mask;
+        if (allowStartupPresentationDefer)
+        {
+            mask = DeferStartupPresentationChannels(mask, operationToken, "startup_ui_suppress_flush");
+        }
         Stopwatch stopwatchTotal = Stopwatch.StartNew();
         long num = 0L;
         long num2 = 0L;
@@ -8068,7 +8403,7 @@ public class MainWindowViewModel : ViewModel
             LogUiSuppressionWarning("ui_stall_main_view elapsedMs=" + num5 + " filter=" + treeViewFilterTypeSelected + " mask=" + mask);
         }
         stopwatchTotal.Stop();
-        LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag);
+        LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag + " requested_mask=" + requestedMask + " flushed_mask=" + mask);
         bool playlistSummaryDataRefreshRequired = ((mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0) || ConsumeDeferredPlaylistSummaryRefresh();
         bool playlistSummaryPresentationRefreshRequired = ConsumeDeferredPlaylistSummaryPresentationRefresh();
         if (IsPlaylistSummaryMode && playlistSummaryDataRefreshRequired)
@@ -8079,13 +8414,16 @@ public class MainWindowViewModel : ViewModel
         {
             RefreshPlaylistSummaryPresentationIfVisible();
         }
-        TryLogStartupReadyUi(mask, operationToken);
-        TryLogStartupReadyInstall(mask, operationToken);
+        if (logReadiness)
+        {
+            TryLogStartupReadyUi(mask, operationToken);
+            TryLogStartupReadyInstall(mask, operationToken);
+        }
         if (flag)
         {
             ScheduleDeferredLibraryFolderTreeRefresh(operationToken);
         }
-        else
+        else if (logReadiness)
         {
             TryLogStartupReadyOperable(operationToken);
         }
@@ -8695,16 +9033,18 @@ public class MainWindowViewModel : ViewModel
         folderSortResultSnapshot = null;
         folderSortColumnName = null;
         folderSortDirection = null;
-        ClearNormalLibrarySortCache();
     }
 
     private void IncrementNormalLibrarySourceGeneration(string reason)
     {
+        int cacheCount;
         lock (normalLibrarySortCacheLock)
         {
             normalLibrarySourceGeneration++;
+            cacheCount = normalLibrarySortCache.Count;
             normalLibrarySortCache.Clear();
         }
+        LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
     }
 
     internal MainViewOperationSection CurrentMainViewOperationSection => ResolveMainViewOperationSection(treeViewFilterTypeSelected);
@@ -8748,19 +9088,34 @@ public class MainWindowViewModel : ViewModel
 
     private void OnNormalLibrarySortKeyChanged(string propertyName)
     {
+        int cacheCount;
         lock (normalLibrarySortCacheLock)
         {
             normalLibrarySortKeyGeneration++;
+            cacheCount = normalLibrarySortCache.Count;
             normalLibrarySortCache.Clear();
         }
+        LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
     }
 
     private void ClearNormalLibrarySortCache()
     {
+        int cacheCount;
         lock (normalLibrarySortCacheLock)
         {
+            cacheCount = normalLibrarySortCache.Count;
             normalLibrarySortCache.Clear();
         }
+        LogNormalLibrarySortCacheInvalidation("clear", "explicit", cacheCount);
+    }
+
+    private void LogNormalLibrarySortCacheInvalidation(string reason, string detail, int cacheCountBefore)
+    {
+        LogMainViewBuild("normal_library_sort_cache_invalidate reason=" + (reason ?? string.Empty)
+            + " detail=" + (detail ?? string.Empty)
+            + " cacheCountBefore=" + cacheCountBefore
+            + " sourceGeneration=" + normalLibrarySourceGeneration
+            + " sortKeyGeneration=" + normalLibrarySortKeyGeneration);
     }
 
     private int PruneRegularBmsLibraryRowCache(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
@@ -11192,6 +11547,11 @@ public class MainWindowViewModel : ViewModel
                 RefreshPlaylistSummaryIfVisible("library_bmsfiles_changed");
                 return;
             }
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "library_bmsfiles_changed"))
+            {
+                RequestDeferredPlaylistSummaryRefresh();
+                return;
+            }
             if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
             {
                 MaintenanceFilterType type = (MaintenanceFilterType)treeViewFilterTypeSelected;
@@ -11217,6 +11577,11 @@ public class MainWindowViewModel : ViewModel
             RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
+                return;
+            }
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "library_bmsons_changed"))
+            {
+                RequestDeferredPlaylistSummaryRefresh();
                 return;
             }
             if (ShouldRefreshPlaylistViewAfterBmsonSongsChanged(treeViewFilterTypeSelected))
@@ -11278,7 +11643,12 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            RefreshLibraryMainViewForCurrentFilter();
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "score_hydration_completed"))
+            {
+                RequestDeferredPlaylistSummaryRefresh();
+                return;
+            }
+            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "score_hydration_completed");
             RefreshPlaylistSummaryIfVisible("score_hydration_completed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreSnapshotVersion, delegate
@@ -11301,7 +11671,12 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            RefreshLibraryMainViewForCurrentFilter();
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "ranking_refresh_completed"))
+            {
+                RequestDeferredPlaylistSummaryRefresh();
+                return;
+            }
+            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "ranking_refresh_completed");
             RefreshPlaylistSummaryIfVisible("ranking_refresh_completed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationRequestedVersion, delegate
@@ -11387,6 +11762,10 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_need_to_be_fixed_changed"))
+                {
+                    return;
+                }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
@@ -11398,18 +11777,27 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_need_to_be_fixed_ignored_changed"))
+                {
+                    return;
+                }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesDuplicated, delegate
         {
-            if (!TrySuppress(UiRefreshChannel.DuplicateTree))
+            if (!TrySuppress(UiRefreshChannel.DuplicateTree)
+                && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, "bms_files_duplicated_changed"))
             {
                 RaisePropertyChanged(() => BMSFilesDuplicated);
             }
             if (treeViewFilterTypeSelected == viewUpdateMode.DuplicateFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
+                {
+                    return;
+                }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_duplicated_changed"))
                 {
                     return;
                 }
@@ -11505,6 +11893,10 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryFolderTree, "parent_folder_cache_changed"))
+            {
+                return;
+            }
             ScheduleDeferredLibraryFolderTreeRefresh();
         });
         listenerForBMSPlaylist.RegisterHandler(() => tables.BMSTables, delegate
@@ -11512,6 +11904,11 @@ public class MainWindowViewModel : ViewModel
             if (TrySuppress(UiRefreshChannel.PlaylistTree))
             {
                 RefreshPlaylistSummaryIfVisible("playlist_tables_changed", invalidateTableCountCache: true);
+                return;
+            }
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_tables_changed"))
+            {
+                RequestDeferredPlaylistSummaryRefresh();
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
@@ -11524,6 +11921,11 @@ public class MainWindowViewModel : ViewModel
                 RefreshPlaylistSummaryIfVisible("playlist_tables_collection_changed", invalidateTableCountCache: true);
                 return;
             }
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_tables_collection_changed"))
+            {
+                RequestDeferredPlaylistSummaryRefresh();
+                return;
+            }
             RaisePropertyChanged(() => BMSTables);
             RefreshPlaylistSummaryIfVisible("playlist_tables_collection_changed", invalidateTableCountCache: true);
         });
@@ -11531,6 +11933,11 @@ public class MainWindowViewModel : ViewModel
         {
             TryCompleteStartupProgressPlaylistEntriesHydration(tables.PlaylistEntriesHydrationCompletedVersion);
             ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_entries_hydration_completed"))
+            {
+                RequestDeferredPlaylistSummaryRefresh();
+                return;
+            }
             RefreshPlaylistSummaryIfVisible("playlist_entries_hydration_completed", invalidateTableCountCache: true);
             RefreshPlaylistDetailAfterReloadIfVisible();
         });
@@ -14209,6 +14616,10 @@ public class MainWindowViewModel : ViewModel
     {
         Action refresh = delegate
         {
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "maintenance_hydration_completed"))
+            {
+                return;
+            }
             if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected
                 || treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected
                 || treeViewFilterTypeSelected == viewUpdateMode.FullScanAllChartsFilterSelected)
@@ -14865,6 +15276,10 @@ public class MainWindowViewModel : ViewModel
             startupBackgroundTaskMetrics.Clear();
             startupBackgroundTaskRunningCount = 0;
             startupBackgroundTaskSchedulerStarted = ShouldStartStartupBackgroundTaskSchedulerAfterReset(operationKind, startupReadyOperableReached);
+        }
+        lock (lockUiSuppression)
+        {
+            deferredStartupPresentationMask = UiRefreshChannel.None;
         }
         startupInitializationCompleteStopwatch = null;
         startupInitializationCompleteLogged = false;
@@ -15629,7 +16044,42 @@ public class MainWindowViewModel : ViewModel
         }
         LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
         LogUiSuppression(BuildStartupBackgroundSummaryLog(elapsedMs));
-        ShowInitialSetupCompletionMessageIfPending();
+        if (!QueueDeferredStartupPresentationFlushAfterInitialization())
+        {
+            ShowInitialSetupCompletionMessageIfPending();
+        }
+    }
+
+    private bool QueueDeferredStartupPresentationFlushAfterInitialization()
+    {
+        UiRefreshChannel mask;
+        lock (lockUiSuppression)
+        {
+            mask = deferredStartupPresentationMask;
+            deferredStartupPresentationMask = UiRefreshChannel.None;
+        }
+        if (mask == UiRefreshChannel.None)
+        {
+            return false;
+        }
+        Action flush = delegate
+        {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            LogUiSuppression("startup_presentation_flush start mask=" + mask);
+            FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken(), allowStartupPresentationDefer: false, logReadiness: false);
+            stopwatch.Stop();
+            LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
+            ShowInitialSetupCompletionMessageIfPending();
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            flush();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(flush);
+        }
+        return true;
     }
 
     private void ShowInitialSetupCompletionMessageIfPending()

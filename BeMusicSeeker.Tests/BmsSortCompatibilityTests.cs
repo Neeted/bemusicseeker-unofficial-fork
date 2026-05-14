@@ -331,6 +331,76 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void MainViewSortColumnDependency_ClassifiesMainColumnFamilies()
+    {
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(null));
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.Title)));
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.Folder)));
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.path)));
+        Assert.AreEqual(MainViewDataDependency.Score, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.rateDouble)));
+        Assert.AreEqual(MainViewDataDependency.Score, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.rankingString)));
+        Assert.AreEqual(MainViewDataDependency.ChartInfo, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.ChartTotalSortKey)));
+        Assert.AreEqual(MainViewDataDependency.Maintenance, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.WAVHealth)));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_SkipsScoreUpdateWhenFullNormalLibrarySortIsUnaffected()
+    {
+        MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Score,
+            reason: "score_hydration_completed");
+
+        Assert.AreEqual(MainViewRefreshAction.SkipMainViewRefresh, decision.Action);
+        Assert.AreEqual(MainViewDataDependency.Score, decision.Dependency);
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenScoreUpdateCanAffectCurrentView()
+    {
+        MainViewRefreshDecision scoreSortDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.rateDouble),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Score,
+            reason: "ranking_refresh_completed");
+        MainViewRefreshDecision keywordDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: "rate:>90",
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Score,
+            reason: "score_hydration_completed");
+        MainViewRefreshDecision unknownSortDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: "UnknownComputedColumn",
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Score,
+            reason: "score_hydration_completed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, scoreSortDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, keywordDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, unknownSortDecision.Action);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void LibraryChartRowSortEngine_TitleAndPathSupportAscendingAndDescending()
     {
         LibraryChartRow alphaLatePath = CreateLibraryChartRow("z_alpha.bms", "Alpha", level: 1);
