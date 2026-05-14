@@ -972,10 +972,11 @@ public sealed class CustomTableView : Grid
         }
         CommitActiveEdit();
         CloseCellToolTip();
-        if (!IsDescendantOfScrollBar(e.OriginalSource as DependencyObject))
+        if (IsDescendantOfScrollChrome(e.OriginalSource as DependencyObject))
         {
-            Focus();
+            return;
         }
+        Focus();
         CustomTableHitTestResult hit = HitTestTable(e.GetPosition(surface));
         if (hit.Kind == CustomTableHitKind.HeaderResize)
         {
@@ -1037,14 +1038,6 @@ public sealed class CustomTableView : Grid
             }
             e.Handled = true;
             return;
-        }
-        if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == ModifierKeys.None && selectionModel.Clear())
-        {
-            ClearPendingSingleSelectionOnMouseUp();
-            UpdateSelectedIndexFromSelectionModel();
-            RaiseSelectionChanged();
-            RequestRedraw("selection");
-            e.Handled = true;
         }
         ClearDragState();
     }
@@ -2092,11 +2085,13 @@ public sealed class CustomTableView : Grid
         return new CustomTableHitTestResult(CustomTableHitKind.Empty, -1, null, null, -1, Rect.Empty);
     }
 
-    private bool IsDescendantOfScrollBar(DependencyObject source)
+    private bool IsDescendantOfScrollChrome(DependencyObject source)
     {
         while (source != null)
         {
-            if (ReferenceEquals(source, verticalScrollBar) || ReferenceEquals(source, horizontalScrollBar))
+            if (ReferenceEquals(source, verticalScrollBar)
+                || ReferenceEquals(source, horizontalScrollBar)
+                || ReferenceEquals(source, scrollBarCorner))
             {
                 return true;
             }
