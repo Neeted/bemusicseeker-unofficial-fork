@@ -5539,6 +5539,12 @@ public class MainWindowViewModel : ViewModel
         | UiRefreshChannel.PlaylistTree
         | UiRefreshChannel.DuplicateTree;
 
+    private const UiRefreshChannel StartupBasicPresentationChannels =
+        UiRefreshChannel.LibraryFolderTree
+        | UiRefreshChannel.PlaylistTree;
+
+    private const string StartupUiSuppressFlushReason = "startup_ui_suppress_flush";
+
     private PlaylistPropertyDialogViewModel _playlistPropertyDialog;
 
     private bool initializationCompleted;
@@ -7723,7 +7729,7 @@ public class MainWindowViewModel : ViewModel
 
     private UiRefreshChannel DeferStartupPresentationChannels(UiRefreshChannel mask, long operationToken, string reason)
     {
-        UiRefreshChannel deferredChannel = mask & StartupDeferredPresentationChannels;
+        UiRefreshChannel deferredChannel = GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(treeViewFilterTypeSelected));
         if (deferredChannel == UiRefreshChannel.None || !ShouldDeferStartupPresentationRefresh(deferredChannel, operationToken))
         {
             return mask;
@@ -7736,6 +7742,61 @@ public class MainWindowViewModel : ViewModel
         }
         LogUiSuppression("startup_presentation_deferred reason=" + (reason ?? string.Empty) + " channel=" + deferredChannel + " pending=" + pendingMask);
         return mask & ~deferredChannel;
+    }
+
+    private static bool CanShowStartupBasicLibraryMainView(viewUpdateMode currentTreeMode)
+    {
+        return currentTreeMode == viewUpdateMode.FolderFilterSelected
+            || currentTreeMode == viewUpdateMode.FullScanAllChartsFilterSelected;
+    }
+
+    private static UiRefreshChannel GetStartupBasicPresentationChannels(bool includeLibraryMainView)
+    {
+        UiRefreshChannel channels = StartupBasicPresentationChannels;
+        if (includeLibraryMainView)
+        {
+            channels |= UiRefreshChannel.LibraryMainView;
+        }
+        return channels;
+    }
+
+    private static UiRefreshChannel GetStartupPresentationDeferredChannels(UiRefreshChannel mask, string reason, bool includeBasicLibraryMainView)
+    {
+        UiRefreshChannel deferredChannel = mask & StartupDeferredPresentationChannels;
+        if (string.Equals(reason, StartupUiSuppressFlushReason, StringComparison.Ordinal))
+        {
+            deferredChannel &= ~GetStartupBasicPresentationChannels(includeBasicLibraryMainView);
+        }
+        return deferredChannel;
+    }
+
+    internal static bool IsStartupPresentationDeferredForTest(
+        viewUpdateMode currentTreeMode,
+        bool startupUiSuppressFlush,
+        bool libraryMainView,
+        bool libraryFolderTree,
+        bool playlistTree,
+        bool duplicateTree)
+    {
+        UiRefreshChannel mask = UiRefreshChannel.None;
+        if (libraryMainView)
+        {
+            mask |= UiRefreshChannel.LibraryMainView;
+        }
+        if (libraryFolderTree)
+        {
+            mask |= UiRefreshChannel.LibraryFolderTree;
+        }
+        if (playlistTree)
+        {
+            mask |= UiRefreshChannel.PlaylistTree;
+        }
+        if (duplicateTree)
+        {
+            mask |= UiRefreshChannel.DuplicateTree;
+        }
+        string reason = startupUiSuppressFlush ? StartupUiSuppressFlushReason : "background_hydration";
+        return GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(currentTreeMode)) != UiRefreshChannel.None;
     }
 
     private bool IsUiUpdateSuppressed()
@@ -8574,6 +8635,9 @@ public class MainWindowViewModel : ViewModel
     private void RefreshChartInfoDependentViews()
     {
         BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+        MainViewDataDependency libraryDependency = bmsonSyncResult.MembershipChanged
+            ? MainViewDataDependency.SourceMembership
+            : MainViewDataDependency.ChartInfo;
         if (bmsonSyncResult.SortKeyChanged)
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
@@ -8583,18 +8647,20 @@ public class MainWindowViewModel : ViewModel
             IncrementNormalLibrarySourceGeneration("bmson_membership_changed");
         }
         ResetRegularDerivedViewCaches();
-        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
+        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
         {
             RequestDeferredPlaylistSummaryRefresh();
-            return;
         }
-        RefreshPlaylistSummaryIfVisible("chart_info_dependent_views", invalidateTableCountCache: true);
-        RefreshPlaylistDetailAfterReloadIfVisible();
+        else
+        {
+            RefreshPlaylistSummaryIfVisible("chart_info_dependent_views", invalidateTableCountCache: true);
+            RefreshPlaylistDetailAfterReloadIfVisible();
+        }
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             return;
         }
-        RefreshLibraryMainViewForCurrentFilter();
+        RefreshLibraryMainViewForDataDependency(libraryDependency, "chart_info_dependent_views");
     }
 
     private void ScheduleDeferredLibraryFolderTreeRefresh()
@@ -13947,12 +14013,12 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "score_hydration_completed"))
+            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "score_hydration_completed");
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "score_hydration_completed"))
             {
                 RequestDeferredPlaylistSummaryRefresh();
                 return;
             }
-            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "score_hydration_completed");
             RefreshPlaylistSummaryIfVisible("score_hydration_completed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreSnapshotVersion, delegate
@@ -13975,12 +14041,12 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "ranking_refresh_completed"))
+            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "ranking_refresh_completed");
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "ranking_refresh_completed"))
             {
                 RequestDeferredPlaylistSummaryRefresh();
                 return;
             }
-            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "ranking_refresh_completed");
             RefreshPlaylistSummaryIfVisible("ranking_refresh_completed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationRequestedVersion, delegate
@@ -14140,6 +14206,10 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_garbled_changed"))
+                {
+                    return;
+                }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
@@ -14148,6 +14218,10 @@ public class MainWindowViewModel : ViewModel
             if (treeViewFilterTypeSelected == viewUpdateMode.GarbleFixedFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
+                {
+                    return;
+                }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_garbled_fixed_changed"))
                 {
                     return;
                 }
@@ -14162,6 +14236,10 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_unregistered_changed"))
+                {
+                    return;
+                }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
@@ -14171,6 +14249,10 @@ public class MainWindowViewModel : ViewModel
             if (treeViewFilterTypeSelected == viewUpdateMode.ZeroNoteFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
+                {
+                    return;
+                }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_zero_note_changed"))
                 {
                     return;
                 }
@@ -14187,6 +14269,10 @@ public class MainWindowViewModel : ViewModel
             if (treeViewFilterTypeSelected == viewUpdateMode.ChartInfoParseErrorFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
+                {
+                    return;
+                }
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_chart_info_parse_failed_changed"))
                 {
                     return;
                 }

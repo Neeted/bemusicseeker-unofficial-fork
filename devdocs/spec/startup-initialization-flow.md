@@ -149,7 +149,7 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 | `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | BMS package drop など導入系 UI を操作できる境界。所持譜面一覧 / プレイリスト一覧の完全操作可能境界ではない |
 | `startup_initialization_complete` | expected background phase と startup scheduler queue が空になった |
 | `startup_background_summary` | background task の queue/start/complete/failed/elapsed/lane/dependency summary |
-| `startup_presentation_flush` | 起動中に遅延した所持譜面 / プレイリスト系 presentation を、初期化完了後にまとめて反映した |
+| `startup_presentation_flush` | 起動中に遅延した enrichment / playlist reference 依存の presentation を、初期化完了後にまとめて反映した |
 
 ## Startup Background Scheduler
 
@@ -166,7 +166,9 @@ startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask
 
 `Startup` では scheduler は `startup_ready_operable` 到達まで開始しない。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation 開始時の reset 後も scheduler を runnable に保つ。これは reload 中に `playlist_entries_hydration`、`external_playlist_sync`、`score_hydration_deferred`、`ranking_refresh_deferred` など operation ごとの background task を queue したまま止めないための仕様である。`ReloadTables` 自体は score/ranking を queue しない。
 
-`Startup` 中の presentation は、導入系 UI と所持譜面 / プレイリスト系 UI を分けて扱う。`InstallTree` は `startup_ready_ui` / `startup_ready_operable` の判定対象にするが、`LibraryMainView`、`LibraryFolderTree`、`PlaylistTree`、`DuplicateTree` は `startup_initialization_complete` 後に `startup_presentation_flush` としてまとめて反映する。これにより、初期選択がライブラリでも background hydration の途中で 20 万件規模の `LibraryChartRow` 投影や playlist presentation を作らず、`ranking`、`score`、`chart_info`、`maintenance`、`playlist_entries`、playlist reference apply が揃ったスナップショットを 1 回だけ表示する。
+`Startup` 中の presentation は、導入系 UI、基本 catalog UI、enrichment / playlist reference 依存 UI を分けて扱う。`InstallTree` は従来通り `startup_ready_ui` / `startup_ready_operable` の判定対象にする。通常ライブラリ root / folder / FullScanAllCharts の `LibraryMainView`、`LibraryFolderTree`、`PlaylistTree` は、`files.InitializeStartup()` 完了後の `ui_suppress` flush で basic presentation として反映してよい。この段階の一覧は `song` / bmson catalog と identity sort key を正本にし、仮想 `IList` により可視行だけを `LibraryChartRow` 化する。`DuplicateTree` と、`FileMissing` / `Garbled` / `ZeroNote` / `ChartInfoParseError` など maintenance / warning 系 tree mode の `LibraryMainView` は、対象 snapshot が未確定のため `startup_initialization_complete` 後の `startup_presentation_flush` まで遅延する。
+
+`startup_presentation_flush` は、初期一覧そのものを初めて出す境界ではなく、`score`、`ranking`、`chart_info`、`maintenance`、`playlist_entries`、playlist reference apply に依存する未反映 presentation をまとめて流す境界である。ユーザーが起動中に `path:` など基本列だけの keyword filter を入力した場合も、この basic presentation と同じ扱いで表示できる。score / chart_info / maintenance / warning 依存の sort、filter、表示列は background hydration 完了後の依存更新で反映する。
 
 通常ライブラリの default 表示では、presentation flush 後も全件 `LibraryChartRow` を作らない。`BMSFile` / bmson の軽量 source row と `ChartListOrder` だけを全件分作り、`BMSFilesView` は仮想 `IList` として公開する。初回描画、クリック、tooltip、右クリックなどの表示系操作では `CustomTableView` が参照した index の行だけを `LibraryChartRow` に実体化する。default 表示から registry 対応列の Asc / Desc へ sort しても仮想 `IList` を維持し、source row は generation / row count が一致する範囲で再利用する。現行 registry は identity / install destination / ref-table 系に加えて、warning digest (`WarningDigestText`)、score 系 (`clear`, `rateDouble`, `score`, `maxcombo`, `minbp`, `rankingString`, `rankingLastupdate`, `stddevVal`, `scoreDifficulty`)、chart_info 系 (`ChartLevelSortKey`, BPM, duration, judge, feature, notes, TOTAL, density, soflan count など)、maintenance 直読列 (`WAVHealth`, `BGAHealth`, `MovieHealth`, `encoding`) を含む。
 
@@ -214,7 +216,7 @@ read-only hydration loader のルール:
 | `score_hydration_deferred` | DB ではなく memory score snapshot を `BMSFile` へ attach する |
 | `ranking_refresh_deferred` | `ir_score` 系の未送信検出と `ir_data` / cache XML 系の ranking 情報を更新する |
 
-background hydration 完了時の通常ライブラリ一覧更新は、起動中と起動後で扱いを分ける。`Startup` 中は `Score` / `Ranking` / `ChartInfo` / `Maintenance` / `PlaylistEntries` のいずれも所持譜面・プレイリスト系 presentation へ即時反映せず、`startup_initialization_complete` 後の `startup_presentation_flush` でまとめて反映する。起動後の reload / score-only update では、現在の表示条件と sort/filter が依存するデータ種別に基づいて更新を判定する。`Score` / `Ranking` 完了は score 系列 (`Clear`、`Rank`、`Rate`、`Score`、`BP`、`Ranking` など) の値を更新するが、`Title`、`Folder`、`path` などの identity sort key には影響しない。このため、通常ライブラリ全体表示で keyword/filter が空、かつ現在の sort が score 系列に依存しない場合は、全件 `main_view_build` を行わず、既存 row の property change による表示更新に任せる。
+background hydration 完了時の通常ライブラリ一覧更新は、起動中と起動後で扱いを分ける。`Startup` 中でも basic presentation 済みの通常ライブラリは表示されたままにし、`Score` / `Ranking` / `ChartInfo` / `Maintenance` / `PlaylistEntries` の完了は現在の表示条件と sort/filter の依存関係に基づいて扱う。`Score` / `Ranking` のように現在の通常ライブラリ全体表示へ影響しない更新は、起動中でも全件 `main_view_build` を行わない。`ChartInfo` / `Maintenance` / playlist reference apply など、表示列や warning、playlist reference 表示へ影響しうる更新は `startup_initialization_complete` 後の `startup_presentation_flush` へ遅延できる。起動後の reload / score-only update でも、同じく現在の表示条件と sort/filter が依存するデータ種別に基づいて更新を判定する。`Score` / `Ranking` 完了は score 系列 (`Clear`、`Rank`、`Rate`、`Score`、`BP`、`Ranking` など) の値を更新するが、`Title`、`Folder`、`path` などの identity sort key には影響しない。このため、通常ライブラリ全体表示で keyword/filter が空、かつ現在の sort が score 系列に依存しない場合は、全件 `main_view_build` を行わず、既存 row の property change による表示更新に任せる。
 
 `ChartInfo` hydration は `Level`、BPM、notes、TOTAL、density など chart info 系列に影響するが、`Title`、`Folder`、`path` には影響しない。通常ライブラリの sort cache は、所持譜面 membership 変更や identity sort key 変更で無効化し、chart info / score / maintenance の完了だけで identity sort cache を落とさない。ChartInfo hydrate は大量 owner へ silent attach するため、起動後に表示中の chart info 列を反映する main view refresh は維持するが、その refresh で identity sort cache を破棄しない。
 

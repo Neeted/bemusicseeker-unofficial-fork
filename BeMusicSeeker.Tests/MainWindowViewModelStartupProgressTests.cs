@@ -85,6 +85,81 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupPresentationDeferPolicy_AllowsBasicCatalogFlushOnlyAtUiSuppressEnd()
+    {
+        Assert.IsFalse(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            startupUiSuppressFlush: true,
+            libraryMainView: true,
+            libraryFolderTree: false,
+            playlistTree: false,
+            duplicateTree: false));
+        Assert.IsFalse(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            startupUiSuppressFlush: true,
+            libraryMainView: false,
+            libraryFolderTree: true,
+            playlistTree: false,
+            duplicateTree: false));
+        Assert.IsFalse(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            startupUiSuppressFlush: true,
+            libraryMainView: false,
+            libraryFolderTree: false,
+            playlistTree: true,
+            duplicateTree: false));
+        Assert.IsTrue(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            startupUiSuppressFlush: true,
+            libraryMainView: false,
+            libraryFolderTree: false,
+            playlistTree: false,
+            duplicateTree: true));
+        Assert.IsTrue(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+            MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected,
+            startupUiSuppressFlush: true,
+            libraryMainView: true,
+            libraryFolderTree: false,
+            playlistTree: false,
+            duplicateTree: false));
+        Assert.IsFalse(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+            MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected,
+            startupUiSuppressFlush: true,
+            libraryMainView: true,
+            libraryFolderTree: false,
+            playlistTree: false,
+            duplicateTree: false));
+        foreach (MainWindowViewModel.viewUpdateMode maintenanceMode in new[]
+        {
+            MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected,
+            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            MainWindowViewModel.viewUpdateMode.GarbledFilterSelected,
+            MainWindowViewModel.viewUpdateMode.GarbleFixedFilterSelected,
+            MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected,
+            MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected,
+            MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected
+        })
+        {
+            Assert.IsTrue(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+                maintenanceMode,
+                startupUiSuppressFlush: true,
+                libraryMainView: true,
+                libraryFolderTree: false,
+                playlistTree: false,
+                duplicateTree: false),
+                maintenanceMode.ToString());
+        }
+        Assert.IsTrue(MainWindowViewModel.IsStartupPresentationDeferredForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            startupUiSuppressFlush: false,
+            libraryMainView: true,
+            libraryFolderTree: false,
+            playlistTree: false,
+            duplicateTree: false));
+    }
+
+    [TestMethod]
     public void StartupProgress_ReloadFileDiff_TracksOnlyFileDiffAndPlaylistPhases()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
