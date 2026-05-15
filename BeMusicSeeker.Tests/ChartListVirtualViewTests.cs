@@ -371,6 +371,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualBmsFileSubsetTreeModes_AreLimitedToBmsFileCollections()
     {
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected));
         Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
         Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected));
         Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
@@ -379,22 +380,26 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected));
         Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected));
         Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
 
         Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected));
     }
 
     [TestMethod]
-    public void VirtualBmsFileSubsetResourceHealthProjection_IsLimitedToFileMissingModes()
+    public void VirtualBmsFileSubsetResourceHealthProjection_MatchesMaterializedModes()
     {
+        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected));
         Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
         Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected));
 
         Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.GarbledFilterSelected));
         Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected));
         Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected));
         Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
     }
 
     [TestMethod]

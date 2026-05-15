@@ -9864,7 +9864,7 @@ public class MainWindowViewModel : ViewModel
         viewUpdateMode treeMode = treeViewFilterTypeSelected;
         object subsetParameter = GetVirtualBmsFileSubsetParameter(treeMode, parameter);
         if (!IsVirtualBmsFileSubsetRequestModeSupported(mode, treeMode)
-            || !TryGetVirtualBmsFileSubsetSourceFiles(treeMode, subsetParameter, out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles, out string subsetName))
+            || !TryGetVirtualBmsFileSubsetSourceFiles(treeMode, subsetParameter, out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles, out IEnumerable<LR2SongDBExtended.bmson_song> subsetBmsonSongs, out string subsetName))
         {
             return false;
         }
@@ -9880,7 +9880,7 @@ public class MainWindowViewModel : ViewModel
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
             subsetFiles,
-            null,
+            subsetBmsonSongs,
             applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
@@ -10014,6 +10014,11 @@ public class MainWindowViewModel : ViewModel
     {
         if (treeMode != viewUpdateMode.DuplicateFilterSelected)
         {
+            if (treeMode == viewUpdateMode.NewlyInstalledFolderSelected
+                || treeMode == viewUpdateMode.PendingInstallFolderSelected)
+            {
+                return treeViewFilterParameterSelected ?? parameter;
+            }
             return parameter;
         }
         return NormalizeDuplicateViewParameter(treeViewFilterParameterSelected ?? parameter);
@@ -10021,9 +10026,22 @@ public class MainWindowViewModel : ViewModel
 
     private LibraryChartRow CreateVirtualBmsFileSubsetRow(ChartListSourceRow sourceRow, bool applyResourceHealthProjection)
     {
-        if (sourceRow?.BmsFile == null)
+        if (sourceRow == null)
         {
             return null;
+        }
+        if (sourceRow.BmsFile == null)
+        {
+            if (sourceRow.BmsonSong == null)
+            {
+                return null;
+            }
+            LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
+            if (applyResourceHealthProjection)
+            {
+                ApplyResourceHealthProjectionProvider(bmsonRow);
+            }
+            return bmsonRow;
         }
         LibraryChartRow row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
         if (applyResourceHealthProjection)
@@ -10637,24 +10655,34 @@ public class MainWindowViewModel : ViewModel
 
     private static bool IsVirtualBmsFileSubsetTreeModeSupported(viewUpdateMode mode)
     {
-        return mode == viewUpdateMode.FileMissingFilterSelected
+        return mode == viewUpdateMode.FullScanAllChartsFilterSelected
+            || mode == viewUpdateMode.FileMissingFilterSelected
             || mode == viewUpdateMode.FileMissingIgnoredFilterSelected
             || mode == viewUpdateMode.DuplicateFilterSelected
             || mode == viewUpdateMode.GarbledFilterSelected
             || mode == viewUpdateMode.GarbleFixedFilterSelected
             || mode == viewUpdateMode.UnregisteredFilterSelected
             || mode == viewUpdateMode.ZeroNoteFilterSelected
-            || mode == viewUpdateMode.ChartInfoParseErrorFilterSelected;
+            || mode == viewUpdateMode.ChartInfoParseErrorFilterSelected
+            || mode == viewUpdateMode.NewlyInstalledFolderSelected
+            || mode == viewUpdateMode.PendingInstallFolderSelected;
     }
 
     private bool TryGetVirtualBmsFileSubsetSourceFiles(
         viewUpdateMode treeMode,
         object parameter,
         out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
+        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
         out string subsetName)
     {
+        sourceBmsonSongs = null;
         switch (treeMode)
         {
+            case viewUpdateMode.FullScanAllChartsFilterSelected:
+                sourceFiles = BMSFiles;
+                sourceBmsonSongs = files?.BmsonSongs;
+                subsetName = "full_scan_all";
+                return true;
             case viewUpdateMode.FileMissingFilterSelected:
                 sourceFiles = BMSFilesToBeFixed;
                 subsetName = "file_missing";
@@ -10685,11 +10713,88 @@ public class MainWindowViewModel : ViewModel
                 sourceFiles = BMSFilesChartInfoParseFailed;
                 subsetName = "chart_info_parse_error";
                 return true;
+            case viewUpdateMode.NewlyInstalledFolderSelected:
+                return TryGetVirtualPackageSourceFiles(
+                    BMSPackagesInstalled,
+                    parameter,
+                    "newly_installed_all",
+                    "newly_installed_package",
+                    out sourceFiles,
+                    out subsetName);
+            case viewUpdateMode.PendingInstallFolderSelected:
+                return TryGetVirtualPackageSourceFiles(
+                    BMSPackagesPending,
+                    parameter,
+                    "pending_install_all",
+                    "pending_install_package",
+                    out sourceFiles,
+                    out subsetName);
             default:
                 sourceFiles = null;
                 subsetName = string.Empty;
                 return false;
         }
+    }
+
+    private bool TryGetVirtualPackageSourceFiles(
+        IEnumerable<BMSPackage> packages,
+        object parameter,
+        string allSubsetName,
+        string packageSubsetName,
+        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
+        out string subsetName)
+    {
+        if (packages == null)
+        {
+            sourceFiles = Array.Empty<BeMusicSeeker.Models.BMSFile>();
+            subsetName = allSubsetName;
+            return true;
+        }
+        if (parameter is BMSPackage package)
+        {
+            sourceFiles = package.BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
+            subsetName = packageSubsetName;
+            return true;
+        }
+
+        sourceFiles = CreatePackageFileSnapshot(packages);
+        subsetName = allSubsetName;
+        return true;
+    }
+
+    private static List<BeMusicSeeker.Models.BMSFile> CreatePackageFileSnapshot(IEnumerable<BMSPackage> packages)
+    {
+        List<BeMusicSeeker.Models.BMSFile> snapshot = null;
+        RetryHelper.RetryIfError(delegate
+        {
+            snapshot = CreatePackageFileSnapshotCore(packages);
+        }, delegate (Exception ex)
+        {
+            ExceptionDispatchInfo.Capture(ex).Throw();
+        }, delegate
+        {
+            Thread.Sleep(100);
+        }, 100u);
+        return snapshot ?? new List<BeMusicSeeker.Models.BMSFile>();
+    }
+
+    private static List<BeMusicSeeker.Models.BMSFile> CreatePackageFileSnapshotCore(IEnumerable<BMSPackage> packages)
+    {
+        List<BeMusicSeeker.Models.BMSFile> snapshot = new List<BeMusicSeeker.Models.BMSFile>();
+        foreach (BMSPackage package in packages ?? Enumerable.Empty<BMSPackage>())
+        {
+            try
+            {
+                if (package?.BMSFiles != null)
+                {
+                    snapshot.AddRange(package.BMSFiles.Where(file => file != null));
+                }
+            }
+            catch
+            {
+            }
+        }
+        return snapshot;
     }
 
     private bool TryGetVirtualDuplicateSourceFiles(
@@ -10765,8 +10870,10 @@ public class MainWindowViewModel : ViewModel
 
     private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(viewUpdateMode treeMode)
     {
-        return treeMode == viewUpdateMode.FileMissingFilterSelected
-            || treeMode == viewUpdateMode.FileMissingIgnoredFilterSelected;
+        return treeMode == viewUpdateMode.FullScanAllChartsFilterSelected
+            || treeMode == viewUpdateMode.FileMissingFilterSelected
+            || treeMode == viewUpdateMode.FileMissingIgnoredFilterSelected
+            || treeMode == viewUpdateMode.NewlyInstalledFolderSelected;
     }
 
     private static string CreateVirtualNormalLibraryFilterIdentity(Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)

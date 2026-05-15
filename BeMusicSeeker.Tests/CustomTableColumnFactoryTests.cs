@@ -406,17 +406,23 @@ public sealed class CustomTableColumnFactoryTests
     {
         CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
 
-        CustomTableColumn[] sortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
-            .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
-            .ToArray();
+        AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
+    }
 
-        Assert.IsTrue(sortableColumns.Length > 0);
-        foreach (CustomTableColumn column in sortableColumns)
-        {
-            Assert.IsTrue(
-                ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out _),
-                column.Id + " uses unsupported SortMemberPath " + column.SortMemberPath);
-        }
+    [TestMethod]
+    public void CreateMainColumns_FullScanVisibleSortMemberPathsAreVirtualRegistryColumns()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN);
+
+        AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_InstallVisibleSortMemberPathsAreVirtualRegistryColumns()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL);
+
+        AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
     }
 
     [TestMethod]
@@ -436,6 +442,21 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(1, unsupportedSortableColumns.Length);
         Assert.AreEqual("EntryLevel", unsupportedSortableColumns[0].Id);
         Assert.AreEqual("EntryLevelSortKey", unsupportedSortableColumns[0].SortMemberPath);
+    }
+
+    private static void AssertVisibleSortMemberPathsAreVirtualRegistryColumns(CustomTableColumnSettings settings)
+    {
+        CustomTableColumn[] sortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
+            .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
+            .ToArray();
+
+        Assert.IsTrue(sortableColumns.Length > 0);
+        foreach (CustomTableColumn column in sortableColumns)
+        {
+            Assert.IsTrue(
+                ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out _),
+                column.Id + " uses unsupported SortMemberPath " + column.SortMemberPath);
+        }
     }
 
     [TestMethod]
