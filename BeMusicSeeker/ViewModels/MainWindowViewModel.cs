@@ -9862,8 +9862,9 @@ public class MainWindowViewModel : ViewModel
     private bool TryApplyVirtualBmsFileSubsetLibraryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
     {
         viewUpdateMode treeMode = treeViewFilterTypeSelected;
+        object subsetParameter = GetVirtualBmsFileSubsetParameter(treeMode, parameter);
         if (!IsVirtualBmsFileSubsetRequestModeSupported(mode, treeMode)
-            || !TryGetVirtualBmsFileSubsetSourceFiles(treeMode, out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles, out string subsetName))
+            || !TryGetVirtualBmsFileSubsetSourceFiles(treeMode, subsetParameter, out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles, out string subsetName))
         {
             return false;
         }
@@ -9974,7 +9975,7 @@ public class MainWindowViewModel : ViewModel
 
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirectionText = SortParameters?.Direction.ToString() ?? "Ascending";
-        string parameterType = parameter?.GetType().Name ?? "(null)";
+        string parameterType = subsetParameter?.GetType().Name ?? "(null)";
         LogMainViewBuild("main_view_build mode=" + mode
             + " requestedMode=" + requestedMode
             + " treeMode=" + treeMode
@@ -10007,6 +10008,15 @@ public class MainWindowViewModel : ViewModel
             + " viewRowsCreated=" + nextRowsView.RealizedRowCount
             + " distinctFolderCount=" + distinctFolderCount);
         return true;
+    }
+
+    private object GetVirtualBmsFileSubsetParameter(viewUpdateMode treeMode, object parameter)
+    {
+        if (treeMode != viewUpdateMode.DuplicateFilterSelected)
+        {
+            return parameter;
+        }
+        return NormalizeDuplicateViewParameter(treeViewFilterParameterSelected ?? parameter);
     }
 
     private LibraryChartRow CreateVirtualBmsFileSubsetRow(ChartListSourceRow sourceRow, bool applyResourceHealthProjection)
@@ -10629,6 +10639,7 @@ public class MainWindowViewModel : ViewModel
     {
         return mode == viewUpdateMode.FileMissingFilterSelected
             || mode == viewUpdateMode.FileMissingIgnoredFilterSelected
+            || mode == viewUpdateMode.DuplicateFilterSelected
             || mode == viewUpdateMode.GarbledFilterSelected
             || mode == viewUpdateMode.GarbleFixedFilterSelected
             || mode == viewUpdateMode.UnregisteredFilterSelected
@@ -10638,6 +10649,7 @@ public class MainWindowViewModel : ViewModel
 
     private bool TryGetVirtualBmsFileSubsetSourceFiles(
         viewUpdateMode treeMode,
+        object parameter,
         out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
         out string subsetName)
     {
@@ -10651,6 +10663,8 @@ public class MainWindowViewModel : ViewModel
                 sourceFiles = BMSFilesToBeFixedIgnored;
                 subsetName = "file_missing_ignored";
                 return true;
+            case viewUpdateMode.DuplicateFilterSelected:
+                return TryGetVirtualDuplicateSourceFiles(parameter, out sourceFiles, out subsetName);
             case viewUpdateMode.GarbledFilterSelected:
                 sourceFiles = BMSFilesGarbled;
                 subsetName = "garbled";
@@ -10676,6 +10690,77 @@ public class MainWindowViewModel : ViewModel
                 subsetName = string.Empty;
                 return false;
         }
+    }
+
+    private bool TryGetVirtualDuplicateSourceFiles(
+        object parameter,
+        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
+        out string subsetName)
+    {
+        if (BMSFilesDuplicated == null)
+        {
+            sourceFiles = Array.Empty<BeMusicSeeker.Models.BMSFile>();
+            subsetName = "duplicate_empty";
+            return true;
+        }
+
+        object normalizedParameter = NormalizeDuplicateViewParameter(parameter);
+        if (normalizedParameter == null)
+        {
+            sourceFiles = CreateDuplicateFileSnapshot();
+            subsetName = "duplicate_all";
+            return true;
+        }
+        if (normalizedParameter is DuplicateViewContext duplicateContext)
+        {
+            if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
+            {
+                DuplicateGroup duplicateGroup = BMSFilesDuplicated.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
+                sourceFiles = duplicateGroup != null ? duplicateGroup.Files.ToList() : CreateDuplicateFileSnapshot();
+                subsetName = "duplicate_group";
+                return true;
+            }
+
+            sourceFiles = CreateDuplicateFolderFileSnapshot(duplicateContext.Value);
+            subsetName = "duplicate_folder";
+            return true;
+        }
+        if (normalizedParameter is List<BeMusicSeeker.Models.BMSFile> list)
+        {
+            sourceFiles = list;
+            subsetName = "duplicate_list";
+            return true;
+        }
+        if (normalizedParameter is DuplicateGroup groupParameter)
+        {
+            sourceFiles = groupParameter.Files.ToList();
+            subsetName = "duplicate_group";
+            return true;
+        }
+        if (normalizedParameter is string folderPath)
+        {
+            sourceFiles = CreateDuplicateFolderFileSnapshot(folderPath);
+            subsetName = "duplicate_folder";
+            return true;
+        }
+
+        sourceFiles = null;
+        subsetName = string.Empty;
+        return false;
+    }
+
+    private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFileSnapshot()
+    {
+        return BMSFilesDuplicated.SelectMany(group => group.Files).ToList();
+    }
+
+    private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFolderFileSnapshot(string folderPath)
+    {
+        string folderPrefix = folderPath + Path.DirectorySeparatorChar;
+        return BMSFilesDuplicated
+            .SelectMany(group => group.Files)
+            .Where(file => file.path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
     }
 
     private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(viewUpdateMode treeMode)

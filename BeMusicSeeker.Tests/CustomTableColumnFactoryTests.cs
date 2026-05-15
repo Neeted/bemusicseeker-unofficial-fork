@@ -402,6 +402,24 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_DuplicateVisibleSortMemberPathsAreVirtualRegistryColumns()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
+
+        CustomTableColumn[] sortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
+            .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
+            .ToArray();
+
+        Assert.IsTrue(sortableColumns.Length > 0);
+        foreach (CustomTableColumn column in sortableColumns)
+        {
+            Assert.IsTrue(
+                ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out _),
+                column.Id + " uses unsupported SortMemberPath " + column.SortMemberPath);
+        }
+    }
+
+    [TestMethod]
     public void CreateMainColumns_AllSortableMainColumnsAreVirtualRegistryColumnsOrExplicitlyExcluded()
     {
         CustomTableColumnSettings settings = new CustomTableColumnSettings();
