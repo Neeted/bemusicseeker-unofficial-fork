@@ -321,13 +321,22 @@ public sealed class BmsSortCompatibilityTests
     [TestCategory("SortEngine")]
     public void VirtualNormalLibraryModeSupport_CoversNormalListRefreshAndFilterUpdates()
     {
-        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ModeFilterUpdated));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.SortUpdated));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected));
+        MainWindowViewModel.viewUpdateMode[] supportedModes =
+        {
+            MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
+            MainWindowViewModel.viewUpdateMode.ModeFilterUpdated,
+            MainWindowViewModel.viewUpdateMode.SortUpdated
+        };
+
+        foreach (MainWindowViewModel.viewUpdateMode mode in Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode)).Cast<MainWindowViewModel.viewUpdateMode>())
+        {
+            Assert.AreEqual(
+                supportedModes.Contains(mode),
+                MainWindowViewModel.IsVirtualNormalLibraryModeSupportedForTest((int)mode),
+                mode.ToString());
+        }
     }
 
     [TestMethod]

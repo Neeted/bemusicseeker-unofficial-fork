@@ -10696,6 +10696,11 @@ public class MainWindowViewModel : ViewModel
         return IsVirtualBmsFileSubsetTreeModeSupported((viewUpdateMode)mode);
     }
 
+    internal static bool IsVirtualBmsFileSubsetRequestModeSupportedForTest(int mode, int treeMode)
+    {
+        return IsVirtualBmsFileSubsetRequestModeSupported((viewUpdateMode)mode, (viewUpdateMode)treeMode);
+    }
+
     internal static bool ShouldApplyResourceHealthProjectionForVirtualSubsetForTest(int mode)
     {
         return ShouldApplyResourceHealthProjectionForVirtualSubset((viewUpdateMode)mode);

@@ -433,6 +433,76 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void VirtualBmsFileSubsetRequestModes_CoverFilterAndSortUpdates()
+    {
+        MainWindowViewModel.viewUpdateMode[] treeModes =
+        {
+            MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected,
+            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            MainWindowViewModel.viewUpdateMode.GarbledFilterSelected,
+            MainWindowViewModel.viewUpdateMode.GarbleFixedFilterSelected,
+            MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected,
+            MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected,
+            MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected,
+            MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected,
+            MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected
+        };
+        MainWindowViewModel.viewUpdateMode[] refreshModes =
+        {
+            MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
+            MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
+            MainWindowViewModel.viewUpdateMode.ModeFilterUpdated,
+            MainWindowViewModel.viewUpdateMode.SortUpdated
+        };
+
+        MainWindowViewModel.viewUpdateMode[] allModes = Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode))
+            .Cast<MainWindowViewModel.viewUpdateMode>()
+            .ToArray();
+        foreach (MainWindowViewModel.viewUpdateMode treeMode in allModes)
+        {
+            bool expectedTreeSupport = treeModes.Contains(treeMode);
+            Assert.AreEqual(
+                expectedTreeSupport,
+                MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)treeMode),
+                treeMode + " tree support");
+            foreach (MainWindowViewModel.viewUpdateMode requestMode in allModes)
+            {
+                bool expectedRequestSupport = expectedTreeSupport
+                    && (requestMode == treeMode || refreshModes.Contains(requestMode));
+                Assert.AreEqual(
+                    expectedRequestSupport,
+                    MainWindowViewModel.IsVirtualBmsFileSubsetRequestModeSupportedForTest((int)requestMode, (int)treeMode),
+                    treeMode + " request " + requestMode);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void VirtualSortRouteColumns_CreateOrdersForAllChartListViewKinds()
+    {
+        var settings = new[]
+        {
+            new { Name = "STANDARD", Setting = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD) },
+            new { Name = "DUPLICATE", Setting = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE) },
+            new { Name = "FULLSCAN", Setting = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN) },
+            new { Name = "INSTALL", Setting = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL) }
+        };
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), CreateSampleSortBmsons());
+
+        foreach (var item in settings)
+        {
+            foreach (CustomTableColumn column in CustomTableColumnFactory.CreateMainColumns(item.Setting).Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath)))
+            {
+                Assert.IsTrue(
+                    ChartListOrder.TryCreate(sourceRows, column.SortMemberPath, ListSortDirection.Ascending, out _),
+                    item.Name + "." + column.Id + " uses unsupported SortMemberPath " + column.SortMemberPath);
+            }
+        }
+    }
+
+    [TestMethod]
     public void VirtualBmsFileSubsetResourceHealthProjection_MatchesMaterializedModes()
     {
         Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected));
