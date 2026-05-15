@@ -177,18 +177,13 @@ internal sealed class GridKeywordSearchQuery
         return true;
     }
 
-    internal bool CanMatchChartListSourceRow()
-    {
-        return true;
-    }
-
     internal bool MatchesChartListSourceRow(ChartListSourceRow row)
     {
         if (!HasTokens)
         {
             return true;
         }
-        if (row == null || !CanMatchChartListSourceRow())
+        if (row == null)
         {
             return false;
         }

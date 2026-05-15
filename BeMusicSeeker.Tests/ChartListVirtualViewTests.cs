@@ -259,6 +259,51 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void NormalLibraryFilters_ReuseFullOrderSubsetWithoutRealizingRows()
+    {
+        List<BMSFile> files = new List<BMSFile>
+        {
+            CreateFile(@"folder-z\delta.bms", "Delta", "folder-z", artist: "Target Artist", mode: 7),
+            CreateFile(@"folder-z\bravo.bms", "Bravo", "folder-z", artist: "Target Artist", mode: 5),
+            CreateFile(@"folder-y\charlie.bms", "Charlie", "folder-y", artist: "Other Artist", mode: 7),
+            CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a", artist: "Target Artist", mode: 7)
+        };
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
+        Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
+        int[] existingOrderIndexes = fullOrder.Indexes.Reverse().ToArray();
+        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
+
+        int[] filteredIndexes = MainWindowViewModel.ApplyVirtualNormalLibraryFiltersForTest(
+            sourceRows,
+            existingOrderIndexes,
+            file => file.Folder == "folder-z" || file.Folder == "folder-y",
+            keywordQuery,
+            MainWindowViewModel.ModeFilterType._5KEYS | MainWindowViewModel.ModeFilterType._7KEYS,
+            out int folderCount,
+            out int keywordCount,
+            out int modeCount);
+        ChartListOrder filteredOrder = fullOrder.WithIndexes(filteredIndexes);
+        int createdCount = 0;
+        ChartListVirtualView view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
+        {
+            createdCount++;
+            return LibraryChartRow.FromBmsFile(row.BmsFile);
+        });
+
+        CollectionAssert.AreEqual(new[] { "Bravo", "Delta" }, filteredIndexes.Select(index => sourceRows[index].Title).ToArray());
+        Assert.AreEqual(3, folderCount);
+        Assert.AreEqual(2, keywordCount);
+        Assert.AreEqual(2, modeCount);
+        Assert.AreEqual(2, view.Count);
+        Assert.AreEqual(0, view.RealizedRowCount);
+        Assert.AreEqual(0, createdCount);
+
+        Assert.AreEqual("Bravo", ((LibraryChartRow)view[0]).Title);
+        Assert.AreEqual(1, view.RealizedRowCount);
+        Assert.AreEqual(1, createdCount);
+    }
+
+    [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_AreRegistryOrderAscDesc()
     {
         IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();

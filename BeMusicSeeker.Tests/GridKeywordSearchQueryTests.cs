@@ -78,7 +78,6 @@ public sealed class GridKeywordSearchQueryTests
 
         GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
 
-        Assert.IsTrue(query.CanMatchChartListSourceRow());
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)), query.MatchesChartListSourceRow(sourceRow));
     }
@@ -101,7 +100,6 @@ public sealed class GridKeywordSearchQueryTests
 
         GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("title:BmsonTitle artist:BmsonArtist genre:BmsonGenre path:bmson md5:bbbb sha256:cccc");
 
-        Assert.IsTrue(query.CanMatchChartListSourceRow());
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsonSong(song)), query.MatchesChartListSourceRow(sourceRow));
     }
@@ -117,7 +115,6 @@ public sealed class GridKeywordSearchQueryTests
 
         GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000 clear:HC rank:AA score:>=1800 bp:<10");
 
-        Assert.IsTrue(query.CanMatchChartListSourceRow());
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
     }
@@ -133,7 +130,6 @@ public sealed class GridKeywordSearchQueryTests
 
         GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("feature:re:RANDOM judge:re:EASY clear:re:HARD rank:re:^AA$ score:re:^1800$ bp:re:^8$");
 
-        Assert.IsTrue(query.CanMatchChartListSourceRow());
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
     }

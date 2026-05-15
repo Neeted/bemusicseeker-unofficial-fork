@@ -9336,6 +9336,90 @@ public class MainWindowViewModel : ViewModel
             .ToList();
     }
 
+    private static int[] ApplyVirtualNormalLibraryFilters(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
+        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        GridKeywordSearchQuery keywordQuery,
+        ModeFilterType modeFilter,
+        out int folderFilteredCount,
+        out int keywordFilteredCount,
+        out int modeFilteredCount,
+        out long folderStageMs,
+        out long keywordStageMs,
+        out long modeStageMs)
+    {
+        int[] viewOrderedIndexes = (orderedIndexes ?? Array.Empty<int>())
+            .Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)
+            .ToArray();
+
+        Stopwatch stageStopwatch = Stopwatch.StartNew();
+        if (folderFilter != null)
+        {
+            viewOrderedIndexes = viewOrderedIndexes
+                .Where(index =>
+                {
+                    ChartListSourceRow row = sourceRows[index];
+                    return row != null && folderFilter(row.CreateFilterFile());
+                })
+                .ToArray();
+        }
+        folderFilteredCount = viewOrderedIndexes.Length;
+        folderStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
+        if (keywordQuery != null && keywordQuery.HasTokens)
+        {
+            viewOrderedIndexes = viewOrderedIndexes
+                .AsParallel()
+                .AsOrdered()
+                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
+                .ToArray();
+        }
+        keywordFilteredCount = viewOrderedIndexes.Length;
+        keywordStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
+        if (modeFilter != ModeFilterType.All)
+        {
+            HashSet<int?> modeValues = CreateModeFilterValueSet(modeFilter);
+            viewOrderedIndexes = viewOrderedIndexes
+                .Where(index =>
+                {
+                    ChartListSourceRow row = sourceRows[index];
+                    return row != null && modeValues.Contains(row.Mode);
+                })
+                .ToArray();
+        }
+        modeFilteredCount = viewOrderedIndexes.Length;
+        modeStageMs = stageStopwatch.ElapsedMilliseconds;
+        return viewOrderedIndexes;
+    }
+
+    internal static int[] ApplyVirtualNormalLibraryFiltersForTest(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
+        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        GridKeywordSearchQuery keywordQuery,
+        ModeFilterType modeFilter,
+        out int folderFilteredCount,
+        out int keywordFilteredCount,
+        out int modeFilteredCount)
+    {
+        return ApplyVirtualNormalLibraryFilters(
+            sourceRows,
+            orderedIndexes,
+            folderFilter,
+            keywordQuery,
+            modeFilter,
+            out folderFilteredCount,
+            out keywordFilteredCount,
+            out modeFilteredCount,
+            out _,
+            out _,
+            out _);
+    }
+
     private bool TryGetMainSummaryFolderCount(MainViewSummaryCacheKey key, out int distinctFolderCount)
     {
         lock (mainSummaryFolderCountCacheLock)
@@ -9715,11 +9799,6 @@ public class MainWindowViewModel : ViewModel
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
-        if (keywordQuery.HasTokens && !keywordQuery.CanMatchChartListSourceRow())
-        {
-            LogVirtualNormalLibraryFallback(mode, requestedMode, includeBmsonRows, "keyword_requires_materialized");
-            return false;
-        }
         string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
             FolderFilter,
             KeywordFilter,
@@ -9740,47 +9819,18 @@ public class MainWindowViewModel : ViewModel
             out long orderBuildMs);
         long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
-        int[] viewOrderedIndexes = fullOrder.Indexes;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (FolderFilter != null)
-        {
-            viewOrderedIndexes = viewOrderedIndexes
-                .Where(index =>
-                {
-                    ChartListSourceRow row = sourceRows[index];
-                    return row != null && FolderFilter(row.CreateFilterFile());
-                })
-                .ToArray();
-        }
-        int folderFilteredCount = viewOrderedIndexes.Length;
-        long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (keywordQuery.HasTokens)
-        {
-            viewOrderedIndexes = viewOrderedIndexes
-                .AsParallel()
-                .AsOrdered()
-                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
-                .ToArray();
-        }
-        int keywordFilteredCount = viewOrderedIndexes.Length;
-        long keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (ModeFilter != ModeFilterType.All)
-        {
-            HashSet<int?> modeValues = CreateModeFilterValueSet(ModeFilter);
-            viewOrderedIndexes = viewOrderedIndexes
-                .Where(index =>
-                {
-                    ChartListSourceRow row = sourceRows[index];
-                    return row != null && modeValues.Contains(row.Mode);
-                })
-                .ToArray();
-        }
-        int modeFilteredCount = viewOrderedIndexes.Length;
-        long modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        int[] viewOrderedIndexes = ApplyVirtualNormalLibraryFilters(
+            sourceRows,
+            fullOrder.Indexes,
+            FolderFilter,
+            keywordQuery,
+            ModeFilter,
+            out int folderFilteredCount,
+            out int keywordFilteredCount,
+            out int modeFilteredCount,
+            out long folderStageMs,
+            out long keywordStageMs,
+            out long modeStageMs);
 
         ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
 
