@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -263,20 +264,38 @@ public sealed class ChartListVirtualViewTests
     {
         List<BMSFile> files = new List<BMSFile>
         {
-            CreateFile(@"folder-z\delta.bms", "Delta", "folder-z", artist: "Target Artist", mode: 7),
+            CreateFile(@"FOLDER-Z\delta.bms", "Delta", "folder-z", artist: "Target Artist", mode: 7),
             CreateFile(@"folder-z\bravo.bms", "Bravo", "folder-z", artist: "Target Artist", mode: 5),
             CreateFile(@"folder-y\charlie.bms", "Charlie", "folder-y", artist: "Other Artist", mode: 7),
             CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a", artist: "Target Artist", mode: 7)
         };
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
+        List<LR2SongDBExtended.bmson_song> bmsons = new List<LR2SongDBExtended.bmson_song>
+        {
+            new LR2SongDBExtended.bmson_song
+            {
+                path = @"folder-z\echo.bmson",
+                folder = "folder-z",
+                title = "Echo",
+                artist = "Target Artist",
+                mode_hint = "beat-7k",
+                level = 7,
+                md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                sha256 = "6666666666666666666666666666666666666666666666666666666666666666"
+            }
+        };
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, bmsons);
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
         int[] existingOrderIndexes = fullOrder.Indexes.Reverse().ToArray();
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
+        Func<ChartListSourceRow, bool> folderFilter = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
+            MainWindowViewModel.FolderFilterType.DirectoryFilter,
+            "folder-z",
+            out string folderFilterIdentity);
 
         int[] filteredIndexes = MainWindowViewModel.ApplyVirtualNormalLibraryFiltersForTest(
             sourceRows,
             existingOrderIndexes,
-            file => file.Folder == "folder-z" || file.Folder == "folder-y",
+            folderFilter,
             keywordQuery,
             MainWindowViewModel.ModeFilterType._5KEYS | MainWindowViewModel.ModeFilterType._7KEYS,
             out int folderCount,
@@ -290,17 +309,38 @@ public sealed class ChartListVirtualViewTests
             return LibraryChartRow.FromBmsFile(row.BmsFile);
         });
 
-        CollectionAssert.AreEqual(new[] { "Bravo", "Delta" }, filteredIndexes.Select(index => sourceRows[index].Title).ToArray());
+        Assert.AreEqual("directory:folder-z" + Path.DirectorySeparatorChar, folderFilterIdentity);
+        CollectionAssert.AreEqual(new[] { "Bravo", "Delta", "Echo" }, filteredIndexes.Select(index => sourceRows[index].Title).ToArray());
         Assert.AreEqual(3, folderCount);
-        Assert.AreEqual(2, keywordCount);
-        Assert.AreEqual(2, modeCount);
-        Assert.AreEqual(2, view.Count);
+        Assert.AreEqual(3, keywordCount);
+        Assert.AreEqual(3, modeCount);
+        Assert.AreEqual(3, view.Count);
         Assert.AreEqual(0, view.RealizedRowCount);
         Assert.AreEqual(0, createdCount);
 
         Assert.AreEqual("Bravo", ((LibraryChartRow)view[0]).Title);
         Assert.AreEqual(1, view.RealizedRowCount);
         Assert.AreEqual(1, createdCount);
+    }
+
+    [TestMethod]
+    public void VirtualNormalLibraryFilterIdentity_UsesStableFolderFilterIdentity()
+    {
+        _ = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
+            MainWindowViewModel.FolderFilterType.DirectoryFilter,
+            @"D:\BMS\1 EVENT",
+            out string folderIdentity);
+        _ = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
+            MainWindowViewModel.FolderFilterType.DirectoryFilter,
+            @"D:\BMS\1 EVENT\",
+            out string sameFolderIdentity);
+
+        string identity = MainWindowViewModel.CreateVirtualNormalLibraryFilterIdentityForTest(folderIdentity, string.Empty, MainWindowViewModel.ModeFilterType.All, 1, 1);
+        string sameIdentity = MainWindowViewModel.CreateVirtualNormalLibraryFilterIdentityForTest(sameFolderIdentity, string.Empty, MainWindowViewModel.ModeFilterType.All, 9, 9);
+
+        Assert.AreEqual(folderIdentity, sameFolderIdentity);
+        Assert.AreEqual(identity, sameIdentity);
+        Assert.AreNotEqual("normal_default", identity);
     }
 
     [TestMethod]

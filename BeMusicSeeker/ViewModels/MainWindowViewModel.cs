@@ -4694,6 +4694,87 @@ public class MainWindowViewModel : ViewModel
         FilterNone
     }
 
+    private sealed class NormalLibraryTreeFilter
+    {
+        private NormalLibraryTreeFilter(FolderFilterType type, string term, string identity)
+        {
+            Type = type;
+            Term = term ?? string.Empty;
+            Identity = identity ?? string.Empty;
+        }
+
+        internal FolderFilterType Type { get; }
+
+        internal string Term { get; }
+
+        internal string Identity { get; }
+
+        internal static NormalLibraryTreeFilter Create(FolderFilterType type, string filterKey)
+        {
+            if (string.IsNullOrWhiteSpace(filterKey))
+            {
+                return null;
+            }
+            switch (type)
+            {
+                case FolderFilterType.DirectoryFilter:
+                    string directoryTerm = EnsureTrailingDirectorySeparator(filterKey);
+                    return new NormalLibraryTreeFilter(type, directoryTerm, "directory:" + directoryTerm);
+                case FolderFilterType.ArtistFilter:
+                    return new NormalLibraryTreeFilter(type, filterKey, "artist:" + filterKey);
+                default:
+                    return null;
+            }
+        }
+
+        internal bool Matches(BeMusicSeeker.Models.BMSFile file)
+        {
+            if (file == null)
+            {
+                return false;
+            }
+            switch (Type)
+            {
+                case FolderFilterType.DirectoryFilter:
+                    return ContainsIgnoreCase(file.path, Term);
+                case FolderFilterType.ArtistFilter:
+                    return ContainsIgnoreCase(file.Artist, Term);
+                default:
+                    return false;
+            }
+        }
+
+        internal bool Matches(ChartListSourceRow row)
+        {
+            if (row == null)
+            {
+                return false;
+            }
+            switch (Type)
+            {
+                case FolderFilterType.DirectoryFilter:
+                    return ContainsIgnoreCase(row.Path, Term);
+                case FolderFilterType.ArtistFilter:
+                    return ContainsIgnoreCase(row.Artist, Term);
+                default:
+                    return false;
+            }
+        }
+
+        private static string EnsureTrailingDirectorySeparator(string path)
+        {
+            string normalizedPath = (path ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return normalizedPath + Path.DirectorySeparatorChar;
+        }
+
+        private static bool ContainsIgnoreCase(string value, string term)
+        {
+            return !string.IsNullOrEmpty(value)
+                && !string.IsNullOrEmpty(term)
+                && value.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+    }
+
     public enum PlaylistFilterType
     {
         PlaylistFilter = 1,
@@ -5857,6 +5938,8 @@ public class MainWindowViewModel : ViewModel
     private PlaylistSummaryOwnedFilterType _PlaylistSummaryOwnedFilter = PlaylistSummaryOwnedFilterType.All;
 
     private Func<BeMusicSeeker.Models.BMSFile, bool> _FolderFilter;
+
+    private NormalLibraryTreeFilter virtualNormalLibraryTreeFilter;
 
     private DispatcherCollection<string> _sortedBmsParentFolderList = new DispatcherCollection<string>(DispatcherHelper.UIDispatcher);
 
@@ -9431,7 +9514,7 @@ public class MainWindowViewModel : ViewModel
     private static int[] ApplyVirtualNormalLibraryFilters(
         IReadOnlyList<ChartListSourceRow> sourceRows,
         IReadOnlyList<int> orderedIndexes,
-        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        Func<ChartListSourceRow, bool> folderFilter,
         GridKeywordSearchQuery keywordQuery,
         ModeFilterType modeFilter,
         out int folderFilteredCount,
@@ -9448,13 +9531,16 @@ public class MainWindowViewModel : ViewModel
         Stopwatch stageStopwatch = Stopwatch.StartNew();
         if (folderFilter != null)
         {
-            viewOrderedIndexes = viewOrderedIndexes
-                .Where(index =>
+            List<int> folderFilteredIndexes = new List<int>(viewOrderedIndexes.Length);
+            foreach (int index in viewOrderedIndexes)
+            {
+                ChartListSourceRow row = sourceRows[index];
+                if (row != null && folderFilter(row))
                 {
-                    ChartListSourceRow row = sourceRows[index];
-                    return row != null && folderFilter(row.CreateFilterFile());
-                })
-                .ToArray();
+                    folderFilteredIndexes.Add(index);
+                }
+            }
+            viewOrderedIndexes = folderFilteredIndexes.ToArray();
         }
         folderFilteredCount = viewOrderedIndexes.Length;
         folderStageMs = stageStopwatch.ElapsedMilliseconds;
@@ -9491,7 +9577,7 @@ public class MainWindowViewModel : ViewModel
     internal static int[] ApplyVirtualNormalLibraryFiltersForTest(
         IReadOnlyList<ChartListSourceRow> sourceRows,
         IReadOnlyList<int> orderedIndexes,
-        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        Func<ChartListSourceRow, bool> folderFilter,
         GridKeywordSearchQuery keywordQuery,
         ModeFilterType modeFilter,
         out int folderFilteredCount,
@@ -9955,9 +10041,10 @@ public class MainWindowViewModel : ViewModel
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
-        Func<BeMusicSeeker.Models.BMSFile, bool> effectiveFolderFilter = ShouldApplyVirtualNormalLibraryFolderFilter(treeViewFilterTypeSelected) ? FolderFilter : null;
+        NormalLibraryTreeFilter effectiveTreeFilter = ShouldApplyVirtualNormalLibraryFolderFilter(treeViewFilterTypeSelected) ? virtualNormalLibraryTreeFilter : null;
+        Func<ChartListSourceRow, bool> effectiveFolderFilter = effectiveTreeFilter == null ? null : new Func<ChartListSourceRow, bool>(effectiveTreeFilter.Matches);
         string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
-            effectiveFolderFilter,
+            effectiveTreeFilter?.Identity,
             KeywordFilter,
             ModeFilter,
             files?.ScoreSnapshotVersion ?? 0,
@@ -11009,6 +11096,13 @@ public class MainWindowViewModel : ViewModel
         return ShouldApplyVirtualNormalLibraryFolderFilter((viewUpdateMode)treeMode);
     }
 
+    internal static Func<ChartListSourceRow, bool> CreateVirtualNormalLibraryFolderFilterForTest(FolderFilterType type, string filterKey, out string identity)
+    {
+        NormalLibraryTreeFilter filter = NormalLibraryTreeFilter.Create(type, filterKey);
+        identity = filter?.Identity;
+        return filter == null ? null : new Func<ChartListSourceRow, bool>(filter.Matches);
+    }
+
     internal static bool IsVirtualBmsFileSubsetTreeModeSupportedForTest(int mode)
     {
         return IsVirtualBmsFileSubsetTreeModeSupported((viewUpdateMode)mode);
@@ -11281,17 +11375,17 @@ public class MainWindowViewModel : ViewModel
             || treeMode == viewUpdateMode.NewlyInstalledFolderSelected;
     }
 
-    private static string CreateVirtualNormalLibraryFilterIdentity(Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)
+    private static string CreateVirtualNormalLibraryFilterIdentity(string folderFilterIdentity, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)
     {
-        if (folderFilter == null && string.IsNullOrWhiteSpace(keywordFilter) && modeFilter == ModeFilterType.All)
+        if (string.IsNullOrEmpty(folderFilterIdentity) && string.IsNullOrWhiteSpace(keywordFilter) && modeFilter == ModeFilterType.All)
         {
             return "normal_default";
         }
         string normalizedKeywordFilter = keywordFilter ?? string.Empty;
         bool hasKeywordFilter = !string.IsNullOrWhiteSpace(normalizedKeywordFilter);
-        string folderIdentity = folderFilter == null
+        string folderIdentity = string.IsNullOrEmpty(folderFilterIdentity)
             ? "none"
-            : RuntimeHelpers.GetHashCode(folderFilter).ToString(CultureInfo.InvariantCulture);
+            : folderFilterIdentity;
         string identity = "normal_filter:folder=" + folderIdentity
             + ";keyword=" + StringComparer.Ordinal.GetHashCode(normalizedKeywordFilter).ToString(CultureInfo.InvariantCulture);
         if (hasKeywordFilter)
@@ -11301,6 +11395,11 @@ public class MainWindowViewModel : ViewModel
         }
         return identity
             + ";mode=" + ((int)modeFilter).ToString(CultureInfo.InvariantCulture);
+    }
+
+    internal static string CreateVirtualNormalLibraryFilterIdentityForTest(string folderFilterIdentity, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)
+    {
+        return CreateVirtualNormalLibraryFilterIdentity(folderFilterIdentity, keywordFilter, modeFilter, scoreSnapshotVersion, chartInfoIndexVersion);
     }
 
     private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)
@@ -12804,6 +12903,12 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged("FolderFilter");
             makeBMSFilesView(viewUpdateMode.FolderFilterSelected);
         }
+    }
+
+    private void SetNormalLibraryTreeFilter(NormalLibraryTreeFilter filter)
+    {
+        virtualNormalLibraryTreeFilter = filter;
+        FolderFilter = filter == null ? null : new Func<BeMusicSeeker.Models.BMSFile, bool>(filter.Matches);
     }
 
     /// <summary>
@@ -17090,14 +17195,14 @@ public class MainWindowViewModel : ViewModel
                 default:
                     return;
                 case FolderFilterType.DirectoryFilter:
-                    FolderFilter = (BeMusicSeeker.Models.BMSFile r) => r.path.Contains(filterKey + Path.DirectorySeparatorChar);
+                    SetNormalLibraryTreeFilter(NormalLibraryTreeFilter.Create(type, filterKey));
                     return;
                 case FolderFilterType.ArtistFilter:
-                    FolderFilter = (BeMusicSeeker.Models.BMSFile r) => r.Artist.ToUpperInvariant().Contains(filterKey.ToUpperInvariant());
+                    SetNormalLibraryTreeFilter(NormalLibraryTreeFilter.Create(type, filterKey));
                     return;
             }
         }
-        FolderFilter = null;
+        SetNormalLibraryTreeFilter(null);
     }
 
     public void ExecPlaylistFilter(BMSTable bmsTable, string folderName = null, PlaylistFilterType type = PlaylistFilterType.PlaylistFilter)
