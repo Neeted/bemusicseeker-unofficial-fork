@@ -191,6 +191,96 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
     }
 }
 
+internal readonly struct VirtualBmsFileSubsetSortCacheKey : IEquatable<VirtualBmsFileSubsetSortCacheKey>
+{
+    internal VirtualBmsFileSubsetSortCacheKey(
+        long sourceGeneration,
+        long sortKeyGeneration,
+        int scoreGeneration,
+        int chartInfoGeneration,
+        int maintenanceGeneration,
+        int treeMode,
+        string subsetName,
+        long sourceRowsSignature,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount)
+    {
+        SourceGeneration = sourceGeneration;
+        SortKeyGeneration = sortKeyGeneration;
+        ScoreGeneration = scoreGeneration;
+        ChartInfoGeneration = chartInfoGeneration;
+        MaintenanceGeneration = maintenanceGeneration;
+        TreeMode = treeMode;
+        SubsetName = subsetName ?? string.Empty;
+        SourceRowsSignature = sourceRowsSignature;
+        ColumnName = columnName ?? string.Empty;
+        Direction = direction;
+        RowCount = rowCount;
+    }
+
+    internal long SourceGeneration { get; }
+
+    internal long SortKeyGeneration { get; }
+
+    internal int ScoreGeneration { get; }
+
+    internal int ChartInfoGeneration { get; }
+
+    internal int MaintenanceGeneration { get; }
+
+    internal int TreeMode { get; }
+
+    internal string SubsetName { get; }
+
+    internal long SourceRowsSignature { get; }
+
+    internal string ColumnName { get; }
+
+    internal ListSortDirection Direction { get; }
+
+    internal int RowCount { get; }
+
+    public bool Equals(VirtualBmsFileSubsetSortCacheKey other)
+    {
+        return SourceGeneration == other.SourceGeneration
+            && SortKeyGeneration == other.SortKeyGeneration
+            && ScoreGeneration == other.ScoreGeneration
+            && ChartInfoGeneration == other.ChartInfoGeneration
+            && MaintenanceGeneration == other.MaintenanceGeneration
+            && TreeMode == other.TreeMode
+            && string.Equals(SubsetName, other.SubsetName, StringComparison.Ordinal)
+            && SourceRowsSignature == other.SourceRowsSignature
+            && string.Equals(ColumnName, other.ColumnName, StringComparison.Ordinal)
+            && Direction == other.Direction
+            && RowCount == other.RowCount;
+    }
+
+    public override bool Equals(object obj)
+    {
+        return obj is VirtualBmsFileSubsetSortCacheKey other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            int hashCode = SourceGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ SortKeyGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ ScoreGeneration;
+            hashCode = (hashCode * 397) ^ ChartInfoGeneration;
+            hashCode = (hashCode * 397) ^ MaintenanceGeneration;
+            hashCode = (hashCode * 397) ^ TreeMode;
+            hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(SubsetName ?? string.Empty);
+            hashCode = (hashCode * 397) ^ SourceRowsSignature.GetHashCode();
+            hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(ColumnName ?? string.Empty);
+            hashCode = (hashCode * 397) ^ (int)Direction;
+            hashCode = (hashCode * 397) ^ RowCount;
+            return hashCode;
+        }
+    }
+}
+
 internal readonly struct MainViewSummaryCacheKey : IEquatable<MainViewSummaryCacheKey>
 {
     internal MainViewSummaryCacheKey(long sourceGeneration, long sortKeyGeneration, int rowCount, bool includeBmsonRows, string filterIdentity)
@@ -5544,6 +5634,8 @@ public class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualNormalLibraryOrderCache = new Dictionary<NormalLibrarySortCacheKey, ChartListOrder>();
 
+    private readonly Dictionary<VirtualBmsFileSubsetSortCacheKey, ChartListOrder> virtualBmsFileSubsetOrderCache = new Dictionary<VirtualBmsFileSubsetSortCacheKey, ChartListOrder>();
+
     private List<ChartListSourceRow> virtualNormalLibrarySourceRowCache;
 
     private bool virtualNormalLibrarySourceRowCacheAvailable;
@@ -9420,6 +9512,68 @@ public class MainWindowViewModel : ViewModel
             out _);
     }
 
+    private static int[] ApplyVirtualBmsFileSubsetFilters(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
+        GridKeywordSearchQuery keywordQuery,
+        ModeFilterType modeFilter,
+        out int keywordFilteredCount,
+        out int modeFilteredCount,
+        out long keywordStageMs,
+        out long modeStageMs)
+    {
+        int[] viewOrderedIndexes = (orderedIndexes ?? Array.Empty<int>())
+            .Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)
+            .ToArray();
+
+        Stopwatch stageStopwatch = Stopwatch.StartNew();
+        if (keywordQuery != null && keywordQuery.HasTokens)
+        {
+            viewOrderedIndexes = viewOrderedIndexes
+                .AsParallel()
+                .AsOrdered()
+                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
+                .ToArray();
+        }
+        keywordFilteredCount = viewOrderedIndexes.Length;
+        keywordStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
+        if (modeFilter != ModeFilterType.All)
+        {
+            HashSet<int?> modeValues = CreateModeFilterValueSet(modeFilter);
+            viewOrderedIndexes = viewOrderedIndexes
+                .Where(index =>
+                {
+                    ChartListSourceRow row = sourceRows[index];
+                    return row != null && modeValues.Contains(row.Mode);
+                })
+                .ToArray();
+        }
+        modeFilteredCount = viewOrderedIndexes.Length;
+        modeStageMs = stageStopwatch.ElapsedMilliseconds;
+        return viewOrderedIndexes;
+    }
+
+    internal static int[] ApplyVirtualBmsFileSubsetFiltersForTest(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
+        GridKeywordSearchQuery keywordQuery,
+        ModeFilterType modeFilter,
+        out int keywordFilteredCount,
+        out int modeFilteredCount)
+    {
+        return ApplyVirtualBmsFileSubsetFilters(
+            sourceRows,
+            orderedIndexes,
+            keywordQuery,
+            modeFilter,
+            out keywordFilteredCount,
+            out modeFilteredCount,
+            out _,
+            out _);
+    }
+
     private bool TryGetMainSummaryFolderCount(MainViewSummaryCacheKey key, out int distinctFolderCount)
     {
         lock (mainSummaryFolderCountCacheLock)
@@ -9718,12 +9872,14 @@ public class MainWindowViewModel : ViewModel
     {
         return normalLibrarySortCache.Count
             + virtualNormalLibraryOrderCache.Count
+            + virtualBmsFileSubsetOrderCache.Count
             + (virtualNormalLibrarySourceRowCacheAvailable ? 1 : 0);
     }
 
     private void ClearVirtualNormalLibraryCachesLocked()
     {
         virtualNormalLibraryOrderCache.Clear();
+        virtualBmsFileSubsetOrderCache.Clear();
         virtualNormalLibrarySourceRowCache = null;
         virtualNormalLibrarySourceRowCacheAvailable = false;
         virtualNormalLibrarySourceRowCacheRowCount = 0;
@@ -9943,6 +10099,14 @@ public class MainWindowViewModel : ViewModel
 
         ResetRegularDerivedViewCaches();
 
+        long sourceGenerationAtLookup;
+        long sortKeyGenerationAtLookup;
+        lock (normalLibrarySortCacheLock)
+        {
+            sourceGenerationAtLookup = normalLibrarySourceGeneration;
+            sortKeyGenerationAtLookup = normalLibrarySortKeyGeneration;
+        }
+
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
@@ -9951,43 +10115,34 @@ public class MainWindowViewModel : ViewModel
             applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
+        long sourceRowsSignature = ComputeVirtualBmsFileSubsetSourceRowsSignature(sourceRows);
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (!ChartListOrder.TryCreate(sourceRows, normalizedSortColumn, sortDirection, out ChartListOrder fullOrder))
-        {
-            LogVirtualBmsFileSubsetFallback(mode, requestedMode, treeMode, "unsupported_sort_column");
-            return false;
-        }
+        ChartListOrder fullOrder = GetOrCreateVirtualBmsFileSubsetOrder(
+            sourceRows,
+            normalizedSortColumn,
+            sortDirection,
+            treeMode,
+            subsetName,
+            sourceRowsSignature,
+            sourceGenerationAtLookup,
+            sortKeyGenerationAtLookup,
+            out bool sortCacheHit,
+            out VirtualBmsFileSubsetSortCacheKey sortCacheKey,
+            out long orderCacheLookupMs,
+            out long orderBuildMs);
         long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
-        int[] viewOrderedIndexes = fullOrder.Indexes;
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (keywordQuery.HasTokens)
-        {
-            viewOrderedIndexes = viewOrderedIndexes
-                .AsParallel()
-                .AsOrdered()
-                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
-                .ToArray();
-        }
-        int keywordCount = viewOrderedIndexes.Length;
-        long keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (ModeFilter != ModeFilterType.All)
-        {
-            HashSet<int?> modeValues = CreateModeFilterValueSet(ModeFilter);
-            viewOrderedIndexes = viewOrderedIndexes
-                .Where(index =>
-                {
-                    ChartListSourceRow row = sourceRows[index];
-                    return row != null && modeValues.Contains(row.Mode);
-                })
-                .ToArray();
-        }
-        int modeCount = viewOrderedIndexes.Length;
-        long modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        int[] viewOrderedIndexes = ApplyVirtualBmsFileSubsetFilters(
+            sourceRows,
+            fullOrder.Indexes,
+            keywordQuery,
+            ModeFilter,
+            out int keywordCount,
+            out int modeCount,
+            out long keywordStageMs,
+            out long modeStageMs);
 
         ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
         IReadOnlyList<ChartListSourceRow> orderedRows = SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
@@ -10033,12 +10188,12 @@ public class MainWindowViewModel : ViewModel
             order.SortProfile,
             order.StringSortKind,
             sortStageMs,
-            sortReuse: false,
+            sortReuse: sortCacheHit,
             sortCacheKey: order.ColumnName,
-            sortCacheGeneration: 0L,
-            sortCacheHit: false,
-            orderCacheLookupMs: 0L,
-            orderBuildMs: sortStageMs));
+            sortCacheGeneration: GetSortCacheGenerationForLog(sortCacheKey),
+            sortCacheHit: sortCacheHit,
+            orderCacheLookupMs: orderCacheLookupMs,
+            orderBuildMs: orderBuildMs));
 
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirectionText = SortParameters?.Direction.ToString() ?? "Ascending";
@@ -10052,8 +10207,8 @@ public class MainWindowViewModel : ViewModel
             + " keywordMs=" + keywordStageMs
             + " modeMs=" + modeStageMs
             + " sortMs=" + sortStageMs
-            + " sortReuse=False"
-            + " sortProfile=" + order.SortProfile
+            + " sortReuse=" + sortCacheHit
+            + " sortProfile=" + order.SortProfile + (sortCacheHit ? "_reuse" : string.Empty)
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
             + " columnMs=" + columnStageMs
@@ -10073,7 +10228,8 @@ public class MainWindowViewModel : ViewModel
             + " sourceRows=" + sourceRows.Count
             + " orderedRows=" + order.Count
             + " viewRowsCreated=" + nextRowsView.RealizedRowCount
-            + " distinctFolderCount=" + distinctFolderCount);
+            + " distinctFolderCount=" + distinctFolderCount
+            + " sourceRowsSignature=" + sourceRowsSignature);
         return true;
     }
 
@@ -10238,6 +10394,71 @@ public class MainWindowViewModel : ViewModel
         return order;
     }
 
+    private ChartListOrder GetOrCreateVirtualBmsFileSubsetOrder(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        string columnName,
+        ListSortDirection direction,
+        viewUpdateMode treeMode,
+        string subsetName,
+        long sourceRowsSignature,
+        long sourceGeneration,
+        long sortKeyGeneration,
+        out bool cacheHit,
+        out VirtualBmsFileSubsetSortCacheKey cacheKey,
+        out long orderCacheLookupMs,
+        out long orderBuildMs)
+    {
+        Stopwatch lookupStopwatch = Stopwatch.StartNew();
+        int rowCount = sourceRows?.Count ?? 0;
+        if (!ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
+        {
+            throw new ArgumentException("Unsupported virtual BMS file subset sort column.", nameof(columnName));
+        }
+
+        cacheKey = CreateVirtualBmsFileSubsetSortCacheKey(
+            sourceGeneration,
+            sortKeyGeneration,
+            treeMode,
+            subsetName,
+            sourceRowsSignature,
+            normalizedColumnName,
+            direction,
+            rowCount);
+        lock (normalLibrarySortCacheLock)
+        {
+            if (virtualBmsFileSubsetOrderCache.TryGetValue(cacheKey, out ChartListOrder cachedOrder)
+                && cachedOrder != null)
+            {
+                lookupStopwatch.Stop();
+                cacheHit = true;
+                orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+                orderBuildMs = 0L;
+                return cachedOrder;
+            }
+        }
+
+        lookupStopwatch.Stop();
+        Stopwatch buildStopwatch = Stopwatch.StartNew();
+        if (!ChartListOrder.TryCreate(sourceRows, normalizedColumnName, direction, out ChartListOrder order))
+        {
+            throw new ArgumentException("Unsupported virtual BMS file subset sort column.", nameof(columnName));
+        }
+        buildStopwatch.Stop();
+        lock (normalLibrarySortCacheLock)
+        {
+            if (normalLibrarySourceGeneration == sourceGeneration
+                && normalLibrarySortKeyGeneration == sortKeyGeneration)
+            {
+                virtualBmsFileSubsetOrderCache[cacheKey] = order;
+            }
+        }
+
+        cacheHit = false;
+        orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+        orderBuildMs = buildStopwatch.ElapsedMilliseconds;
+        return order;
+    }
+
     private NormalLibrarySortCacheKey CreateNormalLibrarySortCacheKey(
         long sourceGeneration,
         long sortKeyGeneration,
@@ -10245,9 +10466,56 @@ public class MainWindowViewModel : ViewModel
         ListSortDirection direction,
         int rowCount)
     {
-        int scoreGeneration = 0;
-        int chartInfoGeneration = 0;
-        int maintenanceGeneration = 0;
+        ResolveVirtualSortDependencyGenerations(
+            columnName,
+            out int scoreGeneration,
+            out int chartInfoGeneration,
+            out int maintenanceGeneration);
+        return new NormalLibrarySortCacheKey(
+            sourceGeneration,
+            sortKeyGeneration,
+            scoreGeneration,
+            chartInfoGeneration,
+            maintenanceGeneration,
+            columnName,
+            direction,
+            rowCount);
+    }
+
+    private VirtualBmsFileSubsetSortCacheKey CreateVirtualBmsFileSubsetSortCacheKey(
+        long sourceGeneration,
+        long sortKeyGeneration,
+        viewUpdateMode treeMode,
+        string subsetName,
+        long sourceRowsSignature,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount)
+    {
+        ResolveVirtualSortDependencyGenerations(
+            columnName,
+            out int scoreGeneration,
+            out int chartInfoGeneration,
+            out int maintenanceGeneration);
+        return new VirtualBmsFileSubsetSortCacheKey(
+            sourceGeneration,
+            sortKeyGeneration,
+            scoreGeneration,
+            chartInfoGeneration,
+            maintenanceGeneration,
+            (int)treeMode,
+            subsetName,
+            sourceRowsSignature,
+            columnName,
+            direction,
+            rowCount);
+    }
+
+    private void ResolveVirtualSortDependencyGenerations(string columnName, out int scoreGeneration, out int chartInfoGeneration, out int maintenanceGeneration)
+    {
+        scoreGeneration = 0;
+        chartInfoGeneration = 0;
+        maintenanceGeneration = 0;
         if (ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
         {
             switch (metadata.Dependency)
@@ -10263,15 +10531,6 @@ public class MainWindowViewModel : ViewModel
                     break;
             }
         }
-        return new NormalLibrarySortCacheKey(
-            sourceGeneration,
-            sortKeyGeneration,
-            scoreGeneration,
-            chartInfoGeneration,
-            maintenanceGeneration,
-            columnName,
-            direction,
-            rowCount);
     }
 
     private static long GetSortCacheGenerationForLog(NormalLibrarySortCacheKey key)
@@ -10289,6 +10548,50 @@ public class MainWindowViewModel : ViewModel
             return key.MaintenanceGeneration;
         }
         return key.SortKeyGeneration;
+    }
+
+    private static long GetSortCacheGenerationForLog(VirtualBmsFileSubsetSortCacheKey key)
+    {
+        if (key.ScoreGeneration != 0)
+        {
+            return key.ScoreGeneration;
+        }
+        if (key.ChartInfoGeneration != 0)
+        {
+            return key.ChartInfoGeneration;
+        }
+        if (key.MaintenanceGeneration != 0)
+        {
+            return key.MaintenanceGeneration;
+        }
+        return key.SortKeyGeneration;
+    }
+
+    internal static long ComputeVirtualBmsFileSubsetSourceRowsSignatureForTest(IReadOnlyList<ChartListSourceRow> sourceRows)
+    {
+        return ComputeVirtualBmsFileSubsetSourceRowsSignature(sourceRows);
+    }
+
+    private static long ComputeVirtualBmsFileSubsetSourceRowsSignature(IReadOnlyList<ChartListSourceRow> sourceRows)
+    {
+        unchecked
+        {
+            long hash = 17L;
+            hash = (hash * 397L) ^ (sourceRows?.Count ?? 0);
+            if (sourceRows == null)
+            {
+                return hash;
+            }
+
+            foreach (ChartListSourceRow row in sourceRows)
+            {
+                hash = (hash * 397L) ^ (row?.BmsFile != null ? 1 : 2);
+                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Path ?? string.Empty);
+                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Hash ?? string.Empty);
+                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Sha256 ?? string.Empty);
+            }
+            return hash;
+        }
     }
 
     private IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()

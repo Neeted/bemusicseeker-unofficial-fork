@@ -50,7 +50,7 @@
 | 一覧 | source row / view | sort engine | cache identity | 備考 |
 | --- | --- | --- | --- | --- |
 | 通常ライブラリ root / filter | `ChartListSourceRow` + `ChartListVirtualView` | `ChartListOrder` registry | source generation、sort-key generation、dependency generation、column、direction、row count | score / chart_info sort と filter 後 order 再利用に対応 |
-| 通常ライブラリ BMSFile subset | `ChartListSourceRow` + `ChartListVirtualView` | `ChartListOrder` registry | subset source rows、column、direction | full scan / maintenance / duplicate / install package 系。full scan は bmson 行も同じ source row として含む。order cache は現段階では root/filter のみ |
+| 通常ライブラリ BMSFile subset | `ChartListSourceRow` + `ChartListVirtualView` | `ChartListOrder` registry | source generation、sort-key generation、dependency generation、tree mode、subset name、source row signature、column、direction、row count | full scan / maintenance / duplicate / install package 系。full scan は bmson 行も同じ source row として含む。同じ subset 並びの keyword / mode / sort 更新では order cache を再利用する |
 | プレイリスト詳細 | `PlaylistDetailSourceRow` + `PlaylistDetailVirtualView` | playlist source-row sort | playlist identity、score snapshot、chart info index | `EntryLevel` など playlist 専用列を含むため通常 registry とは別契約。ログ上も `virtual=True` ではなく `isPlaylistDetailView=True` / `sortEngine=fast` が正常 |
 | playlist summary | 既存 row model | 既存 materialized sort | 各画面固有 | プレイリスト/テーブルの summary 一覧であり譜面行一覧ではない。件数も小さいため、全譜面一覧仮想化の対象外として materialized のまま維持する |
 | warning digest | `ChartListSourceRow` + projection helper | `ChartListOrder` registry | `warning_changed` / sort-key generation | source warning と resource health projection を `LibraryChartRow` と同じ helper で合成する |
@@ -507,6 +507,7 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
   - `requestToVisibleRenderMs`, `firstRenderMs`, `renderWorkMs`, `textCacheHitRate` などを含む。
 - `main_view_build`
   - 通常ライブラリ / BMSFile subset の仮想経路は `sortEngine=virtual`, `virtual=True`, `viewRowsCreated` が可視範囲程度になる。
+  - BMSFile subset では `sourceRowsSignature` を出し、同じ subset 並びの再表示で `sortReuse=True`, `orderBuildMs=0` になることを確認できる。
   - プレイリスト詳細は専用 source-row sort のため、`isPlaylistDetailView=True`, `sortEngine=fast` が正常。通常操作で `main_view_virtual_fallback`, `main_view_folder_detail`, `regularRowMaterializeMs` が出ないことを回帰確認の目安にする。
 
 ## テーマ

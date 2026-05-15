@@ -304,6 +304,98 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void VirtualBmsFileSubsetFilters_ReuseFullOrderSubsetWithoutRealizingRows()
+    {
+        List<BMSFile> files = new List<BMSFile>
+        {
+            CreateFile(@"folder-z\delta.bms", "Delta", "folder-z", artist: "Target Artist", mode: 7),
+            CreateFile(@"folder-z\bravo.bms", "Bravo", "folder-z", artist: "Target Artist", mode: 5),
+            CreateFile(@"folder-y\charlie.bms", "Charlie", "folder-y", artist: "Other Artist", mode: 7),
+            CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a", artist: "Target Artist", mode: 7)
+        };
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
+        Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
+        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
+
+        int[] filteredIndexes = MainWindowViewModel.ApplyVirtualBmsFileSubsetFiltersForTest(
+            sourceRows,
+            fullOrder.Indexes,
+            keywordQuery,
+            MainWindowViewModel.ModeFilterType._5KEYS | MainWindowViewModel.ModeFilterType._7KEYS,
+            out int keywordCount,
+            out int modeCount);
+        ChartListOrder filteredOrder = fullOrder.WithIndexes(filteredIndexes);
+        int createdCount = 0;
+        ChartListVirtualView view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
+        {
+            createdCount++;
+            return LibraryChartRow.FromBmsFile(row.BmsFile);
+        });
+
+        CollectionAssert.AreEqual(new[] { "Delta", "Bravo", "Alpha" }, filteredIndexes.Select(index => sourceRows[index].Title).ToArray());
+        Assert.AreEqual(3, keywordCount);
+        Assert.AreEqual(3, modeCount);
+        Assert.AreEqual(3, view.Count);
+        Assert.AreEqual(0, view.RealizedRowCount);
+        Assert.AreEqual(0, createdCount);
+
+        Assert.AreEqual("Delta", ((LibraryChartRow)view[0]).Title);
+        Assert.AreEqual(1, view.RealizedRowCount);
+        Assert.AreEqual(1, createdCount);
+    }
+
+    [TestMethod]
+    public void VirtualBmsFileSubsetSortCacheKey_UsesSubsetSignatureAndDependencyGeneration()
+    {
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
+        List<ChartListSourceRow> reorderedRows = sourceRows.AsEnumerable().Reverse().ToList();
+        long signature = MainWindowViewModel.ComputeVirtualBmsFileSubsetSourceRowsSignatureForTest(sourceRows);
+        long sameSignature = MainWindowViewModel.ComputeVirtualBmsFileSubsetSourceRowsSignatureForTest(ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null));
+        long reorderedSignature = MainWindowViewModel.ComputeVirtualBmsFileSubsetSourceRowsSignatureForTest(reorderedRows);
+        int treeMode = (int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected;
+
+        VirtualBmsFileSubsetSortCacheKey current = new VirtualBmsFileSubsetSortCacheKey(
+            7,
+            11,
+            1,
+            2,
+            3,
+            treeMode,
+            "full_scan_all",
+            signature,
+            nameof(LibraryChartRow.rateDouble),
+            ListSortDirection.Ascending,
+            sourceRows.Count);
+        VirtualBmsFileSubsetSortCacheKey same = new VirtualBmsFileSubsetSortCacheKey(
+            7,
+            11,
+            1,
+            2,
+            3,
+            treeMode,
+            "full_scan_all",
+            sameSignature,
+            nameof(LibraryChartRow.rateDouble),
+            ListSortDirection.Ascending,
+            sourceRows.Count);
+
+        Assert.AreEqual(signature, sameSignature);
+        Assert.AreNotEqual(signature, reorderedSignature);
+        Assert.AreEqual(current, same);
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(8, 11, 1, 2, 3, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 12, 1, 2, 3, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 2, 2, 3, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 3, 3, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 4, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, (int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "full_scan_all", reorderedSignature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Descending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "full_scan_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count + 1));
+    }
+
+    [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_AreRegistryOrderAscDesc()
     {
         IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();
