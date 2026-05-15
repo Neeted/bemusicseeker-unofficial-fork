@@ -682,6 +682,33 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ResolvePlaylistDropCompatibilityFile_LibraryBmsonRowCreatesSha256PlaylistEntry()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            artist = "Artist",
+            level = 12,
+            md5 = "12121212121212121212121212121212",
+            sha256 = new string('1', 64)
+        };
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(bmson);
+
+        BMSFile compatibilityFile = MainWindowViewModel.ResolvePlaylistDropCompatibilityFileForTest(row);
+        BMSTableEntry entry = new BMSTableEntry(compatibilityFile);
+
+        Assert.IsNotNull(compatibilityFile);
+        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(compatibilityFile));
+        Assert.AreEqual(bmson.path, compatibilityFile.path);
+        Assert.AreEqual(bmson.title, compatibilityFile.Title);
+        Assert.IsNull(entry.md5);
+        Assert.AreEqual(bmson.sha256, entry.sha256);
+        Assert.AreEqual(0, entry.Org_md5.Count);
+    }
+
+    [TestMethod]
     public void LibraryChartRow_FromPendingBmson_PreservesPendingInstallState()
     {
         LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song

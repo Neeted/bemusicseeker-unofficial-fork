@@ -20864,8 +20864,8 @@ public class MainWindowViewModel : ViewModel
         List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(GridRowResolver.GetRealBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
-            List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetRealBmsFile(row) == null).ToList();
-            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Select(GridRowResolver.GetRealBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+            List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropCompatibilityFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
             tables.AddEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
@@ -20876,6 +20876,10 @@ public class MainWindowViewModel : ViewModel
                 List<string> md5sInTheSameDir = null;
                 foreach (BeMusicSeeker.Models.BMSFile item2 in item)
                 {
+                    if (PendingChartEntry.IsBmsonChartFile(item2))
+                    {
+                        continue;
+                    }
                     md5sInTheSameDir = files.GetMD5sOfTheSameSong(item2);
                     if (md5sInTheSameDir != null)
                     {
@@ -20900,7 +20904,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 tables.AddEntriesToFolderBMSTable(item.Select((BeMusicSeeker.Models.BMSFile f) => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
                 {
-                    Org_md5 = md5sInTheSameDir
+                    Org_md5 = PendingChartEntry.IsBmsonChartFile(f) ? new List<string>() : md5sInTheSameDir
                 }), bmsTable, text, commitFlag: false);
             }
         }
@@ -20908,11 +20912,11 @@ public class MainWindowViewModel : ViewModel
         {
             ParallelQuery<BMSTableEntry> bmsEntries = from row in sourceRows.AsParallel()
                                                       let entry = GridRowResolver.GetPlaylistEntry(row)
-                                                      let file = GridRowResolver.GetRealBmsFile(row)
+                                                      let file = ResolvePlaylistDropCompatibilityFile(row)
                                                       where entry != null || file != null
                                                       select (entry != null) ? entry.Duplicate() : new BMSTableEntry(file)
                                                       {
-                                                          Org_md5 = files.GetMD5sOfTheSameSong(file)
+                                                          Org_md5 = GetPlaylistDropOrgMd5(file)
                                                       };
             tables.AddEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
@@ -20922,6 +20926,34 @@ public class MainWindowViewModel : ViewModel
         files.AddReferenceBMSTables(bmsTable, resolvedFiles);
         tables.FreeReaderLockBMSTables();
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+    }
+
+    private static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityFile(object row)
+    {
+        BeMusicSeeker.Models.BMSFile realFile = GridRowResolver.GetRealBmsFile(row);
+        if (realFile != null)
+        {
+            return realFile;
+        }
+        return GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
+            ? ToCompatibilityChartFile(target)
+            : null;
+    }
+
+    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityFileForTest(object row)
+    {
+        return ResolvePlaylistDropCompatibilityFile(row);
+    }
+
+    private List<string> GetPlaylistDropOrgMd5(BeMusicSeeker.Models.BMSFile file)
+    {
+        if (file == null)
+        {
+            return null;
+        }
+        return PendingChartEntry.IsBmsonChartFile(file)
+            ? new List<string>()
+            : files.GetMD5sOfTheSameSong(file);
     }
 
     internal void DeleteBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable)
