@@ -50,6 +50,47 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ApplyPlaylistVirtualViewFromSource_DoesNotMaterializeRowsUntilIndexed()
+    {
+        PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);
+        PlaylistDetailSourceRow alphaRow = CreateSourceRow("22222222222222222222222222222222", "Alpha", 7);
+        PlaylistDetailSourceRow[] sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow };
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        PlaylistDetailVirtualView view = MainWindowViewModel.ApplyPlaylistVirtualViewFromSource(
+            sourceRows,
+            keywordFilter: null,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortParameters: sortParameters,
+            out string sortProfile,
+            out int keywordCount,
+            out int modeCount,
+            out long _,
+            out long _,
+            out long _,
+            out long viewMaterializeMs);
+
+        Assert.AreEqual(2, view.Count);
+        Assert.AreEqual(2, view.RowCount);
+        Assert.AreEqual(0, view.RealizedRowCount);
+        Assert.AreEqual(2, keywordCount);
+        Assert.AreEqual(2, modeCount);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(sortProfile));
+        Assert.IsTrue(viewMaterializeMs >= 0);
+
+        PlaylistDetailRow first = (PlaylistDetailRow)view[0];
+
+        Assert.AreEqual("Alpha", first.Title);
+        Assert.AreEqual(1, view.RealizedRowCount);
+        Assert.IsTrue(ReferenceEquals(first, view[0]));
+        Assert.AreEqual(1, view.RealizedRowCount);
+    }
+
+    [TestMethod]
     public void ApplyPlaylistViewFromSource_KeywordFilterMatchesPlaylistMemoAndComment()
     {
         PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
