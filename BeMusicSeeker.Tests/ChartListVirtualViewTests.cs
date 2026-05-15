@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
@@ -278,6 +279,52 @@ public sealed class ChartListVirtualViewTests
         AssertRegistryDependency(metadata, MainViewDataDependency.IdentitySortKey, nameof(LibraryChartRow.Title));
         AssertRegistryDependency(metadata, MainViewDataDependency.Score, nameof(LibraryChartRow.rateDouble));
         AssertRegistryDependency(metadata, MainViewDataDependency.ChartInfo, nameof(LibraryChartRow.ChartTotalSortKey));
+        AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Title));
+        AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Folder));
+        AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.rateDouble));
+        AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.minbp));
+        AssertRegistryPrewarmPriority(metadata, 3, nameof(LibraryChartRow.maxcombo));
+        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.level));
+    }
+
+    [TestMethod]
+    public void DefaultVirtualOrderPrewarmDescriptors_FollowVisibleColumnsAndPriorities()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+
+        string[] columns = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
+            .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
+            .Select(descriptor => descriptor.ColumnName)
+            .ToArray();
+
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.Title));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.rateDouble));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartTotalSortKey));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartFeatureSortKey));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.hash));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.score));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.maxcombo));
+
+        settings.Combo.Visibility = Visibility.Visible;
+        columns = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
+            .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
+            .Select(descriptor => descriptor.ColumnName)
+            .ToArray();
+
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.maxcombo));
+    }
+
+    [TestMethod]
+    public void VirtualOrderPrewarmDegree_IsBoundedByProcessorAndCap()
+    {
+        Assert.AreEqual(1, MainWindowViewModel.ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(0));
+        Assert.AreEqual(1, MainWindowViewModel.ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(1));
+
+        int degree = MainWindowViewModel.ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(128);
+
+        Assert.IsTrue(degree >= 1);
+        Assert.IsTrue(degree <= 4);
+        Assert.IsTrue(degree <= Math.Max(1, Environment.ProcessorCount - 1));
     }
 
     [TestMethod]
@@ -691,10 +738,16 @@ public sealed class ChartListVirtualViewTests
         return CreateExpectedDefaultPrewarmColumnNames()
             .SelectMany(column => new[]
             {
-                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Ascending),
-                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Descending)
+                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Ascending, GetPrewarmPriority(column)),
+                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Descending, GetPrewarmPriority(column))
             })
             .ToArray();
+    }
+
+    private static int GetPrewarmPriority(string columnName)
+    {
+        Assert.IsTrue(ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata));
+        return metadata.PrewarmPriority;
     }
 
     private static string[] CreateExpectedDefaultPrewarmColumnNames()
@@ -702,37 +755,32 @@ public sealed class ChartListVirtualViewTests
         return new[]
         {
             nameof(LibraryChartRow.Title),
-            nameof(LibraryChartRow.path),
             nameof(LibraryChartRow.Folder),
+            nameof(LibraryChartRow.path),
             nameof(LibraryChartRow.Artist),
-            nameof(LibraryChartRow.genre),
-            nameof(LibraryChartRow.mode),
-            nameof(LibraryChartRow.tag),
-            nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256),
-            nameof(LibraryChartRow.RefTablesSymbols),
             nameof(LibraryChartRow.clear),
             nameof(LibraryChartRow.rateDouble),
-            nameof(LibraryChartRow.score),
-            nameof(LibraryChartRow.maxcombo),
             nameof(LibraryChartRow.minbp),
-            nameof(LibraryChartRow.ChartLevelSortKey),
-            nameof(LibraryChartRow.ChartDifficultySortKey),
-            nameof(LibraryChartRow.ChartMainBpmSortKey),
-            nameof(LibraryChartRow.ChartMaxBpmSortKey),
-            nameof(LibraryChartRow.ChartMinBpmSortKey),
-            nameof(LibraryChartRow.ChartDurationSortKey),
             nameof(LibraryChartRow.ChartJudgeSortKey),
-            nameof(LibraryChartRow.ChartFeatureSortKey),
             nameof(LibraryChartRow.ChartNotes),
             nameof(LibraryChartRow.ChartLongNotes),
             nameof(LibraryChartRow.ChartScratchNotes),
+            nameof(LibraryChartRow.ChartMainBpmSortKey),
+            nameof(LibraryChartRow.ChartMinBpmSortKey),
+            nameof(LibraryChartRow.ChartMaxBpmSortKey),
+            nameof(LibraryChartRow.ChartSoflanCount),
             nameof(LibraryChartRow.ChartTotalSortKey),
             nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
+            nameof(LibraryChartRow.ChartDurationSortKey),
             nameof(LibraryChartRow.ChartDensitySortKey),
             nameof(LibraryChartRow.ChartPeakDensitySortKey),
             nameof(LibraryChartRow.ChartEndDensitySortKey),
-            nameof(LibraryChartRow.ChartSoflanCount)
+            nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.RefTablesSymbols),
+            nameof(LibraryChartRow.ChartLevelSortKey),
+            nameof(LibraryChartRow.ChartDifficultySortKey),
+            nameof(LibraryChartRow.ChartFeatureSortKey)
         };
     }
 
@@ -788,6 +836,14 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(
             dependency,
             metadata.Single(column => column.NormalizedColumnName == columnName).Dependency,
+            columnName);
+    }
+
+    private static void AssertRegistryPrewarmPriority(IEnumerable<ChartListOrderColumnMetadata> metadata, int priority, string columnName)
+    {
+        Assert.AreEqual(
+            priority,
+            metadata.Single(column => column.NormalizedColumnName == columnName).PrewarmPriority,
             columnName);
     }
 

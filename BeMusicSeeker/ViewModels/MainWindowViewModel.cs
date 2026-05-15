@@ -23,6 +23,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Views;
 using Codeplex.Data;
 using Livet;
 using Livet.Commands;
@@ -241,20 +242,24 @@ internal readonly struct MainViewSummaryCacheKey : IEquatable<MainViewSummaryCac
 
 internal readonly struct VirtualNormalLibrarySortDescriptor : IEquatable<VirtualNormalLibrarySortDescriptor>
 {
-    internal VirtualNormalLibrarySortDescriptor(string columnName, ListSortDirection direction)
+    internal VirtualNormalLibrarySortDescriptor(string columnName, ListSortDirection direction, int prewarmPriority = 0)
     {
         ColumnName = columnName ?? string.Empty;
         Direction = direction;
+        PrewarmPriority = prewarmPriority;
     }
 
     internal string ColumnName { get; }
 
     internal ListSortDirection Direction { get; }
 
+    internal int PrewarmPriority { get; }
+
     public bool Equals(VirtualNormalLibrarySortDescriptor other)
     {
         return string.Equals(ColumnName, other.ColumnName, StringComparison.Ordinal)
-            && Direction == other.Direction;
+            && Direction == other.Direction
+            && PrewarmPriority == other.PrewarmPriority;
     }
 
     public override bool Equals(object obj)
@@ -266,7 +271,10 @@ internal readonly struct VirtualNormalLibrarySortDescriptor : IEquatable<Virtual
     {
         unchecked
         {
-            return ((ColumnName != null ? StringComparer.Ordinal.GetHashCode(ColumnName) : 0) * 397) ^ (int)Direction;
+            int hashCode = ColumnName != null ? StringComparer.Ordinal.GetHashCode(ColumnName) : 0;
+            hashCode = (hashCode * 397) ^ (int)Direction;
+            hashCode = (hashCode * 397) ^ PrewarmPriority;
+            return hashCode;
         }
     }
 }
@@ -10006,20 +10014,125 @@ public class MainWindowViewModel : ViewModel
         return key.SortKeyGeneration;
     }
 
-    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()
+    private IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()
     {
-        return ChartListOrder.GetDefaultPrewarmColumnNames()
-            .SelectMany(columnName => new[]
+        return CreateVirtualNormalLibrarySortPrewarmDescriptors(GetVisibleNormalLibraryVirtualSortColumnsForPrewarm());
+    }
+
+    private HashSet<string> GetVisibleNormalLibraryVirtualSortColumnsForPrewarm()
+    {
+        return GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(ColumnsSettingsBMSFilesView);
+    }
+
+    private static HashSet<string> GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(CustomTableColumnSettings settings)
+    {
+        HashSet<string> columns = new HashSet<string>(StringComparer.Ordinal);
+        foreach (CustomTableColumn column in CustomTableColumnFactory.CreateMainColumns(settings ?? new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)))
+        {
+            if (string.IsNullOrWhiteSpace(column?.SortMemberPath))
             {
-                new VirtualNormalLibrarySortDescriptor(columnName, ListSortDirection.Ascending),
-                new VirtualNormalLibrarySortDescriptor(columnName, ListSortDirection.Descending)
+                continue;
+            }
+            if (ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out string normalizedColumnName))
+            {
+                columns.Add(normalizedColumnName);
+            }
+        }
+        return columns;
+    }
+
+    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualNormalLibrarySortPrewarmDescriptors(ISet<string> visibleColumnNames)
+    {
+        ISet<string> safeVisibleColumnNames = visibleColumnNames ?? new HashSet<string>(StringComparer.Ordinal);
+        return ChartListOrder.GetVirtualSortColumnMetadata()
+            .Select((column, index) => new { Column = column, Index = index })
+            .Where(item => item.Column.PrewarmPriority > 0)
+            .Where(item => item.Column.PrewarmPriority == 1 || safeVisibleColumnNames.Contains(item.Column.NormalizedColumnName))
+            .OrderBy(item => item.Column.PrewarmPriority)
+            .ThenBy(item => GetVirtualNormalLibraryPrewarmOrder(item.Column.NormalizedColumnName))
+            .ThenBy(item => item.Index)
+            .SelectMany(item => new[]
+            {
+                new VirtualNormalLibrarySortDescriptor(item.Column.NormalizedColumnName, ListSortDirection.Ascending, item.Column.PrewarmPriority),
+                new VirtualNormalLibrarySortDescriptor(item.Column.NormalizedColumnName, ListSortDirection.Descending, item.Column.PrewarmPriority)
             })
             .ToArray();
     }
 
+    private static int GetVirtualNormalLibraryPrewarmOrder(string columnName)
+    {
+        switch (columnName)
+        {
+            case nameof(LibraryChartRow.Title):
+                return 0;
+            case nameof(LibraryChartRow.Folder):
+                return 1;
+            case nameof(LibraryChartRow.path):
+                return 2;
+            case nameof(LibraryChartRow.Artist):
+                return 3;
+            case nameof(LibraryChartRow.clear):
+                return 0;
+            case nameof(LibraryChartRow.rateDouble):
+                return 1;
+            case nameof(LibraryChartRow.minbp):
+                return 2;
+            case nameof(LibraryChartRow.ChartJudgeSortKey):
+                return 3;
+            case nameof(LibraryChartRow.ChartNotes):
+                return 4;
+            case nameof(LibraryChartRow.ChartLongNotes):
+                return 5;
+            case nameof(LibraryChartRow.ChartScratchNotes):
+                return 6;
+            case nameof(LibraryChartRow.ChartMainBpmSortKey):
+                return 7;
+            case nameof(LibraryChartRow.ChartMinBpmSortKey):
+                return 8;
+            case nameof(LibraryChartRow.ChartMaxBpmSortKey):
+                return 9;
+            case nameof(LibraryChartRow.ChartSoflanCount):
+                return 10;
+            case nameof(LibraryChartRow.ChartTotalSortKey):
+                return 11;
+            case nameof(LibraryChartRow.ChartTotalPerNoteSortKey):
+                return 12;
+            case nameof(LibraryChartRow.ChartDurationSortKey):
+                return 13;
+            case nameof(LibraryChartRow.ChartDensitySortKey):
+                return 14;
+            case nameof(LibraryChartRow.ChartPeakDensitySortKey):
+                return 15;
+            case nameof(LibraryChartRow.ChartEndDensitySortKey):
+                return 16;
+            default:
+                return int.MaxValue;
+        }
+    }
+
     internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest()
     {
-        return CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors();
+        return CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD));
+    }
+
+    internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(CustomTableColumnSettings settings)
+    {
+        return CreateVirtualNormalLibrarySortPrewarmDescriptors(GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(settings));
+    }
+
+    internal static int ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(int descriptorCount)
+    {
+        return ResolveVirtualNormalLibraryOrderPrewarmDegree(descriptorCount);
+    }
+
+    private static int ResolveVirtualNormalLibraryOrderPrewarmDegree(int descriptorCount)
+    {
+        if (descriptorCount <= 1)
+        {
+            return 1;
+        }
+        int processorDegree = Math.Max(1, Environment.ProcessorCount - 1);
+        return Math.Max(1, Math.Min(Math.Min(processorDegree, 4), descriptorCount));
     }
 
     internal static bool IsVirtualNormalLibraryPrewarmStaleForTest(long expectedSourceGeneration, long expectedSortKeyGeneration, long currentSourceGeneration, long currentSortKeyGeneration)
@@ -10043,6 +10156,7 @@ public class MainWindowViewModel : ViewModel
     private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason)
     {
         IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors();
+        int degree = ResolveVirtualNormalLibraryOrderPrewarmDegree(descriptors.Count);
         Task runningTask;
         int runId;
         lock (virtualNormalLibraryOrderPrewarmLock)
@@ -10052,15 +10166,28 @@ public class MainWindowViewModel : ViewModel
             {
                 LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
                     + " descriptorCount=" + descriptors.Count
+                    + " degree=" + degree
+                    + " priority1=" + CountPrewarmDescriptorsByPriority(descriptors, 1)
+                    + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
+                    + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
                     + " skipped=already_running");
                 return;
             }
             runId = ++virtualNormalLibraryOrderPrewarmRunId;
             LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
-                + " descriptorCount=" + descriptors.Count);
+                + " descriptorCount=" + descriptors.Count
+                + " degree=" + degree
+                + " priority1=" + CountPrewarmDescriptorsByPriority(descriptors, 1)
+                + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
+                + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3));
             virtualNormalLibraryOrderPrewarmTask = Task.Run(() => RunVirtualNormalLibraryOrderPrewarm(runId, reason, descriptors));
         }
+    }
+
+    private static int CountPrewarmDescriptorsByPriority(IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors, int priority)
+    {
+        return descriptors?.Count(descriptor => descriptor.PrewarmPriority == priority) ?? 0;
     }
 
     private void RunVirtualNormalLibraryOrderPrewarm(int runId, string reason, IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors)
@@ -10069,15 +10196,24 @@ public class MainWindowViewModel : ViewModel
         int cacheHitCount = 0;
         int builtCount = 0;
         int descriptorCount = descriptors?.Count ?? 0;
+        int degree = ResolveVirtualNormalLibraryOrderPrewarmDegree(descriptorCount);
+        int priority1Count = CountPrewarmDescriptorsByPriority(descriptors, 1);
+        int priority2Count = CountPrewarmDescriptorsByPriority(descriptors, 2);
+        int priority3Count = CountPrewarmDescriptorsByPriority(descriptors, 3);
         bool sourceRowsCacheHit = false;
         int rowCount = 0;
         long sourceGeneration = 0L;
         long sortKeyGeneration = 0L;
+        int staleDetected = 0;
         try
         {
             LogMainViewBuild("virtual_order_prewarm start reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
-                + " descriptorCount=" + descriptorCount);
+                + " descriptorCount=" + descriptorCount
+                + " degree=" + degree
+                + " priority1=" + priority1Count
+                + " priority2=" + priority2Count
+                + " priority3=" + priority3Count);
             bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode.FolderFilterSelected, viewUpdateMode.FolderFilterSelected);
             List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
                 includeBmsonRows,
@@ -10091,52 +10227,50 @@ public class MainWindowViewModel : ViewModel
                 LogMainViewBuild("virtual_order_prewarm stale_skipped reason=" + (reason ?? string.Empty)
                     + " runId=" + runId
                     + " descriptorCount=" + descriptorCount
+                    + " degree=" + degree
                     + " completedDescriptors=0"
                     + " rowCount=" + rowCount
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 return;
             }
-            foreach (VirtualNormalLibrarySortDescriptor descriptor in descriptors ?? Array.Empty<VirtualNormalLibrarySortDescriptor>())
-            {
-                if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+            Parallel.ForEach(
+                descriptors ?? Array.Empty<VirtualNormalLibrarySortDescriptor>(),
+                new ParallelOptions { MaxDegreeOfParallelism = degree },
+                (descriptor, loopState) =>
                 {
-                    stopwatch.Stop();
-                    LogMainViewBuild("virtual_order_prewarm stale_skipped reason=" + (reason ?? string.Empty)
-                        + " runId=" + runId
-                        + " descriptorCount=" + descriptorCount
-                        + " completedDescriptors=" + (cacheHitCount + builtCount)
-                        + " rowCount=" + rowCount
-                        + " cacheHit=" + cacheHitCount
-                        + " built=" + builtCount
-                        + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                    return;
-                }
-                _ = GetOrCreateVirtualNormalLibraryOrder(
-                    sourceRows,
-                    descriptor.ColumnName,
-                    descriptor.Direction,
-                    sourceGeneration,
-                    sortKeyGeneration,
-                    useCache: true,
-                    out bool cacheHit,
-                    out _,
-                    out _,
-                    out _);
-                if (cacheHit)
-                {
-                    cacheHitCount++;
-                }
-                else
-                {
-                    builtCount++;
-                }
-            }
+                    if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+                    {
+                        Interlocked.Exchange(ref staleDetected, 1);
+                        loopState.Stop();
+                        return;
+                    }
+                    _ = GetOrCreateVirtualNormalLibraryOrder(
+                        sourceRows,
+                        descriptor.ColumnName,
+                        descriptor.Direction,
+                        sourceGeneration,
+                        sortKeyGeneration,
+                        useCache: true,
+                        out bool cacheHit,
+                        out _,
+                        out _,
+                        out _);
+                    if (cacheHit)
+                    {
+                        Interlocked.Increment(ref cacheHitCount);
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref builtCount);
+                    }
+                });
             stopwatch.Stop();
-            if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+            if (Volatile.Read(ref staleDetected) != 0 || !IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
             {
                 LogMainViewBuild("virtual_order_prewarm stale_skipped reason=" + (reason ?? string.Empty)
                     + " runId=" + runId
                     + " descriptorCount=" + descriptorCount
+                    + " degree=" + degree
                     + " completedDescriptors=" + (cacheHitCount + builtCount)
                     + " rowCount=" + rowCount
                     + " cacheHit=" + cacheHitCount
@@ -10147,6 +10281,10 @@ public class MainWindowViewModel : ViewModel
             LogMainViewBuild("virtual_order_prewarm done reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " descriptorCount=" + descriptorCount
+                + " degree=" + degree
+                + " priority1=" + priority1Count
+                + " priority2=" + priority2Count
+                + " priority3=" + priority3Count
                 + " rowCount=" + rowCount
                 + " sourceRowsReuse=" + sourceRowsCacheHit
                 + " cacheHit=" + cacheHitCount
@@ -10159,6 +10297,7 @@ public class MainWindowViewModel : ViewModel
             LogMainViewBuild("virtual_order_prewarm failed reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " descriptorCount=" + descriptorCount
+                + " degree=" + degree
                 + " rowCount=" + rowCount
                 + " cacheHit=" + cacheHitCount
                 + " built=" + builtCount

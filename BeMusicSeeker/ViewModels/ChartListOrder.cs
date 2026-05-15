@@ -405,7 +405,8 @@ internal sealed class ChartListOrder
                 definition.PropertyTypeName,
                 definition.SortProfile,
                 definition.StringSortKind,
-                definition.Dependency);
+                definition.Dependency,
+                definition.PrewarmPriority);
             return true;
         }
 
@@ -422,7 +423,8 @@ internal sealed class ChartListOrder
                 definition.PropertyTypeName,
                 definition.SortProfile,
                 definition.StringSortKind,
-                definition.Dependency))
+                definition.Dependency,
+                definition.PrewarmPriority))
             .ToArray();
     }
 
@@ -503,7 +505,8 @@ internal readonly struct ChartListOrderColumnMetadata
         string propertyTypeName,
         string sortProfile,
         string stringSortKind,
-        MainViewDataDependency dependency)
+        MainViewDataDependency dependency,
+        int prewarmPriority)
     {
         NormalizedColumnName = normalizedColumnName ?? string.Empty;
         KeyKind = keyKind;
@@ -511,6 +514,7 @@ internal readonly struct ChartListOrderColumnMetadata
         SortProfile = sortProfile ?? string.Empty;
         StringSortKind = stringSortKind ?? string.Empty;
         Dependency = dependency;
+        PrewarmPriority = prewarmPriority;
     }
 
     internal string NormalizedColumnName { get; }
@@ -524,6 +528,8 @@ internal readonly struct ChartListOrderColumnMetadata
     internal string StringSortKind { get; }
 
     internal MainViewDataDependency Dependency { get; }
+
+    internal int PrewarmPriority { get; }
 }
 
 internal readonly struct ChartListOrderColumnDefinition
@@ -550,7 +556,7 @@ internal readonly struct ChartListOrderColumnDefinition
         PropertyTypeName = propertyTypeName ?? string.Empty;
         StringSortKind = stringSortKind ?? string.Empty;
         Dependency = dependency;
-        PrewarmByDefault = prewarmByDefault;
+        PrewarmPriority = ResolvePrewarmPriority(NormalizedColumnName);
         this.aliases = aliases ?? Array.Empty<string>();
     }
 
@@ -570,7 +576,9 @@ internal readonly struct ChartListOrderColumnDefinition
 
     internal MainViewDataDependency Dependency { get; }
 
-    internal bool PrewarmByDefault { get; }
+    internal int PrewarmPriority { get; }
+
+    internal bool PrewarmByDefault => PrewarmPriority > 0;
 
     internal static ChartListOrderColumnDefinition String(
         string normalizedColumnName,
@@ -623,5 +631,39 @@ internal readonly struct ChartListOrderColumnDefinition
             return true;
         }
         return aliases.Any(alias => string.Equals(columnName, alias, StringComparison.Ordinal));
+    }
+
+    private static int ResolvePrewarmPriority(string normalizedColumnName)
+    {
+        switch (normalizedColumnName)
+        {
+            case nameof(LibraryChartRow.Title):
+            case nameof(LibraryChartRow.Folder):
+            case nameof(LibraryChartRow.path):
+            case nameof(LibraryChartRow.Artist):
+                return 1;
+            case nameof(LibraryChartRow.clear):
+            case nameof(LibraryChartRow.rateDouble):
+            case nameof(LibraryChartRow.minbp):
+            case nameof(LibraryChartRow.ChartJudgeSortKey):
+            case nameof(LibraryChartRow.ChartNotes):
+            case nameof(LibraryChartRow.ChartLongNotes):
+            case nameof(LibraryChartRow.ChartScratchNotes):
+            case nameof(LibraryChartRow.ChartMainBpmSortKey):
+            case nameof(LibraryChartRow.ChartMinBpmSortKey):
+            case nameof(LibraryChartRow.ChartMaxBpmSortKey):
+            case nameof(LibraryChartRow.ChartSoflanCount):
+            case nameof(LibraryChartRow.ChartTotalSortKey):
+            case nameof(LibraryChartRow.ChartTotalPerNoteSortKey):
+            case nameof(LibraryChartRow.ChartDurationSortKey):
+            case nameof(LibraryChartRow.ChartDensitySortKey):
+            case nameof(LibraryChartRow.ChartPeakDensitySortKey):
+            case nameof(LibraryChartRow.ChartEndDensitySortKey):
+                return 2;
+            case nameof(LibraryChartRow.level):
+                return 0;
+            default:
+                return 3;
+        }
     }
 }
