@@ -357,7 +357,11 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.minbp)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartTotalSortKey)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.WAVHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.WAVHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.BGAHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.MovieHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.encoding)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.WarningDigestText)));
     }
 
     [TestMethod]
@@ -383,7 +387,11 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.maxcombo)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.minbp)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.ChartLevelSortKey)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.WAVHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.WAVHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.BGAHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.MovieHealth)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.encoding)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.WarningDigestText)));
     }
 
     [TestMethod]
@@ -418,7 +426,8 @@ public sealed class BmsSortCompatibilityTests
                 "bmson_sort_key_changed",
                 "chart_info_digest_backfilled",
                 "install_destination_changed",
-                "ref_tables_changed"
+                "ref_tables_changed",
+                "maintenance_changed"
             },
             MainWindowViewModel.GetNormalLibrarySortKeyInvalidationReasonsForTest().ToArray());
     }

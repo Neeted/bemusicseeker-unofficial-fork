@@ -179,6 +179,10 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
             nameof(LibraryChartRow.sha256),
+            nameof(LibraryChartRow.WAVHealth),
+            nameof(LibraryChartRow.BGAHealth),
+            nameof(LibraryChartRow.MovieHealth),
+            nameof(LibraryChartRow.encoding),
             nameof(LibraryChartRow.instl_dst),
             nameof(LibraryChartRow.InstallDestinationTitle),
             nameof(LibraryChartRow.InstallDestinationArtist),
@@ -217,7 +221,8 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
 
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "Path", ListSortDirection.Ascending, out _));
-        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
+        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, out _));
+        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "EntryLevelSortKey", ListSortDirection.Ascending, out _));
     }
 
     [TestMethod]
@@ -279,11 +284,15 @@ public sealed class ChartListVirtualViewTests
         AssertRegistryDependency(metadata, MainViewDataDependency.IdentitySortKey, nameof(LibraryChartRow.Title));
         AssertRegistryDependency(metadata, MainViewDataDependency.Score, nameof(LibraryChartRow.rateDouble));
         AssertRegistryDependency(metadata, MainViewDataDependency.ChartInfo, nameof(LibraryChartRow.ChartTotalSortKey));
+        AssertRegistryDependency(metadata, MainViewDataDependency.Maintenance, nameof(LibraryChartRow.WAVHealth));
+        AssertRegistryDependency(metadata, MainViewDataDependency.Maintenance, nameof(LibraryChartRow.encoding));
         AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Title));
         AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Folder));
         AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.rateDouble));
         AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.minbp));
         AssertRegistryPrewarmPriority(metadata, 3, nameof(LibraryChartRow.maxcombo));
+        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.WAVHealth));
+        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.encoding));
         AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.level));
     }
 
@@ -475,6 +484,7 @@ public sealed class ChartListVirtualViewTests
             sha256: "1111111111111111111111111111111111111111111111111111111111111111");
         file.bmsScore = CreateScore(file.hash, ClearType.HARD, RankType.AA, perfect: 800, great: 200, totalNotes: 1200, maxCombo: 999, minBp: 12, ranking: 42, rankingNum: 500, rankingLastUpdate: new DateTime(2026, 5, 15, 1, 2, 3, DateTimeKind.Local), stdDevVal: 51.5, scoreDifficulty: 78.25);
         file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: 7, difficulty: 3, mainBpm: 150.5, total: 340.0));
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file.path, file.hash, 3), suppressPropertyChanged: true);
         file.instl_dst = "Installed";
         file.InstallDestinationTitle = "Installed Title";
         file.InstallDestinationArtist = "Installed Artist";
@@ -491,7 +501,8 @@ public sealed class ChartListVirtualViewTests
             level = 9,
             md5 = "22222222222222222222222222222222",
             sha256 = "2222222222222222222222222222222222222222222222222222222222222222",
-            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0)
+            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0),
+            MaintenanceInfo = CreateMaintenanceInfo(@"folder-b\bmson.bmson", "22222222222222222222222222222222", 4)
         };
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, new[] { bmson });
 
@@ -515,6 +526,7 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
         AssertBmsonSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
         AssertBmsonSortKeyChange(song => song.level = 10);
+        AssertBmsonSortKeyChange(song => song.MaintenanceInfo = CreateMaintenanceInfo(song.path, song.md5, 5));
         AssertBmsonSortKeyChange(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
@@ -530,6 +542,8 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSameReferenceSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
         AssertBmsonSameReferenceSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
         AssertBmsonSameReferenceSortKeyChange(song => song.level = 10);
+        AssertBmsonSameReferenceSortKeyChange(song => song.MaintenanceInfo.encoding = "utf-16");
+        AssertBmsonSameReferenceSortKeyChange(song => song.MaintenanceInfo.wav_files_existing = 1);
         AssertBmsonSameReferenceSortKeyChange(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
@@ -609,7 +623,8 @@ public sealed class ChartListVirtualViewTests
                 installDestinationArtist: "InstallArtistC",
                 refTableSymbol: "C",
                 scoreSeed: 3,
-                chartSeed: 3),
+                chartSeed: 3,
+                maintenanceSeed: 3),
             CreateFile(
                 @"folder-a\a_item2.bms",
                 "item2",
@@ -626,7 +641,8 @@ public sealed class ChartListVirtualViewTests
                 installDestinationArtist: "InstallArtistA",
                 refTableSymbol: "A",
                 scoreSeed: 1,
-                chartSeed: 1),
+                chartSeed: 1,
+                maintenanceSeed: 1),
             CreateFile(
                 @"folder-b\m_alpha.bms",
                 "Alpha",
@@ -643,7 +659,8 @@ public sealed class ChartListVirtualViewTests
                 installDestinationArtist: "InstallArtistB",
                 refTableSymbol: "B",
                 scoreSeed: 2,
-                chartSeed: 2)
+                chartSeed: 2,
+                maintenanceSeed: 2)
         };
     }
 
@@ -662,7 +679,8 @@ public sealed class ChartListVirtualViewTests
                 level = 8,
                 md5 = "dddddddddddddddddddddddddddddddd",
                 sha256 = "4444444444444444444444444444444444444444444444444444444444444444",
-                ChartInfo = CreateChartInfo("4444444444444444444444444444444444444444444444444444444444444444", "dddddddddddddddddddddddddddddddd", level: 6, difficulty: 2, mainBpm: 133.0, total: 270.0)
+                ChartInfo = CreateChartInfo("4444444444444444444444444444444444444444444444444444444444444444", "dddddddddddddddddddddddddddddddd", level: 6, difficulty: 2, mainBpm: 133.0, total: 270.0),
+                MaintenanceInfo = CreateMaintenanceInfo(@"folder-c\bmson-beta.bmson", "dddddddddddddddddddddddddddddddd", 4)
             },
             new LR2SongDBExtended.bmson_song
             {
@@ -675,7 +693,8 @@ public sealed class ChartListVirtualViewTests
                 level = 3,
                 md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                 sha256 = "5555555555555555555555555555555555555555555555555555555555555555",
-                ChartInfo = CreateChartInfo("5555555555555555555555555555555555555555555555555555555555555555", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 2, difficulty: 0, mainBpm: 90.0, total: 180.0)
+                ChartInfo = CreateChartInfo("5555555555555555555555555555555555555555555555555555555555555555", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 2, difficulty: 0, mainBpm: 90.0, total: 180.0),
+                MaintenanceInfo = CreateMaintenanceInfo(@"folder-d\bmson-alpha.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", 5)
             }
         };
     }
@@ -696,7 +715,8 @@ public sealed class ChartListVirtualViewTests
         string installDestinationArtist = "",
         string refTableSymbol = "",
         int? scoreSeed = null,
-        int? chartSeed = null)
+        int? chartSeed = null,
+        int? maintenanceSeed = null)
     {
         TestableBmsFile file = new TestableBmsFile();
         file.Apply(path, title, folder, artist, genre, level, mode, tag, hash, sha256);
@@ -725,6 +745,10 @@ public sealed class ChartListVirtualViewTests
         {
             int seed = chartSeed.Value;
             file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: seed + 2, difficulty: seed, mainBpm: 100.0 + seed * 25.0, total: 200.0 + seed * 10.0));
+        }
+        if (maintenanceSeed.HasValue)
+        {
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file.path, file.hash, maintenanceSeed.Value), suppressPropertyChanged: true);
         }
         if (!string.IsNullOrEmpty(refTableSymbol))
         {
@@ -801,6 +825,10 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.InstallDestinationTitle),
             nameof(LibraryChartRow.InstallDestinationArtist),
             nameof(LibraryChartRow.RefTablesSymbols),
+            nameof(LibraryChartRow.WAVHealth),
+            nameof(LibraryChartRow.BGAHealth),
+            nameof(LibraryChartRow.MovieHealth),
+            nameof(LibraryChartRow.encoding),
             nameof(LibraryChartRow.level),
             nameof(LibraryChartRow.clear),
             nameof(LibraryChartRow.rateDouble),
@@ -895,6 +923,10 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(chartRow.InstallDestinationTitle, sourceRow.InstallDestinationTitle);
         Assert.AreEqual(chartRow.InstallDestinationArtist, sourceRow.InstallDestinationArtist);
         Assert.AreEqual(chartRow.RefTablesSymbols, sourceRow.RefTablesSymbols);
+        Assert.AreEqual(chartRow.WAVHealth, sourceRow.WAVHealth);
+        Assert.AreEqual(chartRow.BGAHealth, sourceRow.BGAHealth);
+        Assert.AreEqual(chartRow.MovieHealth, sourceRow.MovieHealth);
+        Assert.AreEqual(chartRow.encoding, sourceRow.EncodingName);
     }
 
     private static void AssertBmsonSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
@@ -927,7 +959,8 @@ public sealed class ChartListVirtualViewTests
             level = 6,
             md5 = "22222222222222222222222222222222",
             sha256 = "2222222222222222222222222222222222222222222222222222222222222222",
-            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 5, difficulty: 2, mainBpm: 120.0, total: 300.0)
+            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 5, difficulty: 2, mainBpm: 120.0, total: 300.0),
+            MaintenanceInfo = CreateMaintenanceInfo(@"folder-b\bmson.bmson", "22222222222222222222222222222222", 3)
         };
     }
 
@@ -989,6 +1022,22 @@ public sealed class ChartListVirtualViewTests
             peakdensity = 16.0 + level,
             enddensity = 4.0 + difficulty,
             speedchange_count = difficulty + 2
+        };
+    }
+
+    private static BMSFileMaintenanceInfo CreateMaintenanceInfo(string path, string hash, int seed)
+    {
+        return new BMSFileMaintenanceInfo
+        {
+            path = path,
+            hash = hash,
+            encoding = seed % 2 == 0 ? "utf-8" : "shift_jis",
+            wav_files_defined = 100,
+            wav_files_existing = 20 + seed * 10,
+            bga_files_defined = 50,
+            bga_files_existing = 10 + seed * 5,
+            movie_files_defined = 20,
+            movie_files_existing = seed
         };
     }
 

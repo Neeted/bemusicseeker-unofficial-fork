@@ -9535,6 +9535,8 @@ public class MainWindowViewModel : ViewModel
 
     private const string NormalLibraryReferenceTablesChangedReason = "ref_tables_changed";
 
+    private const string NormalLibraryMaintenanceChangedReason = "maintenance_changed";
+
     private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
         List<string> reasons = new List<string>(2);
@@ -9564,7 +9566,8 @@ public class MainWindowViewModel : ViewModel
             NormalLibraryBmsonSortKeyChangedReason,
             NormalLibraryChartInfoDigestBackfilledReason,
             NormalLibraryInstallDestinationChangedReason,
-            NormalLibraryReferenceTablesChangedReason
+            NormalLibraryReferenceTablesChangedReason,
+            NormalLibraryMaintenanceChangedReason
         };
     }
 
@@ -15522,6 +15525,10 @@ public class MainWindowViewModel : ViewModel
             nameof(LibraryChartRow.InstallDestinationTitle),
             nameof(LibraryChartRow.InstallDestinationArtist),
             nameof(LibraryChartRow.RefTablesSymbols),
+            nameof(LibraryChartRow.WAVHealth),
+            nameof(LibraryChartRow.BGAHealth),
+            nameof(LibraryChartRow.MovieHealth),
+            nameof(LibraryChartRow.encoding),
             nameof(LibraryChartRow.clear),
             nameof(LibraryChartRow.rateDouble),
             nameof(LibraryChartRow.score),
@@ -15579,6 +15586,14 @@ public class MainWindowViewModel : ViewModel
         private readonly string installDestinationArtist;
 
         private readonly string refTablesSymbols;
+
+        private readonly int? wavHealth;
+
+        private readonly int? bgaHealth;
+
+        private readonly int? movieHealth;
+
+        private readonly string encoding;
 
         private readonly ClearType clear;
 
@@ -15649,6 +15664,10 @@ public class MainWindowViewModel : ViewModel
             installDestinationTitle = row?.InstallDestinationTitle ?? string.Empty;
             installDestinationArtist = row?.InstallDestinationArtist ?? string.Empty;
             refTablesSymbols = row?.RefTablesSymbols ?? string.Empty;
+            wavHealth = row?.WAVHealth;
+            bgaHealth = row?.BGAHealth;
+            movieHealth = row?.MovieHealth;
+            encoding = row?.encoding ?? string.Empty;
             clear = row?.clear ?? ClearType.NO_SONG;
             rateDouble = row?.rateDouble;
             score = row?.score;
@@ -15699,6 +15718,10 @@ public class MainWindowViewModel : ViewModel
                 || !string.Equals(installDestinationTitle, row?.InstallDestinationTitle ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(installDestinationArtist, row?.InstallDestinationArtist ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(refTablesSymbols, row?.RefTablesSymbols ?? string.Empty, StringComparison.Ordinal)
+                || wavHealth != row?.WAVHealth
+                || bgaHealth != row?.BGAHealth
+                || movieHealth != row?.MovieHealth
+                || !string.Equals(encoding, row?.encoding ?? string.Empty, StringComparison.Ordinal)
                 || clear != (row?.clear ?? ClearType.NO_SONG)
                 || !object.Equals(rateDouble, row?.rateDouble)
                 || score != row?.score
@@ -16219,6 +16242,7 @@ public class MainWindowViewModel : ViewModel
 
     private void RefreshResourceHealthViewsAfterMaintenanceChanged()
     {
+        InvalidateNormalLibrarySortKeys(NormalLibraryMaintenanceChangedReason);
         Action refresh = delegate
         {
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "maintenance_hydration_completed"))
@@ -16230,7 +16254,9 @@ public class MainWindowViewModel : ViewModel
                 || treeViewFilterTypeSelected == viewUpdateMode.FullScanAllChartsFilterSelected)
             {
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                return;
             }
+            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Maintenance, "maintenance_changed");
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {

@@ -64,6 +64,14 @@ internal sealed class ChartListSourceRow
 
     internal string RefTablesNames => BmsFile?.RefTablesNames ?? string.Empty;
 
+    internal int? WAVHealth => BmsFile?.WAVHealth ?? BmsonSong?.MaintenanceInfo?.WAVHealth;
+
+    internal int? BGAHealth => BmsFile?.BGAHealth ?? BmsonSong?.MaintenanceInfo?.BGAHealth;
+
+    internal int? MovieHealth => BmsFile?.MovieHealth ?? BmsonSong?.MaintenanceInfo?.MovieHealth;
+
+    internal string EncodingName => BmsFile?.encoding ?? BmsonSong?.MaintenanceInfo?.encoding ?? string.Empty;
+
     internal ClearType Clear => BmsFile?.clear ?? (string.IsNullOrWhiteSpace(Path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
 
     internal RankType Rank => BmsFile?.rank ?? RankType.INVALID;

@@ -100,6 +100,33 @@ internal sealed class ChartListOrder
             MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.Comparable(
+            nameof(LibraryChartRow.WAVHealth),
+            row => row?.WAVHealth,
+            "virtual_wav_health_order",
+            typeof(int?).Name,
+            MainViewDataDependency.Maintenance,
+            prewarmByDefault: false),
+        ChartListOrderColumnDefinition.Comparable(
+            nameof(LibraryChartRow.BGAHealth),
+            row => row?.BGAHealth,
+            "virtual_bga_health_order",
+            typeof(int?).Name,
+            MainViewDataDependency.Maintenance,
+            prewarmByDefault: false),
+        ChartListOrderColumnDefinition.Comparable(
+            nameof(LibraryChartRow.MovieHealth),
+            row => row?.MovieHealth,
+            "virtual_movie_health_order",
+            typeof(int?).Name,
+            MainViewDataDependency.Maintenance,
+            prewarmByDefault: false),
+        ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.encoding),
+            row => row?.EncodingName ?? string.Empty,
+            "virtual_encoding_order",
+            MainViewDataDependency.Maintenance,
+            prewarmByDefault: false),
+        ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.level),
             row => row?.LevelValue ?? TryParseLevel(row?.Level),
             "virtual_level_order",
@@ -660,6 +687,10 @@ internal readonly struct ChartListOrderColumnDefinition
             case nameof(LibraryChartRow.ChartPeakDensitySortKey):
             case nameof(LibraryChartRow.ChartEndDensitySortKey):
                 return 2;
+            case nameof(LibraryChartRow.WAVHealth):
+            case nameof(LibraryChartRow.BGAHealth):
+            case nameof(LibraryChartRow.MovieHealth):
+            case nameof(LibraryChartRow.encoding):
             case nameof(LibraryChartRow.level):
                 return 0;
             default:
