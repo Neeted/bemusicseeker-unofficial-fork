@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -176,6 +177,7 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.Artist),
             nameof(LibraryChartRow.genre),
             nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.WarningDigestText),
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
             nameof(LibraryChartRow.sha256),
@@ -221,7 +223,6 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
 
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "Path", ListSortDirection.Ascending, out _));
-        Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, out _));
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "EntryLevelSortKey", ListSortDirection.Ascending, out _));
     }
 
@@ -286,6 +287,7 @@ public sealed class ChartListVirtualViewTests
         AssertRegistryDependency(metadata, MainViewDataDependency.ChartInfo, nameof(LibraryChartRow.ChartTotalSortKey));
         AssertRegistryDependency(metadata, MainViewDataDependency.Maintenance, nameof(LibraryChartRow.WAVHealth));
         AssertRegistryDependency(metadata, MainViewDataDependency.Maintenance, nameof(LibraryChartRow.encoding));
+        AssertRegistryDependency(metadata, MainViewDataDependency.Warning, nameof(LibraryChartRow.WarningDigestText));
         AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Title));
         AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Folder));
         AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.rateDouble));
@@ -293,6 +295,7 @@ public sealed class ChartListVirtualViewTests
         AssertRegistryPrewarmPriority(metadata, 3, nameof(LibraryChartRow.maxcombo));
         AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.WAVHealth));
         AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.encoding));
+        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.WarningDigestText));
         AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.level));
     }
 
@@ -485,6 +488,7 @@ public sealed class ChartListVirtualViewTests
         file.bmsScore = CreateScore(file.hash, ClearType.HARD, RankType.AA, perfect: 800, great: 200, totalNotes: 1200, maxCombo: 999, minBp: 12, ranking: 42, rankingNum: 500, rankingLastUpdate: new DateTime(2026, 5, 15, 1, 2, 3, DateTimeKind.Local), stdDevVal: 51.5, scoreDifficulty: 78.25);
         file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: 7, difficulty: 3, mainBpm: 150.5, total: 340.0));
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file.path, file.hash, 3), suppressPropertyChanged: true);
+        file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
         file.instl_dst = "Installed";
         file.InstallDestinationTitle = "Installed Title";
         file.InstallDestinationArtist = "Installed Artist";
@@ -508,6 +512,32 @@ public sealed class ChartListVirtualViewTests
 
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsFile != null), LibraryChartRow.FromBmsFile(file));
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsonSong != null), LibraryChartRow.FromBmsonSong(bmson));
+    }
+
+    [TestMethod]
+    public void SourceRow_WarningDigestMatchesLibraryChartRowWithResourceProjection()
+    {
+        BMSFile file = CreateFile(
+            @"folder-a\warning.bms",
+            "Warning",
+            "folder-a",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetWarning(ChartWarningKind.ResourceWavMissing, "stale resource warning");
+        file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
+        ResourceHealthWarningProjection projection = new ResourceHealthWarningProjection(
+            1,
+            new[] { ChartWarning.Create(ChartWarningKind.ResourceBgaMissing, "projected resource warning") },
+            isIgnored: false);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+            new[] { file },
+            null,
+            _ => projection);
+        LibraryChartRow chartRow = LibraryChartRow.FromBmsFile(file);
+        chartRow.SetResourceHealthProjectionProvider(_ => projection);
+
+        Assert.AreEqual(chartRow.WarningDigestText, sourceRows[0].WarningDigestText);
+        StringAssert.Contains(sourceRows[0].WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_DuplicateChart);
+        StringAssert.Contains(sourceRows[0].WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
     }
 
     [TestMethod]
@@ -624,7 +654,8 @@ public sealed class ChartListVirtualViewTests
                 refTableSymbol: "C",
                 scoreSeed: 3,
                 chartSeed: 3,
-                maintenanceSeed: 3),
+                maintenanceSeed: 3,
+                warningSeed: 3),
             CreateFile(
                 @"folder-a\a_item2.bms",
                 "item2",
@@ -642,7 +673,8 @@ public sealed class ChartListVirtualViewTests
                 refTableSymbol: "A",
                 scoreSeed: 1,
                 chartSeed: 1,
-                maintenanceSeed: 1),
+                maintenanceSeed: 1,
+                warningSeed: 1),
             CreateFile(
                 @"folder-b\m_alpha.bms",
                 "Alpha",
@@ -660,7 +692,8 @@ public sealed class ChartListVirtualViewTests
                 refTableSymbol: "B",
                 scoreSeed: 2,
                 chartSeed: 2,
-                maintenanceSeed: 2)
+                maintenanceSeed: 2,
+                warningSeed: 2)
         };
     }
 
@@ -716,7 +749,8 @@ public sealed class ChartListVirtualViewTests
         string refTableSymbol = "",
         int? scoreSeed = null,
         int? chartSeed = null,
-        int? maintenanceSeed = null)
+        int? maintenanceSeed = null,
+        int? warningSeed = null)
     {
         TestableBmsFile file = new TestableBmsFile();
         file.Apply(path, title, folder, artist, genre, level, mode, tag, hash, sha256);
@@ -753,6 +787,21 @@ public sealed class ChartListVirtualViewTests
         if (!string.IsNullOrEmpty(refTableSymbol))
         {
             file.AddRefTable(new BMSTable { symbol = refTableSymbol, name = refTableSymbol });
+        }
+        if (warningSeed.HasValue)
+        {
+            switch (warningSeed.Value)
+            {
+                case 1:
+                    file.SetWarning(ChartWarningKind.ZeroNoteMismatch, "zero note warning");
+                    break;
+                case 2:
+                    file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
+                    break;
+                default:
+                    file.SetWarning(ChartWarningKind.ChartInfoParseFailure, "chart info warning");
+                    break;
+            }
         }
         return file;
     }
@@ -818,6 +867,7 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.Artist),
             nameof(LibraryChartRow.genre),
             nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.WarningDigestText),
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
             nameof(LibraryChartRow.sha256),
@@ -923,6 +973,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(chartRow.InstallDestinationTitle, sourceRow.InstallDestinationTitle);
         Assert.AreEqual(chartRow.InstallDestinationArtist, sourceRow.InstallDestinationArtist);
         Assert.AreEqual(chartRow.RefTablesSymbols, sourceRow.RefTablesSymbols);
+        Assert.AreEqual(chartRow.WarningDigestText, sourceRow.WarningDigestText);
         Assert.AreEqual(chartRow.WAVHealth, sourceRow.WAVHealth);
         Assert.AreEqual(chartRow.BGAHealth, sourceRow.BGAHealth);
         Assert.AreEqual(chartRow.MovieHealth, sourceRow.MovieHealth);

@@ -18,10 +18,16 @@ internal sealed class ChartListSourceRow
 
     private readonly int? bmsonMode;
 
-    private ChartListSourceRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong)
+    private readonly Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
+
+    private ChartListSourceRow(
+        BMSFile bmsFile,
+        LR2SongDBExtended.bmson_song bmsonSong,
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider)
     {
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
+        this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         bmsonTitle = BmsonSongParser.ComposeDisplayTitle(bmsonSong);
         bmsonFolder = BmsonSongParser.ComposeDisplayFolder(bmsonSong);
         bmsonPath = bmsonSong?.path ?? string.Empty;
@@ -43,6 +49,12 @@ internal sealed class ChartListSourceRow
     internal string Path => BmsFile?.path ?? bmsonPath;
 
     internal int? Mode => BmsFile?.mode ?? bmsonMode;
+
+    internal string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(
+        BmsFile,
+        GetResourceHealthProjection(),
+        resourceHealthProjectionProvider != null,
+        InstallDestination);
 
     internal string Tag => BmsFile?.tag ?? string.Empty;
 
@@ -141,29 +153,41 @@ internal sealed class ChartListSourceRow
         return BmsFile ?? PendingChartEntry.CreateFromBmsonSong(BmsonSong);
     }
 
-    internal static ChartListSourceRow FromBmsFile(BMSFile file)
+    internal static ChartListSourceRow FromBmsFile(
+        BMSFile file,
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null)
     {
-        return file == null ? null : new ChartListSourceRow(file, null);
+        return file == null ? null : new ChartListSourceRow(file, null, resourceHealthProjectionProvider);
     }
 
-    internal static ChartListSourceRow FromBmsonSong(LR2SongDBExtended.bmson_song song)
+    internal static ChartListSourceRow FromBmsonSong(
+        LR2SongDBExtended.bmson_song song,
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null)
     {
-        return song == null ? null : new ChartListSourceRow(null, song);
+        return song == null ? null : new ChartListSourceRow(null, song, resourceHealthProjectionProvider);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(
         IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null)
     {
         List<ChartListSourceRow> rows = new List<ChartListSourceRow>();
         rows.AddRange((bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Select(FromBmsFile)
+            .Select(file => FromBmsFile(file, resourceHealthProjectionProvider))
             .Where(row => row != null));
         rows.AddRange((bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-            .Select(FromBmsonSong)
+            .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider))
             .Where(row => row != null));
         return rows;
+    }
+
+    private ResourceHealthWarningProjection GetResourceHealthProjection()
+    {
+        return resourceHealthProjectionProvider == null
+            ? ResourceHealthWarningProjection.Empty
+            : resourceHealthProjectionProvider.Invoke(this) ?? ResourceHealthWarningProjection.Empty;
     }
 }

@@ -56,6 +56,12 @@ internal sealed class ChartListOrder
             MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.String(
+            nameof(LibraryChartRow.WarningDigestText),
+            row => row?.WarningDigestText ?? string.Empty,
+            "virtual_warning_digest_order",
+            MainViewDataDependency.Warning,
+            prewarmByDefault: false),
+        ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.tag),
             row => row?.Tag ?? string.Empty,
             "virtual_tag_order",
@@ -691,6 +697,7 @@ internal readonly struct ChartListOrderColumnDefinition
             case nameof(LibraryChartRow.BGAHealth):
             case nameof(LibraryChartRow.MovieHealth):
             case nameof(LibraryChartRow.encoding):
+            case nameof(LibraryChartRow.WarningDigestText):
             case nameof(LibraryChartRow.level):
                 return 0;
             default:

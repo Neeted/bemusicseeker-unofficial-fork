@@ -129,15 +129,15 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public bool HasZeroNoteMismatchWarning => BmsFile?.HasZeroNoteMismatchWarning ?? false;
 
-    public bool HasHighlightedWarning => ChartWarningCollection.HasAnyHighlightedWarning(GetProjectedWarnings());
+    public bool HasHighlightedWarning => ChartWarningProjectionFormatter.HasHighlightedWarning(BmsFile, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
     public bool HasFailureStatus => false;
 
-    public string DisplayWarning => ChartWarningCollection.BuildDisplayText(GetProjectedWarnings());
+    public string DisplayWarning => ChartWarningProjectionFormatter.BuildDisplayText(BmsFile, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
-    public string WarningDigestText => ChartWarningCollection.BuildDigestText(GetProjectedWarnings(), instl_dst);
+    public string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(BmsFile, GetResourceHealthProjection(), resourceHealthProjectionProvider != null, instl_dst);
 
-    public string WarningTooltipText => ChartWarningCollection.BuildTooltipText(GetProjectedWarnings());
+    public string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(BmsFile, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
     public string hash => BmsFile?.hash ?? BmsonSong?.md5 ?? string.Empty;
 
@@ -328,22 +328,11 @@ internal sealed class LibraryChartRow : NotificationObject
             : BmsonSong;
     }
 
-    private IEnumerable<ChartWarning> GetProjectedWarnings()
+    private ResourceHealthWarningProjection GetResourceHealthProjection()
     {
-        bool hasResourceHealthProjection = resourceHealthProjectionProvider != null;
-        IEnumerable<ChartWarning> sourceWarnings = BmsFile?.Warnings.ToStructuredList() ?? Enumerable.Empty<ChartWarning>();
-        foreach (ChartWarning warning in sourceWarnings.Where((ChartWarning warning) => warning != null && (!hasResourceHealthProjection || warning.Category != ChartWarningCategory.ResourceHealth)))
-        {
-            yield return warning;
-        }
-        ResourceHealthWarningProjection projection = hasResourceHealthProjection ? resourceHealthProjectionProvider?.Invoke(this) ?? ResourceHealthWarningProjection.Empty : ResourceHealthWarningProjection.Empty;
-        foreach (ChartWarning warning in projection.Warnings ?? Array.Empty<ChartWarning>())
-        {
-            if (warning != null)
-            {
-                yield return warning;
-            }
-        }
+        return resourceHealthProjectionProvider == null
+            ? ResourceHealthWarningProjection.Empty
+            : resourceHealthProjectionProvider.Invoke(this) ?? ResourceHealthWarningProjection.Empty;
     }
 
     private static double? ParseNullableDouble(string value)

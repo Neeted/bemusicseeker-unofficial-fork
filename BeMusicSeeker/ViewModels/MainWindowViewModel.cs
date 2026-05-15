@@ -286,7 +286,8 @@ internal enum MainViewDataDependency
     IdentitySortKey,
     ChartInfo,
     Score,
-    Maintenance
+    Maintenance,
+    Warning
 }
 
 internal enum MainViewRefreshAction
@@ -8285,7 +8286,8 @@ public class MainWindowViewModel : ViewModel
         return changedDependency == MainViewDataDependency.Score
             && (sortDependency == MainViewDataDependency.IdentitySortKey
                 || sortDependency == MainViewDataDependency.ChartInfo
-                || sortDependency == MainViewDataDependency.Maintenance);
+                || sortDependency == MainViewDataDependency.Maintenance
+                || sortDependency == MainViewDataDependency.Warning);
     }
 
     internal static MainViewDataDependency GetMainViewSortColumnDependencyForTest(string columnName)
@@ -8317,6 +8319,10 @@ public class MainWindowViewModel : ViewModel
         if (IsMainViewMaintenanceSortColumn(columnName))
         {
             return MainViewDataDependency.Maintenance;
+        }
+        if (IsMainViewWarningSortColumn(columnName))
+        {
+            return MainViewDataDependency.Warning;
         }
         return MainViewDataDependency.Unknown;
     }
@@ -8362,11 +8368,15 @@ public class MainWindowViewModel : ViewModel
 
     private static bool IsMainViewMaintenanceSortColumn(string columnName)
     {
-        return string.Equals(columnName, nameof(LibraryChartRow.WarningDigestText), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.WAVHealth), StringComparison.Ordinal)
+        return string.Equals(columnName, nameof(LibraryChartRow.WAVHealth), StringComparison.Ordinal)
             || string.Equals(columnName, nameof(LibraryChartRow.BGAHealth), StringComparison.Ordinal)
             || string.Equals(columnName, nameof(LibraryChartRow.MovieHealth), StringComparison.Ordinal)
             || string.Equals(columnName, nameof(LibraryChartRow.encoding), StringComparison.Ordinal);
+    }
+
+    private static bool IsMainViewWarningSortColumn(string columnName)
+    {
+        return string.Equals(columnName, nameof(LibraryChartRow.WarningDigestText), StringComparison.Ordinal);
     }
 
     private void RefreshChartInfoDependentViews()
@@ -9537,6 +9547,8 @@ public class MainWindowViewModel : ViewModel
 
     private const string NormalLibraryMaintenanceChangedReason = "maintenance_changed";
 
+    private const string NormalLibraryWarningChangedReason = "warning_changed";
+
     private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
         List<string> reasons = new List<string>(2);
@@ -9567,7 +9579,8 @@ public class MainWindowViewModel : ViewModel
             NormalLibraryChartInfoDigestBackfilledReason,
             NormalLibraryInstallDestinationChangedReason,
             NormalLibraryReferenceTablesChangedReason,
-            NormalLibraryMaintenanceChangedReason
+            NormalLibraryMaintenanceChangedReason,
+            NormalLibraryWarningChangedReason
         };
     }
 
@@ -9876,7 +9889,10 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+            BMSFiles,
+            includeBmsonRows ? files?.BmsonSongs : null,
+            GetResourceHealthProjectionForSourceRow);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -10400,6 +10416,23 @@ public class MainWindowViewModel : ViewModel
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)
+    {
+        if (files == null || row == null)
+        {
+            return ResourceHealthWarningProjection.Empty;
+        }
+        if (row.BmsFile != null)
+        {
+            return files.GetResourceHealthWarningProjection(row.BmsFile);
+        }
+        if (row.BmsonSong != null)
+        {
+            return files.GetResourceHealthWarningProjection(row.BmsonSong);
+        }
+        return ResourceHealthWarningProjection.Empty;
+    }
+
+    private ResourceHealthWarningProjection GetResourceHealthProjectionForSourceRow(ChartListSourceRow row)
     {
         if (files == null || row == null)
         {
@@ -13011,6 +13044,7 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
         {
+            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -13023,9 +13057,14 @@ public class MainWindowViewModel : ViewModel
                 }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
+            else
+            {
+                RefreshNormalLibraryAfterWarningChanged("bms_files_need_to_be_fixed_changed");
+            }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixedIgnored, delegate
         {
+            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -13038,9 +13077,14 @@ public class MainWindowViewModel : ViewModel
                 }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
+            else
+            {
+                RefreshNormalLibraryAfterWarningChanged("bms_files_need_to_be_fixed_ignored_changed");
+            }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesDuplicated, delegate
         {
+            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (!TrySuppress(UiRefreshChannel.DuplicateTree)
                 && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, "bms_files_duplicated_changed"))
             {
@@ -13062,6 +13106,10 @@ public class MainWindowViewModel : ViewModel
                     return;
                 }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            }
+            else
+            {
+                RefreshNormalLibraryAfterWarningChanged("bms_files_duplicated_changed");
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbled, delegate
@@ -13099,6 +13147,7 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesZeroNote, delegate
         {
+            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.ZeroNoteFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -13107,9 +13156,14 @@ public class MainWindowViewModel : ViewModel
                 }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
+            else
+            {
+                RefreshNormalLibraryAfterWarningChanged("bms_files_zero_note_changed");
+            }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesChartInfoParseFailed, delegate
         {
+            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.ChartInfoParseErrorFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -13117,6 +13171,10 @@ public class MainWindowViewModel : ViewModel
                     return;
                 }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            }
+            else
+            {
+                RefreshNormalLibraryAfterWarningChanged("bms_files_chart_info_parse_failed_changed");
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesInstalled, delegate
@@ -15516,6 +15574,7 @@ public class MainWindowViewModel : ViewModel
             nameof(LibraryChartRow.genre),
             nameof(LibraryChartRow.level),
             nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.WarningDigestText),
             nameof(LibraryChartRow.Folder),
             nameof(LibraryChartRow.path),
             nameof(LibraryChartRow.tag),
@@ -15568,6 +15627,8 @@ public class MainWindowViewModel : ViewModel
         private readonly double? levelValue;
 
         private readonly int? mode;
+
+        private readonly string warningDigestText;
 
         private readonly string folder;
 
@@ -15655,6 +15716,7 @@ public class MainWindowViewModel : ViewModel
             levelText = row?.Level ?? string.Empty;
             levelValue = row?.level;
             mode = row?.mode;
+            warningDigestText = row?.WarningDigestText ?? string.Empty;
             folder = row?.Folder ?? string.Empty;
             path = row?.path ?? string.Empty;
             tag = row?.tag ?? string.Empty;
@@ -15709,6 +15771,7 @@ public class MainWindowViewModel : ViewModel
                 || !string.Equals(levelText, row?.Level ?? string.Empty, StringComparison.Ordinal)
                 || !object.Equals(levelValue, row?.level)
                 || mode != row?.mode
+                || !string.Equals(warningDigestText, row?.WarningDigestText ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(folder, row?.Folder ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(path, row?.path ?? string.Empty, StringComparison.Ordinal)
                 || !string.Equals(tag, row?.tag ?? string.Empty, StringComparison.Ordinal)
@@ -16266,6 +16329,15 @@ public class MainWindowViewModel : ViewModel
         {
             DispatcherHelper.UIDispatcher.BeginInvoke(refresh);
         }
+    }
+
+    private void RefreshNormalLibraryAfterWarningChanged(string reason)
+    {
+        if (TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            return;
+        }
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
     }
 
     public void IgnoreFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
