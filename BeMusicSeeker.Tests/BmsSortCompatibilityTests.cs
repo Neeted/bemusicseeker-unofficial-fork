@@ -325,6 +325,7 @@ public sealed class BmsSortCompatibilityTests
         {
             MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
             MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected,
             MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
             MainWindowViewModel.viewUpdateMode.ModeFilterUpdated,
             MainWindowViewModel.viewUpdateMode.SortUpdated

@@ -9955,8 +9955,9 @@ public class MainWindowViewModel : ViewModel
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
+        Func<BeMusicSeeker.Models.BMSFile, bool> effectiveFolderFilter = ShouldApplyVirtualNormalLibraryFolderFilter(treeViewFilterTypeSelected) ? FolderFilter : null;
         string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
-            FolderFilter,
+            effectiveFolderFilter,
             KeywordFilter,
             ModeFilter,
             files?.ScoreSnapshotVersion ?? 0,
@@ -9978,7 +9979,7 @@ public class MainWindowViewModel : ViewModel
         int[] viewOrderedIndexes = ApplyVirtualNormalLibraryFilters(
             sourceRows,
             fullOrder.Indexes,
-            FolderFilter,
+            effectiveFolderFilter,
             keywordQuery,
             ModeFilter,
             out int folderFilteredCount,
@@ -10908,8 +10909,7 @@ public class MainWindowViewModel : ViewModel
 
     private static bool ShouldLogVirtualNormalLibraryFallback(viewUpdateMode mode, viewUpdateMode currentTreeMode)
     {
-        return IsVirtualNormalLibraryModeSupported(mode)
-            && currentTreeMode == viewUpdateMode.FolderFilterSelected
+        return IsVirtualNormalLibraryRequestModeSupported(mode, currentTreeMode)
             && !IsPlaylistTreeActive(mode, currentTreeMode);
     }
 
@@ -10961,14 +10961,14 @@ public class MainWindowViewModel : ViewModel
         normalizedSortColumn = string.Empty;
         sortDirection = ListSortDirection.Ascending;
         fallbackReason = string.Empty;
-        if (!IsVirtualNormalLibraryModeSupported(mode))
-        {
-            fallbackReason = "unsupported_mode";
-            return false;
-        }
-        if (treeViewFilterTypeSelected != viewUpdateMode.FolderFilterSelected)
+        if (!IsVirtualNormalLibraryTreeModeSupported(treeViewFilterTypeSelected))
         {
             fallbackReason = "unsupported_tree_mode";
+            return false;
+        }
+        if (!IsVirtualNormalLibraryRequestModeSupported(mode, treeViewFilterTypeSelected))
+        {
+            fallbackReason = "unsupported_mode";
             return false;
         }
         if (IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
@@ -10994,6 +10994,21 @@ public class MainWindowViewModel : ViewModel
         return IsVirtualNormalLibraryModeSupported((viewUpdateMode)mode);
     }
 
+    internal static bool IsVirtualNormalLibraryTreeModeSupportedForTest(int mode)
+    {
+        return IsVirtualNormalLibraryTreeModeSupported((viewUpdateMode)mode);
+    }
+
+    internal static bool IsVirtualNormalLibraryRequestModeSupportedForTest(int mode, int treeMode)
+    {
+        return IsVirtualNormalLibraryRequestModeSupported((viewUpdateMode)mode, (viewUpdateMode)treeMode);
+    }
+
+    internal static bool ShouldApplyVirtualNormalLibraryFolderFilterForTest(int treeMode)
+    {
+        return ShouldApplyVirtualNormalLibraryFolderFilter((viewUpdateMode)treeMode);
+    }
+
     internal static bool IsVirtualBmsFileSubsetTreeModeSupportedForTest(int mode)
     {
         return IsVirtualBmsFileSubsetTreeModeSupported((viewUpdateMode)mode);
@@ -11013,9 +11028,31 @@ public class MainWindowViewModel : ViewModel
     {
         return mode == viewUpdateMode.TreeViewFilterNotChanged
             || mode == viewUpdateMode.FolderFilterSelected
+            || mode == viewUpdateMode.FullScanAllChartsFilterSelected
             || mode == viewUpdateMode.KeywordFilterUpdated
             || mode == viewUpdateMode.ModeFilterUpdated
             || mode == viewUpdateMode.SortUpdated;
+    }
+
+    private static bool IsVirtualNormalLibraryRequestModeSupported(viewUpdateMode mode, viewUpdateMode treeMode)
+    {
+        return IsVirtualNormalLibraryTreeModeSupported(treeMode)
+            && (mode == treeMode
+                || mode == viewUpdateMode.TreeViewFilterNotChanged
+                || mode == viewUpdateMode.KeywordFilterUpdated
+                || mode == viewUpdateMode.ModeFilterUpdated
+                || mode == viewUpdateMode.SortUpdated);
+    }
+
+    private static bool IsVirtualNormalLibraryTreeModeSupported(viewUpdateMode mode)
+    {
+        return mode == viewUpdateMode.FolderFilterSelected
+            || mode == viewUpdateMode.FullScanAllChartsFilterSelected;
+    }
+
+    private static bool ShouldApplyVirtualNormalLibraryFolderFilter(viewUpdateMode treeMode)
+    {
+        return treeMode != viewUpdateMode.FullScanAllChartsFilterSelected;
     }
 
     private static bool IsVirtualBmsFileSubsetRequestModeSupported(viewUpdateMode mode, viewUpdateMode treeMode)
@@ -11030,8 +11067,7 @@ public class MainWindowViewModel : ViewModel
 
     private static bool IsVirtualBmsFileSubsetTreeModeSupported(viewUpdateMode mode)
     {
-        return mode == viewUpdateMode.FullScanAllChartsFilterSelected
-            || mode == viewUpdateMode.FileMissingFilterSelected
+        return mode == viewUpdateMode.FileMissingFilterSelected
             || mode == viewUpdateMode.FileMissingIgnoredFilterSelected
             || mode == viewUpdateMode.DuplicateFilterSelected
             || mode == viewUpdateMode.GarbledFilterSelected
@@ -11053,11 +11089,6 @@ public class MainWindowViewModel : ViewModel
         sourceBmsonSongs = null;
         switch (treeMode)
         {
-            case viewUpdateMode.FullScanAllChartsFilterSelected:
-                sourceFiles = BMSFiles;
-                sourceBmsonSongs = files?.BmsonSongs;
-                subsetName = "full_scan_all";
-                return true;
             case viewUpdateMode.FileMissingFilterSelected:
                 sourceFiles = BMSFilesToBeFixed;
                 subsetName = "file_missing";
@@ -11245,8 +11276,7 @@ public class MainWindowViewModel : ViewModel
 
     private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(viewUpdateMode treeMode)
     {
-        return treeMode == viewUpdateMode.FullScanAllChartsFilterSelected
-            || treeMode == viewUpdateMode.FileMissingFilterSelected
+        return treeMode == viewUpdateMode.FileMissingFilterSelected
             || treeMode == viewUpdateMode.FileMissingIgnoredFilterSelected
             || treeMode == viewUpdateMode.NewlyInstalledFolderSelected;
     }
