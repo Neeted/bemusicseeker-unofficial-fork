@@ -9859,6 +9859,170 @@ public class MainWindowViewModel : ViewModel
         return true;
     }
 
+    private bool TryApplyVirtualBmsFileSubsetLibraryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
+    {
+        viewUpdateMode treeMode = treeViewFilterTypeSelected;
+        if (!IsVirtualBmsFileSubsetRequestModeSupported(mode, treeMode)
+            || !TryGetVirtualBmsFileSubsetSourceFiles(treeMode, out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles, out string subsetName))
+        {
+            return false;
+        }
+        if (!TryResolveVirtualSortRequest(SortParameters, out string normalizedSortColumn, out ListSortDirection sortDirection))
+        {
+            LogVirtualBmsFileSubsetFallback(mode, requestedMode, treeMode, "unsupported_sort_column");
+            return false;
+        }
+
+        ResetRegularDerivedViewCaches();
+
+        long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+            subsetFiles,
+            null,
+            applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null);
+        long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        int folderCount = sourceRows.Count;
+
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        if (!ChartListOrder.TryCreate(sourceRows, normalizedSortColumn, sortDirection, out ChartListOrder fullOrder))
+        {
+            LogVirtualBmsFileSubsetFallback(mode, requestedMode, treeMode, "unsupported_sort_column");
+            return false;
+        }
+        long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        int[] viewOrderedIndexes = fullOrder.Indexes;
+        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        if (keywordQuery.HasTokens)
+        {
+            viewOrderedIndexes = viewOrderedIndexes
+                .AsParallel()
+                .AsOrdered()
+                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
+                .ToArray();
+        }
+        int keywordCount = viewOrderedIndexes.Length;
+        long keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        if (ModeFilter != ModeFilterType.All)
+        {
+            HashSet<int?> modeValues = CreateModeFilterValueSet(ModeFilter);
+            viewOrderedIndexes = viewOrderedIndexes
+                .Where(index =>
+                {
+                    ChartListSourceRow row = sourceRows[index];
+                    return row != null && modeValues.Contains(row.Mode);
+                })
+                .ToArray();
+        }
+        int modeCount = viewOrderedIndexes.Length;
+        long modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+
+        ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
+        IReadOnlyList<ChartListSourceRow> orderedRows = SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
+        int distinctFolderCount = CountDistinctFoldersForSourceRows(orderedRows);
+
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        ChartListVirtualView nextRowsView = new ChartListVirtualView(
+            sourceRows,
+            order,
+            row => CreateVirtualBmsFileSubsetRow(row, applyResourceHealthProjection),
+            distinctFolderCount);
+        long prepareSwapMs = 0L;
+        if (!ReferenceEquals(BMSFilesView, nextRowsView))
+        {
+            long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+            prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
+        }
+        long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        bool columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
+        long columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
+        long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        SetChartRowsView(nextRowsView, distinctFolderCount);
+        long setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
+        long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        if (applyResourceHealthProjection)
+        {
+            LogResourceHealthProjection(mode, nextRowsView.Count);
+        }
+
+        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
+        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
+        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
+        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
+        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
+
+        LogMainSortDetail(new LibraryChartSortMetrics(
+            order.Count,
+            order.ColumnName,
+            order.Direction,
+            order.PropertyTypeName,
+            order.SortProfile,
+            order.StringSortKind,
+            sortStageMs,
+            sortReuse: false,
+            sortCacheKey: order.ColumnName,
+            sortCacheGeneration: 0L,
+            sortCacheHit: false,
+            orderCacheLookupMs: 0L,
+            orderBuildMs: sortStageMs));
+
+        string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
+        string sortDirectionText = SortParameters?.Direction.ToString() ?? "Ascending";
+        string parameterType = parameter?.GetType().Name ?? "(null)";
+        LogMainViewBuild("main_view_build mode=" + mode
+            + " requestedMode=" + requestedMode
+            + " treeMode=" + treeMode
+            + " subset=" + subsetName
+            + " parameterType=" + parameterType
+            + " folderMs=" + folderStageMs
+            + " keywordMs=" + keywordStageMs
+            + " modeMs=" + modeStageMs
+            + " sortMs=" + sortStageMs
+            + " sortReuse=False"
+            + " sortProfile=" + order.SortProfile
+            + " sortEngine=virtual fastSortEnabled=True"
+            + " isPlaylistDetailView=False"
+            + " columnMs=" + columnStageMs
+            + " prepareSwapMs=" + prepareSwapMs
+            + " columnSettingMs=" + columnSettingMs
+            + " setViewMs=" + setViewMs
+            + " columnSettingReuse=" + columnSettingReuse
+            + " callbackMs=0"
+            + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
+            + " folderCount=" + folderCount
+            + " keywordCount=" + keywordCount
+            + " modeCount=" + modeCount
+            + " viewCount=" + nextRowsView.Count
+            + " sortColumn=" + sortColumn
+            + " sortDirection=" + sortDirectionText
+            + " virtual=True"
+            + " sourceRows=" + sourceRows.Count
+            + " orderedRows=" + order.Count
+            + " viewRowsCreated=" + nextRowsView.RealizedRowCount
+            + " distinctFolderCount=" + distinctFolderCount);
+        return true;
+    }
+
+    private LibraryChartRow CreateVirtualBmsFileSubsetRow(ChartListSourceRow sourceRow, bool applyResourceHealthProjection)
+    {
+        if (sourceRow?.BmsFile == null)
+        {
+            return null;
+        }
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
+        if (applyResourceHealthProjection)
+        {
+            ApplyResourceHealthProjectionProvider(row);
+        }
+        return row;
+    }
+
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
         bool includeBmsonRows,
         out bool cacheHit,
@@ -10351,6 +10515,44 @@ public class MainWindowViewModel : ViewModel
             && !IsPlaylistTreeActive(mode, currentTreeMode);
     }
 
+    private void LogVirtualBmsFileSubsetFallback(viewUpdateMode mode, viewUpdateMode requestedMode, viewUpdateMode treeMode, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)
+            || !IsVirtualBmsFileSubsetRequestModeSupported(mode, treeMode))
+        {
+            return;
+        }
+        LogMainViewBuild("main_view_virtual_fallback reason=" + reason
+            + " scope=bms_file_subset"
+            + " mode=" + mode
+            + " requestedMode=" + requestedMode
+            + " treeMode=" + treeMode
+            + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
+            + " sortDirection=" + (SortParameters?.Direction.ToString() ?? "Ascending")
+            + " keywordLength=" + (KeywordFilter?.Length ?? 0)
+            + " modeFilter=" + ModeFilter);
+    }
+
+    private static bool TryResolveVirtualSortRequest(
+        cSortParameters sortParameters,
+        out string normalizedSortColumn,
+        out ListSortDirection sortDirection)
+    {
+        normalizedSortColumn = string.Empty;
+        sortDirection = ListSortDirection.Ascending;
+        if (sortParameters == null)
+        {
+            normalizedSortColumn = nameof(LibraryChartRow.Title);
+            return true;
+        }
+        if (!ChartListOrder.TryNormalizeVirtualSortColumn(sortParameters.ColumnsName, out normalizedSortColumn))
+        {
+            return false;
+        }
+        sortDirection = sortParameters.Direction;
+        return true;
+    }
+
     private bool TryResolveVirtualDefaultNormalLibraryRequest(
         viewUpdateMode mode,
         cSortParameters sortParameters,
@@ -10381,18 +10583,27 @@ public class MainWindowViewModel : ViewModel
             normalizedSortColumn = nameof(LibraryChartRow.Title);
             return true;
         }
-        if (!ChartListOrder.TryNormalizeVirtualSortColumn(sortParameters.ColumnsName, out normalizedSortColumn))
+        if (!TryResolveVirtualSortRequest(sortParameters, out normalizedSortColumn, out sortDirection))
         {
             fallbackReason = "unsupported_sort_column";
             return false;
         }
-        sortDirection = sortParameters.Direction;
         return true;
     }
 
     internal static bool IsVirtualNormalLibraryModeSupportedForTest(int mode)
     {
         return IsVirtualNormalLibraryModeSupported((viewUpdateMode)mode);
+    }
+
+    internal static bool IsVirtualBmsFileSubsetTreeModeSupportedForTest(int mode)
+    {
+        return IsVirtualBmsFileSubsetTreeModeSupported((viewUpdateMode)mode);
+    }
+
+    internal static bool ShouldApplyResourceHealthProjectionForVirtualSubsetForTest(int mode)
+    {
+        return ShouldApplyResourceHealthProjectionForVirtualSubset((viewUpdateMode)mode);
     }
 
     private static bool IsVirtualNormalLibraryModeSupported(viewUpdateMode mode)
@@ -10402,6 +10613,75 @@ public class MainWindowViewModel : ViewModel
             || mode == viewUpdateMode.KeywordFilterUpdated
             || mode == viewUpdateMode.ModeFilterUpdated
             || mode == viewUpdateMode.SortUpdated;
+    }
+
+    private static bool IsVirtualBmsFileSubsetRequestModeSupported(viewUpdateMode mode, viewUpdateMode treeMode)
+    {
+        return IsVirtualBmsFileSubsetTreeModeSupported(treeMode)
+            && (mode == treeMode
+                || mode == viewUpdateMode.TreeViewFilterNotChanged
+                || mode == viewUpdateMode.KeywordFilterUpdated
+                || mode == viewUpdateMode.ModeFilterUpdated
+                || mode == viewUpdateMode.SortUpdated);
+    }
+
+    private static bool IsVirtualBmsFileSubsetTreeModeSupported(viewUpdateMode mode)
+    {
+        return mode == viewUpdateMode.FileMissingFilterSelected
+            || mode == viewUpdateMode.FileMissingIgnoredFilterSelected
+            || mode == viewUpdateMode.GarbledFilterSelected
+            || mode == viewUpdateMode.GarbleFixedFilterSelected
+            || mode == viewUpdateMode.UnregisteredFilterSelected
+            || mode == viewUpdateMode.ZeroNoteFilterSelected
+            || mode == viewUpdateMode.ChartInfoParseErrorFilterSelected;
+    }
+
+    private bool TryGetVirtualBmsFileSubsetSourceFiles(
+        viewUpdateMode treeMode,
+        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
+        out string subsetName)
+    {
+        switch (treeMode)
+        {
+            case viewUpdateMode.FileMissingFilterSelected:
+                sourceFiles = BMSFilesToBeFixed;
+                subsetName = "file_missing";
+                return true;
+            case viewUpdateMode.FileMissingIgnoredFilterSelected:
+                sourceFiles = BMSFilesToBeFixedIgnored;
+                subsetName = "file_missing_ignored";
+                return true;
+            case viewUpdateMode.GarbledFilterSelected:
+                sourceFiles = BMSFilesGarbled;
+                subsetName = "garbled";
+                return true;
+            case viewUpdateMode.GarbleFixedFilterSelected:
+                sourceFiles = BMSFilesGarbleFixed;
+                subsetName = "garble_fixed";
+                return true;
+            case viewUpdateMode.UnregisteredFilterSelected:
+                sourceFiles = BMSFilesUnregistered;
+                subsetName = "unregistered";
+                return true;
+            case viewUpdateMode.ZeroNoteFilterSelected:
+                sourceFiles = BMSFilesZeroNote;
+                subsetName = "zero_note";
+                return true;
+            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
+                sourceFiles = BMSFilesChartInfoParseFailed;
+                subsetName = "chart_info_parse_error";
+                return true;
+            default:
+                sourceFiles = null;
+                subsetName = string.Empty;
+                return false;
+        }
+    }
+
+    private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(viewUpdateMode treeMode)
+    {
+        return treeMode == viewUpdateMode.FileMissingFilterSelected
+            || treeMode == viewUpdateMode.FileMissingIgnoredFilterSelected;
     }
 
     private static string CreateVirtualNormalLibraryFilterIdentity(Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)
@@ -14814,6 +15094,10 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        if (TryApplyVirtualBmsFileSubsetLibraryView(mode, requestedMode, parameter, viewBuildStopwatch))
+        {
+            return;
+        }
         if (ShouldRebuildRegularFolderStage(mode, ChartRowsFolderView, ChartRowsKeywordFilterView, ChartRowsModeFilterView, treeViewFilterTypeSelected))
         {
             mode = treeViewFilterTypeSelected;
@@ -15333,6 +15617,11 @@ public class MainWindowViewModel : ViewModel
 
     private void LogResourceHealthProjection(viewUpdateMode mode, IEnumerable<LibraryChartRow> rows)
     {
+        LogResourceHealthProjection(mode, CountIfCheap(rows));
+    }
+
+    private void LogResourceHealthProjection(viewUpdateMode mode, int rowCount)
+    {
         ResourceHealthIndexSnapshot snapshot = files?.GetResourceHealthIndexSnapshotForView("view_projection_" + mode);
         int overlayCount = 0;
         if (snapshot != null)
@@ -15344,7 +15633,7 @@ public class MainWindowViewModel : ViewModel
                     : snapshot.NeedFixCount;
         }
         LogMainViewBuild("resource_health_projection reason=" + mode
-            + " rowCount=" + CountIfCheap(rows)
+            + " rowCount=" + rowCount
             + " overlayCount=" + overlayCount
             + " ignored=" + (snapshot?.IgnoredCount ?? 0)
             + " version=" + (snapshot?.Version ?? 0));

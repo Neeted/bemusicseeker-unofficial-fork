@@ -369,6 +369,35 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void VirtualBmsFileSubsetTreeModes_AreLimitedToSimpleBmsFileCollections()
+    {
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.GarbledFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.GarbleFixedFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected));
+
+        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
+    }
+
+    [TestMethod]
+    public void VirtualBmsFileSubsetResourceHealthProjection_IsLimitedToFileMissingModes()
+    {
+        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected));
+
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.GarbledFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected));
+    }
+
+    [TestMethod]
     public void NormalLibrarySortCacheKey_UsesSortKeyGenerationForOrderIdentity()
     {
         NormalLibrarySortCacheKey current = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
