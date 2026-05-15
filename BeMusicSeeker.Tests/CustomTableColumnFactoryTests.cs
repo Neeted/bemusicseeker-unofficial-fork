@@ -384,6 +384,43 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_StandardVisibleSortMemberPathsAreVirtualRegistryColumns()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+
+        CustomTableColumn[] sortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
+            .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
+            .ToArray();
+
+        Assert.IsTrue(sortableColumns.Length > 0);
+        foreach (CustomTableColumn column in sortableColumns)
+        {
+            Assert.IsTrue(
+                ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out _),
+                column.Id + " uses unsupported SortMemberPath " + column.SortMemberPath);
+        }
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_AllSortableMainColumnsAreVirtualRegistryColumnsOrExplicitlyExcluded()
+    {
+        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.Visibility = Visibility.Visible;
+        }
+
+        CustomTableColumn[] unsupportedSortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
+            .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
+            .Where(column => !ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out _))
+            .ToArray();
+
+        Assert.AreEqual(1, unsupportedSortableColumns.Length);
+        Assert.AreEqual("EntryLevel", unsupportedSortableColumns[0].Id);
+        Assert.AreEqual("EntryLevelSortKey", unsupportedSortableColumns[0].SortMemberPath);
+    }
+
+    [TestMethod]
     public void ScoreBrushProvider_MapsFutureClearTypes()
     {
         Assert.AreSame(CustomTableScoreBrushProvider.PurpleBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.INVALID));

@@ -9684,8 +9684,9 @@ public class MainWindowViewModel : ViewModel
 
     private bool TryApplyVirtualDefaultNormalLibraryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, bool includeBmsonRows, Stopwatch viewBuildStopwatch)
     {
-        if (!IsVirtualDefaultNormalLibraryRequest(mode, SortParameters, out string normalizedSortColumn, out ListSortDirection sortDirection))
+        if (!TryResolveVirtualDefaultNormalLibraryRequest(mode, SortParameters, out string normalizedSortColumn, out ListSortDirection sortDirection, out string fallbackReason))
         {
+            LogVirtualNormalLibraryFallback(mode, requestedMode, includeBmsonRows, fallbackReason);
             return false;
         }
         ResetRegularDerivedViewCaches();
@@ -9699,9 +9700,7 @@ public class MainWindowViewModel : ViewModel
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
         if (keywordQuery.HasTokens && !keywordQuery.CanMatchChartListSourceRow())
         {
-            LogMainViewBuild("main_view_virtual_fallback reason=keyword_requires_materialized mode=" + mode
-                + " requestedMode=" + requestedMode
-                + " keywordLength=" + (KeywordFilter?.Length ?? 0));
+            LogVirtualNormalLibraryFallback(mode, requestedMode, includeBmsonRows, "keyword_requires_materialized");
             return false;
         }
         string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
@@ -10326,18 +10325,55 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private bool IsVirtualDefaultNormalLibraryRequest(
+    private void LogVirtualNormalLibraryFallback(viewUpdateMode mode, viewUpdateMode requestedMode, bool includeBmsonRows, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)
+            || !ShouldLogVirtualNormalLibraryFallback(mode, treeViewFilterTypeSelected))
+        {
+            return;
+        }
+        LogMainViewBuild("main_view_virtual_fallback reason=" + reason
+            + " mode=" + mode
+            + " requestedMode=" + requestedMode
+            + " treeMode=" + treeViewFilterTypeSelected
+            + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
+            + " sortDirection=" + (SortParameters?.Direction.ToString() ?? "Ascending")
+            + " folderFilterApplied=" + (FolderFilter != null)
+            + " keywordLength=" + (KeywordFilter?.Length ?? 0)
+            + " modeFilter=" + ModeFilter
+            + " includeBmsonRows=" + includeBmsonRows);
+    }
+
+    private static bool ShouldLogVirtualNormalLibraryFallback(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    {
+        return IsVirtualNormalLibraryModeSupported(mode)
+            && currentTreeMode == viewUpdateMode.FolderFilterSelected
+            && !IsPlaylistTreeActive(mode, currentTreeMode);
+    }
+
+    private bool TryResolveVirtualDefaultNormalLibraryRequest(
         viewUpdateMode mode,
         cSortParameters sortParameters,
         out string normalizedSortColumn,
-        out ListSortDirection sortDirection)
+        out ListSortDirection sortDirection,
+        out string fallbackReason)
     {
         normalizedSortColumn = string.Empty;
         sortDirection = ListSortDirection.Ascending;
-        if (!IsVirtualNormalLibraryModeSupported(mode)
-            || treeViewFilterTypeSelected != viewUpdateMode.FolderFilterSelected
-            || IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
+        fallbackReason = string.Empty;
+        if (!IsVirtualNormalLibraryModeSupported(mode))
         {
+            fallbackReason = "unsupported_mode";
+            return false;
+        }
+        if (treeViewFilterTypeSelected != viewUpdateMode.FolderFilterSelected)
+        {
+            fallbackReason = "unsupported_tree_mode";
+            return false;
+        }
+        if (IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
+        {
+            fallbackReason = "playlist_detail";
             return false;
         }
         if (sortParameters == null)
@@ -10347,6 +10383,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (!ChartListOrder.TryNormalizeVirtualSortColumn(sortParameters.ColumnsName, out normalizedSortColumn))
         {
+            fallbackReason = "unsupported_sort_column";
             return false;
         }
         sortDirection = sortParameters.Direction;
