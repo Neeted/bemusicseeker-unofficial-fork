@@ -123,6 +123,22 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesChartListSourceRow_RegexScoreAndChartInfoFieldsMatchLibraryChartRow()
+    {
+        TestableBmsFile file = CreateFile();
+        file.SetChartInfo(CreateChartInfo());
+        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsFile(file);
+        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(file);
+
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("feature:re:RANDOM judge:re:EASY clear:re:HARD rank:re:^AA$ score:re:^1800$ bp:re:^8$");
+
+        Assert.IsTrue(query.CanMatchChartListSourceRow());
+        Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
+        Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
+    }
+
+    [TestMethod]
     public void MatchesBmsFile_UnknownOrEmptyFieldQueryDoesNotMatch()
     {
         TestableBmsFile file = CreateFile();

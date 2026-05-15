@@ -846,6 +846,32 @@ internal sealed class GridKeywordSearchQuery
             case "sha256":
                 yield return row.Sha256;
                 break;
+            case "clear":
+                yield return ScoreDisplayTextFormatter.FormatClear(row.Clear);
+                break;
+            case "rank":
+            case "djlevel":
+            case "dj":
+                yield return ScoreDisplayTextFormatter.FormatRank(row.Rank);
+                break;
+            case "rate":
+                yield return FormatNullableDoubleInvariant(row.RateDouble);
+                break;
+            case "score":
+                yield return FormatNullableIntInvariant(row.Score);
+                break;
+            case "combo":
+                yield return FormatNullableIntInvariant(row.MaxCombo);
+                break;
+            case "bp":
+                yield return FormatNullableIntInvariant(row.MinBp);
+                break;
+            default:
+                foreach (string value in GetChartInfoValues(row.ChartInfo, field))
+                {
+                    yield return value;
+                }
+                break;
         }
     }
 
