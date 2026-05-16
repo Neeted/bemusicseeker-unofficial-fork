@@ -2053,7 +2053,7 @@
                         <FrameworkElement.Style>
                           <Style TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
                             <Style.Triggers>
-                              <DataTrigger Value="True" Binding="{Binding DataContext.IsWriteLockHeldBMSFilesPendingInstall, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="True" Binding="{Binding DataContext.IsWriteLockHeldPendingInstallCharts, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <TriggerBase.EnterActions>
                                   <BeginStoryboard Name="AnimationBeginStoryboard" Storyboard="{StaticResource storyboardTreeViewItemIconRotation}" />
                                 </TriggerBase.EnterActions>
@@ -2062,7 +2062,7 @@
                                 </TriggerBase.ExitActions>
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
-                              <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldBMSFilesPendingInstall, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldPendingInstallCharts, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_1004}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>

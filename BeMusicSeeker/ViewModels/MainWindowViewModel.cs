@@ -13129,13 +13129,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public bool IsWriteLockHeldBMSFilesPendingInstall
+    public bool IsWriteLockHeldPendingInstallCharts
     {
         get
         {
             if (files != null)
             {
-                return files.IsWriteLockHeldBMSFilesPendingInstall;
+                return files.IsWriteLockHeldPendingInstallCharts;
             }
             return true;
         }
@@ -14452,9 +14452,9 @@ public class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFilesZeroNote);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldBMSFilesPendingInstall, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldPendingInstallCharts, delegate
         {
-            RaisePropertyChanged(() => IsWriteLockHeldBMSFilesPendingInstall);
+            RaisePropertyChanged(() => IsWriteLockHeldPendingInstallCharts);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldBMSFilesDuplicated, delegate
         {

@@ -367,7 +367,6 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 
 次の API / view 名は chart 共通処理を含むが、BMS 名を残している。
 
-- `BMSFilesPendingInstall`
 - `BMSFilesView`
 
 `RemoveChartFiles(...)` は BMS / bmson 共通の library chart 削除入口であり、旧 `RemoveBMSFiles(...)` wrapper は残さない。未使用だった single chart move wrapper も削除済みである。

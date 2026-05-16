@@ -2201,7 +2201,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public bool IsWriteLockHeldBMSFilesPendingInstall
+    public bool IsWriteLockHeldPendingInstallCharts
     {
         get
         {
@@ -2522,7 +2522,7 @@ public class BMSLibrary : NotificationObject
         });
         listenerForRwlockBMSFilesInitializedAll.RegisterHandler(() => rwlockBMSFilesInitializedAll.LockingWriteCount, delegate
         {
-            RaisePropertyChanged(() => IsWriteLockHeldBMSFilesPendingInstall);
+            RaisePropertyChanged(() => IsWriteLockHeldPendingInstallCharts);
         });
         listenerForRwlockBMSFilesInitializedMin.RegisterHandler(() => rwlockBMSFilesInitializedMin.LockingWriteCount, delegate
         {
@@ -2538,7 +2538,7 @@ public class BMSLibrary : NotificationObject
         });
         listenerForRwlockBMSFilesPendingInstall.RegisterHandler(() => rwlockBMSFilesPendingInstall.LockingWriteCount, delegate
         {
-            RaisePropertyChanged(() => IsWriteLockHeldBMSFilesPendingInstall);
+            RaisePropertyChanged(() => IsWriteLockHeldPendingInstallCharts);
         });
         listenerForRwlockBMSFiles.RegisterHandler(() => rwlockBMSFiles.LockingWriteCount, delegate
         {

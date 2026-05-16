@@ -298,7 +298,7 @@ Phase F-2 以降で検討する広範囲 rename 候補:
 - `RemoveBMSFiles` -> `RemoveChartFiles` は、library chart 削除入口として移行済み
 - `InstallBMSFilesAuto` / `InstallBMSPackagesForce` / `InstallBMSPackagesToEstimatedDir` は `InstallChartPackagesAuto` / `ForceInstallPendingPackages` / `InstallPendingPackagesToEstimatedDestinations` へ移行済み
 - `BMSFiles` -> `BmsFiles` / `OwnedCharts`
-- `BMSFilesPendingInstall` -> `PendingCharts`
+- pending install の public lock/status 表示名は chart 名へ寄せる。内部 lock 名は広範囲のため段階移行する。
 
 BMS という名前を残す箇所は、LR2 / BMS 仕様 / 既存 UI / DB 互換の意味を持つものとして扱う。BMS と bmson の両方を対象にする新規内部処理では chart 名を使う。
 
