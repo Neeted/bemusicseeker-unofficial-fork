@@ -9309,9 +9309,9 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 指定されたインストール済みパッケージ群をリストから削除します。
+    /// 指定された installed package record 群をリストから削除します。
     /// </summary>
-    public void RemoveBMSPackagesInstalled(IEnumerable<BMSPackage> packages)
+    public void RemoveInstalledPackageRecords(IEnumerable<BMSPackage> packages)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
@@ -9353,9 +9353,9 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 全てのインストール済みパッケージをリストからクリアします。
+    /// 全ての installed package record をリストからクリアします。
     /// </summary>
-    public void RemoveBMSPackagesInstalledAll()
+    public void RemoveInstalledPackageRecordsAll()
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {

@@ -3828,7 +3828,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.RemoveBMSPackagesInstalledAll();
+                viewModel.RemoveInstalledPackageRecordsAll();
             }).Logging("treeViewInstalledContextMenuClearAllClick");
         }
     }
@@ -4116,7 +4116,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, pkg, "treeViewInstalledFolderContextMenuClearFolderClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveBMSPackagesInstalled(new BMSPackage[1] { pkg });
+            viewModel.RemoveInstalledPackageRecords(new BMSPackage[1] { pkg });
         }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
@@ -6922,7 +6922,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveBMSPackagesInstalled(selectedBmsFiles);
+            viewModel.RemoveInstalledPackageRecords(selectedBmsFiles);
         }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {

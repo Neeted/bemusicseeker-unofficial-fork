@@ -20399,15 +20399,15 @@ public class MainWindowViewModel : ViewModel
         return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), list2);
     }
 
-    public void RemoveBMSPackagesInstalledAll()
+    public void RemoveInstalledPackageRecordsAll()
     {
         if (files != null)
         {
-            files.RemoveBMSPackagesInstalledAll();
+            files.RemoveInstalledPackageRecordsAll();
         }
     }
 
-    public void RemoveBMSPackagesInstalled(IEnumerable<BMSPackage> packages)
+    public void RemoveInstalledPackageRecords(IEnumerable<BMSPackage> packages)
     {
         if (files != null)
         {
@@ -20415,11 +20415,11 @@ public class MainWindowViewModel : ViewModel
             {
                 throw new ArgumentNullException("packages");
             }
-            files.RemoveBMSPackagesInstalled(packages);
+            files.RemoveInstalledPackageRecords(packages);
         }
     }
 
-    public void RemoveBMSPackagesInstalled(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void RemoveInstalledPackageRecords(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
         {
@@ -20427,7 +20427,7 @@ public class MainWindowViewModel : ViewModel
         }
         List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
         List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2, isInstalled: true);
-        RemoveBMSPackagesInstalled(bMSPackages);
+        RemoveInstalledPackageRecords(bMSPackages);
     }
 
     public void SearchCorrectInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
