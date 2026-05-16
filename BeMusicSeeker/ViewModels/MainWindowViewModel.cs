@@ -5687,7 +5687,7 @@ public class MainWindowViewModel : ViewModel
 
     private IEnumerable<LibraryChartRow> ChartRowsModeFilterView;
 
-    private IList _BMSFilesView = new List<object>();
+    private IList _ChartRowsView = new List<object>();
 
     private cSortParameters _SortParameters;
 
@@ -5701,9 +5701,9 @@ public class MainWindowViewModel : ViewModel
 
     private string _BrowserHtml;
 
-    private int _SelectedIndexBMSFilesView;
+    private int _SelectedIndexChartRowsView;
 
-    private CustomTableColumnSettings _ColumnsSettingsBMSFilesView;
+    private CustomTableColumnSettings _ColumnsSettingsChartRowsView;
 
     private List<LibraryChartRow> folderSortSourceSnapshot;
 
@@ -5811,7 +5811,7 @@ public class MainWindowViewModel : ViewModel
 
     private bool _IsPlaylistDetailViewActive;
 
-    private bool _UseAsyncBMSFilesViewBinding = true;
+    private bool _UseAsyncChartRowsViewBinding = true;
 
     private string _GridHeaderText = string.Empty;
 
@@ -6436,9 +6436,9 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged("IsPlaylistDetailViewActive");
         }
         bool nextUseAsyncBinding = !playlistDetailActive;
-        if (_UseAsyncBMSFilesViewBinding != nextUseAsyncBinding)
+        if (_UseAsyncChartRowsViewBinding != nextUseAsyncBinding)
         {
-            _UseAsyncBMSFilesViewBinding = nextUseAsyncBinding;
+            _UseAsyncChartRowsViewBinding = nextUseAsyncBinding;
             RaisePropertyChanged("UseAsyncBMSFilesViewBinding");
         }
     }
@@ -9422,20 +9422,20 @@ public class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _BMSFilesView;
+            return _ChartRowsView;
         }
         set
         {
-            if (_BMSFilesView != value)
+            if (_ChartRowsView != value)
             {
-                DisposeDisposableRows(_BMSFilesView);
+                DisposeDisposableRows(_ChartRowsView);
                 if (value == null)
                 {
-                    _BMSFilesView = new List<object>();
+                    _ChartRowsView = new List<object>();
                 }
                 else
                 {
-                    _BMSFilesView = value;
+                    _ChartRowsView = value;
                 }
                 RaisePropertyChanged("BMSFilesView");
             }
@@ -11867,13 +11867,13 @@ public class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _SelectedIndexBMSFilesView;
+            return _SelectedIndexChartRowsView;
         }
         set
         {
-            if (_SelectedIndexBMSFilesView != value)
+            if (_SelectedIndexChartRowsView != value)
             {
-                _SelectedIndexBMSFilesView = value;
+                _SelectedIndexChartRowsView = value;
                 RaisePropertyChanged("SelectedIndexBMSFilesView");
             }
         }
@@ -11883,15 +11883,15 @@ public class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _ColumnsSettingsBMSFilesView;
+            return _ColumnsSettingsChartRowsView;
         }
         set
         {
-            if (ReferenceEquals(_ColumnsSettingsBMSFilesView, value))
+            if (ReferenceEquals(_ColumnsSettingsChartRowsView, value))
             {
                 return;
             }
-            _ColumnsSettingsBMSFilesView = value;
+            _ColumnsSettingsChartRowsView = value;
             RaisePropertyChanged("ColumnsSettingsBMSFilesView");
         }
     }
@@ -11975,7 +11975,7 @@ public class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _UseAsyncBMSFilesViewBinding;
+            return _UseAsyncChartRowsViewBinding;
         }
     }
 
