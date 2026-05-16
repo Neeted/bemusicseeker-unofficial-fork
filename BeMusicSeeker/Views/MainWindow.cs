@@ -4719,7 +4719,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         Task.Run(delegate
         {
-            viewModel.RemoveBMSFiles(deletionList);
+            viewModel.RemoveChartFiles(deletionList);
 
             NLogWrapper.FileLogger?.Info(string.Format(
                 "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",

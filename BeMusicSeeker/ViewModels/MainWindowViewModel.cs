@@ -21191,12 +21191,12 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RemoveBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void RemoveChartFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(bmsFiles);
-            files.RemoveBMSFiles(bmsFiles);
+            stopPlayingBMSFile(chartFiles);
+            files.RemoveChartFiles(chartFiles);
         }
     }
 

@@ -201,7 +201,7 @@ UI は `Kind` 直接判定ではなく capability を見る。これにより「
 
 ### Phase C: ライブラリ mutation を chart 単位に寄せる
 
-`MoveBMSFile`, `RemoveBMSFiles`, `MoveBMSRootFolder` の内部を `ChartOperationTarget` / `OwnedChartRef` に対応させる。
+library mutation の内部を `ChartOperationTarget` / `OwnedChartRef` に対応させる。旧 `MoveBMSFile` wrapper は production 参照がないため削除済みで、library chart 削除入口は `RemoveChartFiles` へ移行済みである。`MoveBMSRootFolder` は root folder 操作の BMS 語彙として残っている。
 
 - BMS は従来通り `song`, `folder`, `maintenance` を更新
 - bmson は `bmson_song` を更新
@@ -294,8 +294,8 @@ Phase F-1 では「新規コードの入口を chart 抽象に揃える」こと
 
 Phase F-2 以降で検討する広範囲 rename 候補:
 
-- `MoveBMSFile` -> `MoveChartFile`
-- `RemoveBMSFiles` -> `RemoveChartFiles`
+- `MoveBMSFile` -> `MoveChartFile` は、production 参照のない旧 wrapper を削除済み
+- `RemoveBMSFiles` -> `RemoveChartFiles` は、library chart 削除入口として移行済み
 - `BMSFiles` -> `BmsFiles` / `OwnedCharts`
 - `BMSFilesPendingInstall` -> `PendingCharts`
 
@@ -306,7 +306,7 @@ Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を�
 - resource health は `ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` を主 API とし、BMS / bmson 両方を対象にする
 - pending install destination は `UpdateInstallDestination`、所持 BMS の再インストール先修復は `RepairInstalledLocation` として capability を分離する
 - `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
-- `BMSLibrary` には `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `MoveChartFile`, `RemoveChartFiles` を追加し、旧 BMS 名 API は wrapper として残す
+- `BMSLibrary` では `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `RemoveChartFiles` など chart 共通名の入口へ寄せる。production 参照のなくなった旧 BMS 名 API / wrapper は残さない
 - `BMSFilesView`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す。`BMSPackage.BMSFiles` は `ChartFiles` への段階移行を進めるが、互換 alias として残す
 
 Phase F-3 に進む前に、DataGrid sort engine を整理する。

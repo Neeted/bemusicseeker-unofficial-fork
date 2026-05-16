@@ -187,7 +187,7 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 - `LR2SongDBExtended.bmson_song`
 - path / md5 / sha256
 
-`MoveBMSFile(...)` / `RemoveBMSFiles(...)` は残っているが、内部では `MoveChartFile(...)` / `RemoveChartFiles(...)` へ委譲する経路がある。
+library chart 削除は `RemoveChartFiles(...)` / `RemoveLibraryCharts(...)` が入口で、BMS / bmson の両方を `LibraryChartRef` 経由で扱う。旧 `RemoveBMSFiles(...)` wrapper と未使用の single chart move wrapper は残していない。
 
 `ToCompatibilityBmsFile()` は、BMS では `BMSFile` を返し、bmson では `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存 API へ渡すための互換変換であり、bmson の storage 正本ではない。
 
@@ -364,15 +364,13 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 
 ### model APIs の BMS 名
 
-次の API は chart 共通処理を含むが、BMS 名を残している。
+次の API / view 名は chart 共通処理を含むが、BMS 名を残している。
 
-- `MoveBMSFile(...)`
-- `RemoveBMSFiles(...)`
 - `AddEntriesToFolderBMSTable(...)`
 - `BMSFilesPendingInstall`
 - `BMSFilesView`
 
-一部は内部で chart 名 helper へ委譲しているが、外部名だけを見ると BMS 専用に見える。
+`RemoveChartFiles(...)` は BMS / bmson 共通の library chart 削除入口であり、旧 `RemoveBMSFiles(...)` wrapper は残さない。未使用だった single chart move wrapper も削除済みである。
 
 ### BMS-only views and workflows
 

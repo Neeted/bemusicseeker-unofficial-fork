@@ -71,20 +71,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return mutationResult;
     }
 
-    public void MoveFileOnDisk(BMSFile bmsFile, string dstPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
-    {
-        MoveChartFileOnDisk(LibraryChartRef.FromBmsFile(bmsFile), dstPath, fileMutationService, targetOnlyFileMutationOptions);
-    }
-
-    public void MoveChartFileOnDisk(LibraryChartRef chart, string dstPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
-    {
-        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
-        {
-            return;
-        }
-        fileMutationService.MoveFile(chart.Path, dstPath, overwrite: false, targetOnlyFileMutationOptions);
-    }
-
     public LibraryRemovalResult DeleteLibraryFiles(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<BMSFile> libraryFiles,
@@ -681,69 +667,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.TotalMs = stopwatch.ElapsedMilliseconds;
         result.MutationDelta.TotalMs = result.TotalMs;
         return result;
-    }
-
-    public LibraryMutationDelta BuildFileMoveDelta(BMSFile bmsFile, string dstPath, bool unregister)
-    {
-        return BuildChartFileMoveDelta(LibraryChartRef.FromBmsFile(bmsFile), dstPath, unregister);
-    }
-
-    public LibraryMutationDelta BuildChartFileMoveDelta(LibraryChartRef chart, string dstPath, bool unregister)
-    {
-        LibraryMutationDelta delta = new LibraryMutationDelta();
-        if (chart == null)
-        {
-            return delta;
-        }
-        if (chart.Kind == LibraryChartKind.Bmson)
-        {
-            LR2SongDBExtended.bmson_song bmsonSong = chart.BmsonSong;
-            if (bmsonSong == null)
-            {
-                return delta;
-            }
-            if (unregister)
-            {
-                delta.BmsonSongsToUnregister.Add(bmsonSong);
-                delta.InvalidateInstalledDirectoryIndex = true;
-                delta.InvalidateParentFolderCache = true;
-                delta.ClearDuplicatedCache = true;
-                return delta;
-            }
-            delta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
-            {
-                Song = bmsonSong,
-                OldPath = bmsonSong.path,
-                NewPath = dstPath
-            });
-            delta.RaiseBmsFilesChanged = true;
-            delta.InvalidateInstalledDirectoryIndex = true;
-            delta.InvalidateParentFolderCache = true;
-            delta.ClearDuplicatedCache = true;
-            return delta;
-        }
-        BMSFile bmsFile = chart.BmsFile;
-        if (bmsFile == null)
-        {
-            return delta;
-        }
-        if (unregister)
-        {
-            delta.FilesToUnregister.Add(bmsFile);
-            delta.InvalidateBMSHashIndex = true;
-            delta.InvalidateInstalledDirectoryIndex = true;
-            delta.InvalidateParentFolderCache = true;
-            return delta;
-        }
-        delta.FilePathChanges.Add(new LibraryFilePathChange
-        {
-            File = bmsFile,
-            NewPath = dstPath
-        });
-        delta.RaiseBmsFilesChanged = true;
-        delta.InvalidateInstalledDirectoryIndex = true;
-        delta.InvalidateParentFolderCache = true;
-        return delta;
     }
 
     public LibraryMutationDelta RenameLibraryFileExtensions(

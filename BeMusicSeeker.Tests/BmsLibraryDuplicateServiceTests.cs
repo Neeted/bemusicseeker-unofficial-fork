@@ -174,7 +174,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
-    public void RemoveBMSFiles_BmsonPendingRow_UnregistersBmsonSong()
+    public void RemoveChartFiles_BmsonPendingRow_UnregistersBmsonSong()
     {
         WithTemporarySongDb(delegate(string songDbPath)
         {
@@ -194,7 +194,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 };
                 library.BmsonSongs = new List<LR2SongDBExtended.bmson_song> { song };
 
-                library.RemoveBMSFiles(new[] { PendingChartEntry.CreateFromBmsonSong(song) }, sendToRecycleBin: false);
+                library.RemoveChartFiles(new[] { PendingChartEntry.CreateFromBmsonSong(song) }, sendToRecycleBin: false);
 
                 Assert.IsFalse(File.Exists(chartPath));
                 Assert.AreEqual(0, library.BmsonSongs.Count);

@@ -10674,7 +10674,7 @@ public class BMSLibrary : NotificationObject
                 ApplyLibraryMutationDelta(result.MutationDelta);
                 if (result.FilesToRemove.Count > 0)
                 {
-                    RemoveBMSFiles(result.FilesToRemove);
+                    RemoveChartFiles(result.FilesToRemove);
                 }
                 if (result.MaintenanceTargets.Count > 0)
                 {
@@ -10869,56 +10869,6 @@ public class BMSLibrary : NotificationObject
         ApplyLibraryMutationDelta(delta);
     }
 
-    public void MoveBMSFile(BMSFile bmsFile, string dstPath, bool? unregister = false)
-    {
-        MoveChartFile(LibraryChartRef.FromBmsFile(bmsFile), dstPath, unregister);
-    }
-
-    internal void MoveChartFile(LibraryChartRef chart, string dstPath, bool? unregister = false)
-    {
-        MoveLibraryChart(chart, dstPath, unregister);
-    }
-
-    internal void MoveLibraryChart(LibraryChartRef chart, string dstPath, bool? unregister = false)
-    {
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetWriterGuard())
-            {
-                if (chart == null || string.IsNullOrWhiteSpace(chart.Path) || !File.Exists(chart.Path) || IsRegisteredChartPath(dstPath))
-                {
-                    return;
-                }
-                if (File.Exists(dstPath) || Directory.Exists(dstPath))
-                {
-                    dialogService.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, chart.Path, dstPath), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    return;
-                }
-                try
-                {
-                    libraryFileOperationsService.MoveChartFileOnDisk(chart, dstPath, fileMutationService, targetOnlyFileMutationOptions);
-                }
-                catch (Exception moveException)
-                {
-                    dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, chart.Path, dstPath, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                    return;
-                }
-                if (unregister != false && unregister != true)
-                {
-                    return;
-                }
-                ApplyLibraryMutationDelta(libraryFileOperationsService.BuildChartFileMoveDelta(chart, dstPath, unregister == true));
-            }
-        }
-    }
-
-    private bool IsRegisteredChartPath(string path)
-    {
-        return !string.IsNullOrWhiteSpace(path)
-            && ((BMSFiles?.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f?.path) && f.path.Equals(path, StringComparison.OrdinalIgnoreCase)) ?? false)
-                || (BmsonSongs?.Any((LR2SongDBExtended.bmson_song song) => !string.IsNullOrWhiteSpace(song?.path) && song.path.Equals(path, StringComparison.OrdinalIgnoreCase)) ?? false));
-    }
-
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
     {
         _ = removeFromLibraryOnSuccess;
@@ -11010,16 +10960,11 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 指定された BMS ファイル群をライブラリおよびファイルシステムから削除します。
+    /// 指定された chart file 群をライブラリおよびファイルシステムから削除します。
     /// </summary>
-    public void RemoveBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true)
+    public void RemoveChartFiles(IEnumerable<BMSFile> chartFiles, bool sendToRecycleBin = true)
     {
-        RemoveChartFiles((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile), sendToRecycleBin);
-    }
-
-    internal void RemoveChartFiles(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true)
-    {
-        RemoveLibraryCharts(charts, sendToRecycleBin);
+        RemoveLibraryCharts((chartFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile), sendToRecycleBin);
     }
 
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<LibraryChartRef> charts)

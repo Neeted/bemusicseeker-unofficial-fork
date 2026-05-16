@@ -782,60 +782,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void BuildFileMoveDelta_BmsonUsesBmsonSongDelta()
-    {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
-        {
-            path = "C:\\Lib\\Src\\chart.bmson",
-            folder = "C:\\Lib\\Src"
-        };
-        PendingChartEntry bmsonRow = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
-
-        LibraryMutationDelta moveDelta = service.BuildFileMoveDelta(bmsonRow, "C:\\Lib\\Dst\\chart.bmson", unregister: false);
-        LibraryMutationDelta unregisterDelta = service.BuildFileMoveDelta(bmsonRow, "C:\\Lib\\Dst\\chart.bmson", unregister: true);
-
-        Assert.AreEqual(0, moveDelta.FilePathChanges.Count);
-        Assert.AreEqual(1, moveDelta.BmsonSongPathChanges.Count);
-        Assert.AreSame(bmsonSong, moveDelta.BmsonSongPathChanges[0].Song);
-        Assert.AreEqual("C:\\Lib\\Dst\\chart.bmson", moveDelta.BmsonSongPathChanges[0].NewPath);
-        Assert.IsTrue(moveDelta.RaiseBmsFilesChanged);
-        Assert.IsTrue(moveDelta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(moveDelta.InvalidateParentFolderCache);
-        Assert.IsTrue(moveDelta.ClearDuplicatedCache);
-
-        Assert.AreEqual(0, unregisterDelta.FilesToUnregister.Count);
-        CollectionAssert.AreEqual(new[] { bmsonSong }, unregisterDelta.BmsonSongsToUnregister);
-        Assert.IsTrue(unregisterDelta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(unregisterDelta.InvalidateParentFolderCache);
-        Assert.IsTrue(unregisterDelta.ClearDuplicatedCache);
-    }
-
-    [TestMethod]
-    public void BuildChartFileMoveDelta_UsesChartKindWithoutPendingAdapter()
-    {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-        TestableBmsFile bmsFile = CreateFile("C:\\Lib\\Src\\chart.bms");
-        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
-        {
-            path = "C:\\Lib\\Src\\chart.bmson",
-            folder = "C:\\Lib\\Src"
-        };
-
-        LibraryMutationDelta bmsDelta = service.BuildChartFileMoveDelta(LibraryChartRef.FromBmsFile(bmsFile), "C:\\Lib\\Dst\\chart.bms", unregister: false);
-        LibraryMutationDelta bmsonDelta = service.BuildChartFileMoveDelta(LibraryChartRef.FromBmsonSong(bmsonSong), "C:\\Lib\\Dst\\chart.bmson", unregister: false);
-        LibraryMutationDelta unregisterBmsonDelta = service.BuildChartFileMoveDelta(LibraryChartRef.FromBmsonSong(bmsonSong), "C:\\Lib\\Dst\\chart.bmson", unregister: true);
-
-        Assert.AreEqual(1, bmsDelta.FilePathChanges.Count);
-        Assert.AreSame(bmsFile, bmsDelta.FilePathChanges[0].File);
-        Assert.AreEqual(0, bmsDelta.BmsonSongPathChanges.Count);
-        Assert.AreEqual(0, bmsonDelta.FilePathChanges.Count);
-        Assert.AreEqual(1, bmsonDelta.BmsonSongPathChanges.Count);
-        Assert.AreSame(bmsonSong, bmsonDelta.BmsonSongPathChanges[0].Song);
-        CollectionAssert.AreEqual(new[] { bmsonSong }, unregisterBmsonDelta.BmsonSongsToUnregister);
-    }
-
-    [TestMethod]
     public void FixInstallationDirectory_ReturnsMutationDeltaAndDuplicateRemovalCandidates()
     {
         BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
