@@ -30,24 +30,30 @@ BMS の所持譜面の正本は `BMSLibrary.BMSFiles` であり、要素は `BMS
 `BMSFile` は `LR2SongDB.song` を継承しており、次の LR2 / BMS 前提の情報を直接持つ。
 
 - `hash` / `md5`
+- `sha256`
 - `path`
 - `folder`
 - `parent`
 - title / artist / level / mode
 - LR2 score / ranking / IR 関連の表示値
 - BMS parser 由来の resource references
+- runtime `ChartInfo`
 - `maintenanceInfo`
 - `RefTables`
 
-`BMSLibrary.BMSFiles` の更新時には、BMS hash index、installed chart key / directory index、parent folder cache、duplicate cache、resource health index が無効化される。
+`BMSLibrary.BMSFiles` の更新時には、BMS hash index、playlist summary owned hash snapshot、installed chart key / directory index、parent folder cache、install estimation metadata profile cache、duplicate cache、resource health index が無効化される。
 
 ### bmson
 
 bmson の所持譜面の正本は `BMSLibrary.BmsonSongs` であり、要素は `LR2SongDBExtended.bmson_song` である。
 
-`bmson_song` は BMS の `song` table には入れない。path を中心に、md5 / sha256 / title / artist / mode_hint / resource references / `ChartInfo` / `MaintenanceInfo` を持つ。
+`bmson_song` は BMS の `song` table には入れない。path を中心に、md5 / sha256 / title / artist / mode_hint を永続列として持つ。
+
+resource references、`HasFreshResourceReferences`、`ChartInfo`、`MaintenanceInfo` は `bmson_song` の runtime-only 情報であり、`bmson_song` table の列としては保存されない。DB から hydrate した `chart_info` / `maintenance` や、parser 直後の resource references を同一オブジェクトへ載せるための in-memory owner として扱う。
 
 `BMSLibrary.BmsonSongs` の更新時には、playlist summary owned hash snapshot、installed chart key / directory index、parent folder cache、install estimation metadata profile cache、duplicate cache、resource health index が無効化される。
+
+parent folder cache は更新通知としては bmson 変更でも無効化されるが、現行の parent folder candidate rebuild は `getBMSDirectories()` と `BMSFiles` snapshot を入力にする。bmson path 変更は cache refresh の契機にはなるが、bmson だけで新しい BMS root candidate を作るわけではない。
 
 ### 共通 table
 
@@ -99,6 +105,16 @@ playlist reference 表示は、BMS では従来どおり `BMSFile.RefTables` を
 
 `CreateFilterFile()` は、BMS では元の `BMSFile`、bmson では `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存の filter API が `BMSFile` を要求するための compatibility path であり、storage の正本ではない。
 
+bmson library rows は全ての tree mode に無条件で混ざるわけではない。`ShouldIncludeBmsonLibraryRowsInMainView(...)` は、通常 root / folder / keyword / mode filter と `FullScanAllChartsFilterSelected` では bmson を含めるが、playlist tree active、maintenance filter、install filter では除外する。maintenance / install / playlist detail 側は、それぞれ専用 source や pending adapter の経路で bmson を扱う。
+
+### Duplicate view
+
+duplicate view は public 名として `BMSFilesDuplicated` / `SearchBMSFilesDuplicated()` を残しているが、現行 snapshot は `BmsLibraryDuplicateService.BuildSnapshot(...)` で `BMSFiles` と `BmsonSongs` を結合する。
+
+bmson duplicate row は `DuplicateChartRow.CreateFromBmsonSong(...)` で `PendingChartEntry` display row に変換される。duplicate group の `Files` は `List<BMSFile>` のままだが、ここに含まれる bmson row は storage 正本ではなく display / operation 用 adapter である。
+
+duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS は `BMSFile` に warning を付与し、bmson は duplicate view 用 adapter row に warning を持つため、標準一覧の bmson storage row へ duplicate warning を直接永続化する境界ではない。
+
 ## Operation model
 
 ### `OwnedChartRef`
@@ -125,6 +141,8 @@ playlist reference 表示は、BMS では従来どおり `BMSFile.RefTables` を
 - `BMSFile`
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `OwnedChartKind.Bms` の missing row として扱われる。
+
+`GridRowResolver.GetRealBmsFile(...)` / `GetOperationBmsFile(...)` は、既存 View / drag-drop / preview 経路の互換 API として残っている。これらは BMSFile 実体または operation 用 compatibility file を返すため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。
 
 ### `ChartOperationTarget`
 
@@ -174,6 +192,10 @@ UI は原則として `Kind` 直接判定ではなく capability を見る。han
 | `RemoveFromLibrary` | Yes | Yes | path があり missing でなく pending でない場合。 |
 | `UpdateInstallDestination` | Yes | Yes | pending package row で、playlist row ではない場合。 |
 
+`RepairInstalledLocation` は `GridRowResolver.BuildCapabilities(...)` の `isBms` branch でのみ付与される。`SearchCorrectInstallationDirectoryCharts(...)` / `FixInstallationDirectoryCharts(...)` という chart 名の ViewModel 入口は存在するが、UI から bmson へは現状この capability が出ない。model 側の `SearchEstimatedInstallationDirectory(BMSFile)` は pending bmson adapter を installed directory index で解決できる一方、`FixInstallationDirectory(...)` は mutation delta が BMS file path 更新に寄っているため、所持 bmson の場所修復はまだ完全な chart 共通処理ではない。
+
+`RunResourceHealthCheck` は capability 上 bmson も対象にできるが、現行 context menu は bmson のみ選択時に一部の BMS 専用項目と同じ後段処理で full scan menu を非表示にしている。したがって capability 表は operation target の能力を表し、実際に UI へ露出されるかは View 側の menu policy も見る必要がある。
+
 ## Model-layer chart reference
 
 ### `LibraryChartRef`
@@ -187,17 +209,23 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 - `LR2SongDBExtended.bmson_song`
 - path / md5 / sha256
 
+`LibraryChartRef.FromPath(...)` は path 必須の fallback 参照であり、live storage owner を必ず持つわけではない。
+
 library chart 削除は `RemoveChartFiles(...)` / `RemoveLibraryCharts(...)` が入口で、BMS / bmson の両方を `LibraryChartRef` 経由で扱う。旧 `RemoveBMSFiles(...)` wrapper と未使用の single chart move wrapper は残していない。
 
-`ToCompatibilityBmsFile()` は、BMS では `BMSFile` を返し、bmson では `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存 API へ渡すための互換変換であり、bmson の storage 正本ではない。
+`ToCompatibilityBmsFile()` は、BMS では保持している `BMSFile` があればそれを返し、path-only BMS ref では null を返す。bmson では保持している `BMSFile` adapter、または `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存 API へ渡すための互換変換であり、bmson の storage 正本ではない。
 
-ViewModel / UI 層の pending package 操作は `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `SearchMergeDestinationForPendingPackages` / `SearchMergeDestinationForPendingCharts`, `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts` を入口にする。これらは package 内 chart を扱う操作であり、BMS 専用 API ではない。
+ViewModel / UI 層の pending package 操作は `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `SearchMergeDestinationForPendingPackages` / `SearchMergeDestinationForPendingCharts`, `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts`, `RemovePendingPackages` / `RemovePendingPackagesAll`, `RemovePendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `SetPendingInstallDestination`, `GetPendingPackagesContainingOnlyInstalledCharts`, `DeletePendingPackageSources` を入口にする。これらは package 内 chart を扱う操作であり、BMS 専用 API ではない。
 
-merge 先探索は package 内 chart を `ChartFiles` として扱い、BMS / bmson 共通の installed hash index で既所持 directory を採点する。mixed package の既所持先が複数 directory に分かれている場合でも、hash 一致数が単独最多の directory があればそれを package 全体の merge 先として採用する。最多 directory が同点の場合や hash 一致がない場合は、hash 由来の自動決定をせず、`MergeCandidateOnly` の resource 評価へ fallback する。
+merge 先探索は package 内 chart を `ChartFiles` として扱い、BMS / bmson 共通の installed hash index で既所持 directory を採点する。installed hash index 自体は md5 / sha256 の両方を登録するが、chart 側の lookup は `PendingChartEntry.GetPrimaryLookupHash(...)` により md5 優先、sha256 fallback の primary key を使う箇所が多い。
+
+`SearchMergeDestinationForPendingCharts(...)` は、選択 chart が pending package に属する場合、選択 chart 単体ではなく所属 package に展開して package-level merge を走らせる。mixed package の既所持先が複数 directory に分かれている場合でも、hash 一致数が単独最多の directory があればそれを package 全体の merge 先として採用する。最多 directory が同点の場合や hash 一致がない場合は、hash 由来の自動決定をせず、`MergeCandidateOnly` の resource 評価へ fallback する。
 
 model 層の pending package install 入口は `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` を使う。旧 `InstallBMSFilesAuto` / `InstallBMSPackagesForce` / `InstallBMSPackagesToEstimatedDir` / 単数 wrapper は残さない。
 
 newly installed tree に表示される installed package history/list のクリアは `RemoveInstalledPackageRecords` / `RemoveInstalledPackageRecordsAll` を入口にする。これは chart file 自体の削除ではなく、installed package record を list から消す操作である。
+
+library folder operation は public / user-facing 名に `BMSFolder` / `BMSDirectory` が残るが、`BuildFolderMoveDelta(...)` は `BMSFiles` と `BmsonSongs` の両方を受け、`FilePathChanges` と `BmsonSongPathChanges` を同じ mutation delta に載せる。`RenameBMSFolder(...)` / `MoveBMSFolder(...)` / `MergeBMSDirectory(...)` は名前上 BMS だが、現在の folder move / merge path では bmson path と installed package / pending package の install destination も合わせて更新対象になる。
 
 ## Package / pending install
 
@@ -205,17 +233,19 @@ newly installed tree に表示される installed package history/list のクリ
 
 `BMSPackage` は名前上は BMS package だが、現行では package 内 chart の discovery container としても使われる。
 
+pending / installed package record の永続正本は `install` table の row であり、実質的には source path と delete_parent などの package record metadata を保存する。`ChartFiles` 自体は永続化されず、DB restore 後は `BMSPackage.path` から lazy rediscovery される。
+
 主な現行仕様:
 
 - `BMSPackage.ChartFiles` は package 内 chart discovery の primary API であり、`List<BMSFile>` を返す。
-- `BMSPackage.BMSFiles` は既存呼び出し互換の alias であり、実態は `ChartFiles` と同じ list である。
+- `BMSPackage.BMSFiles` は既存呼び出し互換の alias であり、実態は `ChartFiles` と同じ list である。ただし現行 production code の package 内 chart 処理は `ChartFiles` へ移行済みで、`BMSFiles` alias は残存互換 API としてのみ存在する。
 - 明示的に `chartFiles` を渡された package ではその list を返す。
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
 - `PendingCharts` は `ChartFiles.OfType<PendingChartEntry>()` である。
 
-production code の `BMSPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。`BMSFiles` は互換 alias の挙動を保証する箇所や旧 API 境界に限定し、新規の package 内 chart 処理では使わない。
+production code の `BMSPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。`BMSFiles` は現状 production 参照がなく、互換 alias として残っているだけなので、次の整理対象である。
 
-`PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。互換のため `BmsFiles` alias も残す。ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
+`PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。`BmsFiles` alias も現状残っているが production 参照はなく、`BMSPackage.BMSFiles` と同様に削除候補である。ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
 
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。
 
@@ -230,8 +260,10 @@ production code の `BMSPackage` 経由の chart-all 参照は `ChartFiles` を 
 - `TargetMetadataProfile`
 - `ChartCount`
 - source / bundled resources
+- source surface snapshot / scan metrics / cache hit
+- batch source surface hit と scan backend 情報
 
-bmson pending chart は `PendingChartEntry` としてここに入るため、推定ロジックは BMSFile API 互換 adapter に依存している。
+bmson pending chart は `PendingChartEntry` としてここに入るため、推定ロジックは BMSFile API 互換 adapter に依存している。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
 
 ### installed directory index
 
@@ -239,7 +271,7 @@ installed directory index は BMS と bmson の両方を扱う。
 
 `BuildInstalledHashToDirectoryMap(...)` は、`IEnumerable<BMSFile>` と `IEnumerable<bmson_song>` を受け取り、md5 / sha256 から installed directory を作る。
 
-この領域ではすでに「installed chart」という考え方が入り始めているが、入力型はまだ BMS / bmson の二本立てである。
+この領域ではすでに「installed chart」という考え方が入り始めているが、入力型はまだ BMS / bmson の二本立てである。map は md5 / sha256 の両方を登録する一方、個別 chart の候補判定や package resolve では primary lookup hash を使う経路もあるため、「常に両 hash で union lookup する」仕様ではない。
 
 ## Playlist
 
@@ -267,6 +299,8 @@ playlist detail は `PlaylistDetailSourceRow` / `PlaylistDetailRow` で表示さ
 
 playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `RealFile.RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
 
+playlist detail 表示時の `BMSFilesView` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncBMSFilesViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
+
 ### Playlist への追加
 
 `MainWindowViewModel.AddChartRowsToFolderBMSTable(...)` は、playlist table 概念として `BMSTable` 名を残しつつ、追加元の一覧 row は Chart として解決する。
@@ -275,15 +309,15 @@ playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot �
 
 - BMS row は実体 `BMSFile` を使う。
 - bmson library row は `ChartOperationTarget` / `LibraryChartRef` 経由で `PendingChartEntry` に変換する。
-- playlist row は `BMSTableEntry.Duplicate()` を優先し、既存 playlist metadata を保つ。
+- playlist row は通常 folder 追加では `BMSTableEntry.Duplicate()` を優先し、既存 playlist metadata を保つ。
 
-folder table root への追加では、BMS は従来の同一ディレクトリ md5 group を使う。bmson は sha256 identity を保ち、`Org_md5` は空にする。
+folder table root への追加では、BMS は従来の同一ディレクトリ md5 group を使う。所持 BMS playlist row は実体 `BMSFile` へ解決されるため、root folder 自動振り分けでは新しい `BMSTableEntry(file)` を作る。missing row や bmson row など実体 BMS へ解決できない playlist row は `BMSTableEntry.Duplicate()` で既存 metadata を保つ。bmson は sha256 identity を保ち、`Org_md5` は空にする。
 
 ## File read pipeline
 
 chart file bytes の読み取りは `ChartFileSnapshot` / `ChartFileContentReader` で共通化されている。
 
-この snapshot は parser / inline chart_info / maintenance 用の短命な読み取り結果であり、長期に保持する chart model ではない。`ChartFile` という名前に近いが、責務は「ファイル内容の snapshot」であり、「アプリ内の譜面実体」ではない。
+この snapshot は full path、bytes、length、lastWriteTimeUtc、md5、sha256 を持つ parser / inline chart_info / maintenance 用の短命な読み取り結果であり、長期に保持する chart model ではない。`ChartFile` という名前に近いが、責務は「ファイル内容の snapshot」であり、「アプリ内の譜面実体」ではない。
 
 将来 `ChartFile` を導入する場合、既存 `ChartFileSnapshot` と責務が混ざらないようにする。
 
@@ -325,6 +359,8 @@ resource health は BMS / bmson 共通の表示概念である。
 
 このため、現在の仕様では「UI binding 名に BMS が残っていても、値は BMS / bmson 共通 chart row であり得る」と扱う。
 
+View の control 名、menu item 名、event handler 名、ログ名にも BMS 名が残る。これらは XAML wiring や既存 handler 名との互換境界であり、機械的 rename できる場合も MethodBinder / XAML / resources / tests の参照を同時に確認する。
+
 ## 現在の抽象化済み領域
 
 次の領域は、すでに BMS / bmson を chart として扱う入口がある。
@@ -360,14 +396,15 @@ resource health は BMS / bmson 共通の表示概念である。
 
 bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` を「BMS のみ」と解釈してはいけない。
 
-将来 `ChartPackage` 化する場合、既存 `BMSPackage` は `ChartFiles` を primary API、`BMSFiles` を互換 alias として残しながら呼び出し側を段階移行する。
-テストコードでも、互換 alias そのものを検証するテスト以外は `ChartFiles` を使い、`BMSLibrary.BMSFiles` とは別概念として扱う。
+将来 `ChartPackage` 化する場合、既存 `BMSPackage` は `ChartFiles` を primary API として維持し、旧 `BMSFiles` alias は production 利用がないことを確認できる範囲で削除する。
+現時点では呼び出し側の production code は `ChartFiles` へ移行済みなので、`BMSFiles` alias は互換契約として固定せず、削除可能性を確認する対象として扱う。テストコードでも旧 alias そのものを残すためのテストは増やさない。
 
 ### model APIs の BMS 名
 
 次の API / view 名は chart 共通処理を含むが、BMS 名を残している。
 
 - `BMSFilesView`
+- `BMSFilesDuplicated`
 
 `RemoveChartFiles(...)` は BMS / bmson 共通の library chart 削除入口であり、旧 `RemoveBMSFiles(...)` wrapper は残さない。未使用だった single chart move wrapper も削除済みである。
 pending package install 入口も `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` へ移行済みで、旧 `InstallBMSFilesAuto` / `InstallBMSPackagesForce` / `InstallBMSPackagesToEstimatedDir` wrapper は残さない。
@@ -419,7 +456,7 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 - representative chart
 - chart resource aggregate
 
-`BMSPackage.BMSFiles` の heavy lazy discovery 挙動は互換上重要である。rename や API 置換時も、参照時に discovery が走る既存意味を不用意に変えない。
+`BMSPackage.ChartFiles` の heavy lazy discovery 挙動は重要である。rename や API 置換時も、参照時に discovery が走る既存意味を不用意に変えない。旧 `BMSFiles` alias はこの挙動を固定するための primary API ではない。
 
 ### compatibility API の扱い
 
@@ -438,6 +475,6 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 2. UI / operation の入口は chart target に寄せる。
 3. BMS-only 処理は capability で明示する。
 4. `BMSFile` 型を見ただけで BMS 専用と判断しない。`PendingChartEntry` の kind または `OwnedChartRef.Kind` を確認する。
-5. `BMSPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。`BMSFiles` は互換 alias として同じ list を返す。
+5. `BMSPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。旧 `BMSFiles` alias は現状残っているが primary API ではなく、production 利用がないなら残さない。
 6. public binding / settings 名の BMS は互換契約として残り得る。内部 helper から段階的に chart 名へ寄せる。
 7. `ChartFile` / `ChartPackage` を導入しても、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。
