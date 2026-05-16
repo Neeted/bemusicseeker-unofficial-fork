@@ -191,7 +191,7 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 
 `ToCompatibilityBmsFile()` は、BMS では `BMSFile` を返し、bmson では `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存 API へ渡すための互換変換であり、bmson の storage 正本ではない。
 
-ViewModel / UI 層の pending package 操作は `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts`, `RemovePendingPackages`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts` を入口にする。これらは package 内 chart を扱う操作であり、BMS 専用 API ではない。
+ViewModel / UI 層の pending package 操作は `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts` を入口にする。これらは package 内 chart を扱う操作であり、BMS 専用 API ではない。
 
 ## Package / pending install
 
@@ -364,7 +364,6 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 
 - `MoveBMSFile(...)`
 - `RemoveBMSFiles(...)`
-- `ForceFileScanCheckBMSFiles(...)`
 - `AddEntriesToFolderBMSTable(...)`
 - `BMSFilesPendingInstall`
 - `BMSFilesView`

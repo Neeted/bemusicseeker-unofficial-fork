@@ -17423,11 +17423,6 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
-    public void ForceFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        ForceResourceHealthCheckCharts(bmsFiles);
-    }
-
     public void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         files.RescanResourceHealthCharts(chartFiles, includeInstalledBmson: false);
@@ -17573,16 +17568,6 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
-    }
-
-    public void IgnoreFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        SetChartResourceWarningsIgnored(bmsFiles);
-    }
-
-    public void NotIgnoreFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        SetChartResourceWarningsIgnored(bmsFiles, unset: true);
     }
 
     public void SetChartResourceWarningsIgnored(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool unset = false)
@@ -20445,11 +20430,6 @@ public class MainWindowViewModel : ViewModel
         RemoveBMSPackagesInstalled(bMSPackages);
     }
 
-    public void SearchCorrectInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        SearchCorrectInstallationDirectoryCharts(bmsFiles);
-    }
-
     public void SearchCorrectInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         if (files != null)
@@ -21194,11 +21174,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void FixInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        FixInstallationDirectoryCharts(bmsFiles);
-    }
-
     public void FixInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         lock (lockCopyFile)
@@ -21246,11 +21221,6 @@ public class MainWindowViewModel : ViewModel
             stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select((LibraryChartRef chart) => chart.BmsFile));
             files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
-    }
-
-    public void RemovePendingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
-    {
-        RemovePendingCharts(bmsFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
     }
 
     internal void RemovePendingCharts(IEnumerable<ChartOperationTarget> targets, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)

@@ -289,7 +289,7 @@ Phase F-1 では「新規コードの入口を chart 抽象に揃える」こと
 - `GridRowResolver.TryGetChartRef` / `TryGetOperationChartTarget` を primary API とし、`GetOperationBmsFile` は BMS-only 互換 shim として残す
 - UI handler は `ChartOperationTarget.Capabilities` で対象を絞り、BMS 専用操作だけ `BMSFile` へ戻す
 - 構成ファイルフルスキャンは `RunResourceHealthCheck` capability を使い、BMS / bmson の両方を chart resource health 対象にする
-- `ForceResourceHealthCheckCharts` など chart 名 wrapper を追加し、旧 `ForceFileScanCheckBMSFiles` は互換 wrapper として残す
+- `ForceResourceHealthCheckCharts` など chart 名 API を主入口にし、production 参照のない旧名 wrapper は残さない
 - `BMSPackage` 経由の package 内 chart 参照は `ChartFiles` を primary API とし、`BMSFiles` は互換 alias の検証と旧 API 境界に限定する
 
 Phase F-2 以降で検討する広範囲 rename 候補:
@@ -298,7 +298,6 @@ Phase F-2 以降で検討する広範囲 rename 候補:
 - `RemoveBMSFiles` -> `RemoveChartFiles`
 - `BMSFiles` -> `BmsFiles` / `OwnedCharts`
 - `BMSFilesPendingInstall` -> `PendingCharts`
-- `ForceFileScanCheckBMSFiles` -> `ForceResourceHealthCheckCharts`
 
 BMS という名前を残す箇所は、LR2 / BMS 仕様 / 既存 UI / DB 互換の意味を持つものとして扱う。BMS と bmson の両方を対象にする新規内部処理では chart 名を使う。
 
