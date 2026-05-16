@@ -5695,7 +5695,7 @@ public class MainWindowViewModel : ViewModel
 
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
 
-    private int nowPlayingBmsFilesViewIndex = -1;
+    private int nowPlayingChartRowsViewIndex = -1;
 
     private Uri _BrowserSource;
 
@@ -14737,13 +14737,13 @@ public class MainWindowViewModel : ViewModel
         TempDirectoryPublisher.RemoveAll();
     }
 
-    private void playStartBMSfile(int indexBMSFilesView)
+    private void PlayStartBmsFile(int indexChartRowsView)
     {
         object row;
         BeMusicSeeker.Models.BMSFile bmsFile;
         try
         {
-            row = BMSFilesView[indexBMSFilesView];
+            row = BMSFilesView[indexChartRowsView];
             bmsFile = GridRowResolver.GetOperationBmsFile(row);
         }
         catch
@@ -14754,7 +14754,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        nowPlayingBmsFilesViewIndex = indexBMSFilesView;
+        nowPlayingChartRowsViewIndex = indexChartRowsView;
         if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
         {
             if (NowPlayingBMS != null)
@@ -14770,7 +14770,7 @@ public class MainWindowViewModel : ViewModel
             NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
         }
         NowPlayingBMS = bmsFile;
-        SelectedIndexBMSFilesView = indexBMSFilesView;
+        SelectedIndexBMSFilesView = indexChartRowsView;
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
         if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
         {
@@ -14866,7 +14866,7 @@ public class MainWindowViewModel : ViewModel
             catch (InvalidDataException value)
             {
                 NLogWrapper.TraceLogger?.Warn(value);
-                if (Settings.Default.RepeatPlayMode && (Settings.Default.SinglePlayMode || indexBMSFilesView == 0))
+                if (Settings.Default.RepeatPlayMode && (Settings.Default.SinglePlayMode || indexChartRowsView == 0))
                 {
                     PlayEndBMSFile();
                     return;
@@ -14915,7 +14915,7 @@ public class MainWindowViewModel : ViewModel
                 PlayEndBMSFile();
         if (SelectedIndexBMSFilesView >= 0 && SelectedIndexBMSFilesView < BMSFilesView.Count)
         {
-            playStartBMSfile(SelectedIndexBMSFilesView);
+            PlayStartBmsFile(SelectedIndexBMSFilesView);
         }
             }
         }
@@ -14929,7 +14929,7 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            int num = nowPlayingBmsFilesViewIndex;
+            int num = nowPlayingChartRowsViewIndex;
             if (num < 0 || num >= BMSFilesView.Count)
             {
                 PlayEndBMSFile();
@@ -14955,7 +14955,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     object candidateRow = BMSFilesView[num];
                     BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(candidateRow);
-                    if (num == nowPlayingBmsFilesViewIndex)
+                    if (num == nowPlayingChartRowsViewIndex)
                     {
                         break;
                     }
@@ -14975,7 +14975,7 @@ public class MainWindowViewModel : ViewModel
             if (num < BMSFilesView.Count)
             {
                 PlayEndBMSFile();
-                playStartBMSfile(num);
+                PlayStartBmsFile(num);
             }
             else if (sender != null)
             {
@@ -14992,7 +14992,7 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            int num = nowPlayingBmsFilesViewIndex;
+            int num = nowPlayingChartRowsViewIndex;
             if (num < 0 || num >= BMSFilesView.Count)
             {
                 PlayEndBMSFile();
@@ -15018,7 +15018,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     object candidateRow = BMSFilesView[num];
                     BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(candidateRow);
-                    if (num == nowPlayingBmsFilesViewIndex)
+                    if (num == nowPlayingChartRowsViewIndex)
                     {
                         break;
                     }
@@ -15038,7 +15038,7 @@ public class MainWindowViewModel : ViewModel
             if (num >= 0)
             {
                 PlayEndBMSFile();
-                playStartBMSfile(num);
+                PlayStartBmsFile(num);
             }
             else if (sender != null)
             {
@@ -15060,7 +15060,7 @@ public class MainWindowViewModel : ViewModel
                 NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
                 NowPlayingBMS = null;
             }
-            nowPlayingBmsFilesViewIndex = -1;
+            nowPlayingChartRowsViewIndex = -1;
         }
     }
 
