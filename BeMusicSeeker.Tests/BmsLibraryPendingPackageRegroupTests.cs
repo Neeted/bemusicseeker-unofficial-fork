@@ -599,6 +599,30 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchCorrectInstallationDirectory_BmsonOwnedChartIgnoresCurrentInstalledIndexSelfMatch()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonWrong");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonCorrect");
+            string sourceBmsonPath = CreateBmsonFile(sourceDirectoryPath, "source.bmson", "Repair Bmson", "Bmson Artist");
+            string destinationBmsPath = CreateBmsFileWithContents(destinationDirectoryPath, "destination.bms", "#PLAYER 1\r\n#TITLE Repair Bmson\r\n#ARTIST Bmson Artist\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.WriteAllText(Path.Combine(destinationDirectoryPath, "sound.wav"), "sound");
+            LR2SongDBExtended.bmson_song sourceSong = BmsonSongParser.Parse(sourceBmsonPath);
+            PendingChartEntry repairTarget = PendingChartEntry.CreateFromBmsonSong(sourceSong);
+            library.BMSFiles = new List<BMSFile> { BMSFile.CreateBMSFileFromFile(destinationBmsPath) };
+            library.BmsonSongs = new List<LR2SongDBExtended.bmson_song> { sourceSong };
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, destinationDirectoryPath));
+
+            library.SearchCorrectInstallationDirectory(new[] { repairTarget });
+
+            Assert.AreEqual(destinationDirectoryPath, repairTarget.instl_dst);
+        });
+    }
+
+    [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvesMixedBmsAndBmsonPackage()
     {
         TestResourceInitializer.EnsureJapaneseResources();

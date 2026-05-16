@@ -111,15 +111,20 @@ internal readonly struct LibraryRowsBuildMetrics
 
 internal readonly struct BmsonLibraryRowCacheSyncResult
 {
-    internal BmsonLibraryRowCacheSyncResult(bool membershipChanged, bool sortKeyChanged)
+    internal BmsonLibraryRowCacheSyncResult(bool membershipChanged, bool sortKeyChanged, bool sourceReferenceChanged = false)
     {
         MembershipChanged = membershipChanged;
         SortKeyChanged = sortKeyChanged;
+        SourceReferenceChanged = sourceReferenceChanged;
     }
 
     internal bool MembershipChanged { get; }
 
     internal bool SortKeyChanged { get; }
+
+    internal bool SourceReferenceChanged { get; }
+
+    internal bool SourceChanged => MembershipChanged || SourceReferenceChanged;
 }
 
 internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySortCacheKey>
@@ -5753,6 +5758,8 @@ public class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
 
+    private readonly Dictionary<string, PendingChartEntry> bmsonOperationChartFilesByKey = new Dictionary<string, PendingChartEntry>(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, BmsonLibrarySortKeySnapshot> bmsonLibrarySortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
 
     private readonly object mainSummaryFolderCountCacheLock = new object();
@@ -8635,16 +8642,16 @@ public class MainWindowViewModel : ViewModel
     private void RefreshChartInfoDependentViews()
     {
         BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
-        MainViewDataDependency libraryDependency = bmsonSyncResult.MembershipChanged
+        MainViewDataDependency libraryDependency = bmsonSyncResult.SourceChanged
             ? MainViewDataDependency.SourceMembership
             : MainViewDataDependency.ChartInfo;
         if (bmsonSyncResult.SortKeyChanged)
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
         }
-        if (bmsonSyncResult.MembershipChanged)
+        if (bmsonSyncResult.SourceChanged)
         {
-            IncrementNormalLibrarySourceGeneration("bmson_membership_changed");
+            IncrementNormalLibrarySourceGeneration(bmsonSyncResult.MembershipChanged ? "bmson_membership_changed" : "bmson_source_changed");
         }
         ResetRegularDerivedViewCaches();
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
@@ -10115,8 +10122,93 @@ public class MainWindowViewModel : ViewModel
 
     private void ApplyLibraryChartRowProviders(LibraryChartRow row)
     {
+        ApplyBmsonOperationChartFileProvider(row);
         ApplyResourceHealthProjectionProvider(row);
         ApplyPlaylistReferenceDisplayProvider(row);
+    }
+
+    private void ApplyBmsonOperationChartFileProvider(LibraryChartRow row)
+    {
+        row?.SetBmsonOperationChartFileProvider(GetOrCreateBmsonOperationChartFile);
+    }
+
+    private PendingChartEntry GetOrCreateBmsonOperationChartFile(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null || string.IsNullOrWhiteSpace(song.path))
+        {
+            return null;
+        }
+        string key = GetBmsonOperationChartFileKey(song);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return PendingChartEntry.CreateFromBmsonSong(song);
+        }
+        if (!bmsonOperationChartFilesByKey.TryGetValue(key, out PendingChartEntry entry) || entry == null)
+        {
+            entry = PendingChartEntry.CreateFromBmsonSong(song);
+            if (entry != null)
+            {
+                bmsonOperationChartFilesByKey[key] = entry;
+            }
+            return entry;
+        }
+        if (!ReferenceEquals(entry.BmsonSong, song) || !string.Equals(entry.path, song.path, StringComparison.OrdinalIgnoreCase))
+        {
+            UpdateBmsonOperationChartFilePreservingRepairState(entry, song);
+        }
+        return entry;
+    }
+
+    private void PruneBmsonOperationChartFileCache(IReadOnlyCollection<LR2SongDBExtended.bmson_song> currentSongs)
+    {
+        HashSet<string> currentKeys = new HashSet<string>(
+            (currentSongs ?? Array.Empty<LR2SongDBExtended.bmson_song>())
+                .Select(GetBmsonOperationChartFileKey)
+                .Where((string key) => !string.IsNullOrWhiteSpace(key)),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string key in bmsonOperationChartFilesByKey.Keys.ToList())
+        {
+            if (!currentKeys.Contains(key))
+            {
+                bmsonOperationChartFilesByKey.Remove(key);
+            }
+        }
+    }
+
+    private static string GetBmsonOperationChartFileKey(LR2SongDBExtended.bmson_song song)
+    {
+        string lookupHash = PendingChartEntry.GetPrimaryLookupHash(song);
+        string path = song?.path;
+        if (!string.IsNullOrWhiteSpace(lookupHash) && !string.IsNullOrWhiteSpace(path))
+        {
+            return "hash-path:" + lookupHash + "|" + path;
+        }
+        if (!string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return "hash:" + lookupHash;
+        }
+        return string.IsNullOrWhiteSpace(path) ? null : "path:" + path;
+    }
+
+    private static void UpdateBmsonOperationChartFilePreservingRepairState(PendingChartEntry entry, LR2SongDBExtended.bmson_song song)
+    {
+        if (entry == null || song == null)
+        {
+            return;
+        }
+        string installDestination = entry.instl_dst;
+        string installDestinationTitle = entry.InstallDestinationTitle;
+        string installDestinationArtist = entry.InstallDestinationArtist;
+        string[] suggestions = (entry.InstallDestinationSuggestions ?? Array.Empty<string>()).ToArray();
+        List<ChartWarning> warnings = entry.Warnings.ToStructuredList().ToList();
+        bool isSuggestionPopupOpen = entry.IsInstallDestinationSuggestionPopupOpen;
+        entry.UpdateFromBmsonSong(song);
+        entry.instl_dst = installDestination;
+        entry.InstallDestinationTitle = installDestinationTitle;
+        entry.InstallDestinationArtist = installDestinationArtist;
+        entry.InstallDestinationSuggestions = suggestions;
+        entry.ReplaceStructuredWarnings(warnings);
+        entry.IsInstallDestinationSuggestionPopupOpen = isSuggestionPopupOpen;
     }
 
     private void ApplyResourceHealthProjectionProvider(LibraryChartRow row)
@@ -10483,6 +10575,7 @@ public class MainWindowViewModel : ViewModel
                 return null;
             }
             LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
+            ApplyBmsonOperationChartFileProvider(bmsonRow);
             if (applyResourceHealthProjection)
             {
                 ApplyResourceHealthProjectionProvider(bmsonRow);
@@ -10491,6 +10584,7 @@ public class MainWindowViewModel : ViewModel
             return bmsonRow;
         }
         LibraryChartRow row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
+        ApplyBmsonOperationChartFileProvider(row);
         if (applyResourceHealthProjection)
         {
             ApplyResourceHealthProjectionProvider(row);
@@ -10532,7 +10626,8 @@ public class MainWindowViewModel : ViewModel
             BMSFiles,
             includeBmsonRows ? files?.BmsonSongs : null,
             GetResourceHealthProjectionForSourceRow,
-            GetPlaylistReferenceDisplayForSourceRow);
+            GetPlaylistReferenceDisplayForSourceRow,
+            GetOrCreateBmsonOperationChartFile);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -14035,9 +14130,9 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            if (syncResult.MembershipChanged)
+            if (syncResult.SourceChanged)
             {
-                IncrementNormalLibrarySourceGeneration("library_bmsons_membership_changed");
+                IncrementNormalLibrarySourceGeneration(syncResult.MembershipChanged ? "library_bmsons_membership_changed" : "library_bmsons_source_changed");
                 ResetRegularDerivedViewCaches();
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
@@ -15330,7 +15425,7 @@ public class MainWindowViewModel : ViewModel
         foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo, GetPlaylistReferenceDisplayForIdentity));
+            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo, GetPlaylistReferenceDisplayForIdentity, GetOrCreateBmsonOperationChartFile));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
@@ -15994,9 +16089,9 @@ public class MainWindowViewModel : ViewModel
             {
                 InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
             }
-            if (bmsonSyncResult.MembershipChanged)
+            if (bmsonSyncResult.SourceChanged)
             {
-                IncrementNormalLibrarySourceGeneration("bmson_membership_changed");
+                IncrementNormalLibrarySourceGeneration(bmsonSyncResult.MembershipChanged ? "bmson_membership_changed" : "bmson_source_changed");
             }
         }
         if (TryApplyVirtualDefaultNormalLibraryView(mode, requestedMode, parameter, includeBmsonRows, viewBuildStopwatch))
@@ -16713,8 +16808,10 @@ public class MainWindowViewModel : ViewModel
             .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase)
             .ToList();
+        PruneBmsonOperationChartFileCache(snapshot);
         HashSet<string> nextPaths = new HashSet<string>(snapshot.Select((LR2SongDBExtended.bmson_song song) => song.path), StringComparer.OrdinalIgnoreCase);
         bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any((string path) => !nextPaths.Contains(path));
+        bool sourceReferenceChanged = false;
         bool sortKeyChanged = membershipChanged;
         Dictionary<string, LibraryChartRow> nextByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
         Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
@@ -16722,9 +16819,14 @@ public class MainWindowViewModel : ViewModel
         foreach (LR2SongDBExtended.bmson_song song in snapshot)
         {
             LibraryChartRow row = null;
-            if (!bmsonLibraryRowsBySong.TryGetValue(song, out row))
+            bool foundBySameReference = bmsonLibraryRowsBySong.TryGetValue(song, out row);
+            if (!foundBySameReference)
             {
                 bmsonLibraryRowsByPath.TryGetValue(song.path, out row);
+                if (row != null)
+                {
+                    sourceReferenceChanged = true;
+                }
             }
             if (row == null)
             {
@@ -16735,6 +16837,10 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
+                if (!ReferenceEquals(row.BmsonSong, song))
+                {
+                    sourceReferenceChanged = true;
+                }
                 bool hasPreviousSortKeys = bmsonLibrarySortKeysByPath.TryGetValue(song.path, out BmsonLibrarySortKeySnapshot previousSortKeys);
                 row.UpdateFromBmsonSong(song);
                 ApplyLibraryChartRowProviders(row);
@@ -16765,7 +16871,7 @@ public class MainWindowViewModel : ViewModel
         {
             bmsonLibrarySortKeysByPath[item4.Key] = item4.Value;
         }
-        return new BmsonLibraryRowCacheSyncResult(membershipChanged, sortKeyChanged);
+        return new BmsonLibraryRowCacheSyncResult(membershipChanged, sortKeyChanged, sourceReferenceChanged);
     }
 
     internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
@@ -17056,14 +17162,15 @@ public class MainWindowViewModel : ViewModel
         {
             InvalidateNormalLibrarySortKeys(reason + "_sort_key_changed");
         }
-        if (result.MembershipChanged)
+        if (result.SourceChanged)
         {
-            IncrementNormalLibrarySourceGeneration(reason + "_membership_changed");
+            IncrementNormalLibrarySourceGeneration(reason + (result.MembershipChanged ? "_membership_changed" : "_source_changed"));
         }
-        if (result.SortKeyChanged || result.MembershipChanged)
+        if (result.SortKeyChanged || result.SourceChanged)
         {
             LogMainViewBuild("normal_library_bmson_sync reason=" + (reason ?? string.Empty)
                 + " membershipChanged=" + result.MembershipChanged
+                + " sourceReferenceChanged=" + result.SourceReferenceChanged
                 + " sortKeyChanged=" + result.SortKeyChanged);
         }
     }
@@ -20444,6 +20551,7 @@ public class MainWindowViewModel : ViewModel
                 throw new ArgumentNullException("chartFiles");
             }
             files.SearchCorrectInstallationDirectory(chartFiles);
+            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }
 
@@ -21183,7 +21291,7 @@ public class MainWindowViewModel : ViewModel
                 throw new ArgumentNullException("chartFiles");
             }
             stopPlayingBMSFile(chartFiles);
-            files.FixInstallationDirectory(chartFiles);
+            files.FixInstallationDirectoryCharts(chartFiles);
         }
     }
 

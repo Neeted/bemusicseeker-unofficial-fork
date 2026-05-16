@@ -68,6 +68,18 @@ internal static class GridRowResolver
         return row as BMSFile;
     }
 
+    internal static BMSFile GetOperationChartFile(object row)
+    {
+        return GetOperationChartFile(row, ChartOperationSourceScope.Library);
+    }
+
+    internal static BMSFile GetOperationChartFile(object row, ChartOperationSourceScope sourceScope)
+    {
+        return TryGetOperationChartTarget(row, sourceScope, out ChartOperationTarget target)
+            ? target.Chart?.BmsFile
+            : null;
+    }
+
     internal static bool TryGetChartRef(object row, out OwnedChartRef chart)
     {
         chart = null;
@@ -267,7 +279,7 @@ internal static class GridRowResolver
         }
         if (row.ResolvedBmson != null)
         {
-            chart = CreateChartRef(row.ResolvedBmson);
+            chart = CreateChartRef(row.ResolvedBmson, row.OperationChartFile);
             return chart != null;
         }
         chart = new OwnedChartRef(
@@ -299,7 +311,7 @@ internal static class GridRowResolver
         }
         if (row.ResolvedBmson != null)
         {
-            chart = CreateChartRef(row.ResolvedBmson);
+            chart = CreateChartRef(row.ResolvedBmson, row.OperationChartFile);
             return chart != null;
         }
         chart = new OwnedChartRef(
@@ -354,7 +366,7 @@ internal static class GridRowResolver
             null);
     }
 
-    private static OwnedChartRef CreateChartRef(LR2SongDBExtended.bmson_song song)
+    private static OwnedChartRef CreateChartRef(LR2SongDBExtended.bmson_song song, BMSFile operationFile = null)
     {
         if (song == null)
         {
@@ -370,7 +382,7 @@ internal static class GridRowResolver
             song.level,
             BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             song.ChartInfo,
-            null,
+            operationFile,
             song);
     }
 
@@ -420,10 +432,10 @@ internal static class GridRowResolver
                     | ChartOperationCapabilities.RenameInvalidExtension
                     | ChartOperationCapabilities.ConvertToAudio;
             }
-            if (hasPath && !isPlaylistMissing && sourceScope != ChartOperationSourceScope.PendingPackage)
-            {
-                capabilities |= ChartOperationCapabilities.RepairInstalledLocation;
-            }
+        }
+        if (hasPath && !isPlaylistMissing && sourceScope != ChartOperationSourceScope.PendingPackage)
+        {
+            capabilities |= ChartOperationCapabilities.RepairInstalledLocation;
         }
         if (hasPath && !isPlaylistMissing)
         {

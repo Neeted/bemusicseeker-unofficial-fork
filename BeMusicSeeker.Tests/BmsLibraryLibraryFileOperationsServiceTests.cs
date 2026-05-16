@@ -815,6 +815,45 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void FixInstallationDirectory_BmsonChartReturnsBmsonSongPathChange()
+    {
+        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Broken\\move.bmson",
+            folder = "C:\\Broken",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('b', 64),
+            title = "Bmson"
+        };
+        PendingChartEntry movedFile = PendingChartEntry.CreateFromBmsonSong(song);
+        movedFile.instl_dst = "C:\\Installed\\Move";
+
+        LibraryFixInstallationResult result = service.FixInstallationDirectory(
+            new[] { movedFile },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            delegate (BMSPackage package, string destinationDirectory)
+            {
+                movedFile.path = Path.Combine(destinationDirectory, "move.bmson");
+                return true;
+            },
+            file => false);
+
+        Assert.AreEqual(1, result.RequestedCount);
+        Assert.AreEqual(1, result.MovedCount);
+        Assert.AreEqual(0, result.MutationDelta.FilePathChanges.Count);
+        Assert.AreEqual(1, result.MutationDelta.BmsonSongPathChanges.Count);
+        Assert.AreSame(song, result.MutationDelta.BmsonSongPathChanges[0].Song);
+        Assert.AreEqual("C:\\Broken\\move.bmson", result.MutationDelta.BmsonSongPathChanges[0].OldPath);
+        Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bmson"), result.MutationDelta.BmsonSongPathChanges[0].NewPath);
+        Assert.IsTrue(result.MutationDelta.RaiseBmsFilesChanged);
+        Assert.IsTrue(result.MutationDelta.InvalidateInstalledDirectoryIndex);
+        Assert.IsTrue(result.MutationDelta.InvalidateParentFolderCache);
+        Assert.IsTrue(result.MutationDelta.ClearDuplicatedCache);
+        CollectionAssert.AreEqual(new[] { movedFile }, result.MaintenanceTargets);
+    }
+
+    [TestMethod]
     public void RenameLibraryFileExtensions_ReturnsRenamedAndDuplicateDeletedFiles()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)

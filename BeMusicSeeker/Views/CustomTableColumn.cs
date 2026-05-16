@@ -449,7 +449,7 @@ internal static class CustomTableColumnFactory
 
     private static IEnumerable<string> GetInstallDestinationSuggestions(object row)
     {
-        return GridRowResolver.GetOperationBmsFile(row)?.InstallDestinationSuggestions;
+        return GridRowResolver.GetOperationChartFile(row)?.InstallDestinationSuggestions;
     }
 
     internal static string ConvertLigatureSymbolText(string text)

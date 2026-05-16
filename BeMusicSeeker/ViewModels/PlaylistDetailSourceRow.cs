@@ -31,6 +31,12 @@ internal sealed class PlaylistDetailSourceRow
     /// </summary>
     internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
 
+    private PendingChartEntry bmsonOperationChartFile;
+
+    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider;
+
+    internal BMSFile OperationChartFile => RealFile ?? GetOrCreateBmsonOperationChartFile();
+
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
@@ -134,6 +140,29 @@ internal sealed class PlaylistDetailSourceRow
 
     internal bool HasEntryChartInfoDependency => RealFile == null && ResolvedBmson == null;
 
+    private PendingChartEntry GetOrCreateBmsonOperationChartFile()
+    {
+        if (ResolvedBmson == null)
+        {
+            return null;
+        }
+        PendingChartEntry provided = bmsonOperationChartFileProvider?.Invoke(ResolvedBmson);
+        if (provided != null)
+        {
+            bmsonOperationChartFile = provided;
+            return bmsonOperationChartFile;
+        }
+        if (bmsonOperationChartFile == null || !ReferenceEquals(bmsonOperationChartFile.BmsonSong, ResolvedBmson))
+        {
+            bmsonOperationChartFile = PendingChartEntry.CreateFromBmsonSong(ResolvedBmson);
+        }
+        else if (!string.Equals(bmsonOperationChartFile.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
+        {
+            bmsonOperationChartFile.UpdateFromBmsonSong(ResolvedBmson);
+        }
+        return bmsonOperationChartFile;
+    }
+
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
     internal double? ChartLevelSortKey => ChartInfo?.level ?? 0;
@@ -215,16 +244,19 @@ internal sealed class PlaylistDetailSourceRow
         BMSFile scoreProbe = null,
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
-        Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null)
+        Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
         ResolvedBmson = resolvedBmson;
         EntryChartInfo = entryChartInfo;
+        this.bmsonOperationChartFileProvider = bmsonOperationChartFileProvider;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
-        BMSFile snapshotSource = realFile ?? scoreProbe;
-        BMSScore effectiveScore = scoreSnapshot ?? snapshotSource?.bmsScore;
+        BMSFile operationChartFile = OperationChartFile;
+        BMSFile snapshotSource = realFile ?? operationChartFile ?? scoreProbe;
+        BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore ?? scoreProbe?.bmsScore;
         Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), entry.title);
         Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, entry.artist);
         genre = FirstNonEmpty(realFile?.genre, resolvedBmson?.genre);

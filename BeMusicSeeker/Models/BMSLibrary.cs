@@ -6644,45 +6644,6 @@ public class BMSLibrary : NotificationObject
         return knownChartDirectories;
     }
 
-    /// <summary>
-    /// 指定された BMS ファイル群を除外したハッシュセットのスナップショットを生成します。
-    /// 重複検出等において、自身を除いた状態でハッシュの存在確認を行う際に使用されます。
-    /// </summary>
-    private HashSet<string> CreateBMSHashSnapshotExcludingUnsafe(IEnumerable<BMSFile> excluded)
-    {
-        EnsureBMSHashIndexBuiltUnsafe();
-        Dictionary<string, int> excludedHashCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (excluded != null)
-        {
-            foreach (BMSFile item in excluded)
-            {
-                if (!IsBMSHashAvailable(item))
-                {
-                    continue;
-                }
-                if (!excludedHashCount.TryGetValue(item.hash, out var value))
-                {
-                    value = 0;
-                }
-                excludedHashCount[item.hash] = value + 1;
-            }
-        }
-        HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        lock (lockBMSHashIndex)
-        {
-            foreach (KeyValuePair<string, int> item2 in bmsHashRefCount)
-            {
-                int num = 0;
-                excludedHashCount.TryGetValue(item2.Key, out num);
-                if (item2.Value > num)
-                {
-                    hashSet.Add(item2.Key);
-                }
-            }
-        }
-        return hashSet;
-    }
-
     private HashSet<string> CreateInstalledChartKeySnapshotExcludingUnsafe(IEnumerable<BMSFile> excluded)
     {
         Dictionary<string, int> excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -8793,7 +8754,7 @@ public class BMSLibrary : NotificationObject
             }
         }
         bool resolvedInstalledDirectory = false;
-        if (PendingChartEntry.IsBmsonChartFile(bmsFile))
+        if (!fixMode && PendingChartEntry.IsBmsonChartFile(bmsFile))
         {
             using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
@@ -10606,20 +10567,20 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// リンク切れ BMS ファイルのインストール先ディレクトリを修正し、song.db のパスを更新します。
+    /// リンク切れ chart file のインストール先ディレクトリを修正し、DB 上のパスを更新します。
     /// </summary>
-    public void FixInstallationDirectory(IEnumerable<BMSFile> bmsFiles)
+    public void FixInstallationDirectoryCharts(IEnumerable<BMSFile> chartFiles)
     {
-        if (bmsFiles == null)
+        if (chartFiles == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("chartFiles");
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                List<BMSFile> files = bmsFiles.Where((BMSFile f) => f != null && !string.IsNullOrWhiteSpace(f.instl_dst)).ToList();
-                HashSet<string> existingHashes = CreateBMSHashSnapshotExcludingUnsafe(files);
+                List<BMSFile> files = chartFiles.Where((BMSFile f) => f != null && !string.IsNullOrWhiteSpace(f.instl_dst)).ToList();
+                HashSet<string> existingHashes = CreateInstalledChartKeySnapshotExcludingUnsafe(files);
                 LibraryFixInstallationResult result = libraryFileOperationsService.FixInstallationDirectory(
                     files,
                     existingHashes,

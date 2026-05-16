@@ -502,6 +502,18 @@ public sealed class CustomTableColumnFactoryTests
         CollectionAssert.AreEqual(
             new[] { "C:\\BMS\\A", "C:\\BMS\\B" },
             columns["InstallDst"].GetEditSuggestions(bmsFile).ToArray());
+
+        var bmsonRow = LibraryChartRow.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Bmson\\chart.bmson",
+            folder = "C:\\Bmson",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('b', 64)
+        });
+        bmsonRow.OperationChartFile.InstallDestinationSuggestions = new[] { "C:\\Bmson\\A", "", "C:\\Bmson\\B" };
+        CollectionAssert.AreEqual(
+            new[] { "C:\\Bmson\\A", "C:\\Bmson\\B" },
+            columns["InstallDst"].GetEditSuggestions(bmsonRow).ToArray());
     }
 
     [TestMethod]

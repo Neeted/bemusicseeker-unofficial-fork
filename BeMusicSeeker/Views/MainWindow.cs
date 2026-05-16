@@ -798,26 +798,32 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             viewModel.NotifyPlaylistCellEditStarted();
             return;
         }
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
-        if (bmsFile == null)
+        BMSFile operationChartFile = GridRowResolver.GetOperationChartFile(e.Row, GetCurrentChartOperationSourceScope());
+        if (operationChartFile == null)
         {
             e.Cancel = true;
             return;
         }
-        if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.Folder), StringComparison.Ordinal))
+        if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
         {
+            BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+            if (bmsFile == null)
+            {
+                e.Cancel = true;
+                return;
+            }
             e.Cancel = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
             return;
         }
-        if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.instl_dst), StringComparison.Ordinal))
+        if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
         {
             if (!CanEditInstallDestinationInCurrentSection())
             {
                 e.Cancel = true;
                 return;
             }
-            _pendingInstallDestinationEditStates[bmsFile] = CapturePendingInstallDestinationEditState(bmsFile);
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = bmsFile.HasInstallDestinationSuggestions;
+            _pendingInstallDestinationEditStates[operationChartFile] = CapturePendingInstallDestinationEditState(operationChartFile);
+            operationChartFile.IsInstallDestinationSuggestionPopupOpen = operationChartFile.HasInstallDestinationSuggestions;
             return;
         }
         e.Cancel = true;
@@ -911,13 +917,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("customTableView_CellEditEnded");
                 return;
             }
-            BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
-            if (bmsFile == null)
+            BMSFile operationChartFile = GridRowResolver.GetOperationChartFile(e.Row, GetCurrentChartOperationSourceScope());
+            if (operationChartFile == null)
             {
                 return;
             }
-            if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.Folder), StringComparison.Ordinal))
+            if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
             {
+                BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+                if (bmsFile == null)
+                {
+                    return;
+                }
                 if (!e.Commit || IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
                 {
                     return;
@@ -936,12 +947,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("customTableView_CellEditEnded");
                 return;
             }
-            if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.instl_dst), StringComparison.Ordinal))
+            if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
             {
-                bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+                operationChartFile.IsInstallDestinationSuggestionPopupOpen = false;
                 if (!e.Commit)
                 {
-                    ClearPendingInstallDestinationEditState(bmsFile);
+                    ClearPendingInstallDestinationEditState(operationChartFile);
                     return;
                 }
                 if (!CanEditInstallDestinationInCurrentSection())
@@ -949,11 +960,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return;
                 }
                 string destinationDirectory = e.Text;
-                PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(bmsFile);
-                bmsFile.instl_dst = destinationDirectory;
+                PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(operationChartFile);
+                operationChartFile.instl_dst = destinationDirectory;
                 Task.Run(delegate
                 {
-                    bool succeeded = viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
+                    bool succeeded = viewModel.SetPendingInstallDestination(operationChartFile, destinationDirectory);
                     base.Dispatcher.BeginInvoke((Action)delegate
                     {
                         if (_isClosingOrClosed)
@@ -962,11 +973,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         }
                         if (!succeeded)
                         {
-                            RestorePendingInstallDestinationEditState(bmsFile, originalState);
+                            RestorePendingInstallDestinationEditState(operationChartFile, originalState);
                         }
                         else
                         {
-                            ClearPendingInstallDestinationEditState(bmsFile);
+                            ClearPendingInstallDestinationEditState(operationChartFile);
                         }
                         RefreshCustomTableViewDisplay();
                     }, DispatcherPriority.Background);

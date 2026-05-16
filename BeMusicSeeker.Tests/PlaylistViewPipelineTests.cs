@@ -616,6 +616,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPlaylistMissing);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
+        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(target.Chart.BmsFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
@@ -624,7 +625,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
     }
@@ -687,7 +688,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
     }
 
     [TestMethod]
@@ -709,13 +710,112 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
+        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(target.Chart.BmsFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_BmsonRowsKeepCompatibilityFileForInstallLocationRepair()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            artist = "Artist",
+            md5 = "34343434343434343434343434343434",
+            sha256 = new string('3', 64)
+        };
+        LibraryChartRow libraryRow = LibraryChartRow.FromBmsonSong(bmson);
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(libraryRow, out ChartOperationTarget firstLibraryTarget));
+        List<string> changedProperties = new List<string>();
+        libraryRow.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName);
+        firstLibraryTarget.Chart.BmsFile.instl_dst = "C:\\Installed\\Bmson";
+        firstLibraryTarget.Chart.BmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(libraryRow, out ChartOperationTarget secondLibraryTarget));
+
+        Assert.AreSame(firstLibraryTarget.Chart.BmsFile, secondLibraryTarget.Chart.BmsFile);
+        Assert.AreEqual("C:\\Installed\\Bmson", secondLibraryTarget.Chart.BmsFile.instl_dst);
+        Assert.AreEqual("C:\\Installed\\Bmson", libraryRow.instl_dst);
+        CollectionAssert.Contains(changedProperties, nameof(LibraryChartRow.instl_dst));
+        Assert.IsTrue(libraryRow.HasHighlightedWarning);
+        StringAssert.Contains(libraryRow.WarningTooltipText, "ambiguous install destination");
+
+        LibraryChartRow rebuiltWarningRow = LibraryChartRow.FromBmsonSong(bmson);
+        rebuiltWarningRow.SetBmsonOperationChartFileProvider(song => firstLibraryTarget.Chart.BmsFile as PendingChartEntry);
+        Assert.IsTrue(rebuiltWarningRow.HasHighlightedWarning);
+        StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, "ambiguous install destination");
+
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+        PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget firstPlaylistTarget));
+        firstPlaylistTarget.Chart.BmsFile.instl_dst = "C:\\Installed\\PlaylistBmson";
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget secondPlaylistTarget));
+
+        Assert.AreSame(firstPlaylistTarget.Chart.BmsFile, secondPlaylistTarget.Chart.BmsFile);
+        Assert.AreEqual("C:\\Installed\\PlaylistBmson", secondPlaylistTarget.Chart.BmsFile.instl_dst);
+
+        PlaylistDetailSourceRow rebuiltPlaylistSourceRow = new PlaylistDetailSourceRow(
+            entry,
+            realFile: null,
+            resolvedBmson: bmson,
+            bmsonOperationChartFileProvider: song => firstPlaylistTarget.Chart.BmsFile as PendingChartEntry);
+        Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
+    }
+
+    [TestMethod]
+    public void ChartListSourceRow_BmsonUsesSharedOperationChartFileForInstallRepairState()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            artist = "Artist",
+            md5 = "45454545454545454545454545454545",
+            sha256 = new string('4', 64)
+        };
+        Dictionary<LR2SongDBExtended.bmson_song, PendingChartEntry> adapters = new Dictionary<LR2SongDBExtended.bmson_song, PendingChartEntry>();
+        PendingChartEntry GetAdapter(LR2SongDBExtended.bmson_song song)
+        {
+            if (!adapters.TryGetValue(song, out PendingChartEntry adapter))
+            {
+                adapter = PendingChartEntry.CreateFromBmsonSong(song);
+                adapters[song] = adapter;
+            }
+            return adapter;
+        }
+
+        ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
+            Array.Empty<BMSFile>(),
+            new[] { bmson },
+            bmsonOperationChartFileProvider: GetAdapter).Single();
+        firstSourceRow.OperationChartFile.instl_dst = "C:\\Installed\\Bmson";
+        firstSourceRow.OperationChartFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
+
+        ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
+            Array.Empty<BMSFile>(),
+            new[] { bmson },
+            bmsonOperationChartFileProvider: GetAdapter).Single();
+        LibraryChartRow rebuiltViewRow = LibraryChartRow.FromBmsonSong(rebuiltSourceRow.BmsonSong);
+        rebuiltViewRow.SetBmsonOperationChartFileProvider(GetAdapter);
+
+        Assert.AreSame(firstSourceRow.OperationChartFile, rebuiltSourceRow.OperationChartFile);
+        Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.InstallDestination);
+        StringAssert.Contains(rebuiltSourceRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationAmbiguous);
+        Assert.AreEqual("C:\\Installed\\Bmson", rebuiltViewRow.instl_dst);
+        Assert.IsTrue(rebuiltViewRow.HasHighlightedWarning);
+        StringAssert.Contains(rebuiltViewRow.WarningTooltipText, "ambiguous install destination");
     }
 
     [TestMethod]
@@ -1004,7 +1104,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.AreEqual(installed.path, LibraryChartRef.FromBmsFile(pending).Path);
     }
 
@@ -1089,8 +1189,10 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsFalse(bmsonTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsTrue(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
     }

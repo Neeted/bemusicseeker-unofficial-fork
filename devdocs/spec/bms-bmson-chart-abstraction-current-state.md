@@ -142,7 +142,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `OwnedChartKind.Bms` の missing row として扱われる。
 
-`GridRowResolver.GetRealBmsFile(...)` / `GetOperationBmsFile(...)` は、既存 View / drag-drop / preview 経路の互換 API として残っている。これらは BMSFile 実体または operation 用 compatibility file を返すため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。
+`GridRowResolver.GetRealBmsFile(...)` / `GetOperationBmsFile(...)` は、既存 View / drag-drop / preview 経路の互換 API として残っている。これらは主に BMSFile 実体を返すため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。bmson owned row でも `OwnedChartRef.BmsFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
 
 ### `ChartOperationTarget`
 
@@ -187,12 +187,12 @@ UI は原則として `Kind` 直接判定ではなく capability を見る。han
 | `RunZeroNoteCheck` | Yes | No | BMS かつ missing でない場合。 |
 | `RenameInvalidExtension` | Yes | No | BMS かつ missing でない場合。 |
 | `ConvertToAudio` | Yes | No | BMS かつ missing でない場合。 |
-| `RepairInstalledLocation` | Yes | No | BMS かつ path があり pending でない場合。 |
+| `RepairInstalledLocation` | Yes | Yes | path があり missing でなく pending でない場合。 |
 | `MoveInLibrary` | Yes | Yes | path があり missing でなく pending でない場合。 |
 | `RemoveFromLibrary` | Yes | Yes | path があり missing でなく pending でない場合。 |
 | `UpdateInstallDestination` | Yes | Yes | pending package row で、playlist row ではない場合。 |
 
-`RepairInstalledLocation` は `GridRowResolver.BuildCapabilities(...)` の `isBms` branch でのみ付与される。`SearchCorrectInstallationDirectoryCharts(...)` / `FixInstallationDirectoryCharts(...)` という chart 名の ViewModel 入口は存在するが、UI から bmson へは現状この capability が出ない。model 側の `SearchEstimatedInstallationDirectory(BMSFile)` は pending bmson adapter を installed directory index で解決できる一方、`FixInstallationDirectory(...)` は mutation delta が BMS file path 更新に寄っているため、所持 bmson の場所修復はまだ完全な chart 共通処理ではない。
+`RepairInstalledLocation` は BMS / bmson の両方に付与される。bmson owned row は ViewModel 側の operation 用 `PendingChartEntry` adapter cache を参照し、`SearchCorrectInstallationDirectoryCharts(...)` で得た `instl_dst` / warning / suggestion を row 再生成後も維持する。この adapter cache は bmson song の参照ではなく primary hash / path の安定 key で引き継ぐため、同じ譜面が別 `bmson_song` instance として再読込されても修復候補状態を保持し、mutation target だけ現在の `bmson_song` に差し替える。model 側の修復では、BMS は `FilePathChanges`、bmson は `BmsonSongPathChanges` として同じ `LibraryMutationDelta` に載せ、`BmsLibraryStateApplier.ReplaceBmsonSongPath(...)` が `bmson_song` の path / folder と DB row を更新する。
 
 `RunResourceHealthCheck` は capability と context menu policy の両方で bmson も対象にできる。bmson のみ選択時でも full scan menu は `RunResourceHealthCheck` capability を見て表示され、LR2IR / ranking / encoding / zero-note / audio convert などの BMS-only menu だけが後段 policy で非表示になる。
 

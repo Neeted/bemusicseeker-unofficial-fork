@@ -620,22 +620,24 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     }
 
     public LibraryFixInstallationResult FixInstallationDirectory(
-        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<BMSFile> chartFiles,
         HashSet<string> existingHashes,
         Func<BMSPackage, string, bool> movePackageFiles,
         Func<BMSFile, bool> confirmDuplicateRemoval)
     {
         LibraryFixInstallationResult result = new LibraryFixInstallationResult();
         Stopwatch stopwatch = Stopwatch.StartNew();
-        List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.instl_dst)).ToList();
+        List<BMSFile> files = (chartFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.instl_dst)).ToList();
         result.RequestedCount = files.Count;
         foreach (BMSFile file in files)
         {
+            PendingChartEntry bmsonEntry = file as PendingChartEntry;
+            bool isBmson = bmsonEntry?.IsBmsonChart == true && bmsonEntry.BmsonSong != null;
             BMSPackage installPackage = new BMSPackage(file)
             {
                 delete_parent = false
             };
-            string oldPath = file.path;
+            string oldPath = isBmson ? bmsonEntry.BmsonSong.path : file.path;
             if (!(movePackageFiles?.Invoke(installPackage, file.instl_dst) ?? false))
             {
                 continue;
@@ -650,12 +652,24 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 continue;
             }
             file.instl_dst = null;
-            result.MutationDelta.FilePathChanges.Add(new LibraryFilePathChange
+            if (isBmson)
             {
-                File = file,
-                NewPath = file.path,
-                OldPath = oldPath
-            });
+                result.MutationDelta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+                {
+                    Song = bmsonEntry.BmsonSong,
+                    NewPath = file.path,
+                    OldPath = oldPath
+                });
+            }
+            else
+            {
+                result.MutationDelta.FilePathChanges.Add(new LibraryFilePathChange
+                {
+                    File = file,
+                    NewPath = file.path,
+                    OldPath = oldPath
+                });
+            }
             result.MutationDelta.RaiseBmsFilesChanged = true;
             result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
             result.MutationDelta.InvalidateParentFolderCache = true;
