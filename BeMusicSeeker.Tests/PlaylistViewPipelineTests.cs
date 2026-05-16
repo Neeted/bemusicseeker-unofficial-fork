@@ -889,8 +889,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
 
-        LibraryChartRef chartRef = LibraryChartRef.FromBmsFile(pending);
-        BMSFile compatibilityFile = chartRef.ToCompatibilityBmsFile();
+        LibraryChartRef chartRef = LibraryChartRef.FromCompatibilityChartFile(pending);
+        BMSFile compatibilityFile = chartRef.ToCompatibilityChartFile();
         Assert.AreSame(pending, compatibilityFile);
         Assert.AreEqual(pending.DisplayWarning, compatibilityFile.DisplayWarning);
         Assert.AreEqual(pending.WarningDigestText, compatibilityFile.WarningDigestText);
@@ -1105,7 +1105,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.AreEqual(installed.path, LibraryChartRef.FromBmsFile(pending).Path);
+        Assert.AreEqual(installed.path, LibraryChartRef.FromCompatibilityChartFile(pending).Path);
     }
 
     [TestMethod]

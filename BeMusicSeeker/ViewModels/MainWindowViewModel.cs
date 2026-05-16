@@ -21326,7 +21326,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select((LibraryChartRef chart) => chart.BmsFile));
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityChartFile != null).Select((LibraryChartRef chart) => chart.CompatibilityChartFile));
             files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
     }
@@ -21480,7 +21480,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select((LibraryChartRef chart) => chart.BmsFile));
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityChartFile != null).Select((LibraryChartRef chart) => chart.CompatibilityChartFile));
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
@@ -21496,7 +21496,7 @@ public class MainWindowViewModel : ViewModel
 
     private static BeMusicSeeker.Models.BMSFile ToCompatibilityChartFile(ChartOperationTarget target)
     {
-        return ToLibraryChartRef(target)?.ToCompatibilityBmsFile();
+        return ToLibraryChartRef(target)?.ToCompatibilityChartFile();
     }
 
     private static LibraryChartRef ToLibraryChartRef(ChartOperationTarget target)
@@ -21507,7 +21507,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (target.Chart.CompatibilityChartFile != null)
         {
-            return LibraryChartRef.FromBmsFile(target.Chart.CompatibilityChartFile);
+            return LibraryChartRef.FromCompatibilityChartFile(target.Chart.CompatibilityChartFile);
         }
         if (target.Chart.BmsonSong != null)
         {

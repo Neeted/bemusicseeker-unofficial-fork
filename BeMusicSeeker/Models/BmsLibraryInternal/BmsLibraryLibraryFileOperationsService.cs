@@ -83,8 +83,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
     {
         return DeleteLibraryCharts(
-            (bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile),
-            (libraryFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile),
+            (bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile),
+            (libraryFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile),
             pendingPackages,
             directoryLookupCache,
             sendToRecycleBin,
@@ -234,8 +234,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
             .ToList();
         Dictionary<BMSFile, LibraryChartRef> bmsByReference = currentCharts
-            .Where((LibraryChartRef chart) => chart.BmsFile != null)
-            .GroupBy((LibraryChartRef chart) => chart.BmsFile)
+            .Where((LibraryChartRef chart) => chart.CompatibilityChartFile != null)
+            .GroupBy((LibraryChartRef chart) => chart.CompatibilityChartFile)
             .ToDictionary((IGrouping<BMSFile, LibraryChartRef> group) => group.Key, (IGrouping<BMSFile, LibraryChartRef> group) => group.First());
         Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference = currentCharts
             .Where((LibraryChartRef chart) => chart.BmsonSong != null)
@@ -249,7 +249,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         foreach (LibraryChartRef inputChart in inputCharts ?? Enumerable.Empty<LibraryChartRef>())
         {
             result.InputCount++;
-            if (inputChart.BmsFile == null && inputChart.BmsonSong == null)
+            if (inputChart.CompatibilityChartFile == null && inputChart.BmsonSong == null)
             {
                 result.PathOnlyInputCount++;
             }
@@ -278,7 +278,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return null;
         }
-        if (inputChart.BmsFile != null && bmsByReference.TryGetValue(inputChart.BmsFile, out LibraryChartRef bmsChart))
+        if (inputChart.CompatibilityChartFile != null && bmsByReference.TryGetValue(inputChart.CompatibilityChartFile, out LibraryChartRef bmsChart))
         {
             return bmsChart;
         }
@@ -343,7 +343,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 .Where((BMSPackage package) => package != null)
                 .SelectMany((BMSPackage package) => package.ChartFiles ?? new List<BMSFile>());
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
-                .Select((LibraryChartRef chart) => chart.BmsFile)
+                .Select((LibraryChartRef chart) => chart.CompatibilityChartFile)
                 .Where((BMSFile bmsInfo) => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
             foreach (BMSFile installLinkedBmsFile in pendingFiles.Concat(libraryFiles))
             {
@@ -373,7 +373,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return;
         }
         result.RemovedCharts.Add(chart);
-        BMSFile compatibilityFile = chart.ToCompatibilityBmsFile();
+        BMSFile compatibilityFile = chart.ToCompatibilityChartFile();
         if (compatibilityFile != null)
         {
             result.RemovedFiles.Add(compatibilityFile);
@@ -533,7 +533,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<BMSFile> selectedFiles, string destinationRootDirectory)
     {
-        return BuildRootFolderMovePlans((selectedFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile), destinationRootDirectory);
+        return BuildRootFolderMovePlans((selectedFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile), destinationRootDirectory);
     }
 
     public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<LibraryChartRef> selectedCharts, string destinationRootDirectory)
