@@ -3912,7 +3912,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> list = viewModel.GetPendingBMSFilesSnapshot();
+        List<BMSFile> list = viewModel.GetPendingBmsFormatChartFilesSnapshot();
         if (list.Count == 0)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_charts, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -3928,7 +3928,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.RenamePendingZeroNoteChartsToInvalidExtensions(list, CancellationToken.None, null);
+                viewModel.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(list, CancellationToken.None, null);
             }).Logging("treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
             return;
         }
@@ -3937,7 +3937,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         int total = list.Count;
         Task task = Task.Run(delegate
         {
-            viewModel.RenamePendingZeroNoteChartsToInvalidExtensions(list, cancellationTokenSource.Token, delegate
+            viewModel.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(list, cancellationTokenSource.Token, delegate
             {
                 processedCount++;
             });
@@ -6624,7 +6624,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 if (isPendingSelected)
                 {
-                    viewModel.RenamePendingBMSFilesExtensions(list, ".bmx");
+                    viewModel.RenamePendingBmsFormatChartFileExtensions(list, ".bmx");
                 }
                 else
                 {
@@ -6635,7 +6635,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 if (isPendingSelected)
                 {
-                    viewModel.RenamePendingBMSFilesExtensions(list2, ".pmx");
+                    viewModel.RenamePendingBmsFormatChartFileExtensions(list2, ".pmx");
                 }
                 else
                 {

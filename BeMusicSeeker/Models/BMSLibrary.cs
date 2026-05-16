@@ -9754,18 +9754,18 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public List<BMSFile> GetPendingBMSFilesSnapshot()
+    public List<BMSFile> GetPendingBmsFormatChartFilesSnapshot()
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetReaderGuard())
             {
-                return packageInstallService.GetPendingBmsFilesSnapshot(BMSPackagesPending);
+                return packageInstallService.GetPendingBmsFormatChartFilesSnapshot(BMSPackagesPending);
             }
         }
     }
 
-    public void RenamePendingZeroNoteChartsToInvalidExtensions(IEnumerable<BMSFile> targetFiles, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<BMSFile> targetFiles, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -9774,7 +9774,7 @@ public class BMSLibrary : NotificationObject
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     IEnumerable<BMSFile> enumerable = targetFiles ?? BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).SelectMany((BMSPackage pkg) => pkg.ChartFiles).Where((BMSFile f) => f != null);
-                    PendingZeroNoteRenameResult result = packageInstallService.RenamePendingZeroNoteChartsToInvalidExtensions(
+                    PendingZeroNoteRenameResult result = packageInstallService.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
                         enumerable,
                         (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),
                         token,
@@ -10971,7 +10971,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public void RenamePendingBMSFilesExtensions(IEnumerable<BMSFile> bmsFiles, string newExt)
+    public void RenamePendingBmsFormatChartFileExtensions(IEnumerable<BMSFile> bmsFiles, string newExt)
     {
         if (bmsFiles == null)
         {
@@ -10983,7 +10983,7 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    PendingExtensionRenameResult result = packageInstallService.RenamePendingFileExtensions(
+                    PendingExtensionRenameResult result = packageInstallService.RenamePendingBmsFormatChartFileExtensions(
                         bmsFiles,
                         newExt,
                         (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false));

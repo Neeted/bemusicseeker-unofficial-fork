@@ -20355,7 +20355,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public List<BeMusicSeeker.Models.BMSFile> GetPendingBMSFilesSnapshot()
+    public List<BeMusicSeeker.Models.BMSFile> GetPendingBmsFormatChartFilesSnapshot()
     {
         if (files == null)
         {
@@ -20363,7 +20363,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            return files.GetPendingBMSFilesSnapshot();
+            return files.GetPendingBmsFormatChartFilesSnapshot();
         }
     }
 
@@ -20379,12 +20379,12 @@ public class MainWindowViewModel : ViewModel
         });
     }
 
-    public void RenamePendingZeroNoteChartsToInvalidExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> targetFiles, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> targetFiles, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
     {
-        List<BeMusicSeeker.Models.BMSFile> list = ((targetFiles != null) ? targetFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList() : GetPendingBMSFilesSnapshot());
+        List<BeMusicSeeker.Models.BMSFile> list = ((targetFiles != null) ? targetFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList() : GetPendingBmsFormatChartFilesSnapshot());
         RunPendingInstallMutation(delegate
         {
-            files.RenamePendingZeroNoteChartsToInvalidExtensions(list, token, onEachProcessed);
+            files.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(list, token, onEachProcessed);
         }, list);
     }
 
@@ -21263,11 +21263,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RenamePendingBMSFilesExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
+    public void RenamePendingBmsFormatChartFileExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
     {
         RunPendingInstallMutation(delegate
         {
-            files.RenamePendingBMSFilesExtensions(bmsFiles, newExt);
+            files.RenamePendingBmsFormatChartFileExtensions(bmsFiles, newExt);
         }, bmsFiles);
     }
 

@@ -193,6 +193,8 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 
 ViewModel / UI 層の pending package 操作は `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts` を入口にする。これらは package 内 chart を扱う操作であり、BMS 専用 API ではない。
 
+newly installed tree に表示される installed package history/list のクリアは `RemoveInstalledPackageRecords` / `RemoveInstalledPackageRecordsAll` を入口にする。これは chart file 自体の削除ではなく、installed package record を list から消す操作である。
+
 ## Package / pending install
 
 ### `BMSPackage`
@@ -385,6 +387,7 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 - `chart_digest_map`
 
 ここは `ChartFile` 化後も BMS-only capability として残す。
+pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `RenamePendingBmsFormatChartFileExtensions` / `RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` を入口にし、BMS-format chart file のみを対象にする。
 
 ## ChartFile / ChartPackage 化に向けた現在制約
 

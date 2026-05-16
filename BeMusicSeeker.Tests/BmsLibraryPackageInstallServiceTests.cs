@@ -1251,7 +1251,55 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void RenamePendingFileExtensions_ReturnsRenamedDuplicateDeletedAndFailedFiles()
+    public void GetPendingBmsFormatChartFilesSnapshot_ExcludesBmsonCharts()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            string bmsonPath = Path.Combine(tempDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonPath, "{}");
+            TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempDirectoryPath, "chart.bms"));
+            PendingChartEntry bmsonEntry = PendingChartEntry.CreateFromFilePath(bmsonPath);
+            TestableBmsFile plainBmsonPath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempDirectoryPath, "plain.bmson"));
+            BMSPackage package = new BMSPackage(new BMSFile[] { bmsFile, bmsonEntry, plainBmsonPath });
+
+            List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot(new[] { package });
+
+            CollectionAssert.AreEqual(new[] { bmsFile }, result);
+        });
+    }
+
+    [TestMethod]
+    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions_ExcludesBmsonCharts()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            string bmsonPath = Path.Combine(tempDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonPath, "{}");
+            PendingChartEntry bmsonFile = PendingChartEntry.CreateFromFilePath(bmsonPath);
+            int renameCallCount = 0;
+
+            PendingZeroNoteRenameResult result = service.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
+                new BMSFile[] { bmsonFile },
+                delegate
+                {
+                    renameCallCount++;
+                    return new RenameInvalidExtensionOutcome
+                    {
+                        Action = RenameInvalidExtensionAction.Renamed
+                    };
+                });
+
+            Assert.AreEqual(0, result.Total);
+            Assert.AreEqual(0, result.Processed);
+            Assert.AreEqual(0, renameCallCount);
+            Assert.IsTrue(File.Exists(bmsonPath));
+        });
+    }
+
+    [TestMethod]
+    public void RenamePendingBmsFormatChartFileExtensions_ReturnsRenamedDuplicateDeletedAndFailedFiles()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -1263,17 +1311,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string duplicateSourcePath = Path.Combine(tempDirectoryPath, "duplicate.bms");
             string duplicateDestinationPath = Path.Combine(tempDirectoryPath, "duplicate.bme");
             string failureSourcePath = Path.Combine(tempDirectoryPath, "failure.bms");
+            string bmsonSourcePath = Path.Combine(tempDirectoryPath, "skip.bmson");
             File.WriteAllText(renameSourcePath, "rename");
             File.WriteAllText(duplicateSourcePath, "same");
             File.WriteAllText(duplicateDestinationPath, "same");
             File.WriteAllText(failureSourcePath, "failure");
+            File.WriteAllText(bmsonSourcePath, "{}");
             TestableBmsFile renameFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", renameSourcePath);
             TestableBmsFile duplicateFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", duplicateSourcePath);
             TestableBmsFile failureFile = CreateFile("cccccccccccccccccccccccccccccccc", failureSourcePath);
+            PendingChartEntry bmsonFile = PendingChartEntry.CreateFromFilePath(bmsonSourcePath);
             duplicateFile.SetHash(fileOperationService.TryComputeFileMd5ForPath(duplicateSourcePath));
 
-            PendingExtensionRenameResult result = service.RenamePendingFileExtensions(
-                new[] { renameFile, duplicateFile, failureFile },
+            PendingExtensionRenameResult result = service.RenamePendingBmsFormatChartFileExtensions(
+                new BMSFile[] { renameFile, duplicateFile, failureFile, bmsonFile },
                 ".bme",
                 delegate (BMSFile file, string requestedPath)
                 {
@@ -1297,6 +1348,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEquivalent(new[] { renameFile, duplicateFile }, result.FilesToRemove);
             Assert.AreEqual(1, result.Failures.Count);
             Assert.AreSame(failureFile, result.Failures[0].File);
+            Assert.IsTrue(File.Exists(bmsonSourcePath));
         });
     }
 

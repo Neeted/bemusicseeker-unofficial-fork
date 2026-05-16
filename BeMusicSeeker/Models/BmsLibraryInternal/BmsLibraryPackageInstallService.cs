@@ -306,12 +306,21 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public List<BMSFile> GetPendingBmsFilesSnapshot(IEnumerable<BMSPackage> pendingPackages)
+    private static bool IsBmsFormatChartFile(BMSFile file)
+    {
+        string extension = Path.GetExtension(file?.path);
+        return file != null
+            && !PendingChartEntry.IsBmsonChartFile(file)
+            && !string.IsNullOrWhiteSpace(extension)
+            && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+    }
+
+    public List<BMSFile> GetPendingBmsFormatChartFilesSnapshot(IEnumerable<BMSPackage> pendingPackages)
     {
         return DeduplicateFilesByPathOrReference((pendingPackages ?? Enumerable.Empty<BMSPackage>())
             .Where((BMSPackage package) => package != null)
             .SelectMany((BMSPackage package) => package.ChartFiles)
-            .Where((BMSFile file) => file != null && PendingChartEntry.IsBmsChartFile(file)));
+            .Where(IsBmsFormatChartFile));
     }
 
     public List<BMSPackage> SearchBmsFilesRecursively(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
@@ -1944,7 +1953,7 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingZeroNoteRenameResult RenamePendingZeroNoteChartsToInvalidExtensions(
+    public PendingZeroNoteRenameResult RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
         IEnumerable<BMSFile> targetFiles,
         Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename,
         CancellationToken token = default,
@@ -1952,7 +1961,7 @@ internal sealed class BmsLibraryPackageInstallService
         Action<string> logInfo = null)
     {
         PendingZeroNoteRenameResult result = new PendingZeroNoteRenameResult();
-        List<BMSFile> files = DeduplicateFilesByPathOrReference(targetFiles);
+        List<BMSFile> files = DeduplicateFilesByPathOrReference((targetFiles ?? Enumerable.Empty<BMSFile>()).Where(IsBmsFormatChartFile));
         result.Total = files.Count;
         foreach (BMSFile file in files)
         {
@@ -2030,7 +2039,7 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingExtensionRenameResult RenamePendingFileExtensions(
+    public PendingExtensionRenameResult RenamePendingBmsFormatChartFileExtensions(
         IEnumerable<BMSFile> targetFiles,
         string newExt,
         Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
@@ -2038,7 +2047,7 @@ internal sealed class BmsLibraryPackageInstallService
         PendingExtensionRenameResult result = new PendingExtensionRenameResult();
         Stopwatch stopwatch = Stopwatch.StartNew();
         List<BMSFile> files = DeduplicateFilesByPathOrReference(
-            (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && File.Exists(file.path)));
+            (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => IsBmsFormatChartFile(file) && File.Exists(file.path)));
         result.Total = files.Count;
         foreach (BMSFile file in files)
         {
