@@ -63,7 +63,7 @@ public sealed class ChartListVirtualViewTests
     public void SummaryConverter_UsesMetadataWithoutEnumeratingRows()
     {
         ChartListVirtualView view = CreateView(out Func<int> getCreatedCount);
-        BMSFilesViewToSummaryTextConverter converter = new BMSFilesViewToSummaryTextConverter();
+        ChartRowsViewToSummaryTextConverter converter = new ChartRowsViewToSummaryTextConverter();
 
         object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
 
@@ -78,7 +78,7 @@ public sealed class ChartListVirtualViewTests
     public void SummaryConverter_UsesSuppliedFolderCountWithoutEnumeratingRows()
     {
         ChartListVirtualView view = CreateView(out Func<int> getCreatedCount, distinctFolderCount: 2);
-        BMSFilesViewToSummaryTextConverter converter = new BMSFilesViewToSummaryTextConverter();
+        ChartRowsViewToSummaryTextConverter converter = new ChartRowsViewToSummaryTextConverter();
 
         object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
 
