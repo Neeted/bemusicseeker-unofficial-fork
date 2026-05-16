@@ -751,7 +751,7 @@ public class BMSLibrary : NotificationObject
 
     // Lock acquisition order for facade orchestration:
     // rwlockBMSFilesInitializedAll / rwlockBMSFilesInitializedMin
-    // -> rwlockBMSFilesPendingInstall
+    // -> rwlockPendingInstallCharts
     // -> rwlockBMSFiles
     // -> rwlockSongDBInstall / rwlockSongDBMaintenance
     // -> rwlockBMSScores
@@ -761,7 +761,7 @@ public class BMSLibrary : NotificationObject
 
     private ReaderWriterLockSlimWrapper rwlockBMSFilesDuplicated = new ReaderWriterLockSlimWrapper();
 
-    private ReaderWriterLockSlimWrapper rwlockBMSFilesPendingInstall = new ReaderWriterLockSlimWrapper();
+    private ReaderWriterLockSlimWrapper rwlockPendingInstallCharts = new ReaderWriterLockSlimWrapper();
 
     private ReaderWriterLockSlimWrapper rwlockLR2IrDir = new ReaderWriterLockSlimWrapper();
 
@@ -877,7 +877,7 @@ public class BMSLibrary : NotificationObject
 
     private PropertyChangedEventListener listenerForRwlockBMSFilesDuplicated;
 
-    private PropertyChangedEventListener listenerForRwlockBMSFilesPendingInstall;
+    private PropertyChangedEventListener listenerForRwlockPendingInstallCharts;
 
     private PropertyChangedEventListener listenerForRwlockBMSFiles;
 
@@ -2205,9 +2205,9 @@ public class BMSLibrary : NotificationObject
     {
         get
         {
-            if (!IsWriteLockHeldInitializeAll && rwlockBMSFilesPendingInstall.LockingWriteCount == 0)
+            if (!IsWriteLockHeldInitializeAll && rwlockPendingInstallCharts.LockingWriteCount == 0)
             {
-                return rwlockBMSFilesPendingInstall.WaitingWriteCount > 0;
+                return rwlockPendingInstallCharts.WaitingWriteCount > 0;
             }
             return true;
         }
@@ -2514,7 +2514,7 @@ public class BMSLibrary : NotificationObject
         listenerForRwlockBMSFilesInitializedAll = new PropertyChangedEventListener(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = new PropertyChangedEventListener(rwlockBMSFilesInitializedMin);
         listenerForRwlockBMSFilesDuplicated = new PropertyChangedEventListener(rwlockBMSFilesDuplicated);
-        listenerForRwlockBMSFilesPendingInstall = new PropertyChangedEventListener(rwlockBMSFilesPendingInstall);
+        listenerForRwlockPendingInstallCharts = new PropertyChangedEventListener(rwlockPendingInstallCharts);
         listenerForRwlockBMSFiles = new PropertyChangedEventListener(rwlockBMSFiles);
         listenerForRwlockBMSFilesInitializedAll.RegisterHandler(() => rwlockBMSFilesInitializedAll.LockingWriteCount, delegate
         {
@@ -2536,7 +2536,7 @@ public class BMSLibrary : NotificationObject
         {
             RaisePropertyChanged(() => IsWriteLockHeldBMSFilesDuplicated);
         });
-        listenerForRwlockBMSFilesPendingInstall.RegisterHandler(() => rwlockBMSFilesPendingInstall.LockingWriteCount, delegate
+        listenerForRwlockPendingInstallCharts.RegisterHandler(() => rwlockPendingInstallCharts.LockingWriteCount, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldPendingInstallCharts);
         });
@@ -2729,7 +2729,7 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                     {
-                        using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+                        using (rwlockPendingInstallCharts.GetWriterGuard())
                         {
                             using (rwlockBMSFiles.GetReaderGuard())
                             {
@@ -2773,7 +2773,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            using (rwlockPendingInstallCharts.GetReaderGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
@@ -3003,7 +3003,7 @@ public class BMSLibrary : NotificationObject
         bool isLowConfidence = false;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
@@ -3124,7 +3124,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
@@ -3908,7 +3908,7 @@ public class BMSLibrary : NotificationObject
                 BackgroundPendingEstimatePreparationResult startupEstimatePreparation;
                 using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                 {
-                    using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+                    using (rwlockPendingInstallCharts.GetWriterGuard())
                     {
                         using (rwlockBMSFiles.GetReaderGuard())
                         {
@@ -3950,7 +3950,7 @@ public class BMSLibrary : NotificationObject
             bmsonRowCount = BmsonSongs?.Count ?? 0;
             resourceIndexDirectoryCount = installableLookupCacheSnapshot?.Count ?? 0;
         }
-        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetReaderGuard())
         {
             pendingPackageCount = BMSPackagesPending.Count;
         }
@@ -4217,7 +4217,7 @@ public class BMSLibrary : NotificationObject
         }
         if (installTblCheck)
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
@@ -7957,7 +7957,7 @@ public class BMSLibrary : NotificationObject
         PendingEstimateSourceBatchSnapshot pendingBatchSourceSnapshot = null;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -8639,7 +8639,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
@@ -8811,7 +8811,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 ClearDeferredEstimateReasonForFilesUnsafe(new BMSFile[1] { bmsFile });
             }
@@ -8821,7 +8821,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesInitializedAll.GetReaderGuard())
             {
-                using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+                using (rwlockPendingInstallCharts.GetReaderGuard())
                 {
                     if (ContainsInstalledChartUnsafe(bmsFile))
                     {
@@ -8881,7 +8881,7 @@ public class BMSLibrary : NotificationObject
         {
             HashSet<BMSFile> targetFileSet = new HashSet<BMSFile>(targetFiles);
             List<BMSPackage> packageTargets;
-            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            using (rwlockPendingInstallCharts.GetReaderGuard())
             {
                 packageTargets = BMSPackagesPending
                     .Where((BMSPackage package) => package != null && (package.ChartFiles ?? new List<BMSFile>()).Any((BMSFile file) => file != null && targetFileSet.Contains(file)))
@@ -8984,7 +8984,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
@@ -9017,7 +9017,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -9191,7 +9191,7 @@ public class BMSLibrary : NotificationObject
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -9297,7 +9297,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
@@ -9324,7 +9324,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
@@ -9341,7 +9341,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
@@ -9358,7 +9358,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
@@ -9372,7 +9372,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            using (rwlockPendingInstallCharts.GetReaderGuard())
             {
                 List<BMSPackage> list = packageInstallService.GetPendingPackagesContainingOnlyInstalledCharts(BMSPackagesPending, ContainsInstalledChartUnsafe);
                 NLogWrapper.FileLogger?.Info("advanced_pending_cleanup scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + list.Count);
@@ -9664,7 +9664,7 @@ public class BMSLibrary : NotificationObject
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -9740,7 +9740,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            using (rwlockPendingInstallCharts.GetReaderGuard())
             {
                 return packageInstallService.GetPendingBmsFormatChartFilesSnapshot(BMSPackagesPending);
             }
@@ -9751,7 +9751,7 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
@@ -9795,7 +9795,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
@@ -9886,7 +9886,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 bool allowStandaloneLibraryFile;
                 using (rwlockBMSFiles.GetReaderGuard())
@@ -10115,7 +10115,7 @@ public class BMSLibrary : NotificationObject
             else
             {
                 Stopwatch stopwatchApplySong = Stopwatch.StartNew();
-                using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+                using (rwlockPendingInstallCharts.GetReaderGuard())
                 {
                     using (rwlockBMSFiles.GetReaderGuard())
                     {
@@ -10147,7 +10147,7 @@ public class BMSLibrary : NotificationObject
         {
             return null;
         }
-        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetReaderGuard())
         {
             return BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.ChartFiles).Where((BMSFile file) => file != null).ToList();
         }
@@ -10275,7 +10275,7 @@ public class BMSLibrary : NotificationObject
                 list.AddRange(BMSFiles.Where((BMSFile file) => file != null && file.HasRefTable(table)));
             }
         }
-        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetReaderGuard())
         {
             if (BMSPackagesPending != null)
             {
@@ -10305,7 +10305,7 @@ public class BMSLibrary : NotificationObject
         }
         if (BMSPackagesPending != null && BMSPackagesPending.Count > 0)
         {
-            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            using (rwlockPendingInstallCharts.GetReaderGuard())
             {
                 action(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.ChartFiles));
             }
@@ -10350,7 +10350,7 @@ public class BMSLibrary : NotificationObject
             {
                 return;
             }
-            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            using (rwlockPendingInstallCharts.GetReaderGuard())
             {
                 action(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.ChartFiles));
             }
@@ -10368,7 +10368,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetReaderGuard())
         {
             removeReferenceBMSTables(table, entries, BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.ChartFiles));
         }
@@ -10403,7 +10403,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetReaderGuard())
         {
             action(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.ChartFiles));
         }
@@ -10560,7 +10560,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -10677,7 +10677,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -10750,7 +10750,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -10789,7 +10789,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -10911,7 +10911,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
@@ -10970,7 +10970,7 @@ public class BMSLibrary : NotificationObject
             : new HashSet<string>(approvedWholeFolderDeletePaths.Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
@@ -11040,7 +11040,7 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
