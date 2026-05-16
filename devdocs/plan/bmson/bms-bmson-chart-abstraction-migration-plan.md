@@ -369,7 +369,7 @@ F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいった
 完了後に残す次候補:
 
 - `BMSFileSortEngine` を test-only helper として隔離するか、`BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植して削除する
-- `makeBMSFilesView` / converter / private helper など、XAML binding に影響しない内部 UI 名を小さく chart 名へ寄せる
+- converter / private helper など、XAML binding に影響しない内部 UI 名を小さく chart 名へ寄せる
 - `BMSPackage.ChartFiles` の呼び出し側移行と `PendingChartEntry : BMSFile` の本格抽象化を検討する。ただし package discovery / pending install への影響が大きいため、実害が出た箇所から段階的に進める
 - public `BMSFilesView` / settings / column state 名の rename は互換リスクが高いため当面保留する
 

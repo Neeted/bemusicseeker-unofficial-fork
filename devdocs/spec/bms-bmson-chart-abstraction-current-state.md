@@ -320,9 +320,8 @@ resource health は BMS / bmson 共通の表示概念である。
 - `SelectedIndexBMSFilesView`
 - `ColumnsSettingsBMSFilesView`
 - `UseAsyncBMSFilesViewBinding`
-- `makeBMSFilesView(...)`
 
-内部では `SetChartRowsView(...)` や `ChartRowsFolderView` など chart row 名の helper が混在している。
+内部の一覧再構築は `RefreshChartRowsView(...)` / `SetChartRowsView(...)` / `ChartRowsFolderView` など chart row 名の helper に寄せている。
 
 このため、現在の仕様では「UI binding 名に BMS が残っていても、値は BMS / bmson 共通 chart row であり得る」と扱う。
 

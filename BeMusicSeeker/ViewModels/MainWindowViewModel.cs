@@ -6496,7 +6496,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>
@@ -8453,7 +8453,7 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
         }
     }
 
@@ -8933,7 +8933,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (!TrySuppress(UiRefreshChannel.LibraryMainView))
             {
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         }
         if (TrySuppress(UiRefreshChannel.InstallTree))
@@ -8949,7 +8949,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (!TrySuppress(UiRefreshChannel.LibraryMainView))
             {
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         }
         if (TrySuppress(UiRefreshChannel.InstallTree))
@@ -9062,7 +9062,7 @@ public class MainWindowViewModel : ViewModel
                             LogDeferredPlaylistReference("playlist_ref_deferred presentation_deferred version=" + presentationRequestVersion);
                             return;
                         }
-                        makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
                     });
                     LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " presentation=queued");
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
@@ -12675,7 +12675,7 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("ModeFilter");
                 if (value != ModeFilterType.None)
                 {
-                    makeBMSFilesView(viewUpdateMode.ModeFilterUpdated);
+                    RefreshChartRowsView(viewUpdateMode.ModeFilterUpdated);
                 }
             }
         }
@@ -12694,7 +12694,7 @@ public class MainWindowViewModel : ViewModel
                 _KeywordFilter = value;
                 RaisePropertyChanged("KeywordFilter");
                 UpdateKeywordSearchPresentation();
-                makeBMSFilesView(viewUpdateMode.KeywordFilterUpdated);
+                RefreshChartRowsView(viewUpdateMode.KeywordFilterUpdated);
             }
         }
     }
@@ -13039,7 +13039,7 @@ public class MainWindowViewModel : ViewModel
         {
             _FolderFilter = value;
             RaisePropertyChanged("FolderFilter");
-            makeBMSFilesView(viewUpdateMode.FolderFilterSelected);
+            RefreshChartRowsView(viewUpdateMode.FolderFilterSelected);
         }
     }
 
@@ -14004,7 +14004,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
             RefreshPlaylistSummaryIfVisible("library_bmsfiles_changed");
         });
@@ -14028,7 +14028,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (ShouldRefreshPlaylistViewAfterBmsonSongsChanged(treeViewFilterTypeSelected))
             {
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
                 return;
             }
             if (!ShouldIncludeBmsonLibraryRowsInMainView(treeViewFilterTypeSelected, treeViewFilterTypeSelected))
@@ -14039,7 +14039,7 @@ public class MainWindowViewModel : ViewModel
             {
                 IncrementNormalLibrarySourceGeneration("library_bmsons_membership_changed");
                 ResetRegularDerivedViewCaches();
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress, delegate
@@ -14213,7 +14213,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
             else
             {
@@ -14233,7 +14233,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
             else
             {
@@ -14263,7 +14263,7 @@ public class MainWindowViewModel : ViewModel
                     files.SearchBMSFilesDuplicated();
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
             else
             {
@@ -14282,7 +14282,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbledFixed, delegate
@@ -14297,7 +14297,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesUnregistered, delegate
@@ -14312,7 +14312,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesZeroNote, delegate
@@ -14328,7 +14328,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
             else
             {
@@ -14348,7 +14348,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
             else
             {
@@ -15931,13 +15931,13 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 指定された更新モードとパラメータに基づいて、メインのBMS一覧表示用コレクションを生成・更新します。
+    /// 指定された更新モードとパラメータに基づいて、メインの chart row 表示用コレクションを生成・更新します。
     /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
     /// このメソッドの実行には、規模に応じて時間がかかるため内部でタイマー計測し遅延を制御・ロギングする機構が含まれています。
     /// </summary>
     /// <param name="mode">更新の契機（どのフィルタや要素が変更されたかを示す更新モード）。</param>
     /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
-    private void makeBMSFilesView(viewUpdateMode mode, object parameter = null)
+    private void RefreshChartRowsView(viewUpdateMode mode, object parameter = null)
     {
         Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
         long stageStartMs = 0L;
@@ -17320,7 +17320,7 @@ public class MainWindowViewModel : ViewModel
                 ColumnsName = columnName,
                 Direction = direction
             };
-            makeBMSFilesView(viewUpdateMode.SortUpdated);
+            RefreshChartRowsView(viewUpdateMode.SortUpdated);
         }
     }
 
@@ -17369,10 +17369,10 @@ public class MainWindowViewModel : ViewModel
         switch (type)
         {
             case PlaylistFilterType.PlaylistFilter:
-                makeBMSFilesView(viewUpdateMode.PlaylistFilterSelected, new Tuple<BMSTable, string>(bmsTable, folderName));
+                RefreshChartRowsView(viewUpdateMode.PlaylistFilterSelected, new Tuple<BMSTable, string>(bmsTable, folderName));
                 break;
             case PlaylistFilterType.PlaylistNotOwnedFilterSelected:
-                makeBMSFilesView(viewUpdateMode.PlaylistNotOwnedFilterSelected, bmsTable);
+                RefreshChartRowsView(viewUpdateMode.PlaylistNotOwnedFilterSelected, bmsTable);
                 break;
         }
     }
@@ -17388,7 +17388,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (Enum.IsDefined(typeof(viewUpdateMode), (int)type))
             {
-                makeBMSFilesView((viewUpdateMode)type, parameter);
+                RefreshChartRowsView((viewUpdateMode)type, parameter);
             }
         }
     }
@@ -17409,10 +17409,10 @@ public class MainWindowViewModel : ViewModel
         switch (type)
         {
             case InstallFilterType.NewlyInstalledFilter:
-                makeBMSFilesView(viewUpdateMode.NewlyInstalledFolderSelected, parameter);
+                RefreshChartRowsView(viewUpdateMode.NewlyInstalledFolderSelected, parameter);
                 break;
             case InstallFilterType.PendingInstallFilter:
-                makeBMSFilesView(viewUpdateMode.PendingInstallFolderSelected, parameter);
+                RefreshChartRowsView(viewUpdateMode.PendingInstallFolderSelected, parameter);
                 break;
         }
     }
@@ -17546,7 +17546,7 @@ public class MainWindowViewModel : ViewModel
                 || treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected
                 || treeViewFilterTypeSelected == viewUpdateMode.FullScanAllChartsFilterSelected)
             {
-                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
                 return;
             }
             RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Maintenance, "maintenance_changed");
@@ -17736,7 +17736,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>
@@ -17770,7 +17770,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>
@@ -21043,7 +21043,7 @@ public class MainWindowViewModel : ViewModel
         if (bMSTable != null && bMSTable == bmsTableUpdated)
         {
             IncrementPlaylistContentRevision("playlist_updated");
-            makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
         }
     }
 

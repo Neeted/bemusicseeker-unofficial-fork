@@ -63,7 +63,7 @@ Window が閉じている場合、Visibility を Visible に設定したり、Sh
 
 ## 中長期課題
 
-- `makeBMSFilesView()` とその周辺の一覧再構築を本格的に非同期化する。
+- `RefreshChartRowsView()` とその周辺の一覧再構築を本格的に非同期化する。
 - 初期化中の writer lock 範囲を短くする。
 - Everything スキャン後のインデックス構築、所有判定、DataGrid 反映を小さな単位に分割する。
 - UI 操作可能状態を画面上でも表現するか検討する。ただし短期対策ではダイアログやトーストは追加しない。
