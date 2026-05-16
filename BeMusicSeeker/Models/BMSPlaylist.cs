@@ -3198,23 +3198,23 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 指定エントリ群をプレイリスト内フォルダへ追加し、必要なら永続化まで行います。
     /// </summary>
-    /// <param name="bmsEntries">追加するエントリ群。</param>
+    /// <param name="entries">追加するエントリ群。</param>
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <param name="folderName">追加先フォルダ名。</param>
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void AddEntriesToFolderBMSTable(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable, string folderName, bool commitFlag = true)
+    internal void AddPlaylistEntriesToFolderBMSTable(IEnumerable<BMSTableEntry> entries, BMSTable bmsTable, string folderName, bool commitFlag = true)
     {
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
         }
-        EnsurePlaylistEntriesLoaded(bmsTable, "AddEntriesToFolderBMSTable");
+        EnsurePlaylistEntriesLoaded(bmsTable, "AddPlaylistEntriesToFolderBMSTable");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
             {
-                bmsTable.AddBMSTableEntriesToFolder(bmsEntries, folderName);
+                bmsTable.AddBMSTableEntriesToFolder(entries, folderName);
                 if (commitFlag)
                 {
                     ReOutputCustomFolderAndCommitToDB(bmsTable);

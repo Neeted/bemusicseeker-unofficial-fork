@@ -20920,7 +20920,7 @@ public class MainWindowViewModel : ViewModel
         {
             List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null).ToList();
             List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropCompatibilityChartFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
-            tables.AddEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
+            tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
                 return;
@@ -20956,7 +20956,7 @@ public class MainWindowViewModel : ViewModel
                     text = BMSLibrary.GetLCSBMSInfo(item.Select((BeMusicSeeker.Models.BMSFile f) => f.Title));
                     text = tables.CreateNewFolderBMSTable(bmsTable, text, commitFlag: false);
                 }
-                tables.AddEntriesToFolderBMSTable(item.Select((BeMusicSeeker.Models.BMSFile f) => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
+                tables.AddPlaylistEntriesToFolderBMSTable(item.Select((BeMusicSeeker.Models.BMSFile f) => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
                 {
                     Org_md5 = PendingChartEntry.IsBmsonChartFile(f) ? new List<string>() : md5sInTheSameDir
                 }), bmsTable, text, commitFlag: false);
@@ -20972,7 +20972,7 @@ public class MainWindowViewModel : ViewModel
                                                       {
                                                           Org_md5 = GetPlaylistDropOrgMd5(file)
                                                       };
-            tables.AddEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
+            tables.AddPlaylistEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
         tables.ReOutputCustomFolderAndCommitToDB(bmsTable);
         updateBMSFilesViewForPlaylist(bmsTable);

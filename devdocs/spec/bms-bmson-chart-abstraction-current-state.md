@@ -367,7 +367,6 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 
 次の API / view 名は chart 共通処理を含むが、BMS 名を残している。
 
-- `BMSPlaylist.AddEntriesToFolderBMSTable(...)`
 - `BMSFilesPendingInstall`
 - `BMSFilesView`
 
