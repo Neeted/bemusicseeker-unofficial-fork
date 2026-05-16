@@ -1257,6 +1257,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return isChartInfoParseErrorSection && (selectedMd5s ?? Enumerable.Empty<string>()).Any((string md5) => !string.IsNullOrWhiteSpace(md5));
     }
 
+    internal static bool ShouldShowResourceHealthContextMenu(bool isPlaylistContext, IEnumerable<ChartOperationTarget> selectedTargets)
+    {
+        return !isPlaylistContext
+            && (selectedTargets ?? Enumerable.Empty<ChartOperationTarget>())
+                .Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+    }
+
     private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
     {
         return GetSelectedGridRowsSnapshot().Select(TryCreateScoreViewerTarget).Where((ScoreViewerTarget target) => target != null).ToList();
@@ -5164,7 +5171,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem10 != null)
         {
-            bool isFullScanMenuVisible = !isPlaylistContext && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+            bool isFullScanMenuVisible = ShouldShowResourceHealthContextMenu(isPlaylistContext, selectedTargets);
             menuItem10.Visibility = ((!isFullScanMenuVisible) ? Visibility.Collapsed : Visibility.Visible);
             menuItem10.IsEnabled = isFullScanMenuVisible;
         }
@@ -5275,11 +5282,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;
                     menuItemRenameInvalidExt.IsEnabled = false;
-                }
-                if (menuItem10 != null)
-                {
-                    menuItem10.Visibility = Visibility.Collapsed;
-                    menuItem10.IsEnabled = false;
                 }
                 if (menuItem17 != null)
                 {

@@ -194,7 +194,7 @@ UI は原則として `Kind` 直接判定ではなく capability を見る。han
 
 `RepairInstalledLocation` は `GridRowResolver.BuildCapabilities(...)` の `isBms` branch でのみ付与される。`SearchCorrectInstallationDirectoryCharts(...)` / `FixInstallationDirectoryCharts(...)` という chart 名の ViewModel 入口は存在するが、UI から bmson へは現状この capability が出ない。model 側の `SearchEstimatedInstallationDirectory(BMSFile)` は pending bmson adapter を installed directory index で解決できる一方、`FixInstallationDirectory(...)` は mutation delta が BMS file path 更新に寄っているため、所持 bmson の場所修復はまだ完全な chart 共通処理ではない。
 
-`RunResourceHealthCheck` は capability 上 bmson も対象にできるが、現行 context menu は bmson のみ選択時に一部の BMS 専用項目と同じ後段処理で full scan menu を非表示にしている。したがって capability 表は operation target の能力を表し、実際に UI へ露出されるかは View 側の menu policy も見る必要がある。
+`RunResourceHealthCheck` は capability と context menu policy の両方で bmson も対象にできる。bmson のみ選択時でも full scan menu は `RunResourceHealthCheck` capability を見て表示され、LR2IR / ranking / encoding / zero-note / audio convert などの BMS-only menu だけが後段 policy で非表示になる。
 
 ## Model-layer chart reference
 

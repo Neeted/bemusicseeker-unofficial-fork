@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -41,6 +42,21 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, new[] { new string('a', 32) }));
         Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(false, new[] { new string('a', 32) }));
         Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, new[] { " " }));
+    }
+
+    [TestMethod]
+    public void ResourceHealthContextMenu_AllowsBmsonOnlyChartTargets()
+    {
+        ChartOperationTarget bmsonTarget = CreateContextMenuTarget(
+            OwnedChartKind.Bmson,
+            ChartOperationCapabilities.RunResourceHealthCheck);
+        ChartOperationTarget bmsOnlyTarget = CreateContextMenuTarget(
+            OwnedChartKind.Bms,
+            ChartOperationCapabilities.RunBmsEncodingFix);
+
+        Assert.IsTrue(MainWindow.ShouldShowResourceHealthContextMenu(false, new[] { bmsonTarget }));
+        Assert.IsFalse(MainWindow.ShouldShowResourceHealthContextMenu(true, new[] { bmsonTarget }));
+        Assert.IsFalse(MainWindow.ShouldShowResourceHealthContextMenu(false, new[] { bmsOnlyTarget }));
     }
 
     [TestMethod]
@@ -1417,6 +1433,31 @@ public sealed class MainWindowContextMenuResourceTests
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static ChartOperationTarget CreateContextMenuTarget(OwnedChartKind kind, ChartOperationCapabilities capabilities)
+    {
+        string path = kind == OwnedChartKind.Bmson ? @"C:\Charts\chart.bmson" : @"C:\Charts\chart.bms";
+        OwnedChartRef chart = new OwnedChartRef(
+            kind,
+            path,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            new string('b', 64),
+            "Title",
+            "Artist",
+            7,
+            1,
+            null,
+            kind == OwnedChartKind.Bms ? new BMSFile { path = path } : null,
+            kind == OwnedChartKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path } : null);
+        return new ChartOperationTarget(
+            chart,
+            null,
+            ChartOperationSourceScope.Library,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            capabilities);
     }
 
     private static Dictionary<string, string> ReadSettingsCodeDefaults(string settingsCode)

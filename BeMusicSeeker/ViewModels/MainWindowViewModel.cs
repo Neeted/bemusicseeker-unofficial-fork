@@ -17426,6 +17426,7 @@ public class MainWindowViewModel : ViewModel
     public void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         files.RescanResourceHealthCharts(chartFiles, includeInstalledBmson: false);
+        RefreshResourceHealthViewsAfterMaintenanceChanged();
     }
 
     public void StartRescanAllOwnedChartMaintenance()
