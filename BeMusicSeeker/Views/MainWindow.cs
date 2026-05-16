@@ -4245,7 +4245,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.SearchMergeDestinationBMSFiles(new BMSPackage[1] { pkg });
+                viewModel.SearchMergeDestinationForPendingPackages(new BMSPackage[1] { pkg });
             }).Logging("treeViewInstallPackageContextMenuSearchMergeDestinationClick");
         }
     }
@@ -6933,7 +6933,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private async void searchMergeDestinationSelectedBMS(object sender, RoutedEventArgs e)
+    private async void searchMergeDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -6948,8 +6948,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         await Task.Run(delegate
         {
-            viewModel.SearchMergeDestinationBMSFiles(bmsFiles);
-        }).Logging("searchMergeDestinationSelectedBMS");
+            viewModel.SearchMergeDestinationForPendingCharts(bmsFiles);
+        }).Logging("searchMergeDestinationSelectedPendingCharts");
     }
 
     private bool ConfirmMergeDestinationSearch()

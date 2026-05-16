@@ -8929,7 +8929,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public void SearchMergeDestination(BMSPackage package)
+    public void SearchMergeDestinationForPendingPackage(BMSPackage package)
     {
         if (package == null)
         {
@@ -8970,13 +8970,13 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("estimated_merge_done package=" + package.path + " resolved=" + num + " targets=" + list.Count + " dst=" + resolvedDestination + " metadataResolved=" + metadataResolved);
     }
 
-    public void SearchMergeDestination(IEnumerable<BMSFile> bmsFiles)
+    public void SearchMergeDestinationForPendingCharts(IEnumerable<BMSFile> chartFiles)
     {
-        if (bmsFiles == null)
+        if (chartFiles == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("chartFiles");
         }
-        List<BMSFile> list = bmsFiles.Where((BMSFile x) => x != null).ToList();
+        List<BMSFile> list = chartFiles.Where((BMSFile x) => x != null).ToList();
         if (list.Count == 0)
         {
             LogInstallPerformance("estimated_merge_skip reason=no_target");

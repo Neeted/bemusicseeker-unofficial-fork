@@ -17593,7 +17593,7 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
-    public void SearchMergeDestinationBMSFiles(IEnumerable<BMSPackage> packages)
+    public void SearchMergeDestinationForPendingPackages(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
         {
@@ -17604,7 +17604,7 @@ public class MainWindowViewModel : ViewModel
         {
             for (int num = 0; num < list.Count; num++)
             {
-                files.SearchMergeDestination(list[num]);
+                files.SearchMergeDestinationForPendingPackage(list[num]);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -17628,19 +17628,23 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
-    public void SearchMergeDestinationBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void SearchMergeDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
+        if (chartFiles == null)
+        {
+            throw new ArgumentNullException("chartFiles");
+        }
         lock (lockCopyFile)
         {
-            List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile bmsInfo) => bmsInfo != null).ToList();
-            List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
-            for (int num = 0; num < bMSPackages.Count; num++)
+            List<BeMusicSeeker.Models.BMSFile> chartFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile chart) => chart != null).ToList();
+            List<BMSPackage> packages = getBMSPackages(ref chartFiles2);
+            for (int num = 0; num < packages.Count; num++)
             {
-                files.SearchMergeDestination(bMSPackages[num]);
+                files.SearchMergeDestinationForPendingPackage(packages[num]);
             }
-            if (bmsFiles2.Count > 0)
+            if (chartFiles2.Count > 0)
             {
-                files.SearchMergeDestination(bmsFiles2);
+                files.SearchMergeDestinationForPendingCharts(chartFiles2);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
