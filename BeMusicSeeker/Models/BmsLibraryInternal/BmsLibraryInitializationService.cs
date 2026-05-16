@@ -2340,7 +2340,7 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             List<BMSPackage> packages = dbGateway.LoadInstallPackages();
-            result.PendingPackages.AddRange(packages.Where((BMSPackage pkg) => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.BMSFiles.Count > 0));
+            result.PendingPackages.AddRange(packages.Where((BMSPackage pkg) => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.ChartFiles.Count > 0));
             result.StalePackages.AddRange(packages.Except(result.PendingPackages));
             result.StaleInstallPaths.AddRange(result.StalePackages.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path));
         }
@@ -2356,7 +2356,7 @@ internal sealed class BmsLibraryInitializationService
         foreach (BMSPackage pendingPackage in result.PendingPackages)
         {
             bool isSingleFilePackage = !Directory.Exists(pendingPackage.path);
-            foreach (BMSFile bmsFile in (pendingPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
+            foreach (BMSFile bmsFile in (pendingPackage.ChartFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
             {
                 bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
                 if (!isBmson)

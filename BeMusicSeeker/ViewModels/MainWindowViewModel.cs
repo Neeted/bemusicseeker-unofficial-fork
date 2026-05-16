@@ -14774,7 +14774,7 @@ public class MainWindowViewModel : ViewModel
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
         if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
         {
-            BMSPackage bMSPackage = BMSPackagesPending.Where((BMSPackage pkg) => pkg.BMSFiles.Contains(bmsFile)).FirstOrDefault();
+            BMSPackage bMSPackage = BMSPackagesPending.Where((BMSPackage pkg) => pkg.ChartFiles.Contains(bmsFile)).FirstOrDefault();
             if (bMSPackage == null)
             {
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
@@ -17867,7 +17867,7 @@ public class MainWindowViewModel : ViewModel
             tables.AcquireReaderLockBMSTables();
             try
             {
-                files.AddReferenceBMSTables(BMSTables, list.SelectMany((BMSPackage p) => p.BMSFiles));
+                files.AddReferenceBMSTables(BMSTables, list.SelectMany((BMSPackage p) => p.ChartFiles));
                 InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
             }
             finally
@@ -19737,7 +19737,7 @@ public class MainWindowViewModel : ViewModel
         List<BMSPackage> list2 = new List<BMSPackage>();
         foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles)
         {
-            BMSPackage bMSPackage = source.FirstOrDefault((BMSPackage p) => p.BMSFiles.Contains(file));
+            BMSPackage bMSPackage = source.FirstOrDefault((BMSPackage p) => p.ChartFiles.Contains(file));
             if (bMSPackage == null)
             {
                 list.Add(file);
@@ -19761,7 +19761,7 @@ public class MainWindowViewModel : ViewModel
         RunPendingInstallMutation(delegate
         {
             files.InstallBMSPackagesForce(list);
-        }, list.SelectMany((BMSPackage p) => p.BMSFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, list.SelectMany((BMSPackage p) => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     public void ForceInstallBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -19784,7 +19784,7 @@ public class MainWindowViewModel : ViewModel
         RunPendingInstallMutation(delegate
         {
             files.InstallBMSPackagesToEstimatedDir(list);
-        }, list.SelectMany((BMSPackage p) => p.BMSFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, list.SelectMany((BMSPackage p) => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     private void SetPlaylistSummaryMode(bool enabled)
@@ -20407,7 +20407,7 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("packages");
         }
         List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
-        List<BeMusicSeeker.Models.BMSFile> list2 = list.SelectMany((BMSPackage pkg) => pkg.BMSFiles ?? new List<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> list2 = list.SelectMany((BMSPackage pkg) => pkg.ChartFiles ?? new List<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
         return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), list2);
     }
 
@@ -20470,7 +20470,7 @@ public class MainWindowViewModel : ViewModel
             List<BMSPackage> list = packages.Where((BMSPackage f) => f != null).ToList();
             for (int num = 0; num < list.Count; num++)
             {
-                files.RemoveInstallDestination(list[num].BMSFiles);
+                files.RemoveInstallDestination(list[num].ChartFiles);
             }
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
@@ -20498,7 +20498,7 @@ public class MainWindowViewModel : ViewModel
             List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
             for (int num = 0; num < bMSPackages.Count; num++)
             {
-                files.RemoveInstallDestination(bMSPackages[num].BMSFiles);
+                files.RemoveInstallDestination(bMSPackages[num].ChartFiles);
             }
             files.RemoveInstallDestination(bmsFiles2);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);

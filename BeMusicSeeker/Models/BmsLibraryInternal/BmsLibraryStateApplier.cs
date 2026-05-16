@@ -211,12 +211,12 @@ internal sealed class BmsLibraryStateApplier
 
         foreach (BMSPackage installedPackage in installedPackages.Where((BMSPackage package) => package != null).ToList())
         {
-            int countBefore = installedPackage.BMSFiles.Count;
-            installedPackage.BMSFiles.RemoveAll((BMSFile file) => IsMatchedRemovedFile(file, removedPaths, removedFileRefs));
-            if (installedPackage.BMSFiles.Count != countBefore)
+            int countBefore = installedPackage.ChartFiles.Count;
+            installedPackage.ChartFiles.RemoveAll((BMSFile file) => IsMatchedRemovedFile(file, removedPaths, removedFileRefs));
+            if (installedPackage.ChartFiles.Count != countBefore)
             {
                 installedPackagesChanged = true;
-                if (installedPackage.BMSFiles.Count == 0)
+                if (installedPackage.ChartFiles.Count == 0)
                 {
                     emptyInstalledPackages.Add(installedPackage);
                 }
@@ -267,12 +267,12 @@ internal sealed class BmsLibraryStateApplier
         List<BMSPackage> emptyInstalledPackages = new List<BMSPackage>();
         foreach (BMSPackage installedPackage in installedPackages.Where((BMSPackage package) => package != null).ToList())
         {
-            int countBefore = installedPackage.BMSFiles.Count;
-            installedPackage.BMSFiles.RemoveAll((BMSFile file) => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs));
-            if (installedPackage.BMSFiles.Count != countBefore)
+            int countBefore = installedPackage.ChartFiles.Count;
+            installedPackage.ChartFiles.RemoveAll((BMSFile file) => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs));
+            if (installedPackage.ChartFiles.Count != countBefore)
             {
                 installedPackagesChanged = true;
-                if (installedPackage.BMSFiles.Count == 0)
+                if (installedPackage.ChartFiles.Count == 0)
                 {
                     emptyInstalledPackages.Add(installedPackage);
                 }

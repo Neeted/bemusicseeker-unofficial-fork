@@ -416,7 +416,7 @@ internal sealed class BmsLibraryInstallEstimationService
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
             return result;
         }
-        List<BMSFile> packageFiles = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> packageFiles = (package.ChartFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
         if (packageFiles.Count == 0 || installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
@@ -462,7 +462,7 @@ internal sealed class BmsLibraryInstallEstimationService
             return result;
         }
         Dictionary<string, int> directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile item in package.BMSFiles ?? new List<BMSFile>())
+        foreach (BMSFile item in package.ChartFiles ?? new List<BMSFile>())
         {
             List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item);
             if (item == null || directories.Count == 0)
@@ -1184,7 +1184,7 @@ internal sealed class BmsLibraryInstallEstimationService
             return result;
         }
         BMSPackage package = (pendingPackages ?? Enumerable.Empty<BMSPackage>())
-            .FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Any((BMSFile file) => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
+            .FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.ChartFiles.Any((BMSFile file) => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
         if (package == null)
         {
             if (!allowStandaloneLibraryFile)
@@ -1196,7 +1196,7 @@ internal sealed class BmsLibraryInstallEstimationService
         }
         else
         {
-            result.TargetFiles.AddRange(package.BMSFiles.Where((BMSFile file) => file != null));
+            result.TargetFiles.AddRange(package.ChartFiles.Where((BMSFile file) => file != null));
         }
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
@@ -1274,17 +1274,17 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public static BMSFile FindChartWithMissingInstalledDirectory(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count == 0);
+        return (package?.ChartFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count == 0);
     }
 
     public static BMSFile FindChartWithMultipleInstalledDirectories(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count > 1);
+        return (package?.ChartFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count > 1);
     }
 
     public static int CountDistinctInstalledDirectoriesForPackage(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.BMSFiles ?? new List<BMSFile>())
+        return (package?.ChartFiles ?? new List<BMSFile>())
             .Where((BMSFile file) => file != null)
             .SelectMany((BMSFile file) => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file))
             .Distinct(StringComparer.OrdinalIgnoreCase)

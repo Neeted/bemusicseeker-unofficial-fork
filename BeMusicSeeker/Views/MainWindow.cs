@@ -4079,7 +4079,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + ((pkg.BMSFiles.Count > 1) ? pkg.BMSFiles[0].title : pkg.BMSFiles[0].Title), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (viewModel == null || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + ((pkg.ChartFiles.Count > 1) ? pkg.ChartFiles[0].title : pkg.ChartFiles[0].Title), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -5504,7 +5504,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
             return false;
         }
-        foreach (BMSFile item in pkg.BMSFiles.Where((BMSFile f) => f != null))
+        foreach (BMSFile item in pkg.ChartFiles.Where((BMSFile f) => f != null))
         {
             if (TryResolveInstallDestination(item, out installDir, out reason))
             {

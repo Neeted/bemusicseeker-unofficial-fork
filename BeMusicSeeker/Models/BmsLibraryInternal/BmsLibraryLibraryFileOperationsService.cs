@@ -355,7 +355,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? Enumerable.Empty<BMSPackage>())
                 .Where((BMSPackage package) => package != null)
-                .SelectMany((BMSPackage package) => package.BMSFiles ?? new List<BMSFile>());
+                .SelectMany((BMSPackage package) => package.ChartFiles ?? new List<BMSFile>());
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
                 .Select((LibraryChartRef chart) => chart.BmsFile)
                 .Where((BMSFile bmsInfo) => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
@@ -423,7 +423,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>())
             .Where((BMSPackage pkg) => pkg != null)
-            .SelectMany((BMSPackage pkg) => pkg.BMSFiles)
+            .SelectMany((BMSPackage pkg) => pkg.ChartFiles)
             .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
@@ -601,7 +601,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>())
             .Where((BMSPackage pkg) => pkg != null)
-            .SelectMany((BMSPackage pkg) => pkg.BMSFiles)
+            .SelectMany((BMSPackage pkg) => pkg.ChartFiles)
             .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
@@ -654,7 +654,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 continue;
             }
-            if (installPackage.BMSFiles.Count == 0)
+            if (installPackage.ChartFiles.Count == 0)
             {
                 result.DuplicateSkippedCount++;
                 if (confirmDuplicateRemoval != null && confirmDuplicateRemoval(file))
@@ -974,7 +974,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public List<BMSPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<BMSPackage> pendingPackages, HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
     {
         return (pendingPackages ?? Enumerable.Empty<BMSPackage>())
-            .Where((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Count > 0 && pkg.BMSFiles.All((BMSFile file) => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))
+            .Where((BMSPackage pkg) => pkg != null && pkg.ChartFiles.Count > 0 && pkg.ChartFiles.All((BMSFile file) => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))
             .ToList();
     }
 
