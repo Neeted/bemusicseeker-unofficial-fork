@@ -142,7 +142,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `OwnedChartKind.Bms` の missing row として扱われる。
 
-`GridRowResolver.GetRealBmsFile(...)` / `GetOperationBmsFile(...)` は、既存 View / drag-drop / preview 経路の互換 API として残っている。これらは主に BMSFile 実体を返すため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。bmson owned row でも `OwnedChartRef.CompatibilityChartFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
+`GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。bmson owned row でも `OwnedChartRef.CompatibilityChartFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
 
 ### `ChartOperationTarget`
 

@@ -40,32 +40,24 @@ internal static class GridRowResolver
     /// </summary>
     internal static BMSFile GetRealBmsFile(object row)
     {
+        BMSFile file = null;
         if (row is PlaylistDetailRow playlistDetailRow)
         {
-            return playlistDetailRow.RealFile;
+            file = playlistDetailRow.RealFile;
         }
-        if (row is LibraryChartRow libraryChartRow)
+        else if (row is LibraryChartRow libraryChartRow)
         {
-            return libraryChartRow.BmsFile;
+            file = libraryChartRow.BmsFile;
         }
-        return row as BMSFile;
-    }
-
-    /// <summary>
-    /// 行から BMS 互換操作対象を取得します。
-    /// bmson owned row は <see cref="TryGetOperationChartTarget(object, ChartOperationSourceScope, out ChartOperationTarget)"/> を使ってください。
-    /// </summary>
-    internal static BMSFile GetOperationBmsFile(object row)
-    {
-        if (row is PlaylistDetailRow playlistDetailRow)
+        else
         {
-            return playlistDetailRow.RealFile;
+            file = row as BMSFile;
         }
-        if (row is LibraryChartRow libraryChartRow)
+        if (PendingChartEntry.IsBmsonChartFile(file))
         {
-            return libraryChartRow.BmsFile;
+            return null;
         }
-        return row as BMSFile;
+        return file;
     }
 
     internal static BMSFile GetOperationChartFile(object row)
@@ -500,17 +492,9 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetDisplaySubtitle(object row)
     {
-        if (row is PlaylistDetailRow)
+        if (TryGetChartRef(row, out OwnedChartRef chart) && chart.CompatibilityChartFile != null)
         {
-            return string.Empty;
-        }
-        if (row is LibraryChartRow libraryChartRow)
-        {
-            return libraryChartRow.BmsFile?.subtitle ?? string.Empty;
-        }
-        if (row is BMSFile bmsFile)
-        {
-            return bmsFile.subtitle ?? string.Empty;
+            return chart.CompatibilityChartFile.subtitle ?? string.Empty;
         }
         return string.Empty;
     }

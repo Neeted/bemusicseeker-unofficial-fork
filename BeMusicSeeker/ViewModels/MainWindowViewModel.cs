@@ -14839,7 +14839,7 @@ public class MainWindowViewModel : ViewModel
         try
         {
             row = BMSFilesView[indexChartRowsView];
-            bmsFile = GridRowResolver.GetOperationBmsFile(row);
+            bmsFile = GridRowResolver.GetRealBmsFile(row);
         }
         catch
         {
@@ -15049,7 +15049,7 @@ public class MainWindowViewModel : ViewModel
                 while (Settings.Default.FolderSkipPlayMode && num != BMSFilesView.Count)
                 {
                     object candidateRow = BMSFilesView[num];
-                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(candidateRow);
+                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetRealBmsFile(candidateRow);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
                         break;
@@ -15112,7 +15112,7 @@ public class MainWindowViewModel : ViewModel
                 while (Settings.Default.FolderSkipPlayMode && num != -1)
                 {
                     object candidateRow = BMSFilesView[num];
-                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(candidateRow);
+                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetRealBmsFile(candidateRow);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
                         break;
@@ -21024,7 +21024,7 @@ public class MainWindowViewModel : ViewModel
                 tables.RemoveEntriesBMSTable(list.Except(second), bmsTable, commitFlag: false);
             }
         }
-        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(GridRowResolver.GetRealBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(ResolvePlaylistDropCompatibilityChartFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
             List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null).ToList();

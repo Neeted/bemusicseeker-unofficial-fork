@@ -658,7 +658,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + (e.SelectedRows?.Count ?? 0));
             }
-            BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.SelectedRow);
+            BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.SelectedRow);
             if (bmsFile != null)
             {
                 _renewBMSPlayerControlInfo(bmsFile);
@@ -676,7 +676,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+        BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.Row);
         if (bmsFile == null)
         {
             return;
@@ -806,7 +806,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
         {
-            BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+            BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.Row);
             if (bmsFile == null)
             {
                 e.Cancel = true;
@@ -924,7 +924,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
             {
-                BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+                BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.Row);
                 if (bmsFile == null)
                 {
                     return;
@@ -1373,7 +1373,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         usePlaylistMissingContextMenu = GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
             ? target.IsPlaylistMissing
-            : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
+            : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetRealBmsFile(row) == null;
         string resourceKey = usePlaylistMissingContextMenu ? "tableContextMenuPlaylistMissing" : "tableContextMenu";
         if (TryFindResource(resourceKey) is not ContextMenu foundContextMenu)
         {
@@ -5922,14 +5922,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(row);
-        if (bMSFile == null)
-        {
-            return;
-        }
-        gridBMSPlayerControlsTitleForMovie.Text = GridRowResolver.GetDisplayTitle(bMSFile);
-        gridBMSPlayerControlsSubtitleForMovie.Text = GridRowResolver.GetDisplaySubtitle(bMSFile);
-        gridBMSPlayerControlsArtistForMovie.Text = GridRowResolver.GetDisplayArtist(bMSFile);
+        gridBMSPlayerControlsTitleForMovie.Text = GridRowResolver.GetDisplayTitle(row);
+        gridBMSPlayerControlsSubtitleForMovie.Text = GridRowResolver.GetDisplaySubtitle(row);
+        gridBMSPlayerControlsArtistForMovie.Text = GridRowResolver.GetDisplayArtist(row);
     }
 
     private void songInfoCacheToUrlLists(BMSLibrary.IRSongInfo info, Uri original, Uri diff, out List<Uri> urls, out List<Uri> urls_diff)
