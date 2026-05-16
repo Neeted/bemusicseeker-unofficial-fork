@@ -9372,7 +9372,7 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// 全ての Pending パッケージをリストからクリアします。
     /// </summary>
-    public void RemoveBMSPackagesPendingAll()
+    public void RemovePendingPackagesAll()
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {

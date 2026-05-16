@@ -20316,7 +20316,7 @@ public class MainWindowViewModel : ViewModel
     {
         RunPendingInstallMutation(delegate
         {
-            files.RemoveBMSPackagesPendingAll();
+            files.RemovePendingPackagesAll();
         });
     }
 
