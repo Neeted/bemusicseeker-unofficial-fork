@@ -1199,7 +1199,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return section == MainWindowViewModel.MainViewOperationSection.ChartInfoParseError;
     }
 
-    private static BMSFile GetOperationFileFromTarget(ChartOperationTarget target)
+    private static BMSFile GetOperationChartFileFromTarget(ChartOperationTarget target)
     {
         if (target?.Chart == null)
         {
@@ -1224,7 +1224,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private List<BMSFile> GetSelectedCompatibilityChartFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
         return GetSelectedChartTargets(capability, isPendingSection)
-            .Select(GetOperationFileFromTarget)
+            .Select(GetOperationChartFileFromTarget)
             .Where((BMSFile file) => file != null)
             .ToList();
     }
@@ -1233,7 +1233,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         return GetSelectedChartTargets(isPendingSection)
             .Where((ChartOperationTarget target) => HasRequiredCapability(target, capability) && target.Chart.Kind == OwnedChartKind.Bms)
-            .Select(GetOperationFileFromTarget)
+            .Select(GetOperationChartFileFromTarget)
             .Where(PendingChartEntry.IsBmsChartFile)
             .ToList();
     }
@@ -4849,7 +4849,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             selectedTargets.Add(rowTarget);
         }
-        List<BMSFile> list = selectedTargets.Select(GetOperationFileFromTarget).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> list = selectedTargets.Select(GetOperationChartFileFromTarget).Where((BMSFile file) => file != null).ToList();
         bool isBmsonContextRow = rowTarget?.Chart.Kind == OwnedChartKind.Bmson;
         bool hasBmsonSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bms);
@@ -6602,15 +6602,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None);
+        List<BMSFile> chartFiles = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None);
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (bmsFiles.Count > 0)
+        if (chartFiles.Count > 0)
         {
             Task.Run(delegate
             {
                 try
                 {
-                    viewModel.AutoRenameBMSFolder(bmsFiles);
+                    viewModel.AutoRenameBMSFolder(chartFiles);
                 }
                 finally
                 {
@@ -6812,8 +6812,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
-        if (bmsFiles == null || bmsFiles.Count() == 0)
+        List<BMSFile> chartFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
+        if (chartFiles == null || chartFiles.Count() == 0)
         {
             return;
         }
@@ -6826,7 +6826,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ForceInstallPendingCharts(bmsFiles);
+            viewModel.ForceInstallPendingCharts(chartFiles);
         }).Logging("forceInstallSelectedBMS");
     }
 
@@ -6843,8 +6843,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
-        if (bmsFiles == null || bmsFiles.Count() == 0)
+        List<BMSFile> chartFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
+        if (chartFiles == null || chartFiles.Count() == 0)
         {
             return;
         }
@@ -6861,7 +6861,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ManualInstallPendingCharts(bmsFiles);
+            viewModel.ManualInstallPendingCharts(chartFiles);
         }).Logging("manualInstallSelectedBMS");
     }
 
@@ -6871,14 +6871,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
-        if (bmsFiles != null && bmsFiles.Count() != 0)
+        List<BMSFile> chartFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
+        if (chartFiles != null && chartFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
             e.Handled = true;
             await Task.Run(delegate
             {
-                viewModel.SearchInstallDestinationForPendingCharts(bmsFiles);
+                viewModel.SearchInstallDestinationForPendingCharts(chartFiles);
             }).Logging("searchInstallationDirectorySelectedBMS");
         }
     }
@@ -6896,10 +6896,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> selectedBmsFiles = isPendingSelected
+        List<BMSFile> selectedChartFiles = isPendingSelected
             ? GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination)
             : GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None);
-        if (selectedBmsFiles.Count == 0)
+        if (selectedChartFiles.Count == 0)
         {
             return;
         }
@@ -6913,7 +6913,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + section + " treeSection=" + _currentTreeSelectionSection + " selectedRows=" + selectedBmsFiles.Count);
+        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + section + " treeSection=" + _currentTreeSelectionSection + " selectedRows=" + selectedChartFiles.Count);
         e.Handled = true;
         ClearMainGridSelection();
         if (isPendingSelected)
@@ -6921,7 +6921,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
             await Task.Run(delegate
             {
-                viewModel.RemovePendingPackages(selectedBmsFiles);
+                viewModel.RemovePendingPackages(selectedChartFiles);
             }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {
@@ -6935,7 +6935,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveInstalledPackageRecords(selectedBmsFiles);
+            viewModel.RemoveInstalledPackageRecords(selectedChartFiles);
         }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
@@ -6952,8 +6952,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
-        if (bmsFiles == null || bmsFiles.Count == 0 || !ConfirmMergeDestinationSearch())
+        List<BMSFile> chartFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
+        if (chartFiles == null || chartFiles.Count == 0 || !ConfirmMergeDestinationSearch())
         {
             return;
         }
@@ -6961,7 +6961,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         await Task.Run(delegate
         {
-            viewModel.SearchMergeDestinationForPendingCharts(bmsFiles);
+            viewModel.SearchMergeDestinationForPendingCharts(chartFiles);
         }).Logging("searchMergeDestinationSelectedPendingCharts");
     }
 
