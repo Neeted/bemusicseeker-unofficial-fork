@@ -213,7 +213,7 @@ newly installed tree に表示される installed package history/list のクリ
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
 - `PendingCharts` は `ChartFiles.OfType<PendingChartEntry>()` である。
 
-production code の `BMSPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。`BMSFiles` は互換 alias の挙動を保証する箇所や旧 API 境界に限定し、新規の package 内 chart 処理では使わない。
+production code の `BMSPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。`BMSFiles` は互換 alias の挙動を保証する箇所や旧 API 境界に限定し、新規の package 内 chart 処理では使わない。
 
 `PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。互換のため `BmsFiles` alias も残す。ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
 

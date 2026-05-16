@@ -2038,13 +2038,13 @@
                   <DataTemplate x:Key="templateTreeViewItemHeaderInstallFolder">
                     <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
                       <Image Style="{StaticResource styleTreeViewItemIconCDPlus}" />
-                      <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding BMSFiles}}" />
+                      <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding ChartFiles}}" />
                     </StackPanel>
                   </DataTemplate>
                   <DataTemplate x:Key="templateTreeViewItemHeaderInstalledFolder">
                     <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
                       <Image Style="{StaticResource styleTreeViewItemIconCD}" />
-                      <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding BMSFiles}}" />
+                      <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding ChartFiles}}" />
                     </StackPanel>
                   </DataTemplate>
                   <DataTemplate x:Key="templateTreeViewItemHeaderInstallPending">
@@ -2087,7 +2087,7 @@
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-                    <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding BMSFiles}}" />
+                    <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding ChartFiles}}" />
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderInstalledFolder}" />
                     <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewInstalledFolderContextMenu}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
@@ -2098,7 +2098,7 @@
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-                    <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding BMSFiles}}" />
+                    <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding ChartFiles}}" />
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderInstallFolder}" />
                     <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewInstallPackageContextMenu}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
