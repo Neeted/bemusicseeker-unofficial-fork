@@ -852,7 +852,7 @@ Phase 6 / Perf-3 で扱うもの:
 - **Phase 3 の実装は投入済み**
   - source-side mainline は `EBridge_ScanSourceRoots` を使う 4-query native surface に切り替えた
   - source-side mainline の `__all__` query は廃止した
-  - `BMSPackage.BMSFiles` は chart discovery cache に戻し、install surface は別 cache に分離した
+  - package chart discovery (`BMSPackage.ChartFiles`; 当時の旧 `BMSPackage.BMSFiles`) は chart discovery cache に戻し、install surface は別 cache に分離した
   - 件数は `SourceSurfaceTrackedFileCount` / `SourceSurfaceChartFileCount` / `SourceSurfaceResourceFileCount` で受ける
   - source-side で Everything を使うかどうかは user setting で切り替える
     - 設定名: `保留パッケージの推定時に Everything を使用する`
@@ -944,7 +944,7 @@ Step 0 では、pending estimate 本体だけでなく **`auto_install_prepare` 
   - `totalMs=3742`
 
 したがって、Phase 3 の perf 回復対象は source-side native aggregation だけでは足りなかった。  
-directory package の `pkg.BMSFiles` 参照に伴って source-side scan が早い段階で走っていたため、**`auto_install_prepare` の installed check / classification から full source-surface build を切り離す**ことも同時に実装対象にした。
+directory package の当時の旧 `pkg.BMSFiles` 参照に伴って source-side scan が早い段階で走っていたため、**`auto_install_prepare` の installed check / classification から full source-surface build を切り離す**ことも同時に実装対象にした。
 
 1. **Cleanup / Legacy Removal**
    - mixed-package resolve の説明とログを installed-dir resolve 基準へ統一し、legacy 命名を廃止する

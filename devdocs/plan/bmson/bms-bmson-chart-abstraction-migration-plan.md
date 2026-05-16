@@ -282,7 +282,7 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 ### Phase F: 命名と API を整理する
 
 長期的には、ユーザー向け文言以外の内部 API も整理する。
-ただし `BMSFile`, `BMSPackage.BMSFiles`, `BMSLibrary.BMSFiles`, `BMSFilesView` は XAML binding、設定、pending install、LR2 互換の語彙に広く残っているため、全面 rename は挙動が安定してから行う。`BMSPackage` については `ChartFiles` を primary API とし、`BMSFiles` は互換 alias として残す。
+ただし `BMSFile`, `BMSLibrary.BMSFiles`, `BMSFilesView` は XAML binding、設定、pending install、LR2 互換の語彙に広く残っているため、全面 rename は挙動が安定してから行う。`BMSPackage` については `ChartFiles` を primary API とし、production 参照のなくなった旧 `BMSFiles` alias は残さない。
 
 Phase F-1 では「新規コードの入口を chart 抽象に揃える」ことを優先する。
 
@@ -290,7 +290,7 @@ Phase F-1 では「新規コードの入口を chart 抽象に揃える」こと
 - UI handler は `ChartOperationTarget.Capabilities` で対象を絞り、BMS 専用操作だけ `BMSFile` へ戻す
 - 構成ファイルフルスキャンは `RunResourceHealthCheck` capability を使い、BMS / bmson の両方を chart resource health 対象にする
 - `ForceResourceHealthCheckCharts` など chart 名 API を主入口にし、production 参照のない旧名 wrapper は残さない
-- `BMSPackage` 経由の package 内 chart 参照は `ChartFiles` を primary API とし、`BMSFiles` は互換 alias の検証と旧 API 境界に限定する
+- `BMSPackage` 経由の package 内 chart 参照は `ChartFiles` を primary API とし、旧 `BMSFiles` alias は production 参照がなくなった段階で削除する
 
 Phase F-2 以降で検討する広範囲 rename 候補:
 
@@ -308,7 +308,7 @@ Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を�
 - pending install destination は `UpdateInstallDestination`、所持 BMS の再インストール先修復は `RepairInstalledLocation` として capability を分離する
 - `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
 - `BMSLibrary` では `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `RemoveChartFiles`, `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` など chart / pending package 共通名の入口へ寄せる。production 参照のなくなった旧 BMS 名 API / wrapper は残さない
-- `BMSFilesView`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す。`BMSPackage.BMSFiles` は `ChartFiles` への段階移行を進めるが、互換 alias として残す
+- `BMSFilesView`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す。`BMSPackage` の package 内 chart 参照は `ChartFiles` に一本化し、互換 alias は残さない
 
 Phase F-3 に進む前に、DataGrid sort engine を整理する。
 
@@ -344,7 +344,7 @@ F-3 の実装境界:
 F-3 では後回しにするもの:
 
 - `BMSFilesView`, `SelectedIndexBMSFilesView`, `ColumnsSettingsBMSFilesView`, `UseAsyncBMSFilesViewBinding` は XAML binding / settings / column state の public UI 契約なので rename しない
-- `BMSPackage.ChartFiles` は pending install / package chart discovery の中核であり、参照時に lazy discovery が走る意味も維持する。`BMSPackage.BMSFiles` は既存互換 alias として残し、「package 内 chart の BMSFile 互換 adapter list」と説明する
+- `BMSPackage.ChartFiles` は pending install / package chart discovery の中核であり、参照時に lazy discovery が走る意味も維持する。旧 `BMSPackage.BMSFiles` alias は残さず、「package 内 chart の BMSFile 互換 adapter list」は `ChartFiles` として扱う
 - `BMSLibrary.BMSFiles` は LR2 `song` table 側の source of truth として残す。BMS / bmson 共通表示は `LibraryChartRow` / `OwnedChartRef` で扱い、storage model は `BMSFiles` と `BmsonSongs` の二本立てを維持する
 - `BMSFilesGarbled`, `BMSFilesZeroNote`, encoding / zero-note / LR2IR / ScoreViewer などは BMS 専用意味を持つため chart 名へ広げない
 - install package 操作は ViewModel / UI の入口を `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts` へ寄せる。DB / model 内部名は pending/package 層への影響を見ながら段階移行する
@@ -354,7 +354,7 @@ F-3 の確認観点:
 - 通常一覧の folder / keyword / mode filter で、rename 前後の row count と sort/filter 結果が変わらない
 - pending / newly-installed / library / playlist owned / playlist missing の選択 helper が、それぞれ正しい `ChartOperationTarget` を返す
 - BMS 専用操作は `GetSelectedBmsChartFiles` へ集約され、bmson が encoding / zero-note / LR2IR / ScoreViewer に入らない
-- package discovery cache (`BMSPackage.ChartFiles` / `BMSPackage.BMSFiles`) は同じ list 参照を返し、参照による heavy source scan 回避の既存挙動を維持する
+- package discovery cache (`BMSPackage.ChartFiles`) は参照による heavy source scan 回避の既存挙動を維持する
 
 F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいったん完了扱いにする。
 

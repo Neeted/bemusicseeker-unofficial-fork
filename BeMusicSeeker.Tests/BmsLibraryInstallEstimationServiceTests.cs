@@ -903,31 +903,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void BMSPackage_ChartFiles_AndBMSFilesShareExplicitMutableList()
-    {
-        BMSFile plainBms = new BMSFile
-        {
-            path = "C:\\Charts\\plain.bms"
-        };
-        PendingChartEntry pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
-        {
-            path = "C:\\Charts\\chart.bmson",
-            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            sha256 = new string('b', 64)
-        });
-        BMSPackage package = new BMSPackage(new BMSFile[] { plainBms, pendingBmson });
-
-        Assert.AreSame(package.ChartFiles, package.BMSFiles);
-        Assert.AreEqual(2, package.ChartFiles.Count);
-        Assert.AreEqual(1, package.PendingCharts.Count);
-
-        package.ChartFiles.Remove(plainBms);
-
-        Assert.AreEqual(1, package.BMSFiles.Count);
-        Assert.AreSame(pendingBmson, package.BMSFiles[0]);
-    }
-
-    [TestMethod]
     public void BMSPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartFilesAreRequested()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -955,7 +930,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
 
                 Assert.AreSame(firstFiles, secondFiles);
-                Assert.AreSame(firstFiles, package.BMSFiles);
                 Assert.AreEqual(3, firstFiles.Count);
                 Assert.AreEqual(1, firstFiles.OfType<PendingChartEntry>().Count(file => file.IsBmsonChart));
                 Assert.AreEqual(3, firstSnapshot.ChartCount);

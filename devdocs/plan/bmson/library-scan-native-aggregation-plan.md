@@ -36,7 +36,7 @@ relative-path 対応後の library build 性能悪化は、relative path その�
   - managed 側は `ManagedDecodeMs` / `ManagedMaterializeMs` / `BridgeRawBufferBytes` で unpack 残差を追える
 - **Phase 3 の実装は投入済み**
   - source-side mainline は `EBridge_ScanSourceRoots` を使う 4-query native surface に切り替えた
-  - `BMSPackage.BMSFiles` は `PackageChartDiscoverySnapshot` だけを見る
+  - `BMSPackage.ChartFiles` は `PackageChartDiscoverySnapshot` だけを見る
   - install estimation 用の source surface は `PackageInstallSurfaceSnapshot` に分離した
   - source-side mainline から `__all__` query を外し、`tracked/chart/resource` count を canonical telemetry にした
   - source-side で Everything を使うかどうかは user setting で切り替える
@@ -146,12 +146,12 @@ Step 0 で重要だったのは、source-side evaluation 本体だけでなく�
 - `warningClassifyMs` も小差
 - `installedCheckMs` だけが `858 -> 81339` に跳ねている
 
-回帰の本体は、directory package の `pkg.BMSFiles` 参照が source-side shared snapshot を起動し、**pending estimate に入る前の prepare 段階で重い package source enumeration を踏んでいたこと**にあった。
+回帰の本体は、directory package の当時の旧 `pkg.BMSFiles` 参照が source-side shared snapshot を起動し、**pending estimate に入る前の prepare 段階で重い package source enumeration を踏んでいたこと**にあった。
 
 Phase 3 ではここを次で是正した。
 
 - `PackageSourceScanSnapshot` を廃止し、`PackageChartDiscoverySnapshot` と `PackageInstallSurfaceSnapshot` に分離した
-- `BMSPackage.BMSFiles` は chart discovery snapshot だけを参照する
+- `BMSPackage.ChartFiles` は chart discovery snapshot だけを参照する
 - `PrepareAutoInstallWorkflow(...)` では discovery 時点で得た chart list を package に埋め込み、installed check / warning classification で再利用する
 - install estimation 用の source surface は必要になった時点でだけ build する
 
@@ -162,7 +162,7 @@ Phase 3 ではここを次で是正した。
 library build mainline はすでに fixed 4-query native scan に戻っていた。  
 一方、Step 0 時点の source-side は次の経路を mainline にしていた。
 
-- `BMSPackage.BMSFiles`
+- 当時の旧 `BMSPackage.BMSFiles`
   - `GetOrBuildPackageSourceScanSnapshot(...)`
   - `PackageInstallEstimationSnapshotBuilder.BuildPackageSourceScanSnapshot(...)`
   - `RootFileEnumerationService.EnumerateFilesWithFallback(...)`
@@ -185,7 +185,7 @@ Step 0 時点の source-side mainline は `includeAllFiles: true` を前提に�
 
 ### 3. `auto_install_prepare` が source-side scan を早すぎる段階で踏んでいた
 
-`auto_install_prepare` の `installedCheckMs` 悪化は、directory package の `pkg.BMSFiles` アクセスが source-side snapshot build を起動していたことを示していた。
+`auto_install_prepare` の `installedCheckMs` 悪化は、directory package の当時の旧 `pkg.BMSFiles` アクセスが source-side snapshot build を起動していたことを示していた。
 
 Phase 3 では、pending estimate や install estimation より前の
 
@@ -323,7 +323,7 @@ package source directory / loose-file source 側も、full-path grouped enumerat
 
 - source-side mainline から `__all__` query をなくす
 - package source surface を native aggregation 化する
-- `auto_install_prepare` で `pkg.BMSFiles` 参照に伴って source-side full scan が走る構造を解消する
+- `auto_install_prepare` で当時の旧 `pkg.BMSFiles` 参照に伴って source-side full scan が走る構造を解消する
 
 ### Implemented Changes
 
@@ -381,7 +381,7 @@ package source directory / loose-file source 側も、full-path grouped enumerat
 
 は grouped full-path 群から `ResourceSurfaceMaterializer` を作るのを mainline ではやめ、native の single-root result をそのまま使う。
 
-- `BMSPackage.BMSFiles` は chart query result または discovery snapshot を再利用し、source-side surface build と分離する
+- `BMSPackage.ChartFiles` は chart query result または discovery snapshot を再利用し、source-side surface build と分離する
 - `GetOrBuildPackageSourceScanSnapshot(...)` は廃止し、「chart list」と「resource surface」を別 cache に整理する
 - `ResourceSurfaceMaterializer.CreateSingleRootEntry(...)` は fallback 用の位置づけに下げる
 

@@ -44,12 +44,6 @@ internal sealed class PackageChartDiscoverySnapshot
     public string SourcePath { get; set; } = string.Empty;
 
     public List<BMSFile> ChartFiles { get; set; } = new List<BMSFile>();
-
-    public List<BMSFile> BmsFiles
-    {
-        get => ChartFiles;
-        set => ChartFiles = value ?? new List<BMSFile>();
-    }
 }
 
 internal sealed class PackageInstallEstimationSnapshot

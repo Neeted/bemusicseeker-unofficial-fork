@@ -36,8 +36,6 @@ public class BMSPackage : LR2SongDBExtended.install
 		}
 	}
 
-	public List<BMSFile> BMSFiles => ChartFiles;
-
 	public BMSPackage()
 	{
 	}
