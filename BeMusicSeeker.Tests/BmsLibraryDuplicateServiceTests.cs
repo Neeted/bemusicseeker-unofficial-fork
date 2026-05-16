@@ -59,7 +59,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
 
-        service.ClearDuplicateState(new[] { file }, Resources.Warning_DuplicateBmsFile);
+        service.ClearDuplicateState(new[] { file });
 
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
@@ -117,7 +117,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         WithTemporarySongDb(delegate(string songDbPath)
         {
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            library.BMSFilesDuplicated = new List<DuplicateGroup>
+            library.DuplicateChartGroups = new List<DuplicateGroup>
             {
                 new DuplicateGroup(
                     new List<BMSFile>
@@ -137,12 +137,12 @@ public sealed class BmsLibraryDuplicateServiceTests
                 }
             };
 
-            Assert.IsNull(library.BMSFilesDuplicated);
+            Assert.IsNull(library.DuplicateChartGroups);
         });
     }
 
     [TestMethod]
-    public void SearchBMSFilesDuplicated_RebuildsAfterBmsonSongsChangeInvalidatesCache()
+    public void SearchDuplicateChartGroups_RebuildsAfterBmsonSongsChangeInvalidatesCache()
     {
         WithTemporarySongDb(delegate(string songDbPath)
         {
@@ -162,14 +162,14 @@ public sealed class BmsLibraryDuplicateServiceTests
                 }
             };
 
-            library.SearchBMSFilesDuplicated();
-            Assert.AreEqual(1, library.BMSFilesDuplicated.Count);
+            library.SearchDuplicateChartGroups();
+            Assert.AreEqual(1, library.DuplicateChartGroups.Count);
 
             library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>();
-            Assert.IsNull(library.BMSFilesDuplicated);
+            Assert.IsNull(library.DuplicateChartGroups);
 
-            library.SearchBMSFilesDuplicated();
-            Assert.AreEqual(0, library.BMSFilesDuplicated.Count);
+            library.SearchDuplicateChartGroups();
+            Assert.AreEqual(0, library.DuplicateChartGroups.Count);
         });
     }
 

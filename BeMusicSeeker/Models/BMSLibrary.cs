@@ -759,7 +759,7 @@ public class BMSLibrary : NotificationObject
 
     private ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedMin = new ReaderWriterLockSlimWrapper();
 
-    private ReaderWriterLockSlimWrapper rwlockBMSFilesDuplicated = new ReaderWriterLockSlimWrapper();
+    private ReaderWriterLockSlimWrapper rwlockDuplicateChartGroups = new ReaderWriterLockSlimWrapper();
 
     private ReaderWriterLockSlimWrapper rwlockPendingInstallCharts = new ReaderWriterLockSlimWrapper();
 
@@ -875,7 +875,7 @@ public class BMSLibrary : NotificationObject
 
     private PropertyChangedEventListener listenerForRwlockBMSFilesInitializedMin;
 
-    private PropertyChangedEventListener listenerForRwlockBMSFilesDuplicated;
+    private PropertyChangedEventListener listenerForRwlockDuplicateChartGroups;
 
     private PropertyChangedEventListener listenerForRwlockPendingInstallCharts;
 
@@ -893,7 +893,7 @@ public class BMSLibrary : NotificationObject
 
     private int resourceHealthIndexVersionSeed;
 
-    private List<DuplicateGroup> _BMSFilesDuplicated;
+    private List<DuplicateGroup> _DuplicateChartGroups;
 
     private DispatcherCollection<BMSPackage> _BMSPackagesPending = new DispatcherCollection<BMSPackage>(DispatcherHelper.UIDispatcher);
 
@@ -1040,7 +1040,7 @@ public class BMSLibrary : NotificationObject
                 InvalidateInstalledChartKeyIndex();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
-                InvalidateDuplicatedCache();
+                InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsfiles_changed");
                 Task.Run(delegate
                 {
@@ -1076,7 +1076,7 @@ public class BMSLibrary : NotificationObject
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateInstallEstimationMetadataProfileCache();
-                InvalidateDuplicatedCache();
+                InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsons_changed");
                 Task.Run(delegate
                 {
@@ -1090,30 +1090,30 @@ public class BMSLibrary : NotificationObject
     public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetBMSFilesNeedToBeFixed(null, forceUpdate: false, isInIgnoredList: true);
 
     /// <summary>
-    /// 重複検出済みの BMS ファイルグループ一覧です。重複検出処理の結果が格納されます。
+    /// 重複検出済みの chart group 一覧です。重複検出処理の結果が格納されます。
     /// </summary>
-    public List<DuplicateGroup> BMSFilesDuplicated
+    public List<DuplicateGroup> DuplicateChartGroups
     {
         get
         {
-            return _BMSFilesDuplicated;
+            return _DuplicateChartGroups;
         }
         set
         {
-            if (_BMSFilesDuplicated != value)
+            if (_DuplicateChartGroups != value)
             {
-                _BMSFilesDuplicated = value;
+                _DuplicateChartGroups = value;
                 Task.Run(delegate
                 {
-                    RaisePropertyChanged("BMSFilesDuplicated");
-                }).Logging("BMSFilesDuplicated");
+                    RaisePropertyChanged("DuplicateChartGroups");
+                }).Logging("DuplicateChartGroups");
             }
         }
     }
 
-    private void InvalidateDuplicatedCache()
+    private void InvalidateDuplicateChartGroupsCache()
     {
-        BMSFilesDuplicated = null;
+        DuplicateChartGroups = null;
     }
 
     public IEnumerable<BMSFile> BMSFilesGarbled => GetBMSFilesGarbled(BMSFiles);
@@ -2213,13 +2213,13 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public bool IsWriteLockHeldBMSFilesDuplicated
+    public bool IsWriteLockHeldDuplicateChartGroups
     {
         get
         {
-            if (rwlockBMSFilesDuplicated.LockingWriteCount == 0)
+            if (rwlockDuplicateChartGroups.LockingWriteCount == 0)
             {
-                return rwlockBMSFilesDuplicated.WaitingWriteCount > 0;
+                return rwlockDuplicateChartGroups.WaitingWriteCount > 0;
             }
             return true;
         }
@@ -2497,7 +2497,7 @@ public class BMSLibrary : NotificationObject
             InvalidateBMSHashIndex,
             InvalidateInstalledDirectoryIndex,
             InvalidateBMSParentFolderListCache,
-            InvalidateDuplicatedCache,
+            InvalidateDuplicateChartGroupsCache,
             () => RaisePropertyChanged(() => BMSFiles),
             () => RaisePropertyChanged(() => BMSPackagesInstalled));
         pendingInstallEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(ProcessPendingInstallEstimateBatch, UpdatePendingEstimateQueueStatus, HandlePendingEstimateBatchException);
@@ -2513,7 +2513,7 @@ public class BMSLibrary : NotificationObject
         }
         listenerForRwlockBMSFilesInitializedAll = new PropertyChangedEventListener(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = new PropertyChangedEventListener(rwlockBMSFilesInitializedMin);
-        listenerForRwlockBMSFilesDuplicated = new PropertyChangedEventListener(rwlockBMSFilesDuplicated);
+        listenerForRwlockDuplicateChartGroups = new PropertyChangedEventListener(rwlockDuplicateChartGroups);
         listenerForRwlockPendingInstallCharts = new PropertyChangedEventListener(rwlockPendingInstallCharts);
         listenerForRwlockBMSFiles = new PropertyChangedEventListener(rwlockBMSFiles);
         listenerForRwlockBMSFilesInitializedAll.RegisterHandler(() => rwlockBMSFilesInitializedAll.LockingWriteCount, delegate
@@ -2532,9 +2532,9 @@ public class BMSLibrary : NotificationObject
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFiles);
         });
-        listenerForRwlockBMSFilesDuplicated.RegisterHandler(() => rwlockBMSFilesDuplicated.LockingWriteCount, delegate
+        listenerForRwlockDuplicateChartGroups.RegisterHandler(() => rwlockDuplicateChartGroups.LockingWriteCount, delegate
         {
-            RaisePropertyChanged(() => IsWriteLockHeldBMSFilesDuplicated);
+            RaisePropertyChanged(() => IsWriteLockHeldDuplicateChartGroups);
         });
         listenerForRwlockPendingInstallCharts.RegisterHandler(() => rwlockPendingInstallCharts.LockingWriteCount, delegate
         {
@@ -7530,59 +7530,35 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// ライブラリ内の重複 BMS ファイルを検出し、Union-Find でディレクトリグループ化した結果を <see cref="BMSFilesDuplicated"/> に格納します。
+    /// ライブラリ内の重複 chart を検出し、Union-Find でディレクトリグループ化した結果を <see cref="DuplicateChartGroups"/> に格納します。
     /// </summary>
-    public void SearchBMSFilesDuplicated()
+    public void SearchDuplicateChartGroups()
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            using (rwlockBMSFilesDuplicated.GetWriterGuard())
+            using (rwlockDuplicateChartGroups.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    if (BMSFilesDuplicated != null)
+                    if (DuplicateChartGroups != null)
                     {
                         return;
                     }
                     List<BMSFile> bmsSnapshot = BMSFiles.Where((BMSFile f) => f != null).ToList();
                     List<LR2SongDBExtended.bmson_song> bmsonSnapshot = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
-                    duplicateService.ClearDuplicateState(bmsSnapshot, DuplicateWarningMessage);
+                    duplicateService.ClearDuplicateState(bmsSnapshot);
                     List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(bmsSnapshot, bmsonSnapshot);
                     System.Diagnostics.Stopwatch swNew = System.Diagnostics.Stopwatch.StartNew();
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot);
                     duplicateService.ApplyDuplicateWarnings(analysis.DuplicateFiles, DuplicateWarningMessage);
-                    BMSFilesDuplicated = analysis.DuplicateGroups;
+                    DuplicateChartGroups = analysis.DuplicateGroups;
                     swNew.Stop();
-                    LogInstallPerformance($"SearchBMSFilesDuplicated: NewAlgo={swNew.ElapsedMilliseconds}ms, Groups={analysis.DuplicateGroups.Count}");
+                    LogInstallPerformance($"SearchDuplicateChartGroups: NewAlgo={swNew.ElapsedMilliseconds}ms, Groups={analysis.DuplicateGroups.Count}");
                 }
             }
         }
     }
     private static readonly string DuplicateWarningMessage = Resources.Warning_DuplicateBmsFile;
-
-    /// <summary>
-    /// 全 BMS ファイルの重複状態フラグと警告メッセージをクリアします。
-    /// </summary>
-    private static void ClearDuplicateState(IEnumerable<BMSFile> files)
-    {
-        foreach (BMSFile file in files)
-        {
-            file.ClearWarning(ChartWarningKind.DuplicateChart);
-        }
-    }
-
-    /// <summary>
-    /// BMS ファイルに重複警告メッセージを付与します。
-    /// </summary>
-    private static void SetDuplicateWarning(BMSFile file)
-    {
-        if (file == null)
-        {
-            return;
-        }
-        file.ClearWarning(ChartWarningKind.DuplicateChart);
-        file.SetWarning(ChartWarningKind.DuplicateChart, DuplicateWarningMessage);
-    }
 
     private sealed class InstalledChartMetadataCandidate
     {
@@ -10758,7 +10734,7 @@ public class BMSLibrary : NotificationObject
                     MoveBmsFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: false);
                     if (unregister == false)
                     {
-                        InvalidateDuplicatedCache();
+                        InvalidateDuplicateChartGroupsCache();
                     }
                 }
             }

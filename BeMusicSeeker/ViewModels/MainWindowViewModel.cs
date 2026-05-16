@@ -8819,7 +8819,7 @@ public class MainWindowViewModel : ViewModel
         if ((mask & UiRefreshChannel.DuplicateTree) != 0)
         {
             Stopwatch stopwatch4 = Stopwatch.StartNew();
-            RaisePropertyChanged(() => BMSFilesDuplicated);
+            RaisePropertyChanged(() => DuplicateChartGroups);
             stopwatch4.Stop();
             num4 = stopwatch4.ElapsedMilliseconds;
         }
@@ -9302,13 +9302,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public List<DuplicateGroup> BMSFilesDuplicated
+    public List<DuplicateGroup> DuplicateChartGroups
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesDuplicated;
+                return files.DuplicateChartGroups;
             }
             return null;
         }
@@ -11440,7 +11440,7 @@ public class MainWindowViewModel : ViewModel
         out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
         out string subsetName)
     {
-        if (BMSFilesDuplicated == null)
+        if (DuplicateChartGroups == null)
         {
             sourceFiles = Array.Empty<BeMusicSeeker.Models.BMSFile>();
             subsetName = "duplicate_empty";
@@ -11458,7 +11458,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
             {
-                DuplicateGroup duplicateGroup = BMSFilesDuplicated.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
+                DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
                 sourceFiles = duplicateGroup != null ? duplicateGroup.Files.ToList() : CreateDuplicateFileSnapshot();
                 subsetName = "duplicate_group";
                 return true;
@@ -11494,13 +11494,13 @@ public class MainWindowViewModel : ViewModel
 
     private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFileSnapshot()
     {
-        return BMSFilesDuplicated.SelectMany(group => group.Files).ToList();
+        return DuplicateChartGroups.SelectMany(group => group.Files).ToList();
     }
 
     private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFolderFileSnapshot(string folderPath)
     {
         string folderPrefix = folderPath + Path.DirectorySeparatorChar;
-        return BMSFilesDuplicated
+        return DuplicateChartGroups
             .SelectMany(group => group.Files)
             .Where(file => file.path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -13141,13 +13141,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public bool IsWriteLockHeldBMSFilesDuplicated
+    public bool IsWriteLockHeldDuplicateChartGroups
     {
         get
         {
             if (files != null)
             {
-                return files.IsWriteLockHeldBMSFilesDuplicated;
+                return files.IsWriteLockHeldDuplicateChartGroups;
             }
             return false;
         }
@@ -14240,13 +14240,13 @@ public class MainWindowViewModel : ViewModel
                 RefreshNormalLibraryAfterWarningChanged("bms_files_need_to_be_fixed_ignored_changed");
             }
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesDuplicated, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (!TrySuppress(UiRefreshChannel.DuplicateTree)
                 && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, "bms_files_duplicated_changed"))
             {
-                RaisePropertyChanged(() => BMSFilesDuplicated);
+                RaisePropertyChanged(() => DuplicateChartGroups);
             }
             if (treeViewFilterTypeSelected == viewUpdateMode.DuplicateFilterSelected)
             {
@@ -14258,9 +14258,9 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                if (files.BMSFilesDuplicated == null)
+                if (files.DuplicateChartGroups == null)
                 {
-                    files.SearchBMSFilesDuplicated();
+                    files.SearchDuplicateChartGroups();
                     return;
                 }
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -14456,9 +14456,9 @@ public class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => IsWriteLockHeldPendingInstallCharts);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldBMSFilesDuplicated, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldDuplicateChartGroups, delegate
         {
-            RaisePropertyChanged(() => IsWriteLockHeldBMSFilesDuplicated);
+            RaisePropertyChanged(() => IsWriteLockHeldDuplicateChartGroups);
         });
         listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables, delegate
         {
@@ -16034,7 +16034,7 @@ public class MainWindowViewModel : ViewModel
                 LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
-                if (BMSFilesDuplicated == null)
+                if (DuplicateChartGroups == null)
                 {
                     ChartRowsFolderView = null;
                     break;
@@ -16046,15 +16046,15 @@ public class MainWindowViewModel : ViewModel
                     {
                         if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
                         {
-                            DuplicateGroup duplicateGroup = BMSFilesDuplicated.FirstOrDefault((DuplicateGroup group) => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                            ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.Files : BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files));
+                            DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault((DuplicateGroup group) => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
+                            ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.Files : DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files));
                         }
                         else
                         {
                             string dirname2 = duplicateContext.Value;
                             RetryHelper.RetryIfError(delegate
                             {
-                                ChartRowsFolderView = ToLibraryChartRows(from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
+                                ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files)
                                                                         where f.path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                                                         select f);
                             }, delegate (Exception ex)
@@ -16083,7 +16083,7 @@ public class MainWindowViewModel : ViewModel
                         string dirname = parameter as string;
                         RetryHelper.RetryIfError(delegate
                         {
-                            ChartRowsFolderView = ToLibraryChartRows(from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
+                            ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files)
                                                                     where f.path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                                                     select f);
                         }, delegate (Exception ex)
@@ -16098,7 +16098,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files));
+                    ChartRowsFolderView = ToLibraryChartRows(DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files));
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -17384,7 +17384,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (type == MaintenanceFilterType.DuplicateFilter)
             {
-                files.SearchBMSFilesDuplicated();
+                files.SearchDuplicateChartGroups();
             }
             if (Enum.IsDefined(typeof(viewUpdateMode), (int)type))
             {

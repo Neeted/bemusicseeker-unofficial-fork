@@ -2223,7 +2223,7 @@
                         <FrameworkElement.Style>
                           <Style TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
                             <Style.Triggers>
-                              <DataTrigger Value="True" Binding="{Binding DataContext.IsWriteLockHeldBMSFilesDuplicated, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="True" Binding="{Binding DataContext.IsWriteLockHeldDuplicateChartGroups, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <TriggerBase.EnterActions>
                                   <BeginStoryboard Name="AnimationBeginStoryboard" Storyboard="{StaticResource storyboardTreeViewItemIconRotation}" />
                                 </TriggerBase.EnterActions>
@@ -2232,7 +2232,7 @@
                                 </TriggerBase.ExitActions>
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
-                              <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldBMSFilesDuplicated, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
+                              <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldDuplicateChartGroups, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
                                 <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
@@ -2260,7 +2260,7 @@
                 <TreeViewItem Name="treeViewItemFullScanCheckAllCharts" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_all_charts, Mode=OneWay}" Selected="fullScanAllChartsFolderSelect" />
                 <TreeViewItem Name="treeViewItemFullScanCheckIgnored" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Ignore_list, Mode=OneWay}" Selected="fullScanCheckIgnoredFolderSelect" />
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemSearchDuplicated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_duplicates, Mode=OneWay}" ItemsSource="{Binding BMSFilesDuplicated}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenanceDuplicateFolder}" Selected="dupulicateFileCheckFolderSelect">
+              <TreeViewItem Name="treeViewItemSearchDuplicated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_duplicates, Mode=OneWay}" ItemsSource="{Binding DuplicateChartGroups}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenanceDuplicateFolder}" Selected="dupulicateFileCheckFolderSelect">
                 <FrameworkElement.Resources>
                   <ResourceDictionary>
                     <DataTemplate x:Key="templateTreeViewItemHeaderDuplicateFileCheckFolder">

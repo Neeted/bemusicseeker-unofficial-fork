@@ -20,7 +20,7 @@ internal sealed class BmsLibraryDuplicateService
         return rows;
     }
 
-    public void ClearDuplicateState(IEnumerable<BMSFile> files, string duplicateWarningMessage)
+    public void ClearDuplicateState(IEnumerable<BMSFile> files)
     {
         foreach (BMSFile file in files ?? Enumerable.Empty<BMSFile>())
         {

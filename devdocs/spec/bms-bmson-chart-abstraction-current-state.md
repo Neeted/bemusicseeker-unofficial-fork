@@ -109,7 +109,7 @@ bmson library rows は全ての tree mode に無条件で混ざるわけでは�
 
 ### Duplicate view
 
-duplicate view は public 名として `BMSFilesDuplicated` / `SearchBMSFilesDuplicated()` を残しているが、現行 snapshot は `BmsLibraryDuplicateService.BuildSnapshot(...)` で `BMSFiles` と `BmsonSongs` を結合する。
+duplicate view は `DuplicateChartGroups` / `SearchDuplicateChartGroups()` を入口にし、現行 snapshot は `BmsLibraryDuplicateService.BuildSnapshot(...)` で `BMSFiles` と `BmsonSongs` を結合する。
 
 bmson duplicate row は `DuplicateChartRow.CreateFromBmsonSong(...)` で `PendingChartEntry` display row に変換される。duplicate group の `Files` は `List<BMSFile>` のままだが、ここに含まれる bmson row は storage 正本ではなく display / operation 用 adapter である。
 
@@ -397,15 +397,15 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.ChartFiles`
 
 将来 `ChartPackage` 化する場合、既存 `BMSPackage` は `ChartFiles` を primary API として維持する。旧 `BMSFiles` alias は production 利用がないことを確認したうえで削除済みであり、テストコードにも旧 alias そのものを残すためのテストは置かない。
 
-### model APIs の BMS 名
+### model APIs の残存 BMS 名
 
 次の API / view 名は chart 共通処理を含むが、BMS 名を残している。
 
 - `BMSFilesView`
-- `BMSFilesDuplicated`
 
 `RemoveChartFiles(...)` は BMS / bmson 共通の library chart 削除入口であり、旧 `RemoveBMSFiles(...)` wrapper は残さない。未使用だった single chart move wrapper も削除済みである。
 pending package install 入口も `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` へ移行済みで、旧 `InstallBMSFilesAuto` / `InstallBMSPackagesForce` / `InstallBMSPackagesToEstimatedDir` wrapper は残さない。
+duplicate view の cache / search 入口は `DuplicateChartGroups` / `SearchDuplicateChartGroups()` に移行済みで、旧 `BMSFilesDuplicated` / `SearchBMSFilesDuplicated()` は残さない。
 
 ### BMS-only views and workflows
 

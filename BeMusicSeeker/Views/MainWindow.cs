@@ -4353,16 +4353,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         // マージ後に自動選択するグループのHeaderをキャッシュ
         _pendingDuplicateGroupHeader = null;
-        if (duplicateGroup != null && viewModel.BMSFilesDuplicated != null)
+        if (duplicateGroup != null && viewModel.DuplicateChartGroups != null)
         {
             int folderCount = duplicateGroup.Folders.Count;
             if (folderCount == 2)
             {
                 // フォルダが2つの場合: マージでグループ消滅 → 次のグループを選択
-                int currentIndex = viewModel.BMSFilesDuplicated.IndexOf(duplicateGroup);
-                if (currentIndex >= 0 && currentIndex + 1 < viewModel.BMSFilesDuplicated.Count)
+                int currentIndex = viewModel.DuplicateChartGroups.IndexOf(duplicateGroup);
+                if (currentIndex >= 0 && currentIndex + 1 < viewModel.DuplicateChartGroups.Count)
                 {
-                    _pendingDuplicateGroupHeader = viewModel.BMSFilesDuplicated[currentIndex + 1].Header;
+                    _pendingDuplicateGroupHeader = viewModel.DuplicateChartGroups[currentIndex + 1].Header;
                 }
             }
             else if (folderCount >= 3)
@@ -4389,13 +4389,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            // マージ後にBMSFilesDuplicatedの更新を待ってからツリーで自動選択を試みる
+            // マージ後にDuplicateChartGroupsの更新を待ってからツリーで自動選択を試みる
             WaitForDuplicateListUpdateAndSelect(_pendingDuplicateGroupHeader, viewModel);
         }, TaskScheduler.FromCurrentSynchronizationContext()).Logging("ExecuteDuplicateFolderMerge");
     }
 
     /// <summary>
-    /// BMSFilesDuplicated更新タイミングの競合を吸収しつつ、該当グループを自動選択する。
+    /// DuplicateChartGroups更新タイミングの競合を吸収しつつ、該当グループを自動選択する。
     /// 基本はPropertyChanged契機で選択し、通知不達時のみ遅延フォールバックを1回試行する。
     /// </summary>
     private void WaitForDuplicateListUpdateAndSelect(string header, MainWindowViewModel viewModel)
@@ -4468,7 +4468,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         handler = (s, e) =>
         {
-            if (e.PropertyName != nameof(viewModel.BMSFilesDuplicated))
+            if (e.PropertyName != nameof(viewModel.DuplicateChartGroups))
             {
                 return;
             }
@@ -4527,7 +4527,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return false;
         }
 
-        var duplicatedList = viewModel.BMSFilesDuplicated;
+        var duplicatedList = viewModel.DuplicateChartGroups;
         if (duplicatedList == null)
         {
             failReason = "duplicated_list_null";
@@ -4708,12 +4708,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         // 処理後の自動選択用: フォルダ1つなのでグループは消滅 → 次のグループを自動選択
         _pendingDuplicateGroupHeader = null;
-        if (viewModel.BMSFilesDuplicated != null)
+        if (viewModel.DuplicateChartGroups != null)
         {
-            int currentIndex = viewModel.BMSFilesDuplicated.IndexOf(duplicateGroup);
-            if (currentIndex >= 0 && currentIndex + 1 < viewModel.BMSFilesDuplicated.Count)
+            int currentIndex = viewModel.DuplicateChartGroups.IndexOf(duplicateGroup);
+            if (currentIndex >= 0 && currentIndex + 1 < viewModel.DuplicateChartGroups.Count)
             {
-                _pendingDuplicateGroupHeader = viewModel.BMSFilesDuplicated[currentIndex + 1].Header;
+                _pendingDuplicateGroupHeader = viewModel.DuplicateChartGroups[currentIndex + 1].Header;
             }
         }
 
