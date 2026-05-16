@@ -637,6 +637,90 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchMergeDestinationForPendingPackage_MixedSplitInstalledDirectoriesUsesMostMatchingDirectory()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedMergeSplit");
+            string primaryDestinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "MixedMergePrimary");
+            string secondaryDestinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "MixedMergeSecondary");
+            string pendingBmsAPath = CreateBmsFileWithContents(sourceDirectoryPath, "pendingA.bms", "#PLAYER 1\r\n#TITLE Majority BMS A\r\n#ARTIST Mixed Artist\r\n");
+            string pendingBmsBPath = CreateBmsFileWithContents(sourceDirectoryPath, "pendingB.bms", "#PLAYER 1\r\n#TITLE Majority BMS B\r\n#ARTIST Mixed Artist\r\n");
+            string installedBmsAPath = CreateBmsFileWithContents(primaryDestinationDirectoryPath, "installedA.bms", "#PLAYER 1\r\n#TITLE Majority BMS A\r\n#ARTIST Mixed Artist\r\n");
+            string installedBmsBPath = CreateBmsFileWithContents(primaryDestinationDirectoryPath, "installedB.bms", "#PLAYER 1\r\n#TITLE Majority BMS B\r\n#ARTIST Mixed Artist\r\n");
+            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Minority Bmson", "Mixed Artist");
+            string installedBmsonPath = CreateBmsonFile(secondaryDestinationDirectoryPath, "installed.bmson", "Minority Bmson", "Mixed Artist");
+            BMSFile pendingBmsA = BMSFile.CreateBMSFileFromFile(pendingBmsAPath);
+            BMSFile pendingBmsB = BMSFile.CreateBMSFileFromFile(pendingBmsBPath);
+            PendingChartEntry pendingBmson = PendingChartEntry.CreateFromFilePath(pendingBmsonPath);
+            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingBmsA, pendingBmsB, pendingBmson })
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+            library.BMSFiles = new List<BMSFile>
+            {
+                BMSFile.CreateBMSFileFromFile(installedBmsAPath),
+                BMSFile.CreateBMSFileFromFile(installedBmsBPath)
+            };
+            library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>
+            {
+                BmsonSongParser.Parse(installedBmsonPath)
+            };
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+
+            library.SearchMergeDestinationForPendingPackage(pendingPackage);
+
+            foreach (BMSFile pendingFile in pendingPackage.ChartFiles)
+            {
+                Assert.AreEqual(primaryDestinationDirectoryPath, pendingFile.instl_dst);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void SearchMergeDestinationForPendingPackage_MixedSplitTieFallsBackToResourceCandidate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedMergeTie");
+            string resourceDestinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "ResourceWinner");
+            string hashOnlyDestinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "HashOnlyTie");
+            string pendingBmsPath = CreateBmsFileWithContents(sourceDirectoryPath, "pending.bms", "#PLAYER 1\r\n#TITLE Tie BMS\r\n#ARTIST Mixed Artist\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            string installedBmsPath = CreateBmsFileWithContents(resourceDestinationDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Tie BMS\r\n#ARTIST Mixed Artist\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Tie Bmson", "Mixed Artist");
+            string installedBmsonPath = CreateBmsonFile(hashOnlyDestinationDirectoryPath, "installed.bmson", "Tie Bmson", "Mixed Artist");
+            File.WriteAllText(Path.Combine(resourceDestinationDirectoryPath, "sound.wav"), "resource");
+            BMSFile pendingBms = BMSFile.CreateBMSFileFromFile(pendingBmsPath);
+            PendingChartEntry pendingBmson = PendingChartEntry.CreateFromFilePath(pendingBmsonPath);
+            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingBms, pendingBmson })
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+            library.BMSFiles = new List<BMSFile>
+            {
+                BMSFile.CreateBMSFileFromFile(installedBmsPath)
+            };
+            library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>
+            {
+                BmsonSongParser.Parse(installedBmsonPath)
+            };
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, resourceDestinationDirectoryPath, hashOnlyDestinationDirectoryPath));
+
+            library.SearchMergeDestinationForPendingPackage(pendingPackage);
+
+            foreach (BMSFile pendingFile in pendingPackage.ChartFiles)
+            {
+                Assert.AreEqual(resourceDestinationDirectoryPath, pendingFile.instl_dst);
+            }
+        });
+    }
+
+    [TestMethod]
     public void SearchMergeDestinationForPendingCharts_UsesExternalCandidateOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();

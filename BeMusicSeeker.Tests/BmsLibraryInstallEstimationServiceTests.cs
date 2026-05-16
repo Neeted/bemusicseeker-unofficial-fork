@@ -100,6 +100,50 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonPackagePrefersDirectoryWithMostMatchingCharts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string dirA = Path.Combine("C:\\Installed", "DirA");
+        string dirB = Path.Combine("C:\\Installed", "DirB");
+        List<BMSFile> installedFiles = new List<BMSFile>
+        {
+            CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(dirA, "a.bms")),
+            CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(dirA, "b.bms"))
+        };
+        LR2SongDBExtended.bmson_song installedBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine(dirB, "c.bmson"),
+            folder = dirB,
+            md5 = "cccccccccccccccccccccccccccccccc",
+            sha256 = new string('c', 64)
+        };
+        TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
+        TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
+        PendingChartEntry pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\c.bmson",
+            md5 = "cccccccccccccccccccccccccccccccc",
+            sha256 = new string('c', 64)
+        });
+        BMSPackage package = new BMSPackage(new BMSFile[] { pendingA, pendingB, pendingBmson })
+        {
+            path = "C:\\Pending",
+            delete_parent = false
+        };
+
+        InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
+            package,
+            package.ChartFiles,
+            service.BuildInstalledHashToDirectoryMap(installedFiles, new[] { installedBmson }));
+
+        Assert.AreEqual(dirA, result.InstallDirectory);
+        Assert.AreEqual(3, result.MatchedHashCount);
+        Assert.AreEqual(2, result.CandidateDirectoryCount);
+        Assert.AreEqual(InstalledDirectoryResolveReason.None, result.Reason);
+    }
+
+    [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_ReturnsMultipleCandidateDirectoriesForTopTie()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -124,6 +168,48 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             package,
             new List<BMSFile> { pendingMissing },
             service.BuildInstalledHashToDirectoryMap(installedFiles));
+
+        Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(2, result.CandidateDirectoryCount);
+        CollectionAssert.AreEqual(new[] { dirA, dirB }, result.CandidateDirectories.ToArray());
+    }
+
+    [TestMethod]
+    public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonTopTieReturnsMultipleCandidateDirectories()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string dirA = Path.Combine("C:\\Installed", "DirA");
+        string dirB = Path.Combine("C:\\Installed", "DirB");
+        List<BMSFile> installedFiles = new List<BMSFile>
+        {
+            CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(dirA, "a.bms"))
+        };
+        LR2SongDBExtended.bmson_song installedBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine(dirB, "b.bmson"),
+            folder = dirB,
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        TestableBmsFile pendingBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
+        PendingChartEntry pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\b.bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        });
+        BMSPackage package = new BMSPackage(new BMSFile[] { pendingBms, pendingBmson })
+        {
+            path = "C:\\Pending",
+            delete_parent = false
+        };
+
+        InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
+            package,
+            package.ChartFiles,
+            service.BuildInstalledHashToDirectoryMap(installedFiles, new[] { installedBmson }));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
         Assert.IsFalse(result.Success);

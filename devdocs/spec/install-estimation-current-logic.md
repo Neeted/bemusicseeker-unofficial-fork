@@ -80,6 +80,16 @@ source package の resource を使わず、既存 library 側の resource だけ
 
 評価は `candidate only` です。
 
+merge 先探索では、まず package 内の chart 全体を BMS / bmson 共通の hash index で既所持 chart directory へ対応付けます。ここでは package が mixed で、既所持先が複数 directory に分かれていても即座に失敗とはしません。
+
+- directory score は、その directory に hash 一致した package 内 chart 数です。
+- hash 一致しない chart は score に参加しません。
+- score が単独最多の directory があれば、その directory を正式な merge 先として採用し、操作対象 chart 全体へ同じ `INSTL DST` を設定します。
+- score 同点の最多 directory が複数ある場合は hash だけでは決めず、`MergeCandidateOnly` の resource 評価へ fallback します。
+- hash 一致候補が 0 件の場合も、同じく `MergeCandidateOnly` の resource 評価へ fallback します。
+
+このため、例えば mixed package の既所持一致が `A, A, B` に分かれる場合は `A` を採用し、`A, B` のような同点では hash 由来の自動決定を行いません。
+
 ### 再インストール先推定
 
 既存 library chart を現在位置より良い既存 chart directory へ移せるかを探します。
