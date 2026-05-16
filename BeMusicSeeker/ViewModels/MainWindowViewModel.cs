@@ -20328,7 +20328,7 @@ public class MainWindowViewModel : ViewModel
         }
         RunPendingInstallMutation(delegate
         {
-            files.RemoveBMSPackagesPending(packages);
+            files.RemovePendingPackages(packages);
         });
     }
 
@@ -21238,7 +21238,7 @@ public class MainWindowViewModel : ViewModel
     {
         RunPendingInstallMutation(delegate
         {
-            files.RemovePendingBMSFiles(chartFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
+            files.RemovePendingCharts(chartFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
         }, chartFiles);
     }
 

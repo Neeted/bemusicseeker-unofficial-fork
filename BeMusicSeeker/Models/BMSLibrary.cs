@@ -9336,9 +9336,9 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 指定された Pending パッケージ群を Pending リストから削除します。
+    /// 指定された pending package 群を pending リストから削除します。
     /// </summary>
-    public void RemoveBMSPackagesPending(IEnumerable<BMSPackage> packages)
+    public void RemovePendingPackages(IEnumerable<BMSPackage> packages)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
@@ -11103,13 +11103,13 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// Pending 状態の BMS ファイル群を Pending リストおよびファイルシステムから削除します。
+    /// Pending 状態の chart 群を Pending リストおよびファイルシステムから削除します。
     /// </summary>
-    public void RemovePendingBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
+    public void RemovePendingCharts(IEnumerable<BMSFile> chartFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
-        if (bmsFiles == null)
+        if (chartFiles == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("chartFiles");
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -11118,7 +11118,7 @@ public class BMSLibrary : NotificationObject
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     PendingFileDeletionResult result = packageInstallService.DeletePendingFiles(
-                        bmsFiles,
+                        chartFiles,
                         BMSPackagesPending,
                         sendToRecycleBin,
                         deleteContainingPackageFoldersWhenNoBms,
