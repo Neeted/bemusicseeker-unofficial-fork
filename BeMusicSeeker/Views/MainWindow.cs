@@ -7058,7 +7058,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         Task.Run(delegate
         {
-            viewModel.AddEntriesToFolderBMSTable(selectedRows, table, folderName);
+            viewModel.AddChartRowsToFolderBMSTable(selectedRows, table, folderName);
         }).Logging("playlistTableDrop");
     }
 

@@ -20876,7 +20876,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void AddEntriesToFolderBMSTable(IEnumerable<object> rows, BMSTable bmsTable, string folderName = "")
+    internal void AddChartRowsToFolderBMSTable(IEnumerable<object> rows, BMSTable bmsTable, string folderName = "")
     {
         if (folderName == null)
         {
@@ -20891,7 +20891,7 @@ public class MainWindowViewModel : ViewModel
             base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             return;
         }
-        tables.EnsurePlaylistEntriesLoaded(bmsTable, "MainWindowViewModel.AddEntriesToFolderBMSTable");
+        tables.EnsurePlaylistEntriesLoaded(bmsTable, "MainWindowViewModel.AddChartRowsToFolderBMSTable");
         List<object> sourceRows = rows.Where((object row) => row != null).ToList();
         if (sourceRows.Count == 0)
         {
@@ -20919,7 +20919,7 @@ public class MainWindowViewModel : ViewModel
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
             List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null).ToList();
-            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropCompatibilityFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropCompatibilityChartFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
             tables.AddEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
@@ -20966,7 +20966,7 @@ public class MainWindowViewModel : ViewModel
         {
             ParallelQuery<BMSTableEntry> bmsEntries = from row in sourceRows.AsParallel()
                                                       let entry = GridRowResolver.GetPlaylistEntry(row)
-                                                      let file = ResolvePlaylistDropCompatibilityFile(row)
+                                                      let file = ResolvePlaylistDropCompatibilityChartFile(row)
                                                       where entry != null || file != null
                                                       select (entry != null) ? entry.Duplicate() : new BMSTableEntry(file)
                                                       {
@@ -20982,7 +20982,7 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
-    private static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityFile(object row)
+    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityChartFile(object row)
     {
         BeMusicSeeker.Models.BMSFile realFile = GridRowResolver.GetRealBmsFile(row);
         if (realFile != null)
@@ -20992,11 +20992,6 @@ public class MainWindowViewModel : ViewModel
         return GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
             ? ToCompatibilityChartFile(target)
             : null;
-    }
-
-    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityFileForTest(object row)
-    {
-        return ResolvePlaylistDropCompatibilityFile(row);
     }
 
     private List<string> GetPlaylistDropOrgMd5(BeMusicSeeker.Models.BMSFile file)

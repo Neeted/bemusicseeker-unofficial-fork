@@ -269,9 +269,9 @@ playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot �
 
 ### Playlist への追加
 
-`MainWindowViewModel.AddEntriesToFolderBMSTable(...)` は、既存 API 名は BMSTable のままだが、現行では bmson も追加できる。
+`MainWindowViewModel.AddChartRowsToFolderBMSTable(...)` は、playlist table 概念として `BMSTable` 名を残しつつ、追加元の一覧 row は Chart として解決する。
 
-通常 folder への追加では、row から `ResolvePlaylistDropCompatibilityFile(...)` を通して `BMSFile` 互換 chart を作る。
+通常 folder への追加では、row から `ResolvePlaylistDropCompatibilityChartFile(...)` を通して `BMSFile` 互換 chart を作る。
 
 - BMS row は実体 `BMSFile` を使う。
 - bmson library row は `ChartOperationTarget` / `LibraryChartRef` 経由で `PendingChartEntry` に変換する。
@@ -368,7 +368,7 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 
 次の API / view 名は chart 共通処理を含むが、BMS 名を残している。
 
-- `AddEntriesToFolderBMSTable(...)`
+- `BMSPlaylist.AddEntriesToFolderBMSTable(...)`
 - `BMSFilesPendingInstall`
 - `BMSFilesView`
 

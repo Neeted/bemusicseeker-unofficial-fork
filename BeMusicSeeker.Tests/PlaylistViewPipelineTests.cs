@@ -719,7 +719,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolvePlaylistDropCompatibilityFile_LibraryBmsonRowCreatesSha256PlaylistEntry()
+    public void ResolvePlaylistDropCompatibilityChartFile_LibraryBmsonRowCreatesSha256PlaylistEntry()
     {
         LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
         {
@@ -733,7 +733,7 @@ public sealed class PlaylistViewPipelineTests
         };
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(bmson);
 
-        BMSFile compatibilityFile = MainWindowViewModel.ResolvePlaylistDropCompatibilityFileForTest(row);
+        BMSFile compatibilityFile = MainWindowViewModel.ResolvePlaylistDropCompatibilityChartFile(row);
         BMSTableEntry entry = new BMSTableEntry(compatibilityFile);
 
         Assert.IsNotNull(compatibilityFile);
