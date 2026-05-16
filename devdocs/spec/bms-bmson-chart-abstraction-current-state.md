@@ -205,6 +205,8 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
 - `PendingCharts` は `ChartFiles.OfType<PendingChartEntry>()` である。
 
+production code の `BMSPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。`BMSFiles` は互換 alias の挙動を保証する箇所や旧 API 境界に限定し、新規の package 内 chart 処理では使わない。
+
 `PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。互換のため `BmsFiles` alias も残す。ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
 
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。
@@ -352,6 +354,7 @@ resource health は BMS / bmson 共通の表示概念である。
 bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` を「BMS のみ」と解釈してはいけない。
 
 将来 `ChartPackage` 化する場合、既存 `BMSPackage` は `ChartFiles` を primary API、`BMSFiles` を互換 alias として残しながら呼び出し側を段階移行する。
+テストコードでも、互換 alias そのものを検証するテスト以外は `ChartFiles` を使い、`BMSLibrary.BMSFiles` とは別概念として扱う。
 
 ### model APIs の BMS 名
 

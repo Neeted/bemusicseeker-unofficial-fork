@@ -849,9 +849,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             delegate (BMSPackage package, string destinationDirectory)
             {
-                if (package.BMSFiles[0] == duplicateFile)
+                if (package.ChartFiles[0] == duplicateFile)
                 {
-                    package.BMSFiles.Clear();
+                    package.ChartFiles.Clear();
                     return true;
                 }
                 movedFile.path = Path.Combine(destinationDirectory, "move.bms");

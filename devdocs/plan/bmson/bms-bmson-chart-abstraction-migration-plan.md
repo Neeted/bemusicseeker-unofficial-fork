@@ -290,6 +290,7 @@ Phase F-1 では「新規コードの入口を chart 抽象に揃える」こと
 - UI handler は `ChartOperationTarget.Capabilities` で対象を絞り、BMS 専用操作だけ `BMSFile` へ戻す
 - 構成ファイルフルスキャンは `RunResourceHealthCheck` capability を使い、BMS / bmson の両方を chart resource health 対象にする
 - `ForceResourceHealthCheckCharts` など chart 名 wrapper を追加し、旧 `ForceFileScanCheckBMSFiles` は互換 wrapper として残す
+- `BMSPackage` 経由の package 内 chart 参照は `ChartFiles` を primary API とし、`BMSFiles` は互換 alias の検証と旧 API 境界に限定する
 
 Phase F-2 以降で検討する広範囲 rename 候補:
 
