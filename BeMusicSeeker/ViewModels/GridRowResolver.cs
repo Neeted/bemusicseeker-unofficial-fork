@@ -76,7 +76,7 @@ internal static class GridRowResolver
     internal static BMSFile GetOperationChartFile(object row, ChartOperationSourceScope sourceScope)
     {
         return TryGetOperationChartTarget(row, sourceScope, out ChartOperationTarget target)
-            ? target.Chart?.BmsFile
+            ? target.Chart?.CompatibilityChartFile
             : null;
     }
 

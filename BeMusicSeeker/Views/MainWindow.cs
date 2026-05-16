@@ -1205,9 +1205,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        if (target.Chart.BmsFile != null)
+        if (target.Chart.CompatibilityChartFile != null)
         {
-            return target.Chart.BmsFile;
+            return target.Chart.CompatibilityChartFile;
         }
         if (target.Chart.BmsonSong != null)
         {
@@ -1291,7 +1291,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        return new ScoreViewerTarget(hash, target.Chart.BmsFile?.path, target.Chart.Title);
+        return new ScoreViewerTarget(hash, target.Chart.CompatibilityChartFile?.path, target.Chart.Title);
     }
 
     private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
@@ -4843,7 +4843,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         string chartPath = rowTarget?.Chart?.Path;
-        BMSFile bmsFile = rowTarget?.Chart?.BmsFile;
+        BMSFile bmsFile = rowTarget?.Chart?.CompatibilityChartFile;
         List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
         if (rowTarget != null && selectedTargets.Count == 0)
         {

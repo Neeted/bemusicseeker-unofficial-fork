@@ -77,7 +77,7 @@ parent folder cache は更新通知としては bmson 変更でも無効化さ�
 - `LR2SongDBExtended.bmson_song`
 - pending / newly installed の `PendingChartEntry`
 
-`LibraryChartRow.Chart` は `OwnedChartRef` を返す。BMS では `BmsFile` を持ち、bmson では `BmsonSong` を持つ。pending bmson の場合は、現在の adapter path / hash を優先しつつ `BmsonSong` も保持する。
+`LibraryChartRow.Chart` は `OwnedChartRef` を返す。BMS では実体 `BMSFile` を `CompatibilityChartFile` として持ち、bmson では `BmsonSong` と、必要に応じて既存 `BMSFile` API 用の adapter を `CompatibilityChartFile` として持つ。pending bmson の場合は、現在の adapter path / hash を優先しつつ `BmsonSong` も保持する。
 
 表示列は BMS / bmson で共通化されているものが多い。
 
@@ -130,7 +130,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 - `Sha256`
 - title / artist / level / mode
 - `ChartInfo`
-- `BmsFile`
+- `CompatibilityChartFile`
 - `BmsonSong`
 
 `GridRowResolver.TryGetChartRef(...)` は、次の row から `OwnedChartRef` を作る。
@@ -142,7 +142,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `OwnedChartKind.Bms` の missing row として扱われる。
 
-`GridRowResolver.GetRealBmsFile(...)` / `GetOperationBmsFile(...)` は、既存 View / drag-drop / preview 経路の互換 API として残っている。これらは主に BMSFile 実体を返すため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。bmson owned row でも `OwnedChartRef.BmsFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
+`GridRowResolver.GetRealBmsFile(...)` / `GetOperationBmsFile(...)` は、既存 View / drag-drop / preview 経路の互換 API として残っている。これらは主に BMSFile 実体を返すため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。bmson owned row でも `OwnedChartRef.CompatibilityChartFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
 
 ### `ChartOperationTarget`
 

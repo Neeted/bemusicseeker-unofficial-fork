@@ -21505,9 +21505,9 @@ public class MainWindowViewModel : ViewModel
         {
             return null;
         }
-        if (target.Chart.BmsFile != null)
+        if (target.Chart.CompatibilityChartFile != null)
         {
-            return LibraryChartRef.FromBmsFile(target.Chart.BmsFile);
+            return LibraryChartRef.FromBmsFile(target.Chart.CompatibilityChartFile);
         }
         if (target.Chart.BmsonSong != null)
         {
