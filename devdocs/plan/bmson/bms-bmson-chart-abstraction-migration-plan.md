@@ -331,14 +331,14 @@ F-3 で進める候補:
 
 - `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は、型がすでに `LibraryChartRow` なので `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ寄せる
 - `SetBMSFilesView()` は private helper なので、`SetChartRowsView()` を主 API にし、旧名は必要なら shim にする
-- `GetSelectedGridRealFiles` / `GetSelectedGridOperationFiles` / `GetSelectedGridOperationChartFiles` の残存用途を整理し、新規 handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedPendingChartFiles` へ統一する
+- 旧 `GetSelectedGridRealFiles` / `GetSelectedGridOperationFiles` / `GetSelectedGridOperationChartFiles` は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedCompatibilityChartFiles` / `GetSelectedPendingCompatibilityChartFiles` に寄せる
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:
 
 - 通常一覧の内部 cache / setter は chart row 名へ寄せるが、public binding の `BMSFilesView` は XAML / settings 互換のため維持する
-- BMS 専用 handler は `GetSelectedBmsChartFiles`、pending/package 互換 handler は `GetSelectedPendingChartFiles` を使い、汎用的な legacy selection shim は使用箇所がなくなったら削除する
+- BMS 専用 handler は `GetSelectedBmsChartFiles`、既存 API が `BMSFile` adapter を要求する共通 handler は `GetSelectedCompatibilityChartFiles`、pending/package 互換 handler は `GetSelectedPendingCompatibilityChartFiles` を使う
 - `BMSFileSortEngine` は残さず、通常一覧 sort の正本を `LibraryChartRowSortEngine` に一本化する
 
 F-3 では後回しにするもの:

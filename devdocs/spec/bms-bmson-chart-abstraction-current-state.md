@@ -375,6 +375,8 @@ View の control 名、menu item 名、event handler 名、ログ名にも BMS �
 - UI 選択解決: `GridRowResolver.TryGetChartRef(...)`
 - UI operation: `ChartOperationTarget` + `ChartOperationCapabilities`
 - context menu / command selection helper: `GetSelectedChartTargets(...)`
+- 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedCompatibilityChartFiles(...)` / `GetSelectedPendingCompatibilityChartFiles(...)`
+- BMS 専用 operation helper: `GetSelectedBmsChartFiles(...)`
 - model mutation reference: `LibraryChartRef`
 - installed directory lookup: BMSFile + bmson_song の両方を hash / path で登録
 - playlist entry identity: md5-only と sha256-only の両対応
