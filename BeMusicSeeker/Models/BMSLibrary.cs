@@ -7941,12 +7941,12 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 指定されたパス群（ファイルまたはディレクトリ）から BMS ファイルを自動検出・インストールします。
+    /// 指定されたパス群（ファイルまたはディレクトリ）から chart package を自動検出・インストールします。
     /// アーカイブの展開、song.db への登録、Pendingパッケージ生成を一括で行います。
     /// </summary>
     /// <param name="installPaths">インストール元のファイル/ディレクトリパスのコレクション。</param>
-    /// <returns>インストール処理された BMS パッケージのリスト。</returns>
-    public List<BMSPackage> InstallBMSFilesAuto(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action onEachSourceProcessed = null)
+    /// <returns>インストール処理された chart package のリスト。</returns>
+    public List<BMSPackage> InstallChartPackagesAuto(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action onEachSourceProcessed = null)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<BMSPackage> pendingPackagesToEstimate = new List<BMSPackage>();
@@ -8002,7 +8002,7 @@ public class BMSLibrary : NotificationObject
                             workflow,
                             options.KeepInstallablePackagesPending,
                             SearchTargets != null && SearchTargets.Count() > 0 && Directory.Exists(SearchTargets[0]),
-                            (packagesToInstall) => installBMSPackages(packagesToInstall),
+                            (packagesToInstall) => installChartPackages(packagesToInstall),
                             token);
                         LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
                         if (applyResult.PendingPackagesToRemove.Count > 0)
@@ -8171,8 +8171,8 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// BMSパッケージのファイル群を指定ディレクトリに移動し、移動元の空フォルダを削除する。
-    /// マージ処理（MergeBMSDirectory）やインストール処理（installBMSPackages）から呼ばれる共通メソッド。
+    /// chart package のファイル群を指定ディレクトリに移動し、移動元の空フォルダを削除する。
+    /// マージ処理（MergeBMSDirectory）やインストール処理（installChartPackages）から呼ばれる共通メソッド。
     /// </summary>
     /// <param name="pkg">移動対象のBMSパッケージ</param>
     /// <param name="installationDirectory">移動先ディレクトリ（nullの場合は自動命名）</param>
@@ -8252,7 +8252,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
+    private List<BMSPackage> installChartPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
     {
         List<BMSPackage> installPackageList = (bmsPackagesInstall ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage package) => package != null).ToList();
         List<BMSFile> addedBmsFilesForChartInfo = new List<BMSFile>();
@@ -8329,7 +8329,7 @@ public class BMSLibrary : NotificationObject
                 BMSPackagesInstalled.AddRange(result.InstalledPackagesToRegister);
             }
         }
-        LogInstallPerformance("installBMSPackages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedFiles.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
+        LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedFiles.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
         if (deferredMaintenanceTargets == null)
         {
             BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedBmsFilesForChartInfo, addedBmsonSongsForChartInfo);
@@ -9007,9 +9007,9 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 指定された BMS パッケージ群を、インストール先ディレクトリへ強制インストールします。
+    /// 指定された pending package 群を、インストール先ディレクトリへ強制インストールします。
     /// </summary>
-    public void InstallBMSPackagesForce(IEnumerable<BMSPackage> packages)
+    public void ForceInstallPendingPackages(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
         {
@@ -9036,7 +9036,7 @@ public class BMSLibrary : NotificationObject
                             },
                             delegate (IEnumerable<BMSPackage> packagesToInstall, List<BMSPackage> deferredInstalledPackages)
                             {
-                                return installBMSPackages(packagesToInstall, null, null, deferredInstalledPackages);
+                                return installChartPackages(packagesToInstall, null, null, deferredInstalledPackages);
                             },
                             info => NLogWrapper.FileLogger?.Info(info));
                         if (result.Requested == 0)
@@ -9071,15 +9071,6 @@ public class BMSLibrary : NotificationObject
                 }
             }
         }
-    }
-
-    public void InstallBMSPackageForce(BMSPackage package)
-    {
-        if (package == null)
-        {
-            throw new ArgumentNullException("package");
-        }
-        InstallBMSPackagesForce(new BMSPackage[1] { package });
     }
 
     private int CountComponentMoveTargetsForPackage(BMSPackage package, string destinationDirectory, ISet<string> excludedComponentPaths)
@@ -9187,10 +9178,10 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 指定された BMS パッケージ群を推定されたインストール先ディレクトリへインストールします。
+    /// 指定された pending package 群を推定されたインストール先ディレクトリへインストールします。
     /// SmartOverwrite ロジックによるコンポーネント移動計画を構築して実行します。
     /// </summary>
-    public void InstallBMSPackagesToEstimatedDir(IEnumerable<BMSPackage> packages)
+    public void InstallPendingPackagesToEstimatedDestinations(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
         {
@@ -9209,7 +9200,7 @@ public class BMSLibrary : NotificationObject
                         if (BMSFiles == null)
                         {
                             totalStopwatch.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=BMSFiles_null totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                            LogInstallPerformance("install_pending_packages_to_estimated_destinations skipped reason=BMSFiles_null totalMs=" + totalStopwatch.ElapsedMilliseconds);
                             return;
                         }
                         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
@@ -9217,21 +9208,21 @@ public class BMSLibrary : NotificationObject
                         if (installPlan.SelectedPendingPackages.Count == 0)
                         {
                             totalStopwatch.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=no_pending_target filterMs=" + installPlan.FilterMs + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                            LogInstallPerformance("install_pending_packages_to_estimated_destinations skipped reason=no_pending_target filterMs=" + installPlan.FilterMs + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                             return;
                         }
                         if (installPlan.Groups.Count == 0 && installPlan.DeferredManualHoldCount > 0)
                         {
                             totalStopwatch.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=deferred_manual_merge_hold deferredManualHold=" + installPlan.DeferredManualHoldCount + " selected=" + installPlan.SelectedPendingCount + " filterMs=" + installPlan.FilterMs + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                            LogInstallPerformance("install_pending_packages_to_estimated_destinations skipped reason=deferred_manual_merge_hold deferredManualHold=" + installPlan.DeferredManualHoldCount + " selected=" + installPlan.SelectedPendingCount + " filterMs=" + installPlan.FilterMs + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                             return;
                         }
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir start selected=" + installPlan.SelectedPendingCount + " groups=" + installPlan.Groups.Count + " groupedPackages=" + installPlan.GroupedPackageCount + " installTargets=" + installPlan.InstallTargetFileCount + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " deleteSourceContents=" + deletePendingPackageSourceAfterInstall + " filterMs=" + installPlan.FilterMs + " groupBuildMs=" + installPlan.GroupBuildMs + " planBuildMs=" + installPlan.PlanBuildMs);
+                        LogInstallPerformance("install_pending_packages_to_estimated_destinations start selected=" + installPlan.SelectedPendingCount + " groups=" + installPlan.Groups.Count + " groupedPackages=" + installPlan.GroupedPackageCount + " installTargets=" + installPlan.InstallTargetFileCount + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " deleteSourceContents=" + deletePendingPackageSourceAfterInstall + " filterMs=" + installPlan.FilterMs + " groupBuildMs=" + installPlan.GroupBuildMs + " planBuildMs=" + installPlan.PlanBuildMs);
                         EstimatedInstallBatchApplyContext batchApplyContext = new EstimatedInstallBatchApplyContext();
                         PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
                             installPlan,
                             deletePendingPackageSourceAfterInstall,
-                            (installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installBMSPackages(installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall, batchApplyContext),
+                            (installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installChartPackages(installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall, batchApplyContext),
                             CreateInstalledDisplayPackageForResourceOnlyMerge,
                             (cleanupOnlyPackage) =>
                             {
@@ -9292,20 +9283,11 @@ public class BMSLibrary : NotificationObject
                             dialogService.Show(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, batchResult.CleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                         }
                         totalStopwatch.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end libraryStateApplyMs=" + libraryStateApplyStopwatch.ElapsedMilliseconds + " pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + estimatedInstallMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + installPlan.CleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + batchResult.CleanupOnlySucceeded + " cleanupOnlyFailed=" + batchResult.CleanupOnlyFailed + " cleanupOnlyMissingSource=" + batchResult.CleanupOnlyMissingSource + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                        LogInstallPerformance("install_pending_packages_to_estimated_destinations end libraryStateApplyMs=" + libraryStateApplyStopwatch.ElapsedMilliseconds + " pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + estimatedInstallMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + installPlan.CleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + batchResult.CleanupOnlySucceeded + " cleanupOnlyFailed=" + batchResult.CleanupOnlyFailed + " cleanupOnlyMissingSource=" + batchResult.CleanupOnlyMissingSource + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     }
                 }
             }
         }
-    }
-
-    public void InstallBMSPackageToEstimatedDir(BMSPackage package)
-    {
-        if (package == null)
-        {
-            throw new ArgumentNullException("package");
-        }
-        InstallBMSPackagesToEstimatedDir(new BMSPackage[1] { package });
     }
 
     /// <summary>
@@ -9715,7 +9697,7 @@ public class BMSLibrary : NotificationObject
                             {
                                 try
                                 {
-                                    InstallBMSPackageToEstimatedDir(pendingPackage);
+                                    InstallPendingPackagesToEstimatedDestinations(new BMSPackage[1] { pendingPackage });
                                     return true;
                                 }
                                 catch (Exception ex)

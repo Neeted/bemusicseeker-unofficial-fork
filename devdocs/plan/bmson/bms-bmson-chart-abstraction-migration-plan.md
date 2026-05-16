@@ -296,6 +296,7 @@ Phase F-2 以降で検討する広範囲 rename 候補:
 
 - `MoveBMSFile` -> `MoveChartFile` は、production 参照のない旧 wrapper を削除済み
 - `RemoveBMSFiles` -> `RemoveChartFiles` は、library chart 削除入口として移行済み
+- `InstallBMSFilesAuto` / `InstallBMSPackagesForce` / `InstallBMSPackagesToEstimatedDir` は `InstallChartPackagesAuto` / `ForceInstallPendingPackages` / `InstallPendingPackagesToEstimatedDestinations` へ移行済み
 - `BMSFiles` -> `BmsFiles` / `OwnedCharts`
 - `BMSFilesPendingInstall` -> `PendingCharts`
 
@@ -306,7 +307,7 @@ Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を�
 - resource health は `ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` を主 API とし、BMS / bmson 両方を対象にする
 - pending install destination は `UpdateInstallDestination`、所持 BMS の再インストール先修復は `RepairInstalledLocation` として capability を分離する
 - `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
-- `BMSLibrary` では `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `RemoveChartFiles` など chart 共通名の入口へ寄せる。production 参照のなくなった旧 BMS 名 API / wrapper は残さない
+- `BMSLibrary` では `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `RemoveChartFiles`, `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` など chart / pending package 共通名の入口へ寄せる。production 参照のなくなった旧 BMS 名 API / wrapper は残さない
 - `BMSFilesView`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す。`BMSPackage.BMSFiles` は `ChartFiles` への段階移行を進めるが、互換 alias として残す
 
 Phase F-3 に進む前に、DataGrid sort engine を整理する。

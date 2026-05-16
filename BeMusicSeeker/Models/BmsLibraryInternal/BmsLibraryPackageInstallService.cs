@@ -1636,7 +1636,7 @@ internal sealed class BmsLibraryPackageInstallService
             pendingMarkStopwatch.Stop();
             groupStopwatch.Stop();
             logInfo?.Invoke(
-                "InstallBMSPackagesToEstimatedDir group dst=" + groupEntry.DestinationDirectory +
+                "install_pending_packages_to_estimated_destinations group dst=" + groupEntry.DestinationDirectory +
                 " packages=" + destinationPackages.Count +
                 " workPackages=" + installWorkPackages.Count +
                 " failedPackages=" + failedInstallWorkPackages.Count +

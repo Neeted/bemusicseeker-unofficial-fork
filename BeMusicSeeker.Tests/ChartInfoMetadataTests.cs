@@ -2935,7 +2935,7 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
-    public void InstallBMSPackages_AddsBmsAndBuildsInlineChartInfo()
+    public void InstallChartPackages_AddsBmsAndBuildsInlineChartInfo()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -2954,7 +2954,7 @@ public sealed class ChartInfoMetadataTests
             };
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
-            InvokeInstallBmsPackages(library, new[] { package }, installDir);
+            InvokeInstallChartPackages(library, new[] { package }, installDir);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             BMSFile installedFile = library.BMSFiles.Single();
@@ -2968,7 +2968,7 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
-    public void InstallBMSPackages_AddsBmsonAndBuildsInlineChartInfo()
+    public void InstallChartPackages_AddsBmsonAndBuildsInlineChartInfo()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -2994,7 +2994,7 @@ public sealed class ChartInfoMetadataTests
             };
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
-            InvokeInstallBmsPackages(library, new[] { package }, installDir);
+            InvokeInstallChartPackages(library, new[] { package }, installDir);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             LR2SongDBExtended.bmson_song installedSong = library.BmsonSongs.Single();
@@ -3007,7 +3007,7 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
-    public void InstallBMSPackages_ChartInfoParseFailurePersistsRecordWithoutBlockingInstall()
+    public void InstallChartPackages_ChartInfoParseFailurePersistsRecordWithoutBlockingInstall()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -3026,7 +3026,7 @@ public sealed class ChartInfoMetadataTests
             };
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
-            InvokeInstallBmsPackages(library, new[] { package }, installDir);
+            InvokeInstallChartPackages(library, new[] { package }, installDir);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             BMSFile installedFile = library.BMSFiles.Single();
@@ -3955,10 +3955,10 @@ public sealed class ChartInfoMetadataTests
         return bundlePath;
     }
 
-    private static void InvokeInstallBmsPackages(BMSLibrary library, IEnumerable<BMSPackage> packages, string installDirectory)
+    private static void InvokeInstallChartPackages(BMSLibrary library, IEnumerable<BMSPackage> packages, string installDirectory)
     {
-        MethodInfo method = typeof(BMSLibrary).GetMethod("installBMSPackages", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(method, "installBMSPackages method was not found.");
+        MethodInfo method = typeof(BMSLibrary).GetMethod("installChartPackages", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method, "installChartPackages method was not found.");
         method.Invoke(
             library,
             new object?[]

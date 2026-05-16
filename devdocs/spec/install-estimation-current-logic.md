@@ -135,7 +135,7 @@ Background pending estimate と手動の複数 package 推定は、batch 内の 
 
 ## 推定先への移動
 
-`InstallBMSPackagesToEstimatedDir` は、推定済み pending package を destination directory ごとの group にまとめて処理します。ファイル移動そのものは group は逐次です。これは移動済みファイルと `song.db` 反映の対応を保ち、失敗時の切り分けを単純にするためです。
+`InstallPendingPackagesToEstimatedDestinations` は、推定済み pending package を destination directory ごとの group にまとめて処理します。ファイル移動そのものは group は逐次です。これは移動済みファイルと `song.db` 反映の対応を保ち、失敗時の切り分けを単純にするためです。
 
 group ごとの処理では、ファイル移動、`song.db` の譜面 upsert、install row 削除対象の収集、インストール済み package への登録対象収集を行います。`song.db` の譜面 upsert は group ごとに維持します。ここを batch 末尾へ寄せると、移動済みファイルが DB に未反映のままクラッシュする窓が広がるためです。
 
@@ -149,7 +149,7 @@ resource health index は delta 更新を優先します。既存 snapshot が�
 
 ログ確認時は次を見ると、処理の粒度を確認できます。
 
-- `InstallBMSPackagesToEstimatedDir group`: destination group ごとの逐次移動と group 単位の DB 反映。
+- `install_pending_packages_to_estimated_destinations group`: destination group ごとの逐次移動と group 単位の DB 反映。
 - `reverse_lookup_incremental_update reason=install_package`: batch 末尾の reverse lookup 差分更新。複数 group でも原則 1 回。
 - `maintenance_update`: batch 末尾の affected chart maintenance。`resourceHealthIndexMode=delta` なら resource health index は差分更新です。
 - `resource_health_index_delta`: full rebuild ではなく affected chart の projection だけを更新したことを示します。

@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryDialogRoutingTests
 {
     [TestMethod]
-    public void InstallBMSPackagesForce_UsesDialogServiceForOverrideConfirmation()
+    public void ForceInstallPendingPackages_UsesDialogServiceForOverrideConfirmation()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -38,7 +38,7 @@ public sealed class BmsLibraryDialogRoutingTests
             };
             library.BMSPackagesPending = CreatePackageCollection(new[] { pendingPackage });
 
-            library.InstallBMSPackagesForce(new[] { pendingPackage });
+            library.ForceInstallPendingPackages(new[] { pendingPackage });
 
             Assert.AreEqual(1, dialogService.Calls.Count);
             Assert.AreEqual(Properties.Resources.Confirm_NormalInstallTitle, dialogService.Calls[0].Caption);

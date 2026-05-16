@@ -17832,7 +17832,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!token.IsCancellationRequested)
                 {
-                    list.AddRange(files.InstallBMSFilesAuto(normalizedInstallPaths, token, onEachPathProcessed));
+                    list.AddRange(files.InstallChartPackagesAuto(normalizedInstallPaths, token, onEachPathProcessed));
                 }
             }
             catch (FileNotFoundException ex)
@@ -19744,7 +19744,7 @@ public class MainWindowViewModel : ViewModel
         List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
         RunPendingInstallMutation(delegate
         {
-            files.InstallBMSPackagesForce(list);
+            files.ForceInstallPendingPackages(list);
         }, list.SelectMany((BMSPackage p) => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
@@ -19771,7 +19771,7 @@ public class MainWindowViewModel : ViewModel
         List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
         RunPendingInstallMutation(delegate
         {
-            files.InstallBMSPackagesToEstimatedDir(list);
+            files.InstallPendingPackagesToEstimatedDestinations(list);
         }, list.SelectMany((BMSPackage p) => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
