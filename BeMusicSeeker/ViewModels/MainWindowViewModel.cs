@@ -17719,10 +17719,10 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// リンク切れ等の問題がある BMSFile (個別ファイル単位) について、正しいインストール先のディレクトリをヒューリスティックに探索します。
+    /// リンク切れ等の問題がある chart file (個別ファイル単位) について、正しいインストール先のディレクトリをヒューリスティックに探索します。
     /// 同一パッケージに属するファイル群はまとめてパッケージ単位で探索が試みられます。
     /// </summary>
-    /// <param name="bmsFiles">探索・復旧対象となるBMSファイルのコレクション。</param>
+    /// <param name="chartFiles">探索・復旧対象となる chart file のコレクション。</param>
     public void SearchInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         if (chartFiles == null)
@@ -20550,7 +20550,7 @@ public class MainWindowViewModel : ViewModel
             {
                 throw new ArgumentNullException("chartFiles");
             }
-            files.SearchCorrectInstallationDirectory(chartFiles);
+            files.SearchCorrectInstallationDirectoryCharts(chartFiles);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }

@@ -1146,13 +1146,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void CorrectInstallationDirectory_ClearsSameDirectorySuggestion()
+    public void CorrectChartInstallationDirectory_ClearsSameDirectorySuggestion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
 
-        service.CorrectInstallationDirectory(new[] { file }, delegate (BMSFile target)
+        service.CorrectChartInstallationDirectory(new[] { file }, delegate (BMSFile target)
         {
             target.instl_dst = Path.Combine("C:\\Music", "FolderA");
         });

@@ -216,7 +216,7 @@
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_installed_loc, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_reinstall_loc, Mode=OneWay}" Click="tableContextMenuSearchCorrectInstallationDirectoryClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_reinstall_loc, Mode=OneWay}" Click="tableContextMenuSearchCorrectInstallationDirectoryChartsClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinstall_to_estimation, Mode=OneWay}" Click="tableContextMenuFixInstallationDirectoryClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_reinstall_estimation, Mode=OneWay}" Click="tableContextMenuRemoveInstallDestinationClick" />
         </MenuItem>

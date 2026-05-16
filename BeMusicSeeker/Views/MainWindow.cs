@@ -6493,20 +6493,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void tableContextMenuSearchCorrectInstallationDirectoryClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuSearchCorrectInstallationDirectoryChartsClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.RepairInstalledLocation);
-        if (bmsFiles != null && bmsFiles.Count() != 0)
+        List<BMSFile> chartFiles = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.RepairInstalledLocation);
+        if (chartFiles != null && chartFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
-                viewModel.SearchCorrectInstallationDirectoryCharts(bmsFiles);
-            }).Logging("tableContextMenuSearchCorrectInstallationDirectoryClick");
+                viewModel.SearchCorrectInstallationDirectoryCharts(chartFiles);
+            }).Logging("tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
             e.Handled = true;
         }
     }
@@ -6517,14 +6517,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.RepairInstalledLocation);
-        if (bmsFiles == null || bmsFiles.Count() == 0)
+        List<BMSFile> chartFiles = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.RepairInstalledLocation);
+        if (chartFiles == null || chartFiles.Count() == 0)
         {
             return;
         }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        if (!bmsFiles.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
+        if (!chartFiles.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
@@ -6532,7 +6532,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.FixInstallationDirectoryCharts(bmsFiles);
+                viewModel.FixInstallationDirectoryCharts(chartFiles);
             }).Logging("tableContextMenuFixInstallationDirectoryClick");
         }
     }

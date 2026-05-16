@@ -599,7 +599,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
-    public void SearchCorrectInstallationDirectory_BmsonOwnedChartIgnoresCurrentInstalledIndexSelfMatch()
+    public void SearchCorrectInstallationDirectoryCharts_BmsonOwnedChartIgnoresCurrentInstalledIndexSelfMatch()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -616,7 +616,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BmsonSongs = new List<LR2SongDBExtended.bmson_song> { sourceSong };
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, destinationDirectoryPath));
 
-            library.SearchCorrectInstallationDirectory(new[] { repairTarget });
+            library.SearchCorrectInstallationDirectoryCharts(new[] { repairTarget });
 
             Assert.AreEqual(destinationDirectoryPath, repairTarget.instl_dst);
         });

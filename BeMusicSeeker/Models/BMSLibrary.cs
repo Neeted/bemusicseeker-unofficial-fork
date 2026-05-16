@@ -7738,11 +7738,11 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetChartFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
     {
         return EvaluateInstallEstimation(
             package,
-            targetBmsFiles,
+            targetChartFiles,
             BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel),
             estimateMode,
             optionsSnapshot,
@@ -7754,9 +7754,9 @@ public class BMSLibrary : NotificationObject
             markInstalledDestinationAmbiguous);
     }
 
-    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetChartFiles, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
     {
-        List<BMSFile> targetFileList = (targetBmsFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
+        List<BMSFile> targetFileList = (targetChartFiles ?? new List<BMSFile>()).Where((BMSFile chartFile) => chartFile != null).ToList();
         if (targetFileList.Count == 0)
         {
             return new InstallEstimationEvaluationData
@@ -8427,58 +8427,58 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// BMSファイルの差分譜面導入先（インストール先ディレクトリ）を推定します。
+    /// chart file の導入先（インストール先ディレクトリ）を推定します。
     /// </summary>
-    /// <param name="bmsFiles">インストール対象のBMSファイルリスト（通常は同一パッケージ内のファイル群）</param>
+    /// <param name="chartFiles">インストール対象の chart file リスト（通常は同一パッケージ内のファイル群）</param>
     /// <param name="asParallel">既存フォルダの走査（各フォルダとのマッチング評価）を並列実行するかどうか</param>
     /// <param name="fixMode">再インストール先修正モードフラグ（登録済みのファイルでも強制的に再推定を実施するかどうか）</param>
     /// <remarks>
     /// 【設計意図・背景】
-    /// 差分BMSパッケージ（追加の譜面データや難易度変更ファイル等）は、音源（WAV/OGGやBGA等）の実体を含まないことが多いため、
+    /// 差分 chart package（追加の譜面データや難易度変更ファイル等）は、音源（WAV/OGGやBGA等）の実体を含まないことが多いため、
     /// そのまま独立してインストールしてもゲームプレイ時に音が鳴らないなどの不具合が生じます。
     /// ユーザーが手動で適切なベースとなる楽曲フォルダを探して統合する手間を省くべく、本ロジックでは
-    /// 対象差分BMSファイルが必要とする依存ファイルのハッシュ群をキーとして、既存の全楽曲フォルダを事前フィルタリングし、
-    /// 関連性が疑われるフォルダに対してのみ「仮想的にBMSを配置したシミュレーション(SetHealthStatus)」を行います。
+    /// 対象 chart file が必要とする依存ファイルのハッシュ群をキーとして、既存の全楽曲フォルダを事前フィルタリングし、
+    /// 関連性が疑われるフォルダに対してのみ「仮想的に chart を配置したシミュレーション」を行います。
     /// 全てのフォルダを計算すると重すぎるため、事前のハッシュマッチで候補を絞り込むことで劇的な高速化を図りつつ、
     /// 根本的には旧来と同じく、最もファイルの依存関係が解決される（健康度/Health が高まる）フォルダを自動算出して提案します。
     /// </remarks>
-    private void searchEstimatedInstallationDirectory(IEnumerable<BMSFile> bmsFiles, bool asParallel = true, bool fixMode = false)
+    private void SearchEstimatedInstallationDirectoryForChartsCore(IEnumerable<BMSFile> chartFiles, bool asParallel = true, bool fixMode = false)
     {
-        searchEstimatedInstallationDirectory(bmsFiles, asParallel, fixMode ? BmsInstallationEstimateMode.ReinstallCorrection : BmsInstallationEstimateMode.Normal);
+        SearchEstimatedInstallationDirectoryForChartsCore(chartFiles, asParallel, fixMode ? BmsInstallationEstimateMode.ReinstallCorrection : BmsInstallationEstimateMode.Normal);
     }
 
-    private void searchEstimatedInstallationDirectory(IEnumerable<BMSFile> bmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode)
+    private void SearchEstimatedInstallationDirectoryForChartsCore(IEnumerable<BMSFile> chartFiles, bool asParallel, BmsInstallationEstimateMode estimateMode)
     {
-        searchEstimatedInstallationDirectory(null, bmsFiles, asParallel, estimateMode);
+        SearchEstimatedInstallationDirectoryForChartsCore(null, chartFiles, asParallel, estimateMode);
     }
 
-    private void searchEstimatedInstallationDirectory(BMSPackage package, IEnumerable<BMSFile> bmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode)
+    private void SearchEstimatedInstallationDirectoryForChartsCore(BMSPackage package, IEnumerable<BMSFile> chartFiles, bool asParallel, BmsInstallationEstimateMode estimateMode)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<BMSFile> targetBmsFiles = null;
+                List<BMSFile> targetChartFiles = null;
                 try
                 {
-                    targetBmsFiles = ((bmsFiles != null) ? bmsFiles.Where((BMSFile bmsInfo) => bmsInfo != null).ToList() : new List<BMSFile>());
-                    if (targetBmsFiles.Count == 0 || targetBmsFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
+                    targetChartFiles = ((chartFiles != null) ? chartFiles.Where((BMSFile chartFile) => chartFile != null).ToList() : new List<BMSFile>());
+                    if (targetChartFiles.Count == 0 || targetChartFiles.Any((BMSFile chartFile) => !string.IsNullOrWhiteSpace(chartFile.instl_dst)))
                     {
                         return;
                     }
-                    foreach (BMSFile targetBmsFile in targetBmsFiles)
+                    foreach (BMSFile targetChartFile in targetChartFiles)
                     {
-                        targetBmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
+                        targetChartFile.status |= BMSFile.BMSFileStatus.SEARCHING;
                     }
-                    InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(package, targetBmsFiles, asParallel, estimateMode);
+                    InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(package, targetChartFiles, asParallel, estimateMode);
                     LogInstallEstimationEvaluation(estimationData);
-                    ApplyInstallEstimationResultToFiles(targetBmsFiles, estimationData.Result);
+                    ApplyInstallEstimationResultToFiles(targetChartFiles, estimationData.Result);
                 }
                 finally
                 {
-                    foreach (BMSFile bmsFile2 in (targetBmsFiles ?? Enumerable.Empty<BMSFile>()))
+                    foreach (BMSFile targetChartFile in (targetChartFiles ?? Enumerable.Empty<BMSFile>()))
                     {
-                        bmsFile2.status &= ~BMSFile.BMSFileStatus.SEARCHING;
+                        targetChartFile.status &= ~BMSFile.BMSFileStatus.SEARCHING;
                     }
                 }
             }
@@ -8641,7 +8641,7 @@ public class BMSLibrary : NotificationObject
                         }
                         if (missingFiles.Count > 0)
                         {
-                            searchEstimatedInstallationDirectory(package, missingFiles, asParallel: true, BmsInstallationEstimateMode.Normal);
+                            SearchEstimatedInstallationDirectoryForChartsCore(package, missingFiles, asParallel: true, BmsInstallationEstimateMode.Normal);
                         }
                     }
                 }
@@ -8776,7 +8776,7 @@ public class BMSLibrary : NotificationObject
                 return;
             }
         }
-        searchEstimatedInstallationDirectory(new BMSFile[1] { bmsFile }, asParallel, fixMode);
+        SearchEstimatedInstallationDirectoryForChartsCore(new BMSFile[1] { bmsFile }, asParallel, fixMode);
     }
 
     public void SearchEstimatedInstallationDirectory(BMSFile bmsFile, bool asParallel = true, bool fixMode = false)
@@ -8890,7 +8890,7 @@ public class BMSLibrary : NotificationObject
         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
         if (!TryResolveInstalledDestinationFromPackage(package, list, out string resolvedDir))
         {
-            searchEstimatedInstallationDirectory(package, list, asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
+            SearchEstimatedInstallationDirectoryForChartsCore(package, list, asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
         }
         else
         {
@@ -8932,7 +8932,7 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile item in list)
         {
             item.instl_dst = null;
-            searchEstimatedInstallationDirectory(new BMSFile[1] { item }, asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
+            SearchEstimatedInstallationDirectoryForChartsCore(new BMSFile[1] { item }, asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
         }
         int num = list.Count((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst));
         if (num == 0)
@@ -9778,17 +9778,17 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 指定された BMS ファイル群について、インストール先ディレクトリを再探索し、正しいパスを設定します。
+    /// 指定された chart file 群について、インストール先ディレクトリを再探索し、正しいパスを設定します。
     /// </summary>
-    public void SearchCorrectInstallationDirectory(IEnumerable<BMSFile> bmsFiles)
+    public void SearchCorrectInstallationDirectoryCharts(IEnumerable<BMSFile> chartFiles)
     {
-        if (bmsFiles == null)
+        if (chartFiles == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("chartFiles");
         }
-        CreateInstallEstimationService().CorrectInstallationDirectory(bmsFiles, delegate (BMSFile bmsFile)
+        CreateInstallEstimationService().CorrectChartInstallationDirectory(chartFiles, delegate (BMSFile chartFile)
         {
-            SearchEstimatedInstallationDirectory(bmsFile, asParallel: false, fixMode: true);
+            SearchEstimatedInstallationDirectory(chartFile, asParallel: false, fixMode: true);
         });
     }
 

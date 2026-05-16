@@ -561,9 +561,9 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
-        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(chartFiles, installedHashes, estimateMode), directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
@@ -588,9 +588,9 @@ internal sealed class BmsLibraryInstallEstimationService
             candidateDirectoryOverride: candidateDirectories);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
-        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), directoryLookupCache, candidateEvaluationDegree, estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(chartFiles, installedHashes, estimateMode), directoryLookupCache, candidateEvaluationDegree, estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
@@ -1104,12 +1104,12 @@ internal sealed class BmsLibraryInstallEstimationService
         result.ShouldAutoApplyDestination = false;
     }
 
-    private static PackageInstallEstimationSnapshot BuildLooseFileSnapshot(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode)
+    private static PackageInstallEstimationSnapshot BuildLooseFileSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode)
     {
-        List<BMSFile> targetFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>())
+        List<BMSFile> targetFiles = (chartFiles ?? Enumerable.Empty<BMSFile>())
             .Where((BMSFile file) => file != null)
             .ToList();
-        if (targetFiles.Count == 0 || targetFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
+        if (targetFiles.Count == 0 || targetFiles.Any((BMSFile chartFile) => !string.IsNullOrWhiteSpace(chartFile.instl_dst)))
         {
             return null;
         }
@@ -1121,38 +1121,20 @@ internal sealed class BmsLibraryInstallEstimationService
         return targetFiles.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFiles);
     }
 
-    private static bool TrySelectRepresentativeFile(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode, out BMSFile representativeFile)
+    public void CorrectChartInstallationDirectory(IEnumerable<BMSFile> chartFiles, Action<BMSFile> searchInstallDestination)
     {
-        representativeFile = null;
-        List<BMSFile> targetFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
-        if (targetFiles.Count == 0 || targetFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
+        foreach (BMSFile chartFile in (chartFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
         {
-            return false;
-        }
-        bool isReinstallCorrectionMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection;
-        bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
-        bool isCorrectionLikeMode = isReinstallCorrectionMode || isMergeMode;
-        representativeFile = targetFiles
-            .Where((BMSFile bmsFile) => bmsFile != null && (isCorrectionLikeMode || installedHashes == null || !installedHashes.Contains(bmsFile.hash)))
-            .OrderByDescending(GetDefinedResourceCount)
-            .FirstOrDefault();
-        return representativeFile != null;
-    }
-
-    public void CorrectInstallationDirectory(IEnumerable<BMSFile> bmsFiles, Action<BMSFile> searchInstallDestination)
-    {
-        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
-        {
-            lock (bmsFile)
+            lock (chartFile)
             {
-                if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst))
+                if (!string.IsNullOrWhiteSpace(chartFile.instl_dst))
                 {
                     continue;
                 }
-                searchInstallDestination?.Invoke(bmsFile);
-                if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && bmsFile.instl_dst.Equals(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), StringComparison.OrdinalIgnoreCase))
+                searchInstallDestination?.Invoke(chartFile);
+                if (!string.IsNullOrWhiteSpace(chartFile.instl_dst) && chartFile.instl_dst.Equals(DirectoryExt.GetDirectoryNameSimple(chartFile.path), StringComparison.OrdinalIgnoreCase))
                 {
-                    bmsFile.instl_dst = null;
+                    chartFile.instl_dst = null;
                 }
             }
         }
