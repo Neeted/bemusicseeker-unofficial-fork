@@ -797,6 +797,35 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void SourceRow_AndLibraryRowUsePlaylistReferenceProjectionForBmson()
+    {
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        BMSTable table = new BMSTable
+        {
+            symbol = "BMSN",
+            name = "Bmson Table",
+            entries = new List<BMSTableEntry>
+            {
+                new TestablePlaylistEntry(null, bmson.sha256)
+            }
+        };
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
+        index.ReplaceTable(table, table.entries);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+            null,
+            new[] { bmson },
+            null,
+            row => index.Find(row.Hash, row.Sha256));
+        LibraryChartRow chartRow = LibraryChartRow.FromBmsonSong(bmson);
+        chartRow.SetPlaylistReferenceDisplayProvider(row => index.Find(row.hash, row.sha256));
+
+        Assert.AreEqual("BMSN", sourceRows[0].RefTablesSymbols);
+        Assert.AreEqual("Bmson Table", sourceRows[0].RefTablesNames);
+        Assert.AreEqual("BMSN", chartRow.RefTablesSymbols);
+        Assert.AreEqual("Bmson Table", chartRow.RefTablesNames);
+    }
+
+    [TestMethod]
     public void SourceRow_SortKeysMatchLibraryChartRowForBmsAndBmson()
     {
         BMSFile file = CreateFile(
@@ -1441,6 +1470,15 @@ public sealed class ChartListVirtualViewTests
             tag = tagText;
             hash = md5;
             sha256 = sha256Text;
+        }
+    }
+
+    private sealed class TestablePlaylistEntry : BMSTableEntry
+    {
+        internal TestablePlaylistEntry(string? md5Value, string? sha256Value)
+        {
+            md5 = md5Value;
+            sha256 = sha256Value;
         }
     }
 

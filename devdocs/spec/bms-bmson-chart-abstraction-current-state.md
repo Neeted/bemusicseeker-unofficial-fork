@@ -81,10 +81,12 @@ bmson の所持譜面の正本は `BMSLibrary.BmsonSongs` であり、要素は 
 - chart_info 系列
 - resource health
 - warning 表示
+- playlist reference (`RefTablesSymbols` / `RefTablesNames`)
+
+playlist reference 表示は、BMS では従来どおり `BMSFile.RefTables` を読む。所持 bmson row は `BmsFile == null` / `RealFile == null` なので、playlist entry の md5 / sha256 から作る読み取り専用の `PlaylistReferenceIndex` を通常一覧 row / virtual source row / playlist detail source row に注入し、chart identity から参照 table 表示を解決する。lookup は既存の参照適用と同じく md5 優先、sha256 fallback とする。
 
 一方、次の列は BMSFile 由来に依存するため、所持 bmson では空または既定値になりやすい。
 
-- `RefTablesSymbols` / `RefTablesNames`
 - LR2 score / ranking 系
 - LR2 BMSID / diff name
 - install destination 系
@@ -252,6 +254,8 @@ playlist detail は `PlaylistDetailSourceRow` / `PlaylistDetailRow` で表示さ
 
 `GridRowResolver` は playlist row から `ChartOperationTarget` を作る際、`RealFile` を BMS、`ResolvedBmson` を bmson として扱う。
 
+playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `RealFile.RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
+
 ### Playlist への追加
 
 `MainWindowViewModel.AddEntriesToFolderBMSTable(...)` は、既存 API 名は BMSTable のままだが、現行では bmson も追加できる。
@@ -360,12 +364,6 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 - `BMSFilesView`
 
 一部は内部で chart 名 helper へ委譲しているが、外部名だけを見ると BMS 専用に見える。
-
-### playlist reference display
-
-`LibraryChartRow.RefTablesSymbols` / `RefTablesNames` は `BmsFile?.RefTables...` に依存する。
-
-所持 bmson row は `BmsFile == null` なので、playlist 参照表示は空になりやすい。playlist entry identity と追加処理は bmson に対応しているが、通常一覧の ref table 表示はまだ BMSFile 依存である。
 
 ### BMS-only views and workflows
 

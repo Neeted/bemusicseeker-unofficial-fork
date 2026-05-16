@@ -9935,6 +9935,10 @@ public class MainWindowViewModel : ViewModel
 
     private void InvalidateNormalLibrarySortKeys(string reason)
     {
+        if (string.Equals(reason, NormalLibraryReferenceTablesChangedReason, StringComparison.Ordinal))
+        {
+            NotifyBmsonPlaylistReferenceDisplayChanged();
+        }
         OnNormalLibrarySortKeyChanged(reason ?? string.Empty);
     }
 
@@ -10020,6 +10024,44 @@ public class MainWindowViewModel : ViewModel
         LogNormalLibrarySortCacheInvalidation("clear", "explicit", cacheCount);
     }
 
+    private void NotifyBmsonPlaylistReferenceDisplayChanged()
+    {
+        Action notify = delegate
+        {
+            if (BMSFilesView is ChartListVirtualView virtualView)
+            {
+                virtualView.ForEachRealizedRow(RaiseBmsonPlaylistReferenceDisplayChanged);
+            }
+            else
+            {
+                foreach (LibraryChartRow row in (BMSFilesView ?? new List<object>()).OfType<LibraryChartRow>())
+                {
+                    RaiseBmsonPlaylistReferenceDisplayChanged(row);
+                }
+            }
+            foreach (LibraryChartRow row in bmsonLibraryRowsByPath.Values.ToList())
+            {
+                RaiseBmsonPlaylistReferenceDisplayChanged(row);
+            }
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            notify();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(notify);
+        }
+    }
+
+    private static void RaiseBmsonPlaylistReferenceDisplayChanged(LibraryChartRow row)
+    {
+        if (row != null && row.BmsFile == null)
+        {
+            row.RaisePlaylistReferenceDisplayChanged();
+        }
+    }
+
     private int GetNormalLibraryCacheCountLocked()
     {
         return normalLibrarySortCache.Count
@@ -10060,20 +10102,46 @@ public class MainWindowViewModel : ViewModel
     private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(BeMusicSeeker.Models.BMSFile file)
     {
         LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
-        ApplyResourceHealthProjectionProvider(row);
+        ApplyLibraryChartRowProviders(row);
         return row;
     }
 
     private LibraryChartRow GetOrCreateRegularBmsLibraryRow(BeMusicSeeker.Models.BMSFile file, LibraryRowCacheBuildStats stats)
     {
         LibraryChartRow row = regularBmsLibraryRowCache.GetOrCreate(file, stats);
-        ApplyResourceHealthProjectionProvider(row);
+        ApplyLibraryChartRowProviders(row);
         return row;
+    }
+
+    private void ApplyLibraryChartRowProviders(LibraryChartRow row)
+    {
+        ApplyResourceHealthProjectionProvider(row);
+        ApplyPlaylistReferenceDisplayProvider(row);
     }
 
     private void ApplyResourceHealthProjectionProvider(LibraryChartRow row)
     {
         row?.SetResourceHealthProjectionProvider(GetResourceHealthProjectionForRow);
+    }
+
+    private void ApplyPlaylistReferenceDisplayProvider(LibraryChartRow row)
+    {
+        row?.SetPlaylistReferenceDisplayProvider(GetPlaylistReferenceDisplayForRow);
+    }
+
+    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForRow(LibraryChartRow row)
+    {
+        return GetPlaylistReferenceDisplayForIdentity(row?.hash, row?.sha256);
+    }
+
+    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForSourceRow(ChartListSourceRow row)
+    {
+        return GetPlaylistReferenceDisplayForIdentity(row?.Hash, row?.Sha256);
+    }
+
+    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForIdentity(string md5, string sha256)
+    {
+        return files?.GetPlaylistReferenceDisplay(md5, sha256) ?? PlaylistReferenceDisplay.Empty;
     }
 
     private LibraryChartRow CreateVirtualNormalLibraryRow(ChartListSourceRow sourceRow)
@@ -10087,7 +10155,7 @@ public class MainWindowViewModel : ViewModel
             return GetOrCreateRegularBmsLibraryRow(sourceRow.BmsFile, null);
         }
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
-        ApplyResourceHealthProjectionProvider(row);
+        ApplyLibraryChartRowProviders(row);
         return row;
     }
 
@@ -10266,7 +10334,8 @@ public class MainWindowViewModel : ViewModel
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
             subsetFiles,
             subsetBmsonSongs,
-            applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null);
+            applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
+            GetPlaylistReferenceDisplayForSourceRow);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
         long sourceRowsSignature = ComputeVirtualBmsFileSubsetSourceRowsSignature(sourceRows);
@@ -10418,6 +10487,7 @@ public class MainWindowViewModel : ViewModel
             {
                 ApplyResourceHealthProjectionProvider(bmsonRow);
             }
+            ApplyPlaylistReferenceDisplayProvider(bmsonRow);
             return bmsonRow;
         }
         LibraryChartRow row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
@@ -10425,6 +10495,7 @@ public class MainWindowViewModel : ViewModel
         {
             ApplyResourceHealthProjectionProvider(row);
         }
+        ApplyPlaylistReferenceDisplayProvider(row);
         return row;
     }
 
@@ -10460,7 +10531,8 @@ public class MainWindowViewModel : ViewModel
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
             BMSFiles,
             includeBmsonRows ? files?.BmsonSongs : null,
-            GetResourceHealthProjectionForSourceRow);
+            GetResourceHealthProjectionForSourceRow,
+            GetPlaylistReferenceDisplayForSourceRow);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -15258,7 +15330,7 @@ public class MainWindowViewModel : ViewModel
         foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo));
+            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo, GetPlaylistReferenceDisplayForIdentity));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
@@ -16657,7 +16729,7 @@ public class MainWindowViewModel : ViewModel
             if (row == null)
             {
                 row = LibraryChartRow.FromBmsonSong(song);
-                ApplyResourceHealthProjectionProvider(row);
+                ApplyLibraryChartRowProviders(row);
                 membershipChanged = true;
                 sortKeyChanged = true;
             }
@@ -16665,7 +16737,7 @@ public class MainWindowViewModel : ViewModel
             {
                 bool hasPreviousSortKeys = bmsonLibrarySortKeysByPath.TryGetValue(song.path, out BmsonLibrarySortKeySnapshot previousSortKeys);
                 row.UpdateFromBmsonSong(song);
-                ApplyResourceHealthProjectionProvider(row);
+                ApplyLibraryChartRowProviders(row);
                 if (!hasPreviousSortKeys || previousSortKeys.HasChanged(row))
                 {
                     sortKeyChanged = true;

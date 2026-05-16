@@ -73,6 +73,45 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.IsFalse(file.RefTables.Contains(shaTable));
     }
 
+    [TestMethod]
+    public void PlaylistReferenceIndex_FindsSha256OnlyBmsonReference()
+    {
+        BmsLibraryPlaylistReferenceService service = new BmsLibraryPlaylistReferenceService(2);
+        BMSTable table = CreateTable(CreateEntry(null, new string('c', 64)));
+        table.symbol = "BMSN";
+        table.name = "Bmson Table";
+
+        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromReferenceMaps(maps);
+        PlaylistReferenceDisplay display = index.Find(null, new string('c', 64));
+
+        Assert.AreEqual("BMSN", display.Symbols);
+        Assert.AreEqual("Bmson Table", display.Names);
+    }
+
+    [TestMethod]
+    public void PlaylistReferenceIndex_ReplacesTableEntries()
+    {
+        BMSTable table = CreateTable(CreateEntry(null, new string('d', 64)));
+        table.symbol = "OLD";
+        table.name = "Old Table";
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
+        index.ReplaceTable(table, table.entries);
+
+        Assert.AreEqual("OLD", index.Find(null, new string('d', 64)).Symbols);
+
+        table.entries = new List<BMSTableEntry>
+        {
+            CreateEntry(null, new string('e', 64))
+        };
+        table.symbol = "NEW";
+        table.name = "New Table";
+        index.ReplaceTable(table, table.entries);
+
+        Assert.AreEqual(string.Empty, index.Find(null, new string('d', 64)).Symbols);
+        Assert.AreEqual("NEW", index.Find(null, new string('e', 64)).Symbols);
+    }
+
     private static BMSTable CreateTable(params TestablePlaylistEntry[] entries)
     {
         BMSTable table = new BMSTable

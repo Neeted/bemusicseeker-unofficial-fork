@@ -2241,6 +2241,10 @@ public class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryPlaylistReferenceService playlistReferenceService = new BmsLibraryPlaylistReferenceService(playlistReferenceApplyChunkSize);
 
+    private readonly object playlistReferenceIndexLock = new object();
+
+    private PlaylistReferenceIndex playlistReferenceIndex = PlaylistReferenceIndex.Empty;
+
     private readonly BmsLibraryPackageInstallService packageInstallService = new BmsLibraryPackageInstallService();
 
     private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService = new BmsLibraryLibraryFileOperationsService();
@@ -9965,6 +9969,66 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(string md5, string sha256)
+    {
+        lock (playlistReferenceIndexLock)
+        {
+            return (playlistReferenceIndex ?? PlaylistReferenceIndex.Empty).Find(md5, sha256);
+        }
+    }
+
+    private void ReplacePlaylistReferenceIndexTable(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
+    {
+        if (table == null)
+        {
+            return;
+        }
+        List<BMSTableEntry> entrySnapshot = SnapshotPlaylistReferenceEntries(table, entries);
+        lock (playlistReferenceIndexLock)
+        {
+            if (playlistReferenceIndex == null)
+            {
+                playlistReferenceIndex = PlaylistReferenceIndex.Empty;
+            }
+            playlistReferenceIndex.ReplaceTable(table, entrySnapshot);
+        }
+    }
+
+    private void RemovePlaylistReferenceIndexTable(BMSTable table)
+    {
+        if (table == null)
+        {
+            return;
+        }
+        lock (playlistReferenceIndexLock)
+        {
+            playlistReferenceIndex?.RemoveTable(table);
+        }
+    }
+
+    private void RemovePlaylistReferenceIndexTables(IEnumerable<BMSTable> tables)
+    {
+        if (tables == null)
+        {
+            return;
+        }
+        lock (playlistReferenceIndexLock)
+        {
+            foreach (BMSTable table in tables.Where((BMSTable table) => table != null).Distinct())
+            {
+                playlistReferenceIndex?.RemoveTable(table);
+            }
+        }
+    }
+
+    private void SynchronizePlaylistReferenceIndex(IEnumerable<BMSTable> tables)
+    {
+        lock (playlistReferenceIndexLock)
+        {
+            playlistReferenceIndex = PlaylistReferenceIndex.FromTables(tables);
+        }
+    }
+
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null, bool suppressFilePropertyChanged = false)
     {
         if (table == null)
@@ -9985,6 +10049,7 @@ public class BMSLibrary : NotificationObject
             sourceEntries = sourceEntries.ToList();
         }
         PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(table, sourceEntries);
+        ReplacePlaylistReferenceIndexTable(table, sourceEntries);
         stopwatchBuildMap.Stop();
         int matchedSongFiles = 0;
         int matchedPendingFiles = 0;
@@ -10031,6 +10096,10 @@ public class BMSLibrary : NotificationObject
         }
         Stopwatch stopwatchBuildMap = Stopwatch.StartNew();
         PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(list);
+        if (files == null)
+        {
+            SynchronizePlaylistReferenceIndex(list);
+        }
         stopwatchBuildMap.Stop();
         long applySongMs = 0L;
         long applyPendingMs = 0L;
@@ -10110,6 +10179,7 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("playlist_ref_replace targetsSong=" + targets.SongFiles.Count + " targetsPending=" + targets.PendingFiles.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
         if (oldTable != null)
         {
+            RemovePlaylistReferenceIndexTable(oldTable);
             RemoveReferenceBMSTables(oldTable, targets.SongFiles);
             RemoveReferenceBMSTables(oldTable, targets.PendingFiles);
         }
@@ -10184,6 +10254,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
+        ReplacePlaylistReferenceIndexTable(table);
         foreach (BMSFile file in files)
         {
             file.AddRefTable(table);
@@ -10208,6 +10279,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
+        ReplacePlaylistReferenceIndexTable(table);
         if (files != null)
         {
             RefreshReferenceDisplayForFiles(files.Where((BMSFile file) => file != null && file.HasRefTable(table)), suppressFilePropertyChanged);
@@ -10260,6 +10332,10 @@ public class BMSLibrary : NotificationObject
         {
             AddReferenceBMSTables(list, null, suppressFilePropertyChanged);
         }
+        else
+        {
+            SynchronizePlaylistReferenceIndex(list);
+        }
     }
 
     /// <summary>
@@ -10273,6 +10349,7 @@ public class BMSLibrary : NotificationObject
         }
         if (entries == null)
         {
+            RemovePlaylistReferenceIndexTable(table);
             Action<IEnumerable<BMSFile>> action = delegate(IEnumerable<BMSFile> files)
             {
                 foreach (BMSFile file in files.Where((BMSFile file) => file != null))
@@ -10297,6 +10374,7 @@ public class BMSLibrary : NotificationObject
             }
             return;
         }
+        ReplacePlaylistReferenceIndexTable(table);
         if (BMSFiles != null && BMSFiles.Count > 0)
         {
             using (rwlockBMSFiles.GetReaderGuard())
@@ -10321,6 +10399,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
+        RemovePlaylistReferenceIndexTables(list);
         Action<IEnumerable<BMSFile>> action = delegate (IEnumerable<BMSFile> l)
         {
             list.AsParallel().ForAll(delegate (BMSTable table)

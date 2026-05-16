@@ -208,7 +208,14 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string SearchText { get; private set; }
 
-    internal PlaylistDetailSourceRow(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson = null, BMSFile scoreProbe = null, BMSScore scoreSnapshot = null, LR2SongDBExtended.chart_info entryChartInfo = null)
+    internal PlaylistDetailSourceRow(
+        BMSTableEntry entry,
+        BMSFile realFile,
+        LR2SongDBExtended.bmson_song resolvedBmson = null,
+        BMSFile scoreProbe = null,
+        BMSScore scoreSnapshot = null,
+        LR2SongDBExtended.chart_info entryChartInfo = null,
+        Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
@@ -235,6 +242,9 @@ internal sealed class PlaylistDetailSourceRow
         memo = entry.memo ?? string.Empty;
         hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, entry.md5);
         sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, entry.sha256, entryChartInfo?.sha256);
+        PlaylistReferenceDisplay playlistReferenceDisplay = realFile == null && playlistReferenceDisplayProvider != null
+            ? playlistReferenceDisplayProvider.Invoke(hash, sha256) ?? PlaylistReferenceDisplay.Empty
+            : PlaylistReferenceDisplay.Empty;
         Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson));
         path = FirstNonEmpty(realFile?.path, resolvedBmson?.path);
         instl_dst = snapshotSource?.instl_dst ?? string.Empty;
@@ -244,8 +254,8 @@ internal sealed class PlaylistDetailSourceRow
         BGAHealth = snapshotSource?.BGAHealth;
         MovieHealth = snapshotSource?.MovieHealth;
         encoding = snapshotSource?.encoding ?? string.Empty;
-        RefTablesSymbols = realFile?.RefTablesSymbols ?? string.Empty;
-        RefTablesNames = realFile?.RefTablesNames ?? string.Empty;
+        RefTablesSymbols = realFile?.RefTablesSymbols ?? playlistReferenceDisplay.Symbols;
+        RefTablesNames = realFile?.RefTablesNames ?? playlistReferenceDisplay.Names;
         clear = ResolveClear(isBmsOwned, isBmsonOwned, scoreProbe, effectiveScore);
         rank = ResolveRank(isBmsOwned, isBmsonOwned, scoreProbe, effectiveScore);
         rate = effectiveScore?.rate ?? scoreProbe?.rate;

@@ -100,6 +100,21 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
         return -1;
     }
 
+    internal void ForEachRealizedRow(Action<LibraryChartRow> action)
+    {
+        if (action == null)
+        {
+            return;
+        }
+        foreach (LibraryChartRow row in realizedRows)
+        {
+            if (row != null)
+            {
+                action(row);
+            }
+        }
+    }
+
     public void Insert(int index, object value)
     {
         throw new NotSupportedException();

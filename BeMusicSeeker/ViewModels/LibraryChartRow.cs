@@ -22,6 +22,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<LibraryChartRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
+    private Func<LibraryChartRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider;
+
     internal bool IsBmson => (BmsFile is PendingChartEntry pending && pending.IsBmsonChart) || (BmsonSong != null && BmsFile == null);
 
     internal bool IsBms => BmsFile != null && !PendingChartEntry.IsBmsonChartFile(BmsFile);
@@ -101,6 +103,17 @@ internal sealed class LibraryChartRow : NotificationObject
     internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
     {
         resourceHealthProjectionProvider = provider;
+    }
+
+    internal void SetPlaylistReferenceDisplayProvider(Func<LibraryChartRow, PlaylistReferenceDisplay> provider)
+    {
+        playlistReferenceDisplayProvider = provider;
+    }
+
+    internal void RaisePlaylistReferenceDisplayChanged()
+    {
+        RaisePropertyChanged(nameof(RefTablesSymbols));
+        RaisePropertyChanged(nameof(RefTablesNames));
     }
 
     public string Title => BmsFile?.Title ?? BmsonSongParser.ComposeDisplayTitle(BmsonSong);
@@ -187,9 +200,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string encoding => BmsFile?.encoding ?? BmsonSong?.MaintenanceInfo?.encoding ?? string.Empty;
 
-    public string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? string.Empty;
+    public string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
 
-    public string RefTablesNames => BmsFile?.RefTablesNames ?? string.Empty;
+    public string RefTablesNames => BmsFile?.RefTablesNames ?? GetPlaylistReferenceDisplay().Names;
 
     public ClearType clear => BmsFile?.clear ?? (string.IsNullOrWhiteSpace(path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
 
@@ -333,6 +346,13 @@ internal sealed class LibraryChartRow : NotificationObject
         return resourceHealthProjectionProvider == null
             ? ResourceHealthWarningProjection.Empty
             : resourceHealthProjectionProvider.Invoke(this) ?? ResourceHealthWarningProjection.Empty;
+    }
+
+    private PlaylistReferenceDisplay GetPlaylistReferenceDisplay()
+    {
+        return playlistReferenceDisplayProvider == null
+            ? PlaylistReferenceDisplay.Empty
+            : playlistReferenceDisplayProvider.Invoke(this) ?? PlaylistReferenceDisplay.Empty;
     }
 
     private static double? ParseNullableDouble(string value)

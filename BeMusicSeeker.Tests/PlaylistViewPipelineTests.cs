@@ -555,6 +555,43 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailSourceRow_BmsonOwnedWithoutRealFile_UsesPlaylistReferenceProjection()
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            title = "Bmson",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64)
+        };
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+        BMSTable table = new BMSTable
+        {
+            name = "Bmson Playlist",
+            symbol = "BMSN",
+            entries = new List<BMSTableEntry> { entry }
+        };
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
+        index.ReplaceTable(table, table.entries);
+
+        PlaylistDetailSourceRow sourceRow = new PlaylistDetailSourceRow(
+            entry,
+            realFile: null,
+            resolvedBmson: bmson,
+            playlistReferenceDisplayProvider: (md5, sha256) => index.Find(md5, sha256));
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+
+        Assert.AreEqual("BMSN", sourceRow.RefTablesSymbols);
+        Assert.AreEqual("Bmson Playlist", sourceRow.RefTablesNames);
+        Assert.AreEqual("BMSN", row.RefTablesSymbols);
+        Assert.AreEqual("Bmson Playlist", row.RefTablesNames);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("BMSN").MatchesPlaylistDetail(sourceRow));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Bmson Playlist\"").MatchesPlaylistDetail(sourceRow));
+    }
+
+    [TestMethod]
     public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithoutOperationBmsFile()
     {
         LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
