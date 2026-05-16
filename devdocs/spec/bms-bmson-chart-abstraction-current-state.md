@@ -342,6 +342,13 @@ resource health は BMS / bmson 共通の表示概念である。
 
 通常一覧の chart_info 表示や sort key は `LibraryChartRow` / `ChartListSourceRow` に materialize された `ChartInfo` を使う。
 
+### 通常一覧 sort
+
+通常一覧の sort 正本は `LibraryChartRowSortEngine` である。
+
+`BMSFileSortEngine` は旧 `BMSFile` 互換確認用の production helper として残っていたが、通常一覧の実行経路から外れ、参照がテストだけになったため削除済みである。  
+互換・性能確認は `BmsSortCompatibilityTests` の test-local legacy baseline と `LibraryChartRowSortEngine` の比較で行う。
+
 ## UI binding / naming compatibility
 
 通常一覧の表示実体は `LibraryChartRow` へ寄っているが、public binding 名は互換のため BMS 名を残している。

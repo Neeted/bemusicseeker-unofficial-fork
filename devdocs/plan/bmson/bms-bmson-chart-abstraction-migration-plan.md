@@ -313,17 +313,17 @@ Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を�
 Phase F-3 に進む前に、DataGrid sort engine を整理する。
 
 - 通常一覧は Phase E 以降 `LibraryChartRowSortEngine` が正本なので、`UseFastSortInDataGridExperimental` は `LibraryChartRowSortEngine` 側で解釈する
-- 挙動は旧 `BMSFileSortEngine.SortForMainView` に合わせ、fast sort 有効時は文字列列を `StringComparer.OrdinalIgnoreCase` ベース、無効時は legacy natural sort ベースにする
+- 挙動は旧 BMSFile 一覧 sort と互換にし、fast sort 有効時は文字列列を `StringComparer.OrdinalIgnoreCase` ベース、無効時は legacy natural sort ベースにする
 - typed sort が必要な列、例えば `Chart*` の数値キー、`rateDouble`、date / bool / numeric property、LEVEL mixed double は設定に関係なく typed sort を使う
 - `Folder` など、従来 playlist detail で legacy natural 固定だった列は互換性を優先し、通常一覧 / playlist detail それぞれの既存 profile を明示する
-- `BMSFileSortEngine` は使用箇所を洗い出す。通常 DataGrid 用途は `LibraryChartRowSortEngine` へ移行済みなので、残る参照がテストまたは互換 shim だけなら廃止、または互換確認用 helper として隔離する
+- `BMSFileSortEngine` は test-only helper 化していたため削除済み。互換・性能確認は `BmsSortCompatibilityTests` から直接 `LibraryChartRowSortEngine` を検証する
 - sort log の `sortEngine=fast|legacy` と実際の `sortProfile` が矛盾しないよう、`library_chart_*` profile 名も fast / legacy / typed の区別が分かる名前に揃える
 
 整理後の境界:
 
 - 通常一覧の実行経路は `LibraryChartRowSortEngine.SortForMainView(..., useLegacySortForDataGrid, ...)` のみ
-- `BMSFileSortEngine.UseLegacySortForDataGrid` は通常一覧から参照しない
-- `BMSFileSortEngine` は旧 `BMSFile` sort 互換検証用として残し、削除する場合は `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植してから判断する
+- 旧 `BMSFileSortEngine.UseLegacySortForDataGrid` は廃止し、通常一覧の切り替えは `LibraryChartRowSortEngine.SortForMainView(..., useLegacySortForDataGrid, ...)` の引数で表す
+- 旧 `BMSFile` sort 互換検証は、production helper を残さず test-local legacy baseline と `LibraryChartRowSortEngine` の比較に寄せる
 
 Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の chart 名化を進める。
 
@@ -332,14 +332,14 @@ F-3 で進める候補:
 - `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は、型がすでに `LibraryChartRow` なので `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ寄せる
 - `SetBMSFilesView()` は private helper なので、`SetChartRowsView()` を主 API にし、旧名は必要なら shim にする
 - `GetSelectedGridRealFiles` / `GetSelectedGridOperationFiles` / `GetSelectedGridOperationChartFiles` の残存用途を整理し、新規 handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedPendingChartFiles` へ統一する
-- `BMSFileSortEngine` は通常一覧の実行経路から外れているため、互換検証用 helper として隔離する。削除する場合は `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植した後に行う
+- `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:
 
 - 通常一覧の内部 cache / setter は chart row 名へ寄せるが、public binding の `BMSFilesView` は XAML / settings 互換のため維持する
 - BMS 専用 handler は `GetSelectedBmsChartFiles`、pending/package 互換 handler は `GetSelectedPendingChartFiles` を使い、汎用的な legacy selection shim は使用箇所がなくなったら削除する
-- `BMSFileSortEngine` は通常一覧から参照せず、旧 `BMSFile` sort 互換検証用として残す
+- `BMSFileSortEngine` は残さず、通常一覧 sort の正本を `LibraryChartRowSortEngine` に一本化する
 
 F-3 では後回しにするもの:
 
@@ -368,7 +368,7 @@ F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいった
 
 完了後に残す次候補:
 
-- `BMSFileSortEngine` を test-only helper として隔離するか、`BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植して削除する
+- `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植し、test-only だった `BMSFileSortEngine` は削除済み
 - converter / private helper など、XAML binding に影響しない内部 UI 名を小さく chart 名へ寄せる
 - `BMSPackage.ChartFiles` の呼び出し側移行と `PendingChartEntry : BMSFile` の本格抽象化を検討する。ただし package discovery / pending install への影響が大きいため、実害が出た箇所から段階的に進める
 - public `BMSFilesView` / settings / column state 名の rename は互換リスクが高いため当面保留する
