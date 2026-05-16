@@ -306,7 +306,7 @@ Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を�
 
 - resource health は `ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` を主 API とし、BMS / bmson 両方を対象にする
 - pending install destination は `UpdateInstallDestination`、所持 BMS の再インストール先修復は `RepairInstalledLocation` として capability を分離する
-- `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingCharts`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
+- `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
 - `BMSLibrary` には `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `MoveChartFile`, `RemoveChartFiles` を追加し、旧 BMS 名 API は wrapper として残す
 - `BMSFilesView`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す。`BMSPackage.BMSFiles` は `ChartFiles` への段階移行を進めるが、互換 alias として残す
 
@@ -347,7 +347,7 @@ F-3 では後回しにするもの:
 - `BMSPackage.ChartFiles` は pending install / package chart discovery の中核であり、参照時に lazy discovery が走る意味も維持する。`BMSPackage.BMSFiles` は既存互換 alias として残し、「package 内 chart の BMSFile 互換 adapter list」と説明する
 - `BMSLibrary.BMSFiles` は LR2 `song` table 側の source of truth として残す。BMS / bmson 共通表示は `LibraryChartRow` / `OwnedChartRef` で扱い、storage model は `BMSFiles` と `BmsonSongs` の二本立てを維持する
 - `BMSFilesGarbled`, `BMSFilesZeroNote`, encoding / zero-note / LR2IR / ScoreViewer などは BMS 専用意味を持つため chart 名へ広げない
-- install package 操作 (`InstallBMSFiles`, `ForceInstallBMSFiles`, `ManualInstallBMSFiles` など) は pending/package 層の影響が大きいため、Phase F-3 では wrapper 追加以上の rename をしない
+- install package 操作は ViewModel / UI の入口を `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts` へ寄せる。DB / model 内部名は pending/package 層への影響を見ながら段階移行する
 
 F-3 の確認観点:
 

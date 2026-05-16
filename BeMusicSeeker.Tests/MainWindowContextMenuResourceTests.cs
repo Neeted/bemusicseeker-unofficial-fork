@@ -846,7 +846,7 @@ public sealed class MainWindowContextMenuResourceTests
         string method = ExtractBetween(
             viewModelCode,
             "public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)",
-            "public void ManualInstallBMSFiles");
+            "public void ManualInstallPendingCharts");
 
         StringAssert.Contains(method, "tables.ReloadPlaylistTargetsAsync(");
         StringAssert.Contains(method, "CreatePlaylistReferenceReplaceUpdateCallback()");

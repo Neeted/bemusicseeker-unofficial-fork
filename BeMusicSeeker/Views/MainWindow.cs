@@ -3840,7 +3840,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.RemoveBMSPackagesPendingAll();
+                viewModel.RemovePendingPackagesAll();
             }).Logging("treeViewInstallPendingContextMenuClearAllClick");
         }
     }
@@ -4086,7 +4086,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuClearFolderClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveBMSPackagesPending(new BMSPackage[1] { pkg });
+            viewModel.RemovePendingPackages(new BMSPackage[1] { pkg });
         }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4143,7 +4143,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.RemoveInstallDestination(new BMSPackage[1] { pkg });
+                viewModel.ClearInstallDestinationForPendingPackages(new BMSPackage[1] { pkg });
             }).Logging("treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
         }
     }
@@ -4167,7 +4167,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuForceInstallClick");
         await Task.Run(delegate
         {
-            viewModel.ForceInstallBMSFiles(new BMSPackage[1] { pkg });
+            viewModel.ForceInstallPendingPackages(new BMSPackage[1] { pkg });
         }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4197,7 +4197,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuManualInstallClick");
         await Task.Run(delegate
         {
-            viewModel.ManualInstallBMSFiles(new BMSPackage[1] { pkg });
+            viewModel.ManualInstallPendingPackages(new BMSPackage[1] { pkg });
         }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4224,7 +4224,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.SearchInstallationDirectoryBMSFiles(new BMSPackage[1] { pkg });
+                viewModel.SearchInstallDestinationForPendingPackages(new BMSPackage[1] { pkg });
             }).Logging("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
         }
     }
@@ -6813,7 +6813,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ForceInstallBMSFiles(bmsFiles);
+            viewModel.ForceInstallPendingCharts(bmsFiles);
         }).Logging("forceInstallSelectedBMS");
     }
 
@@ -6848,7 +6848,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ManualInstallBMSFiles(bmsFiles);
+            viewModel.ManualInstallPendingCharts(bmsFiles);
         }).Logging("manualInstallSelectedBMS");
     }
 
@@ -6908,7 +6908,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
             await Task.Run(delegate
             {
-                viewModel.RemoveBMSPackagesPending(selectedBmsFiles);
+                viewModel.RemovePendingPackages(selectedBmsFiles);
             }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {

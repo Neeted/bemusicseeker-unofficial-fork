@@ -17595,7 +17595,7 @@ public class MainWindowViewModel : ViewModel
     /// 探索結果は内部の BMSLibrary に対して適用されます。
     /// </summary>
     /// <param name="packages">探索・復旧対象となるBMSパッケージのコレクション。</param>
-    public void SearchInstallationDirectoryBMSFiles(IEnumerable<BMSPackage> packages)
+    public void SearchInstallDestinationForPendingPackages(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
         {
@@ -17630,11 +17630,6 @@ public class MainWindowViewModel : ViewModel
     /// 同一パッケージに属するファイル群はまとめてパッケージ単位で探索が試みられます。
     /// </summary>
     /// <param name="bmsFiles">探索・復旧対象となるBMSファイルのコレクション。</param>
-    public void SearchInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        SearchInstallDestinationForPendingCharts(bmsFiles);
-    }
-
     public void SearchInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         if (chartFiles == null)
@@ -19751,7 +19746,7 @@ public class MainWindowViewModel : ViewModel
         return list2.Distinct().ToList();
     }
 
-    public void ForceInstallBMSFiles(IEnumerable<BMSPackage> packages)
+    public void ForceInstallPendingPackages(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
         {
@@ -19764,17 +19759,21 @@ public class MainWindowViewModel : ViewModel
         }, list.SelectMany((BMSPackage p) => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
-    public void ForceInstallBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void ForceInstallPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile bmsInfo) => bmsInfo != null).ToList();
+        if (chartFiles == null)
+        {
+            throw new ArgumentNullException("chartFiles");
+        }
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile chartFile) => chartFile != null).ToList();
         lock (lockCopyFile)
         {
             List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
-            ForceInstallBMSFiles(bMSPackages);
+            ForceInstallPendingPackages(bMSPackages);
         }
     }
 
-    public void ManualInstallBMSFiles(IEnumerable<BMSPackage> packages)
+    public void ManualInstallPendingPackages(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
         {
@@ -20314,17 +20313,21 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void ManualInstallBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void ManualInstallPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile bmsInfo) => bmsInfo != null).ToList();
+        if (chartFiles == null)
+        {
+            throw new ArgumentNullException("chartFiles");
+        }
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile chartFile) => chartFile != null).ToList();
         lock (lockCopyFile)
         {
             List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
-            ManualInstallBMSFiles(bMSPackages);
+            ManualInstallPendingPackages(bMSPackages);
         }
     }
 
-    public void RemoveBMSPackagesPendingAll()
+    public void RemovePendingPackagesAll()
     {
         RunPendingInstallMutation(delegate
         {
@@ -20332,7 +20335,7 @@ public class MainWindowViewModel : ViewModel
         });
     }
 
-    public void RemoveBMSPackagesPending(IEnumerable<BMSPackage> packages)
+    public void RemovePendingPackages(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
         {
@@ -20344,15 +20347,15 @@ public class MainWindowViewModel : ViewModel
         });
     }
 
-    public void RemoveBMSPackagesPending(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void RemovePendingPackages(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
-        if (bmsFiles == null)
+        if (chartFiles == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("chartFiles");
         }
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
         List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
-        RemoveBMSPackagesPending(bMSPackages);
+        RemovePendingPackages(bMSPackages);
     }
 
     public List<BMSPackage> GetPendingPackagesContainingOnlyInstalledCharts()
@@ -20459,7 +20462,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RemoveInstallDestination(IEnumerable<BMSPackage> packages)
+    public void ClearInstallDestinationForPendingPackages(IEnumerable<BMSPackage> packages)
     {
         if (files != null)
         {
@@ -20474,11 +20477,6 @@ public class MainWindowViewModel : ViewModel
             }
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
-    }
-
-    public void RemoveInstallDestination(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        ClearInstallDestinationForCharts(bmsFiles);
     }
 
     public void ClearInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
