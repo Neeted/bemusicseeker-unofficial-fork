@@ -10,9 +10,9 @@ namespace BeMusicSeeker.Models;
 
 public class BMSPackage : LR2SongDBExtended.install
 {
-	private List<BMSFile> bmsFiles;
+	private List<BMSFile> chartFiles;
 
-	private readonly bool hasExplicitBmsFiles;
+	private readonly bool hasExplicitChartFiles;
 
 	private readonly object installEstimationSnapshotLock = new object();
 
@@ -22,19 +22,21 @@ public class BMSPackage : LR2SongDBExtended.install
 
 	internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
 
-	public List<PendingChartEntry> PendingCharts => (BMSFiles ?? new List<BMSFile>()).OfType<PendingChartEntry>().ToList();
+	public List<PendingChartEntry> PendingCharts => (ChartFiles ?? new List<BMSFile>()).OfType<PendingChartEntry>().ToList();
 
-	public List<BMSFile> BMSFiles
+	public List<BMSFile> ChartFiles
 	{
 		get
 		{
-			if (hasExplicitBmsFiles)
+			if (hasExplicitChartFiles)
 			{
-				return bmsFiles ?? new List<BMSFile>();
+				return chartFiles ?? new List<BMSFile>();
 			}
-			return GetOrBuildPackageChartDiscoverySnapshot(out _).BmsFiles;
+			return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartFiles;
 		}
 	}
+
+	public List<BMSFile> BMSFiles => ChartFiles;
 
 	public BMSPackage()
 	{
@@ -43,14 +45,14 @@ public class BMSPackage : LR2SongDBExtended.install
 	public BMSPackage(BMSFile bmsFile)
 	{
 		path = bmsFile.path;
-		bmsFiles = new List<BMSFile> { bmsFile };
-		hasExplicitBmsFiles = true;
+		chartFiles = new List<BMSFile> { bmsFile };
+		hasExplicitChartFiles = true;
 	}
 
-	public BMSPackage(IEnumerable<BMSFile> bmsFiles)
+	public BMSPackage(IEnumerable<BMSFile> chartFiles)
 	{
-		this.bmsFiles = bmsFiles.ToList();
-		hasExplicitBmsFiles = true;
+		this.chartFiles = chartFiles.ToList();
+		hasExplicitChartFiles = true;
 	}
 
 	internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles)

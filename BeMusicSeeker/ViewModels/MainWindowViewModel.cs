@@ -11390,7 +11390,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (parameter is BMSPackage package)
         {
-            sourceFiles = package.BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
+            sourceFiles = package.ChartFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
             subsetName = packageSubsetName;
             return true;
         }
@@ -11423,9 +11423,9 @@ public class MainWindowViewModel : ViewModel
         {
             try
             {
-                if (package?.BMSFiles != null)
+                if (package?.ChartFiles != null)
                 {
-                    snapshot.AddRange(package.BMSFiles.Where(file => file != null));
+                    snapshot.AddRange(package.ChartFiles.Where(file => file != null));
                 }
             }
             catch
@@ -16130,7 +16130,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (parameter != null && parameter is BMSPackage)
                 {
-                    ChartRowsFolderView = ToLibraryChartRows((parameter as BMSPackage).BMSFiles, CreateLibraryChartRowWithResourceHealthProjection);
+                    ChartRowsFolderView = ToLibraryChartRows((parameter as BMSPackage).ChartFiles, CreateLibraryChartRowWithResourceHealthProjection);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
@@ -16141,7 +16141,7 @@ public class MainWindowViewModel : ViewModel
                         {
                             if (p != null)
                             {
-                                return p.BMSFiles;
+                                return p.ChartFiles;
                             }
                             return Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
                         }
@@ -16166,7 +16166,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (parameter != null && parameter is BMSPackage)
                 {
-                    ChartRowsFolderView = ToLibraryChartRows((parameter as BMSPackage).BMSFiles);
+                    ChartRowsFolderView = ToLibraryChartRows((parameter as BMSPackage).ChartFiles);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
@@ -16177,7 +16177,7 @@ public class MainWindowViewModel : ViewModel
                         {
                             if (p != null)
                             {
-                                return p.BMSFiles;
+                                return p.ChartFiles;
                             }
                             return Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
                         }

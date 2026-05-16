@@ -43,7 +43,13 @@ internal sealed class PackageChartDiscoverySnapshot
 {
     public string SourcePath { get; set; } = string.Empty;
 
-    public List<BMSFile> BmsFiles { get; set; } = new List<BMSFile>();
+    public List<BMSFile> ChartFiles { get; set; } = new List<BMSFile>();
+
+    public List<BMSFile> BmsFiles
+    {
+        get => ChartFiles;
+        set => ChartFiles = value ?? new List<BMSFile>();
+    }
 }
 
 internal sealed class PackageInstallEstimationSnapshot
@@ -183,14 +189,14 @@ internal static class PackageInstallEstimationSnapshotBuilder
             return new PackageChartDiscoverySnapshot
             {
                 SourcePath = normalizedPath,
-                BmsFiles = CreatePendingChartsFromPaths(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>())
+                ChartFiles = CreatePendingChartsFromPaths(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>())
             };
         }
 
         return new PackageChartDiscoverySnapshot
         {
             SourcePath = normalizedPath,
-            BmsFiles = File.Exists(normalizedPath) && PendingChartEntry.IsSupportedChartFilePath(normalizedPath)
+            ChartFiles = File.Exists(normalizedPath) && PendingChartEntry.IsSupportedChartFilePath(normalizedPath)
                 ? new List<BMSFile> { CreatePendingChartFromPath(normalizedPath) }.Where((BMSFile file) => file != null).ToList()
                 : new List<BMSFile>()
         };

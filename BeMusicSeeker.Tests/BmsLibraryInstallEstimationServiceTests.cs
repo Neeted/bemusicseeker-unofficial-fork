@@ -817,7 +817,32 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void BMSPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenBmsFilesAreRequested()
+    public void BMSPackage_ChartFiles_AndBMSFilesShareExplicitMutableList()
+    {
+        BMSFile plainBms = new BMSFile
+        {
+            path = "C:\\Charts\\plain.bms"
+        };
+        PendingChartEntry pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Charts\\chart.bmson",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('b', 64)
+        });
+        BMSPackage package = new BMSPackage(new BMSFile[] { plainBms, pendingBmson });
+
+        Assert.AreSame(package.ChartFiles, package.BMSFiles);
+        Assert.AreEqual(2, package.ChartFiles.Count);
+        Assert.AreEqual(1, package.PendingCharts.Count);
+
+        package.ChartFiles.Remove(plainBms);
+
+        Assert.AreEqual(1, package.BMSFiles.Count);
+        Assert.AreSame(pendingBmson, package.BMSFiles[0]);
+    }
+
+    [TestMethod]
+    public void BMSPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartFilesAreRequested()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithPendingPackageSourceScanSetting(enabled: false, delegate
@@ -829,6 +854,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Directory.CreateDirectory(soundDir);
                 File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1");
                 File.WriteAllText(Path.Combine(sourceDir, "chart2.bme"), "#PLAYER 1");
+                File.WriteAllText(Path.Combine(sourceDir, "chart3.bmson"), "{}");
                 File.WriteAllText(Path.Combine(soundDir, "00.wav"), "audio");
 
                 BMSPackage package = new BMSPackage
@@ -837,18 +863,20 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     delete_parent = true
                 };
 
-                List<BMSFile> firstFiles = package.BMSFiles;
-                List<BMSFile> secondFiles = package.BMSFiles;
+                List<BMSFile> firstFiles = package.ChartFiles;
+                List<BMSFile> secondFiles = package.ChartFiles;
                 PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
                 PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
 
                 Assert.AreSame(firstFiles, secondFiles);
-                Assert.AreEqual(2, firstFiles.Count);
-                Assert.AreEqual(2, firstSnapshot.ChartCount);
+                Assert.AreSame(firstFiles, package.BMSFiles);
+                Assert.AreEqual(3, firstFiles.Count);
+                Assert.AreEqual(1, firstFiles.OfType<PendingChartEntry>().Count(file => file.IsBmsonChart));
+                Assert.AreEqual(3, firstSnapshot.ChartCount);
                 Assert.AreEqual(sourceDir, firstSnapshot.SourceDirectory);
                 Assert.AreEqual("fast", firstSnapshot.SourceSurfaceScanBackend);
                 Assert.IsFalse(firstSnapshot.SourceSurfaceCacheHit);
-                Assert.IsTrue(firstSnapshot.SourceSurfaceTrackedFileCount >= 3);
+                Assert.IsTrue(firstSnapshot.SourceSurfaceTrackedFileCount >= 4);
                 Assert.AreEqual(1, firstSnapshot.BundledAudioCount);
                 Assert.IsTrue(secondSnapshot.SourceSurfaceCacheHit);
             });
@@ -877,11 +905,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     delete_parent = true
                 };
 
-                List<BMSFile> filesFromA = package.BMSFiles;
+                List<BMSFile> filesFromA = package.ChartFiles;
                 PackageInstallEstimationSnapshot snapshotA = package.GetOrBuildInstallEstimationSnapshot(filesFromA);
 
                 package.path = sourceDirB;
-                List<BMSFile> filesFromB = package.BMSFiles;
+                List<BMSFile> filesFromB = package.ChartFiles;
                 PackageInstallEstimationSnapshot snapshotB = package.GetOrBuildInstallEstimationSnapshot(filesFromB);
                 PackageInstallEstimationSnapshot cachedSnapshotB = package.GetOrBuildInstallEstimationSnapshot(filesFromB);
 

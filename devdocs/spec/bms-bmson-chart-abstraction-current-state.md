@@ -199,12 +199,13 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 
 主な現行仕様:
 
-- `BMSPackage.BMSFiles` は `List<BMSFile>` を返す。
-- 明示的に `bmsFiles` を渡された package ではその list を返す。
+- `BMSPackage.ChartFiles` は package 内 chart discovery の primary API であり、`List<BMSFile>` を返す。
+- `BMSPackage.BMSFiles` は既存呼び出し互換の alias であり、実態は `ChartFiles` と同じ list である。
+- 明示的に `chartFiles` を渡された package ではその list を返す。
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
-- `PendingCharts` は `BMSFiles.OfType<PendingChartEntry>()` である。
+- `PendingCharts` は `ChartFiles.OfType<PendingChartEntry>()` である。
 
-`PackageChartDiscoverySnapshot.BmsFiles` も `List<BMSFile>` である。ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
+`PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。互換のため `BmsFiles` alias も残す。ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
 
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。
 
@@ -344,13 +345,13 @@ resource health は BMS / bmson 共通の表示概念である。
 
 `PendingChartEntry : BMSFile` により移行は進んでいるが、`BMSFile` 型を見るだけでは「実体 BMS」なのか「chart adapter」なのか判定できない。`PendingChartEntry.IsBmsChartFile(...)` / `IsBmsonChartFile(...)` や `OwnedChartRef.Kind` を見る必要がある。
 
-### `BMSPackage.BMSFiles`
+### `BMSPackage.ChartFiles` / `BMSPackage.BMSFiles`
 
-`BMSPackage.BMSFiles` は package 内 chart discovery の結果だが、型は `List<BMSFile>` のままである。
+`BMSPackage.ChartFiles` / `BMSPackage.BMSFiles` は package 内 chart discovery の結果だが、型は `List<BMSFile>` のままである。
 
 bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` を「BMS のみ」と解釈してはいけない。
 
-将来 `ChartPackage` 化する場合、ここは `ChartFiles` / `PendingCharts` の primary API に置き換える候補である。
+将来 `ChartPackage` 化する場合、既存 `BMSPackage` は `ChartFiles` を primary API、`BMSFiles` を互換 alias として残しながら呼び出し側を段階移行する。
 
 ### model APIs の BMS 名
 
@@ -430,6 +431,6 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.BMSFiles` �
 2. UI / operation の入口は chart target に寄せる。
 3. BMS-only 処理は capability で明示する。
 4. `BMSFile` 型を見ただけで BMS 専用と判断しない。`PendingChartEntry` の kind または `OwnedChartRef.Kind` を確認する。
-5. `BMSPackage.BMSFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。
+5. `BMSPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。`BMSFiles` は互換 alias として同じ list を返す。
 6. public binding / settings 名の BMS は互換契約として残り得る。内部 helper から段階的に chart 名へ寄せる。
 7. `ChartFile` / `ChartPackage` を導入しても、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。
