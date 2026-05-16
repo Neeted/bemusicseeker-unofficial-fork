@@ -20975,7 +20975,7 @@ public class MainWindowViewModel : ViewModel
             tables.AddPlaylistEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
         tables.ReOutputCustomFolderAndCommitToDB(bmsTable);
-        updateBMSFilesViewForPlaylist(bmsTable);
+        RefreshChartRowsViewForPlaylist(bmsTable);
         tables.AcquireReaderLockBMSTables();
         files.AddReferenceBMSTables(bmsTable, resolvedFiles);
         tables.FreeReaderLockBMSTables();
@@ -21013,14 +21013,14 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         tables.RemoveEntriesBMSTable(bmsEntries, bmsTable);
-        updateBMSFilesViewForPlaylist(bmsTable);
+        RefreshChartRowsViewForPlaylist(bmsTable);
         tables.AcquireReaderLockBMSTables();
         files.RemoveReferenceBMSTables(bmsTable, bmsEntries);
         tables.FreeReaderLockBMSTables();
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
-    private void updateBMSFilesViewForPlaylist(BMSTable bmsTableUpdated)
+    private void RefreshChartRowsViewForPlaylist(BMSTable bmsTableUpdated)
     {
         RefreshPlaylistSummaryIfVisible("playlist_entries_updated", invalidateTableCountCache: true);
         BMSTable bMSTable = null;
