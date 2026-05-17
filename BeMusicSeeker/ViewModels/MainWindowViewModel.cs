@@ -21358,7 +21358,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void AutoRenameAllBMSFolder(string parentDir = null)
+    public void AutoRenameAllChartFolders(string parentDir = null)
     {
         List<BeMusicSeeker.Models.BMSFile> chartFiles = GetLibraryChartFilesForFolderOperations();
         if (chartFiles.Count == 0)
@@ -21380,7 +21380,7 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            files.AutoRenameBMSFolder(targetCharts);
+            files.AutoRenameChartFolders(targetCharts);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
@@ -21396,9 +21396,9 @@ public class MainWindowViewModel : ViewModel
         return chartFiles;
     }
 
-    public void AutoRenameBMSFolder(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void AutoRenameChartFolders(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFilesSource)
     {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = (bmsFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = (chartFilesSource ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
             .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
             .ToList();
         if (chartFiles.Count == 0)
@@ -21408,7 +21408,7 @@ public class MainWindowViewModel : ViewModel
         lock (lockCopyFile)
         {
             stopPlayingBMSFile(chartFiles);
-            files.AutoRenameBMSFolder(chartFiles);
+            files.AutoRenameChartFolders(chartFiles);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }

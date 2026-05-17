@@ -3829,7 +3829,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 try
                 {
-                    viewModel.AutoRenameAllBMSFolder(path);
+                    viewModel.AutoRenameAllChartFolders(path);
                 }
                 finally
                 {
@@ -6605,7 +6605,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 try
                 {
-                    viewModel.AutoRenameBMSFolder(chartFiles);
+                    viewModel.AutoRenameChartFolders(chartFiles);
                 }
                 finally
                 {

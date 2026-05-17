@@ -787,12 +787,12 @@ public sealed class MainWindowContextMenuResourceTests
             "if (menuItem17 != null)");
         string autoRenameAll = ExtractBetween(
             viewModelCode,
-            "public void AutoRenameAllBMSFolder",
-            "public void AutoRenameBMSFolder");
+            "public void AutoRenameAllChartFolders",
+            "public void AutoRenameChartFolders");
         string chartFilesForFolderOperations = ExtractBetween(
             viewModelCode,
             "private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()",
-            "public void AutoRenameBMSFolder");
+            "public void AutoRenameChartFolders");
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None)");
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));

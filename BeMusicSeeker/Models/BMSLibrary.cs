@@ -10479,13 +10479,13 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// BMS ファイル群のフォルダ名をメタデータに基づいて自動リネームします。
+    /// 譜面ファイル群のフォルダ名をメタデータに基づいて自動リネームします。
     /// </summary>
-    public void AutoRenameBMSFolder(IEnumerable<BMSFile> bmsFiles, bool renameRootFolder = false)
+    public void AutoRenameChartFolders(IEnumerable<BMSFile> chartFiles, bool renameRootFolder = false)
     {
-        if (bmsFiles == null)
+        if (chartFiles == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("chartFiles");
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -10495,7 +10495,7 @@ public class BMSLibrary : NotificationObject
                 {
                     List<string> rootFolders = getBMSDirectories();
                     List<BMSFile> chartRows = GetLibraryChartRowsForFolderOperations();
-                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(bmsFiles, chartRows, rootFolders, renameRootFolder, CreateChartFolderPath);
+                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(chartFiles, chartRows, rootFolders, renameRootFolder, CreateChartFolderPath);
                     if (plans.Any((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
                     {
                         dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);

@@ -361,6 +361,7 @@ F-3 で進める候補 / 進捗:
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
 - subset view の仮想 filter / sort cache / test helper は `VirtualChartSubset*` へ移行し、BMS / bmson を含む chart row subset として扱う。ログ検索互換のため、既存 performance log scope は当面 `bms_file_subset` のまま維持する
 - 所持 bmson row の adapter 共有は `BmsonChartAdapterProvider` / `sharedBmsonChartAdaptersByKey` へ寄せる。`CompatibilityBmsFile` property は legacy `BMSFile` API 互換境界として残す
+- folder auto rename は `AutoRenameChartFolders` / `AutoRenameAllChartFolders` に寄せる。`RenameBMSFolder` / `MergeBMSDirectory` など folder vocabulary は既存 UI / root 設定境界を確認しながら段階移行する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:
