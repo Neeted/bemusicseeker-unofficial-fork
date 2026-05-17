@@ -260,6 +260,7 @@ internal static class GridRowResolver
             row.mode,
             null,
             null,
+            null,
             null);
         return true;
     }
@@ -292,6 +293,7 @@ internal static class GridRowResolver
             row.mode,
             row.ChartInfo,
             null,
+            null,
             null);
         return true;
     }
@@ -316,6 +318,7 @@ internal static class GridRowResolver
                 pending.level ?? song.level,
                 pending.mode ?? BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
                 pending.ChartInfo,
+                null,
                 file,
                 song);
         }
@@ -329,6 +332,7 @@ internal static class GridRowResolver
             ParseNullableDouble(file.Level),
             file.mode,
             file.ChartInfo,
+            file,
             file,
             null);
     }
@@ -349,6 +353,7 @@ internal static class GridRowResolver
             song.level,
             BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             song.ChartInfo,
+            null,
             operationFile,
             song);
     }

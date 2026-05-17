@@ -112,7 +112,7 @@ ChartFile
   Mode
   Capabilities
   StorageOwner
-    BmsSongRow?      // Kind=Bms の LR2 song row
+    BmsFile?         // Kind=Bms の LR2 song row owner
     BmsonSongRow?    // Kind=Bmson の app-owned bmson_song row
   CompatibilityBmsFile? // legacy BMSFile API へ渡す必要がある場合だけ作る adapter
 ```

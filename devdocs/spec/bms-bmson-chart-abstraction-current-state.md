@@ -78,7 +78,7 @@ parent folder cache は更新通知としては bmson 変更でも無効化さ�
 - `LR2SongDBExtended.bmson_song`
 - pending / newly installed の `PendingChartEntry`
 
-`LibraryChartRow.Chart` は `ChartFile` を返す。BMS では実体 `BMSFile` を `CompatibilityBmsFile` として持ち、bmson では `BmsonSong` と、必要に応じて既存 `BMSFile` API 用の adapter を `CompatibilityBmsFile` として持つ。pending bmson の場合は、現在の adapter path / hash を優先しつつ `BmsonSong` も保持する。
+`LibraryChartRow.Chart` は `ChartFile` を返す。BMS では storage owner として実体 `BMSFile` を `BmsFile` に持ち、既存 `BMSFile` API 用にも同じ instance を `CompatibilityBmsFile` として渡す。bmson では storage owner として `BmsonSong` を持ち、必要に応じて既存 `BMSFile` API 用の adapter を `CompatibilityBmsFile` として持つ。pending bmson の場合は、現在の adapter path / hash を優先しつつ `BmsonSong` も保持する。
 
 表示列は BMS / bmson で共通化されているものが多い。
 
@@ -131,6 +131,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 - `Sha256`
 - title / artist / level / mode
 - `ChartInfo`
+- `BmsFile`
 - `CompatibilityBmsFile`
 - `BmsonSong`
 
@@ -143,7 +144,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。
 
-`GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。bmson owned row でも `ChartFile.CompatibilityBmsFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
+`GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。bmson owned row でも `ChartFile.CompatibilityBmsFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。`ChartFile.BmsFile` は BMS storage owner だけを表し、bmson adapter には使わない。
 
 ### `ChartOperationTarget`
 
@@ -450,8 +451,8 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 - maintenance / resource health
 - resource references
 - source scope: library / pending / newly installed / playlist
-- storage owner: `BMSFile` または `bmson_song`
-- compatibility file: legacy `BMSFile` API へ渡す必要がある場合だけ作る adapter
+- storage owner: BMS は `BmsFile`, bmson は `BmsonSong`
+- compatibility file: legacy `BMSFile` API へ渡す必要がある場合だけ作る `CompatibilityBmsFile` adapter
 
 Kind ごとの storage 境界は次の通り。
 

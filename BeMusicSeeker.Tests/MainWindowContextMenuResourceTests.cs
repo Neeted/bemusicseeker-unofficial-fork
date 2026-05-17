@@ -1436,6 +1436,7 @@ public sealed class MainWindowContextMenuResourceTests
     private static ChartOperationTarget CreateContextMenuTarget(ChartFileKind kind, ChartOperationCapabilities capabilities)
     {
         string path = kind == ChartFileKind.Bmson ? @"C:\Charts\chart.bmson" : @"C:\Charts\chart.bms";
+        BMSFile bmsFile = kind == ChartFileKind.Bms ? new BMSFile { path = path } : null!;
         ChartFile chart = new ChartFile(
             kind,
             path,
@@ -1446,7 +1447,8 @@ public sealed class MainWindowContextMenuResourceTests
             7,
             1,
             null,
-            kind == ChartFileKind.Bms ? new BMSFile { path = path } : null,
+            bmsFile,
+            bmsFile,
             kind == ChartFileKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path } : null);
         return new ChartOperationTarget(
             chart,

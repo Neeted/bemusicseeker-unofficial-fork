@@ -52,6 +52,7 @@ internal sealed class LibraryChartRow : NotificationObject
                     isPendingBmson ? pending.level ?? bmsonSong.level : bmsonSong.level,
                     isPendingBmson ? pending.mode ?? BmsonSongParser.ResolvePlaylistMode(bmsonSong.mode_hint) : BmsonSongParser.ResolvePlaylistMode(bmsonSong.mode_hint),
                     isPendingBmson ? pending.ChartInfo : bmsonSong.ChartInfo,
+                    null,
                     operationFile,
                     bmsonSong);
             }
@@ -65,6 +66,7 @@ internal sealed class LibraryChartRow : NotificationObject
                 ParseNullableDouble(BmsFile?.Level),
                 BmsFile?.mode,
                 BmsFile?.ChartInfo,
+                BmsFile,
                 BmsFile,
                 null);
         }
