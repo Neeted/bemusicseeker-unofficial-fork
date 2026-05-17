@@ -10185,8 +10185,8 @@ reportProgress,
         using (table.ReaderWriterLock.GetReaderGuard())
         {
             RemoveReferenceBMSTables(table, files.Where(f => (from e in entries
-                                                                        where !string.IsNullOrWhiteSpace(e.md5) && !e.is_removed
-                                                                        select e.md5).Contains(f.hash)));
+                                                              where !string.IsNullOrWhiteSpace(e.md5) && !e.is_removed
+                                                              select e.md5).Contains(f.hash)));
         }
     }
 

@@ -508,10 +508,10 @@ public class CustomTableColumnSettings : NotificationObject
         get
         {
             _Sha256 ??= new ColumnLayout
-                {
-                    Width = 480,
-                    Visibility = Visibility.Hidden
-                };
+            {
+                Width = 480,
+                Visibility = Visibility.Hidden
+            };
             return _Sha256;
         }
         set

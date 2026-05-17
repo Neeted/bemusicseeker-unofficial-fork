@@ -20787,8 +20787,8 @@ public class MainWindowViewModel : ViewModel
                 if (md5sInTheSameDir.Count > 0)
                 {
                     text = bmsTable.folder_list.Where(folder => !string.IsNullOrWhiteSpace(folder)).FirstOrDefault(folder => (from e in bmsTable.entries
-                                                                                                                                                where e.folder == folder
-                                                                                                                                                select e.md5).ToList().Intersect(md5sInTheSameDir, StringComparer.OrdinalIgnoreCase).Any());
+                                                                                                                              where e.folder == folder
+                                                                                                                              select e.md5).ToList().Intersect(md5sInTheSameDir, StringComparer.OrdinalIgnoreCase).Any());
                 }
                 if (string.IsNullOrWhiteSpace(text))
                 {
