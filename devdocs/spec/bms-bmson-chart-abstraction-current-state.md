@@ -224,7 +224,7 @@ model 層の pending package install 入口は `InstallChartPackagesAuto`, `Forc
 
 newly installed tree に表示される installed package history/list のクリアは `RemoveInstalledPackageRecords` / `RemoveInstalledPackageRecordsAll` を入口にする。これは chart file 自体の削除ではなく、installed package record を list から消す操作である。
 
-library folder operation は public / user-facing 名に `BMSFolder` / `BMSDirectory` が残るが、`BuildFolderMoveDelta(...)` は `BMSFiles` と `BmsonSongs` の両方を受け、`FilePathChanges` と `BmsonSongPathChanges` を同じ mutation delta に載せる。`RenameBMSFolder(...)` / `MoveBMSFolder(...)` / `MergeBMSDirectory(...)` は名前上 BMS だが、現在の folder move / merge path では bmson path と installed package / pending package の install destination も合わせて更新対象になる。
+library folder operation は public / user-facing 名に `BMSFolder` / `BMSDirectory` が残るが、`BuildFolderMoveDelta(...)` は `BMSFiles` と `BmsonSongs` の両方を受け、`FilePathChanges` と `BmsonSongPathChanges` を同じ mutation delta に載せる。`RenameBMSFolder(...)` / `MergeBMSDirectory(...)` は名前上 BMS だが、現在の folder move / merge path では bmson path と installed package / pending package の install destination も合わせて更新対象になる。root folder move の UI 経路は `MoveLibraryCharts(...)` から `MoveLibraryRootFolder(...)` に入り、`ChartOperationTarget` / `LibraryChartRef` を通して BMS / bmson chart を扱う。`MoveBMSRootFolder(...)` は BMSFile-based root-folder vocabulary の境界として残っている。
 
 ## Package / pending install
 

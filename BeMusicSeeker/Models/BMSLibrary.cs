@@ -10629,11 +10629,6 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public void moveBMSFolder(string srcDir, string dstDir, bool? unregister = false)
-    {
-        MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: true);
-    }
-
     private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool raiseBmsFilesChanged)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))

@@ -21452,23 +21452,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void MoveBMSFolder(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newParentDirectory)
-    {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = (bmsFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
-            .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
-            .ToList();
-        if (chartFiles.Count == 0)
-        {
-            return;
-        }
-        lock (lockCopyFile)
-        {
-            stopPlayingBMSFile(chartFiles);
-            files.MoveBMSRootFolder(chartFiles, newParentDirectory, false);
-            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-        }
-    }
-
     internal void MoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, string newParentDirectory)
     {
         List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.MoveInLibrary)
