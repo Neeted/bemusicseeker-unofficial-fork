@@ -328,7 +328,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void SearchChartPackagesRecursively_SplitsIndependentChartsIntoSingleFilePackages()
+    public void SearchChartPackagesRecursivelyWithMetadata_PackagesSplitsIndependentChartsIntoSingleFilePackages()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -339,7 +339,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_b.bms"), "#PLAYER 1\r\n#TITLE B\r\n#WAVAA sound_b.wav\r\n#00111:AA\r\n");
 
             BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
-            List<BMSPackage> result = service.SearchChartPackagesRecursively(packageDirectoryPath, 0.6);
+            List<BMSPackage> result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath, 0.6).Packages;
 
             Assert.AreEqual(2, result.Count);
             Assert.IsTrue(result.All((BMSPackage package) => File.Exists(package.path)));

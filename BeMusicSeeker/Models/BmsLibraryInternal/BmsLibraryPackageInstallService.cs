@@ -323,11 +323,6 @@ internal sealed class BmsLibraryPackageInstallService
             .Where(IsBmsFormatChartFile));
     }
 
-    public List<BMSPackage> SearchChartPackagesRecursively(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
-    {
-        return SearchChartPackagesRecursivelyWithMetadata(dirfullpath, dupRateThreshInOnePkg, recursive).Packages;
-    }
-
     /// <summary>
     /// ディレクトリ探索で見つかった譜面パッケージと、再統合候補ディレクトリをまとめて返します。
     /// </summary>
