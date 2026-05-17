@@ -775,7 +775,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         CollectionAssert.AreEqual(new[] { bmsonSong }, delta.BmsonSongsToUnregister);
         Assert.AreEqual(0, delta.FilePathChanges.Count);
         Assert.AreEqual(0, delta.BmsonSongPathChanges.Count);
-        Assert.IsTrue(delta.InvalidateBMSHashIndex);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(delta.InvalidateParentFolderCache);
         Assert.IsTrue(delta.ClearDuplicatedCache);

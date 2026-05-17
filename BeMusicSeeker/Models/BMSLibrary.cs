@@ -725,14 +725,6 @@ public class BMSLibrary : NotificationObject
 
     private int bmsParentFolderListDirtyVersion;
 
-    private object lockBMSHashIndex = new object();
-
-    private Dictionary<string, int> bmsHashRefCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-
-    private HashSet<string> bmsHashIndex = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-    private bool bmsHashIndexInitialized;
-
     private readonly object lockInstalledDirectoryIndex = new object();
 
     private InstalledChartDirectoryIndexSnapshot installedDirectoryIndex = new InstalledChartDirectoryIndexSnapshot();
@@ -1023,7 +1015,7 @@ public class BMSLibrary : NotificationObject
 
     /// <summary>
     /// ライブラリが管理する全 BMS ファイルの一覧です。
-    /// セッターでは関連するハッシュインデックス・フォルダキャッシュ・重複リストを自動的にリセットします。
+    /// セッターでは関連する snapshot / index / cache を自動的にリセットします。
     /// </summary>
     public List<BMSFile> BMSFiles
     {
@@ -1036,7 +1028,7 @@ public class BMSLibrary : NotificationObject
             if (_BMSFiles != value)
             {
                 _BMSFiles = value;
-                InvalidateBMSHashIndex();
+                InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateInstalledChartKeyIndex();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
@@ -1068,10 +1060,7 @@ public class BMSLibrary : NotificationObject
             if (_BmsonSongs != normalized)
             {
                 _BmsonSongs = normalized;
-                lock (lockPlaylistSummaryOwnedHashSnapshot)
-                {
-                    playlistSummaryOwnedHashSnapshot = null;
-                }
+                InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateInstalledChartKeyIndex();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
@@ -2494,7 +2483,6 @@ public class BMSLibrary : NotificationObject
             pendingPackages => BMSPackagesPending = pendingPackages,
             () => BMSPackagesInstalled,
             installedPackages => BMSPackagesInstalled = installedPackages,
-            InvalidateBMSHashIndex,
             InvalidateInstalledDirectoryIndex,
             InvalidateBMSParentFolderListCache,
             InvalidateDuplicateChartGroupsCache,
@@ -4061,7 +4049,6 @@ public class BMSLibrary : NotificationObject
         long setHealthMs = 0L;
         long setZeroNoteMs = 0L;
         long installTblCheckMs = 0L;
-        long rebuildHashIndexMs = 0L;
         int lr2IdAfterScoreLoad = 0;
         BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent();
         bool scoreOnlyLoad = !songTblLoad && scoreTblrLoad && !songTblFileCheck && !setMainteInfo && !installTblCheck;
@@ -4236,15 +4223,8 @@ public class BMSLibrary : NotificationObject
                 }
             }
         }
-        Stopwatch stopwatchRebuildHashIndex = Stopwatch.StartNew();
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            RebuildBMSHashIndexUnsafe(BMSFiles);
-        }
-        stopwatchRebuildHashIndex.Stop();
-        rebuildHashIndexMs = stopwatchRebuildHashIndex.ElapsedMilliseconds;
         stopwatchInitialize.Stop();
-        LogInstallPerformance("init_library_internal song_tbl_load_ms=" + songTblLoadMs + " score_tbl_load_ms=" + scoreTblLoadMs + " song_tbl_file_check_ms=" + songTblFileCheckMs + " set_maintenance_ms=" + setMaintenanceMs + " set_mode_ms=" + setModeMs + " set_health_ms=" + setHealthMs + " set_zero_note_ms=" + setZeroNoteMs + " install_tbl_check_ms=" + installTblCheckMs + " rebuild_hash_index_ms=" + rebuildHashIndexMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
+        LogInstallPerformance("init_library_internal song_tbl_load_ms=" + songTblLoadMs + " score_tbl_load_ms=" + scoreTblLoadMs + " song_tbl_file_check_ms=" + songTblFileCheckMs + " set_maintenance_ms=" + setMaintenanceMs + " set_mode_ms=" + setModeMs + " set_health_ms=" + setHealthMs + " set_zero_note_ms=" + setZeroNoteMs + " install_tbl_check_ms=" + installTblCheckMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
     }
 
     public void ReloadFileDiff()
@@ -4391,7 +4371,7 @@ public class BMSLibrary : NotificationObject
         }
         if (fileCheckResult.HasDbDiff)
         {
-            InvalidateBMSHashIndex();
+            InvalidatePlaylistSummaryOwnedHashSnapshot();
             InvalidateInstalledDirectoryIndex();
             InvalidateBMSParentFolderListCache();
         }
@@ -6298,20 +6278,6 @@ public class BMSLibrary : NotificationObject
         return excluded;
     }
 
-    private static bool IsBMSHashAvailable(string hash)
-    {
-        return !string.IsNullOrWhiteSpace(hash);
-    }
-
-    private static bool IsBMSHashAvailable(BMSFile bmsFile)
-    {
-        if (bmsFile == null)
-        {
-            return false;
-        }
-        return IsBMSHashAvailable(bmsFile.hash);
-    }
-
     private bool IsPendingPackageContainingOnlyInstalledCharts(BMSPackage package)
     {
         if (package == null)
@@ -6326,17 +6292,8 @@ public class BMSLibrary : NotificationObject
         return list.All(ContainsInstalledChartUnsafe);
     }
 
-    /// <summary>
-    /// BMS ハッシュインデックスをクリアし、次回使用時に再構築されるようにマークします。
-    /// </summary>
-    private void InvalidateBMSHashIndex()
+    private void InvalidatePlaylistSummaryOwnedHashSnapshot()
     {
-        lock (lockBMSHashIndex)
-        {
-            bmsHashRefCount.Clear();
-            bmsHashIndex.Clear();
-            bmsHashIndexInitialized = false;
-        }
         lock (lockPlaylistSummaryOwnedHashSnapshot)
         {
             playlistSummaryOwnedHashSnapshot = null;
@@ -6373,35 +6330,6 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    /// <summary>
-    /// BMS ファイル群から MD5 ハッシュの参照カウントインデックスを再構築します。
-    /// </summary>
-    private void RebuildBMSHashIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
-    {
-        lock (lockBMSHashIndex)
-        {
-            bmsHashRefCount.Clear();
-            bmsHashIndex.Clear();
-            if (bmsFiles != null)
-            {
-                foreach (BMSFile bmsFile in bmsFiles)
-                {
-                    if (!IsBMSHashAvailable(bmsFile))
-                    {
-                        continue;
-                    }
-                    if (!bmsHashRefCount.TryGetValue(bmsFile.hash, out var value))
-                    {
-                        value = 0;
-                    }
-                    bmsHashRefCount[bmsFile.hash] = value + 1;
-                }
-                bmsHashIndex = new HashSet<string>(bmsHashRefCount.Keys, StringComparer.OrdinalIgnoreCase);
-            }
-            bmsHashIndexInitialized = true;
-        }
-    }
-
     private void RebuildInstalledChartKeyIndexUnsafe()
     {
         lock (lockInstalledChartKeyIndex)
@@ -6429,7 +6357,7 @@ public class BMSLibrary : NotificationObject
 
     /// <summary>
     /// playlist summary 集計用の所持譜面ハッシュ snapshot を返します。
-    /// BMSFiles 変更時に無効化し、次回要求時にだけ再構築します。
+    /// 所持譜面や digest 変更時に無効化し、次回要求時にだけ再構築します。
     /// </summary>
     internal PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot()
     {
@@ -6488,17 +6416,6 @@ public class BMSLibrary : NotificationObject
                 playlistSummaryOwnedHashSnapshot = rebuiltSnapshot;
             }
             return playlistSummaryOwnedHashSnapshot;
-        }
-    }
-
-    /// <summary>
-    /// ハッシュインデックスが未構築の場合にビルドします。
-    /// </summary>
-    private void EnsureBMSHashIndexBuiltUnsafe()
-    {
-        if (!bmsHashIndexInitialized)
-        {
-            RebuildBMSHashIndexUnsafe(BMSFiles);
         }
     }
 
@@ -6567,22 +6484,6 @@ public class BMSLibrary : NotificationObject
         lock (lockInstalledDirectoryIndex)
         {
             return installedDirectoryIndex.Clone();
-        }
-    }
-
-    /// <summary>
-    /// 指定の MD5 ハッシュを持つファイルがライブラリに存在するかを確認します。
-    /// </summary>
-    private bool ContainsBMSHashUnsafe(string hash)
-    {
-        if (!IsBMSHashAvailable(hash))
-        {
-            return false;
-        }
-        EnsureBMSHashIndexBuiltUnsafe();
-        lock (lockBMSHashIndex)
-        {
-            return bmsHashIndex.Contains(hash);
         }
     }
 
@@ -7980,11 +7881,6 @@ public class BMSLibrary : NotificationObject
             }
         }
         return registeredPackages;
-    }
-
-    private List<BMSPackage> searchBMSFilesRecursively(string dirfullpath, bool recursive = false)
-    {
-        return packageInstallService.SearchBmsFilesRecursively(dirfullpath, dupRateThreshInOnePkg, recursive);
     }
 
     private static ComponentMoveDecision DecideComponentMove(string srcFilePath, string dstFilePath)

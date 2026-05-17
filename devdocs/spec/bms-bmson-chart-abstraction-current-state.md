@@ -41,7 +41,7 @@ BMS の所持譜面の正本は `BMSLibrary.BMSFiles` であり、要素は `BMS
 - `maintenanceInfo`
 - `RefTables`
 
-`BMSLibrary.BMSFiles` の更新時には、BMS hash index、playlist summary owned hash snapshot、installed chart key / directory index、parent folder cache、install estimation metadata profile cache、duplicate cache、resource health index が無効化される。
+`BMSLibrary.BMSFiles` の更新時には、playlist summary owned hash snapshot、installed chart key / directory index、parent folder cache、install estimation metadata profile cache、duplicate cache、resource health index が無効化される。
 
 ### bmson
 

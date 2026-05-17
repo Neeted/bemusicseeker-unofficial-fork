@@ -138,7 +138,6 @@ public sealed class BmsLibraryStateApplierTests
                 {
                     RaiseBmsFilesChanged = true,
                     RaiseInstalledPackagesChanged = true,
-                    InvalidateBMSHashIndex = true,
                     InvalidateInstalledDirectoryIndex = true,
                     InvalidateParentFolderCache = true,
                     ClearDuplicatedCache = true
@@ -176,7 +175,6 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual(newChartPath, movedFile.path);
                 Assert.AreEqual(newDirectoryPath, installLinkedFile.instl_dst);
                 Assert.AreEqual(newDirectoryPath, installedPackage.path);
-                Assert.AreEqual(1, callbacks.BmsHashInvalidationCount);
                 Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
                 Assert.IsTrue(callbacks.ParentFolderInvalidationCount >= 1);
                 Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
@@ -496,7 +494,6 @@ public sealed class BmsLibraryStateApplierTests
                 callbacks.InstalledPackagesSetCount++;
                 setInstalledPackages(packages);
             },
-            () => callbacks.BmsHashInvalidationCount++,
             () => callbacks.InstalledDirectoryInvalidationCount++,
             () => callbacks.ParentFolderInvalidationCount++,
             () => callbacks.ClearDuplicatedCount++,
@@ -537,8 +534,6 @@ public sealed class BmsLibraryStateApplierTests
         public int InstalledPackagesSetCount { get; set; }
 
         public int BmsonSongsSetCount { get; set; }
-
-        public int BmsHashInvalidationCount { get; set; }
 
         public int InstalledDirectoryInvalidationCount { get; set; }
 

@@ -323,15 +323,15 @@ internal sealed class BmsLibraryPackageInstallService
             .Where(IsBmsFormatChartFile));
     }
 
-    public List<BMSPackage> SearchBmsFilesRecursively(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
+    public List<BMSPackage> SearchChartPackagesRecursively(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
     {
-        return SearchBmsFilesRecursivelyWithMetadata(dirfullpath, dupRateThreshInOnePkg, recursive).Packages;
+        return SearchChartPackagesRecursivelyWithMetadata(dirfullpath, dupRateThreshInOnePkg, recursive).Packages;
     }
 
     /// <summary>
-    /// ディレクトリ探索で見つかった BMS パッケージと、再統合候補ディレクトリをまとめて返します。
+    /// ディレクトリ探索で見つかった譜面パッケージと、再統合候補ディレクトリをまとめて返します。
     /// </summary>
-    internal BmsPackageDiscoveryResult SearchBmsFilesRecursivelyWithMetadata(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
+    internal BmsPackageDiscoveryResult SearchChartPackagesRecursivelyWithMetadata(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
     {
         BmsPackageDiscoveryResult result = new BmsPackageDiscoveryResult();
         IEnumerable<string> fileSystemEntries;
@@ -389,7 +389,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             foreach (string dir in directories)
             {
-                BmsPackageDiscoveryResult childResult = SearchBmsFilesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg, recursive: true);
+                BmsPackageDiscoveryResult childResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg, recursive: true);
                 result.Packages.AddRange(childResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(childResult.RegroupEligibleSourceDirectories);
             }
@@ -1096,7 +1096,7 @@ internal sealed class BmsLibraryPackageInstallService
             string[] topEntries = Directory.GetFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly);
             if (files.Count + directories.Count == topEntries.Length)
             {
-                BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
+                BmsPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
                 discoveredPackages.AddRange(discoveryResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
@@ -1108,7 +1108,7 @@ internal sealed class BmsLibraryPackageInstallService
             bool anyChartHasExistingResources = parsedCharts.Any((PendingChartEntry entry) => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
             if (chartFiles.Count > 0 && anyChartHasExistingResources)
             {
-                BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
+                BmsPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
                 discoveredPackages.AddRange(discoveryResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
@@ -1120,7 +1120,7 @@ internal sealed class BmsLibraryPackageInstallService
             List<BMSPackage> directoryPackages = new List<BMSPackage>();
             foreach (string dir in directories)
             {
-                BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg);
+                BmsPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg);
                 directoryPackages.AddRange(discoveryResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
             }

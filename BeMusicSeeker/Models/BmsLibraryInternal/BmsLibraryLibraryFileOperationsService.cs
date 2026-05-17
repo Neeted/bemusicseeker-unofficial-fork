@@ -401,7 +401,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             delta.FilesToUnregister.AddRange(targetFiles);
             delta.BmsonSongsToUnregister.AddRange(targetBmsonSongs);
-            delta.InvalidateBMSHashIndex = targetFiles.Count > 0;
             delta.InvalidateInstalledDirectoryIndex = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             delta.InvalidateParentFolderCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
@@ -702,7 +701,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     if (unregister)
                     {
                         delta.FilesToUnregister.Add(file);
-                        delta.InvalidateBMSHashIndex = true;
                     }
                     else
                     {
@@ -717,7 +715,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
                     delta.DuplicateDeletedCount++;
                     delta.FilesToUnregister.Add(file);
-                    delta.InvalidateBMSHashIndex = true;
                     break;
                 default:
                     delta.SkippedCount++;

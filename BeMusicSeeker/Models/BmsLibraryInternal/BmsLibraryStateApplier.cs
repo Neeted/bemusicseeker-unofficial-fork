@@ -36,8 +36,6 @@ internal sealed class BmsLibraryStateApplier
 
     private readonly Action<DispatcherCollection<BMSPackage>> setInstalledPackages;
 
-    private readonly Action invalidateBmsHashIndex;
-
     private readonly Action invalidateInstalledDirectoryIndex;
 
     private readonly Action invalidateParentFolderCache;
@@ -58,7 +56,6 @@ internal sealed class BmsLibraryStateApplier
         Action<DispatcherCollection<BMSPackage>> setPendingPackages,
         Func<DispatcherCollection<BMSPackage>> getInstalledPackages,
         Action<DispatcherCollection<BMSPackage>> setInstalledPackages,
-        Action invalidateBmsHashIndex,
         Action invalidateInstalledDirectoryIndex,
         Action invalidateParentFolderCache,
         Action clearDuplicatedCache,
@@ -74,7 +71,6 @@ internal sealed class BmsLibraryStateApplier
         this.setPendingPackages = setPendingPackages ?? throw new ArgumentNullException(nameof(setPendingPackages));
         this.getInstalledPackages = getInstalledPackages ?? throw new ArgumentNullException(nameof(getInstalledPackages));
         this.setInstalledPackages = setInstalledPackages ?? throw new ArgumentNullException(nameof(setInstalledPackages));
-        this.invalidateBmsHashIndex = invalidateBmsHashIndex ?? throw new ArgumentNullException(nameof(invalidateBmsHashIndex));
         this.invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
         this.invalidateParentFolderCache = invalidateParentFolderCache ?? throw new ArgumentNullException(nameof(invalidateParentFolderCache));
         this.clearDuplicatedCache = clearDuplicatedCache ?? throw new ArgumentNullException(nameof(clearDuplicatedCache));
@@ -151,11 +147,6 @@ internal sealed class BmsLibraryStateApplier
         if (delta.BmsonSongsToUnregister.Count > 0)
         {
             UnregisterBmsonSongs(delta.BmsonSongsToUnregister.Distinct().ToList());
-        }
-
-        if (delta.InvalidateBMSHashIndex)
-        {
-            invalidateBmsHashIndex();
         }
 
         if (delta.InvalidateInstalledDirectoryIndex)

@@ -27,8 +27,6 @@ internal sealed class LibraryMutationDelta
 
     public bool RaiseInstalledPackagesChanged { get; set; }
 
-    public bool InvalidateBMSHashIndex { get; set; }
-
     public bool InvalidateInstalledDirectoryIndex { get; set; }
 
     public bool InvalidateParentFolderCache { get; set; }
