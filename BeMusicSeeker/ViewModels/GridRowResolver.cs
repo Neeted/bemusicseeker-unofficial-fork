@@ -72,20 +72,20 @@ internal static class GridRowResolver
             : null;
     }
 
-    internal static bool TryGetChartRef(object row, out OwnedChartRef chart)
+    internal static bool TryGetChartFile(object row, out ChartFile chart)
     {
         chart = null;
         switch (row)
         {
             case PlaylistDetailRow playlistDetailRow:
-                return TryCreatePlaylistChartRef(playlistDetailRow, out chart);
+                return TryCreatePlaylistChartFile(playlistDetailRow, out chart);
             case PlaylistDetailSourceRow playlistSourceRow:
-                return TryCreatePlaylistChartRef(playlistSourceRow, out chart);
+                return TryCreatePlaylistChartFile(playlistSourceRow, out chart);
             case LibraryChartRow libraryChartRow:
                 chart = libraryChartRow.Chart;
                 return chart != null;
             case BMSFile bmsFile:
-                chart = CreateChartRef(bmsFile);
+                chart = CreateChartFile(bmsFile);
                 return chart != null;
             default:
                 return false;
@@ -105,7 +105,7 @@ internal static class GridRowResolver
     internal static bool TryGetChartOperationTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
     {
         target = null;
-        if (!TryGetChartRef(row, out OwnedChartRef chart))
+        if (!TryGetChartFile(row, out ChartFile chart))
         {
             return false;
         }
@@ -135,7 +135,7 @@ internal static class GridRowResolver
 
     internal static bool IsBmsonChartRow(object row)
     {
-        return TryGetChartRef(row, out OwnedChartRef chart) && chart.Kind == OwnedChartKind.Bmson;
+        return TryGetChartFile(row, out ChartFile chart) && chart.Kind == ChartFileKind.Bmson;
     }
 
     /// <summary>
@@ -220,7 +220,7 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetRepositorySha256(object row)
     {
-        string sha256 = TryGetChartRef(row, out OwnedChartRef chart)
+        string sha256 = TryGetChartFile(row, out ChartFile chart)
             ? FirstNonEmpty(chart.Sha256, chart.ChartInfo?.sha256)
             : row switch
         {
@@ -232,7 +232,7 @@ internal static class GridRowResolver
         return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
     }
 
-    private static bool TryCreatePlaylistChartRef(PlaylistDetailRow row, out OwnedChartRef chart)
+    private static bool TryCreatePlaylistChartFile(PlaylistDetailRow row, out ChartFile chart)
     {
         chart = null;
         if (row == null)
@@ -241,16 +241,16 @@ internal static class GridRowResolver
         }
         if (row.RealFile != null)
         {
-            chart = CreateChartRef(row.RealFile);
+            chart = CreateChartFile(row.RealFile);
             return chart != null;
         }
         if (row.ResolvedBmson != null)
         {
-            chart = CreateChartRef(row.ResolvedBmson, row.OperationChartFile);
+            chart = CreateChartFile(row.ResolvedBmson, row.OperationChartFile);
             return chart != null;
         }
-        chart = new OwnedChartRef(
-            OwnedChartKind.Bms,
+        chart = new ChartFile(
+            ChartFileKind.Bms,
             row.path,
             row.hash,
             row.sha256,
@@ -264,7 +264,7 @@ internal static class GridRowResolver
         return true;
     }
 
-    private static bool TryCreatePlaylistChartRef(PlaylistDetailSourceRow row, out OwnedChartRef chart)
+    private static bool TryCreatePlaylistChartFile(PlaylistDetailSourceRow row, out ChartFile chart)
     {
         chart = null;
         if (row == null)
@@ -273,16 +273,16 @@ internal static class GridRowResolver
         }
         if (row.RealFile != null)
         {
-            chart = CreateChartRef(row.RealFile);
+            chart = CreateChartFile(row.RealFile);
             return chart != null;
         }
         if (row.ResolvedBmson != null)
         {
-            chart = CreateChartRef(row.ResolvedBmson, row.OperationChartFile);
+            chart = CreateChartFile(row.ResolvedBmson, row.OperationChartFile);
             return chart != null;
         }
-        chart = new OwnedChartRef(
-            OwnedChartKind.Bms,
+        chart = new ChartFile(
+            ChartFileKind.Bms,
             row.path,
             row.hash,
             row.sha256,
@@ -296,7 +296,7 @@ internal static class GridRowResolver
         return true;
     }
 
-    private static OwnedChartRef CreateChartRef(BMSFile file)
+    private static ChartFile CreateChartFile(BMSFile file)
     {
         if (file == null)
         {
@@ -306,8 +306,8 @@ internal static class GridRowResolver
         if (pending?.IsBmsonChart == true && pending.BmsonSong != null)
         {
             LR2SongDBExtended.bmson_song song = pending.BmsonSong;
-            return new OwnedChartRef(
-                OwnedChartKind.Bmson,
+            return new ChartFile(
+                ChartFileKind.Bmson,
                 pending.path,
                 pending.hash,
                 pending.sha256,
@@ -319,8 +319,8 @@ internal static class GridRowResolver
                 file,
                 song);
         }
-        return new OwnedChartRef(
-            OwnedChartKind.Bms,
+        return new ChartFile(
+            ChartFileKind.Bms,
             file.path,
             file.hash,
             file.sha256,
@@ -333,14 +333,14 @@ internal static class GridRowResolver
             null);
     }
 
-    private static OwnedChartRef CreateChartRef(LR2SongDBExtended.bmson_song song, BMSFile operationFile = null)
+    private static ChartFile CreateChartFile(LR2SongDBExtended.bmson_song song, BMSFile operationFile = null)
     {
         if (song == null)
         {
             return null;
         }
-        return new OwnedChartRef(
-            OwnedChartKind.Bmson,
+        return new ChartFile(
+            ChartFileKind.Bmson,
             song.path,
             song.md5,
             song.sha256,
@@ -354,7 +354,7 @@ internal static class GridRowResolver
     }
 
     private static ChartOperationCapabilities BuildCapabilities(
-        OwnedChartRef chart,
+        ChartFile chart,
         BMSTableEntry playlistEntry,
         ChartOperationSourceScope sourceScope,
         bool isPlaylistRow,
@@ -364,7 +364,7 @@ internal static class GridRowResolver
         ChartOperationCapabilities capabilities = ChartOperationCapabilities.None;
         bool hasPath = !string.IsNullOrWhiteSpace(chart.Path);
         bool hasMd5 = !string.IsNullOrWhiteSpace(chart.Md5);
-        bool isBms = chart.Kind == OwnedChartKind.Bms;
+        bool isBms = chart.Kind == ChartFileKind.Bms;
         if (hasPath && !isPlaylistMissing)
         {
             capabilities |= ChartOperationCapabilities.OpenFile | ChartOperationCapabilities.OpenFolder;
@@ -467,7 +467,7 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetDisplaySubtitle(object row)
     {
-        if (TryGetChartRef(row, out OwnedChartRef chart) && chart.CompatibilityChartFile != null)
+        if (TryGetChartFile(row, out ChartFile chart) && chart.CompatibilityChartFile != null)
         {
             return chart.CompatibilityChartFile.subtitle ?? string.Empty;
         }

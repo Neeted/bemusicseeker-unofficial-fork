@@ -5,7 +5,7 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal enum OwnedChartKind
+internal enum ChartFileKind
 {
     Bms,
     Bmson
@@ -43,9 +43,9 @@ internal enum ChartOperationCapabilities
     RepairInstalledLocation = 1 << 16
 }
 
-internal sealed class OwnedChartRef
+internal sealed class ChartFile
 {
-    internal OwnedChartKind Kind { get; }
+    internal ChartFileKind Kind { get; }
 
     internal string Path { get; }
 
@@ -70,8 +70,8 @@ internal sealed class OwnedChartRef
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; }
 
-    internal OwnedChartRef(
-        OwnedChartKind kind,
+    internal ChartFile(
+        ChartFileKind kind,
         string path,
         string md5,
         string sha256,
@@ -100,7 +100,7 @@ internal sealed class OwnedChartRef
 
 internal sealed class ChartOperationTarget
 {
-    internal OwnedChartRef Chart { get; }
+    internal ChartFile Chart { get; }
 
     internal BMSTableEntry PlaylistEntry { get; }
 
@@ -115,7 +115,7 @@ internal sealed class ChartOperationTarget
     internal ChartOperationCapabilities Capabilities { get; }
 
     internal ChartOperationTarget(
-        OwnedChartRef chart,
+        ChartFile chart,
         BMSTableEntry playlistEntry,
         ChartOperationSourceScope sourceScope,
         bool isOwned,

@@ -32,7 +32,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal bool IsBms => BmsFile != null && !PendingChartEntry.IsBmsonChartFile(BmsFile);
 
-    internal OwnedChartRef Chart
+    internal ChartFile Chart
     {
         get
         {
@@ -42,8 +42,8 @@ internal sealed class LibraryChartRow : NotificationObject
                 PendingChartEntry pending = BmsFile as PendingChartEntry;
                 bool isPendingBmson = pending?.IsBmsonChart == true;
                 BMSFile operationFile = BmsFile ?? GetOrCreateBmsonOperationChartFile();
-                return new OwnedChartRef(
-                    OwnedChartKind.Bmson,
+                return new ChartFile(
+                    ChartFileKind.Bmson,
                     isPendingBmson ? pending.path : bmsonSong.path,
                     isPendingBmson ? pending.hash : bmsonSong.md5,
                     isPendingBmson ? pending.sha256 : bmsonSong.sha256,
@@ -55,8 +55,8 @@ internal sealed class LibraryChartRow : NotificationObject
                     operationFile,
                     bmsonSong);
             }
-            return new OwnedChartRef(
-                OwnedChartKind.Bms,
+            return new ChartFile(
+                ChartFileKind.Bms,
                 BmsFile?.path,
                 BmsFile?.hash,
                 BmsFile?.sha256,

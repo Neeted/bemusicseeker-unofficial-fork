@@ -21458,7 +21458,7 @@ public class MainWindowViewModel : ViewModel
             return LibraryChartRef.FromBmsonSong(target.Chart.BmsonSong);
         }
         return LibraryChartRef.FromPath(
-            target.Chart.Kind == OwnedChartKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
+            target.Chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
             target.Chart.Path,
             target.Chart.Md5,
             target.Chart.Sha256);

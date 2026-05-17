@@ -48,10 +48,10 @@ public sealed class MainWindowContextMenuResourceTests
     public void ResourceHealthContextMenu_AllowsBmsonOnlyChartTargets()
     {
         ChartOperationTarget bmsonTarget = CreateContextMenuTarget(
-            OwnedChartKind.Bmson,
+            ChartFileKind.Bmson,
             ChartOperationCapabilities.RunResourceHealthCheck);
         ChartOperationTarget bmsOnlyTarget = CreateContextMenuTarget(
-            OwnedChartKind.Bms,
+            ChartFileKind.Bms,
             ChartOperationCapabilities.RunBmsEncodingFix);
 
         Assert.IsTrue(MainWindow.ShouldShowResourceHealthContextMenu(false, new[] { bmsonTarget }));
@@ -1433,10 +1433,10 @@ public sealed class MainWindowContextMenuResourceTests
         throw new DirectoryNotFoundException("Repository root was not found.");
     }
 
-    private static ChartOperationTarget CreateContextMenuTarget(OwnedChartKind kind, ChartOperationCapabilities capabilities)
+    private static ChartOperationTarget CreateContextMenuTarget(ChartFileKind kind, ChartOperationCapabilities capabilities)
     {
-        string path = kind == OwnedChartKind.Bmson ? @"C:\Charts\chart.bmson" : @"C:\Charts\chart.bms";
-        OwnedChartRef chart = new OwnedChartRef(
+        string path = kind == ChartFileKind.Bmson ? @"C:\Charts\chart.bmson" : @"C:\Charts\chart.bms";
+        ChartFile chart = new ChartFile(
             kind,
             path,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -1446,8 +1446,8 @@ public sealed class MainWindowContextMenuResourceTests
             7,
             1,
             null,
-            kind == OwnedChartKind.Bms ? new BMSFile { path = path } : null,
-            kind == OwnedChartKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path } : null);
+            kind == ChartFileKind.Bms ? new BMSFile { path = path } : null,
+            kind == ChartFileKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path } : null);
         return new ChartOperationTarget(
             chart,
             null,

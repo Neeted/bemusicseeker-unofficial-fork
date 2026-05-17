@@ -119,14 +119,14 @@ ChartFile
 
 Kind が BMS の場合でも、`ChartFile` 自体を `song` table に保存するわけではない。BMS の永続化は LR2 `song` row に特化した型が担い、bmson の永続化は `bmson_song` row に特化した型が担う。`ChartFile` はそれらを owner として参照し、UI / operation / search / package install で必要な共通機能を提供する。
 
-このため `BMSFile` を機械的に `ChartFile` へ rename することは目標ではない。目標は、現行 `BMSFile` に残っている chart 共通責務を `ChartFile` / `OwnedChartRef` / `LibraryChartRow` / `ChartOperationTarget` 側へ移し、`BMSFile` 側には LR2 `song` row と BMS-format 専用処理を残すことである。
+このため `BMSFile` を機械的に `ChartFile` へ rename することは目標ではない。目標は、現行 `BMSFile` に残っている chart 共通責務を `ChartFile` / `LibraryChartRow` / `ChartOperationTarget` 側へ移し、`BMSFile` 側には LR2 `song` row と BMS-format 専用処理を残すことである。
 
 ### 共通 read model
 
 永続モデルとは別に、アプリ内で扱う共通 read model を作る。
 
 ```text
-OwnedChartRef
+ChartFile
   Kind: Bms | Bmson
   Path
   Directory
@@ -150,7 +150,7 @@ OwnedChartRef
 
 ```text
 ChartOperationTarget
-  OwnedChartRef Chart
+  ChartFile Chart
   PlaylistEntry?
   IsOwned
   IsPending
@@ -213,13 +213,13 @@ UI は `Kind` 直接判定ではなく capability を見る。これにより「
 
 この phase は設計移行の前でも入れられる安全修正とする。
 
-### Phase B: `OwnedChartRef` と `ChartOperationTarget` を追加する
+### Phase B: `ChartFile` と `ChartOperationTarget` を追加する
 
 まだ既存 row model は大きく変えず、resolver を先に作る。
 
-- `BMSFile` から `OwnedChartRef(Bms)` を作る
-- `bmson_song` から `OwnedChartRef(Bmson)` を作る
-- `PendingChartEntry` からも `OwnedChartRef` を作る
+- `BMSFile` から `ChartFile(Bms)` を作る
+- `bmson_song` から `ChartFile(Bmson)` を作る
+- `PendingChartEntry` からも `ChartFile` を作る
 - `PlaylistDetailRow` / `PlaylistDetailSourceRow` から `ChartOperationTarget` を作る
 - context menu の表示条件を capability へ移す
 
@@ -227,7 +227,7 @@ UI は `Kind` 直接判定ではなく capability を見る。これにより「
 
 ### Phase C: ライブラリ mutation を chart 単位に寄せる
 
-library mutation の内部を `ChartOperationTarget` / `OwnedChartRef` に対応させる。旧 `MoveBMSFile` wrapper は production 参照がないため削除済みで、library chart 削除入口は `RemoveChartFiles` へ移行済みである。`MoveBMSRootFolder` は root folder 操作の BMS 語彙として残っている。
+library mutation の内部を `ChartOperationTarget` / `ChartFile` に対応させる。旧 `MoveBMSFile` wrapper は production 参照がないため削除済みで、library chart 削除入口は `RemoveChartFiles` へ移行済みである。`MoveBMSRootFolder` は root folder 操作の BMS 語彙として残っている。
 
 - BMS は従来通り `song`, `folder`, `maintenance` を更新
 - bmson は `bmson_song` を更新
@@ -282,7 +282,7 @@ Phase D の実装方針:
 
 ```text
 LibraryChartRow
-  OwnedChartRef Chart
+  ChartFile Chart
   Display properties
   ChartInfo display properties
 ```
@@ -312,7 +312,7 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 
 Phase F-1 では「新規コードの入口を chart 抽象に揃える」ことを優先する。
 
-- `GridRowResolver.TryGetChartRef` / `TryGetChartOperationTarget` を primary API とし、BMS-only 互換は `GetRealBmsFile`、既存 `BMSFile` 引数 API への chart adapter 取得は `GetOperationChartFile` に限定する
+- `GridRowResolver.TryGetChartFile` / `TryGetChartOperationTarget` を primary API とし、BMS-only 互換は `GetRealBmsFile`、既存 `BMSFile` 引数 API への chart adapter 取得は `GetOperationChartFile` に限定する
 - UI handler は `ChartOperationTarget.Capabilities` で対象を絞り、BMS 専用操作だけ実体 BMS `BMSFile` へ戻す
 - 構成ファイルフルスキャンは `RunResourceHealthCheck` capability を使い、BMS / bmson の両方を chart resource health 対象にする
 - `ForceResourceHealthCheckCharts` など chart 名 API を主入口にし、production 参照のない旧名 wrapper は残さない
@@ -371,7 +371,7 @@ F-3 では後回しにするもの:
 
 - `BMSFilesView`, `SelectedIndexBMSFilesView`, `ColumnsSettingsBMSFilesView`, `UseAsyncBMSFilesViewBinding` は XAML binding / settings / column state の public UI 契約なので rename しない
 - `ChartPackage.ChartFiles` は pending install / package chart discovery の中核であり、参照時に lazy discovery が走る意味も維持する。旧 `ChartPackage.BMSFiles` alias は残さず、「package 内 chart の BMSFile 互換 adapter list」は `ChartFiles` として扱う
-- `BMSLibrary.BMSFiles` は LR2 `song` table 側の source of truth として残す。BMS / bmson 共通表示は `LibraryChartRow` / `OwnedChartRef` で扱い、storage model は `BMSFiles` と `BmsonSongs` の二本立てを維持する
+- `BMSLibrary.BMSFiles` は LR2 `song` table 側の source of truth として残す。BMS / bmson 共通表示は `LibraryChartRow` / `ChartFile` で扱い、storage model は `BMSFiles` と `BmsonSongs` の二本立てを維持する
 - `BMSFilesGarbled`, `BMSFilesZeroNote`, encoding / zero-note / LR2IR / ScoreViewer などは BMS 専用意味を持つため chart 名へ広げない
 - install package 操作は ViewModel / UI の入口を `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts` へ寄せる。DB / model 内部名は pending/package 層への影響を見ながら段階移行する
 
@@ -445,7 +445,7 @@ F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいった
 
 Phase A から F-3 までで、通常利用上の BMS / bmson chart 抽象化は完了とする。
 
-今後は大きな rename を先行せず、実運用で不整合が出た箇所を `ChartOperationTarget` / `OwnedChartRef` / `LibraryChartRow` の境界へ寄せる。  
+今後は大きな rename を先行せず、実運用で不整合が出た箇所を `ChartOperationTarget` / `ChartFile` / `LibraryChartRow` の境界へ寄せる。
 BMS 名が残っていても、それが LR2 / `song` table / BMS parser / package adapter の互換境界を表している場合は許容する。
 
 ## ゴール

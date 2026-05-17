@@ -1232,7 +1232,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private List<BMSFile> GetSelectedBmsChartFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
         return GetSelectedChartTargets(isPendingSection)
-            .Where((ChartOperationTarget target) => HasRequiredCapability(target, capability) && target.Chart.Kind == OwnedChartKind.Bms)
+            .Where((ChartOperationTarget target) => HasRequiredCapability(target, capability) && target.Chart.Kind == ChartFileKind.Bms)
             .Select(GetOperationChartFileFromTarget)
             .Where(PendingChartEntry.IsBmsChartFile)
             .ToList();
@@ -4850,9 +4850,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             selectedTargets.Add(rowTarget);
         }
         List<BMSFile> list = selectedTargets.Select(GetOperationChartFileFromTarget).Where((BMSFile file) => file != null).ToList();
-        bool isBmsonContextRow = rowTarget?.Chart.Kind == OwnedChartKind.Bmson;
-        bool hasBmsonSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bmson);
-        bool hasBmsSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bms);
+        bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
+        bool hasBmsonSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == ChartFileKind.Bmson);
+        bool hasBmsSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == ChartFileKind.Bms);
         string rowHash = rowTarget?.Chart?.Md5 ?? GridRowResolver.GetHash(row);
         if (songInfoCache == null || songInfoCache.md5 != rowHash)
         {
@@ -5409,7 +5409,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
         GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
-        bool isBmsonContextRow = rowTarget?.Chart.Kind == OwnedChartKind.Bmson;
+        bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
         bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
         bool canOpenScoreViewer = rowTarget?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true;
