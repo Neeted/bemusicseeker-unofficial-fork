@@ -20,9 +20,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; private set; }
 
-    private PendingChartEntry bmsonOperationChartFile;
+    private PendingChartEntry bmsonCompatibilityBmsFile;
 
-    private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider;
+    private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider;
 
     private Func<LibraryChartRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
@@ -41,7 +41,7 @@ internal sealed class LibraryChartRow : NotificationObject
             {
                 PendingChartEntry pending = BmsFile as PendingChartEntry;
                 bool isPendingBmson = pending?.IsBmsonChart == true;
-                BMSFile operationFile = BmsFile ?? GetOrCreateBmsonOperationChartFile();
+                BMSFile compatibilityBmsFile = BmsFile ?? GetOrCreateBmsonCompatibilityBmsFile();
                 return new ChartFile(
                     ChartFileKind.Bmson,
                     isPendingBmson ? pending.path : bmsonSong.path,
@@ -53,7 +53,7 @@ internal sealed class LibraryChartRow : NotificationObject
                     isPendingBmson ? pending.mode ?? BmsonSongParser.ResolvePlaylistMode(bmsonSong.mode_hint) : BmsonSongParser.ResolvePlaylistMode(bmsonSong.mode_hint),
                     isPendingBmson ? pending.ChartInfo : bmsonSong.ChartInfo,
                     null,
-                    operationFile,
+                    compatibilityBmsFile,
                     bmsonSong);
             }
             return new ChartFile(
@@ -72,7 +72,7 @@ internal sealed class LibraryChartRow : NotificationObject
         }
     }
 
-    internal BMSFile OperationChartFile => BmsFile ?? GetOrCreateBmsonOperationChartFile();
+    internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonCompatibilityBmsFile();
 
     private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong)
     {
@@ -109,45 +109,45 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(string.Empty);
     }
 
-    private PendingChartEntry GetOrCreateBmsonOperationChartFile()
+    private PendingChartEntry GetOrCreateBmsonCompatibilityBmsFile()
     {
         if (BmsonSong == null)
         {
             return null;
         }
-        PendingChartEntry provided = bmsonOperationChartFileProvider?.Invoke(BmsonSong);
+        PendingChartEntry provided = bmsonCompatibilityBmsFileProvider?.Invoke(BmsonSong);
         if (provided != null)
         {
-            if (!ReferenceEquals(bmsonOperationChartFile, provided))
+            if (!ReferenceEquals(bmsonCompatibilityBmsFile, provided))
             {
-                SetBmsonOperationChartFile(provided);
+                SetBmsonCompatibilityBmsFile(provided);
             }
-            return bmsonOperationChartFile;
+            return bmsonCompatibilityBmsFile;
         }
-        if (bmsonOperationChartFile == null || !ReferenceEquals(bmsonOperationChartFile.BmsonSong, BmsonSong))
+        if (bmsonCompatibilityBmsFile == null || !ReferenceEquals(bmsonCompatibilityBmsFile.BmsonSong, BmsonSong))
         {
-            SetBmsonOperationChartFile(PendingChartEntry.CreateFromBmsonSong(BmsonSong));
+            SetBmsonCompatibilityBmsFile(PendingChartEntry.CreateFromBmsonSong(BmsonSong));
         }
-        else if (!string.Equals(bmsonOperationChartFile.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
+        else if (!string.Equals(bmsonCompatibilityBmsFile.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
         {
-            bmsonOperationChartFile.UpdateFromBmsonSong(BmsonSong);
+            bmsonCompatibilityBmsFile.UpdateFromBmsonSong(BmsonSong);
         }
-        return bmsonOperationChartFile;
+        return bmsonCompatibilityBmsFile;
     }
 
-    internal void SetBmsonOperationChartFileProvider(Func<LR2SongDBExtended.bmson_song, PendingChartEntry> provider)
+    internal void SetBmsonCompatibilityBmsFileProvider(Func<LR2SongDBExtended.bmson_song, PendingChartEntry> provider)
     {
-        bmsonOperationChartFileProvider = provider;
+        bmsonCompatibilityBmsFileProvider = provider;
     }
 
-    private void SetBmsonOperationChartFile(PendingChartEntry entry)
+    private void SetBmsonCompatibilityBmsFile(PendingChartEntry entry)
     {
-        if (bmsonOperationChartFile is INotifyPropertyChanged oldSource)
+        if (bmsonCompatibilityBmsFile is INotifyPropertyChanged oldSource)
         {
             PropertyChangedEventManager.RemoveHandler(oldSource, OnSourcePropertyChanged, string.Empty);
         }
-        bmsonOperationChartFile = entry;
-        if (bmsonOperationChartFile is INotifyPropertyChanged newSource)
+        bmsonCompatibilityBmsFile = entry;
+        if (bmsonCompatibilityBmsFile is INotifyPropertyChanged newSource)
         {
             PropertyChangedEventManager.AddHandler(newSource, OnSourcePropertyChanged, string.Empty);
         }
@@ -155,7 +155,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private BMSFile GetWarningSourceFile()
     {
-        return BmsFile ?? OperationChartFile;
+        return BmsFile ?? CompatibilityBmsFile;
     }
 
     internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
@@ -230,20 +230,20 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string instl_dst
     {
-        get => OperationChartFile?.instl_dst ?? string.Empty;
+        get => CompatibilityBmsFile?.instl_dst ?? string.Empty;
         set
         {
-            BMSFile operationFile = OperationChartFile;
-            if (operationFile != null)
+            BMSFile compatibilityBmsFile = CompatibilityBmsFile;
+            if (compatibilityBmsFile != null)
             {
-                operationFile.instl_dst = value;
+                compatibilityBmsFile.instl_dst = value;
             }
         }
     }
 
-    public string InstallDestinationTitle => OperationChartFile?.InstallDestinationTitle ?? string.Empty;
+    public string InstallDestinationTitle => CompatibilityBmsFile?.InstallDestinationTitle ?? string.Empty;
 
-    public string InstallDestinationArtist => OperationChartFile?.InstallDestinationArtist ?? string.Empty;
+    public string InstallDestinationArtist => CompatibilityBmsFile?.InstallDestinationArtist ?? string.Empty;
 
     public int? WAVHealth => BmsFile?.WAVHealth ?? BmsonSong?.MaintenanceInfo?.WAVHealth;
 

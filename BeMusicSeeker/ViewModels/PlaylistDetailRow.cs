@@ -38,7 +38,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
 
-    internal BMSFile OperationChartFile { get; }
+    internal BMSFile CompatibilityBmsFile { get; }
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
@@ -234,7 +234,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
         Entry = source.Entry;
         RealFile = source.RealFile;
         ResolvedBmson = source.ResolvedBmson;
-        OperationChartFile = source.OperationChartFile;
+        CompatibilityBmsFile = source.CompatibilityBmsFile;
         IsOwned = source.IsOwned;
         EntryLevelSortKey = source.EntryLevelSortKey;
         level = source.Level;

@@ -31,11 +31,11 @@ internal sealed class PlaylistDetailSourceRow
     /// </summary>
     internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
 
-    private PendingChartEntry bmsonOperationChartFile;
+    private PendingChartEntry bmsonCompatibilityBmsFile;
 
-    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider;
+    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider;
 
-    internal BMSFile OperationChartFile => RealFile ?? GetOrCreateBmsonOperationChartFile();
+    internal BMSFile CompatibilityBmsFile => RealFile ?? GetOrCreateBmsonCompatibilityBmsFile();
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
@@ -140,27 +140,27 @@ internal sealed class PlaylistDetailSourceRow
 
     internal bool HasEntryChartInfoDependency => RealFile == null && ResolvedBmson == null;
 
-    private PendingChartEntry GetOrCreateBmsonOperationChartFile()
+    private PendingChartEntry GetOrCreateBmsonCompatibilityBmsFile()
     {
         if (ResolvedBmson == null)
         {
             return null;
         }
-        PendingChartEntry provided = bmsonOperationChartFileProvider?.Invoke(ResolvedBmson);
+        PendingChartEntry provided = bmsonCompatibilityBmsFileProvider?.Invoke(ResolvedBmson);
         if (provided != null)
         {
-            bmsonOperationChartFile = provided;
-            return bmsonOperationChartFile;
+            bmsonCompatibilityBmsFile = provided;
+            return bmsonCompatibilityBmsFile;
         }
-        if (bmsonOperationChartFile == null || !ReferenceEquals(bmsonOperationChartFile.BmsonSong, ResolvedBmson))
+        if (bmsonCompatibilityBmsFile == null || !ReferenceEquals(bmsonCompatibilityBmsFile.BmsonSong, ResolvedBmson))
         {
-            bmsonOperationChartFile = PendingChartEntry.CreateFromBmsonSong(ResolvedBmson);
+            bmsonCompatibilityBmsFile = PendingChartEntry.CreateFromBmsonSong(ResolvedBmson);
         }
-        else if (!string.Equals(bmsonOperationChartFile.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
+        else if (!string.Equals(bmsonCompatibilityBmsFile.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
         {
-            bmsonOperationChartFile.UpdateFromBmsonSong(ResolvedBmson);
+            bmsonCompatibilityBmsFile.UpdateFromBmsonSong(ResolvedBmson);
         }
-        return bmsonOperationChartFile;
+        return bmsonCompatibilityBmsFile;
     }
 
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
@@ -245,17 +245,17 @@ internal sealed class PlaylistDetailSourceRow
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider = null)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
         ResolvedBmson = resolvedBmson;
         EntryChartInfo = entryChartInfo;
-        this.bmsonOperationChartFileProvider = bmsonOperationChartFileProvider;
+        this.bmsonCompatibilityBmsFileProvider = bmsonCompatibilityBmsFileProvider;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
-        BMSFile operationChartFile = OperationChartFile;
-        BMSFile snapshotSource = realFile ?? operationChartFile ?? scoreProbe;
+        BMSFile compatibilityBmsFile = CompatibilityBmsFile;
+        BMSFile snapshotSource = realFile ?? compatibilityBmsFile ?? scoreProbe;
         BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore ?? scoreProbe?.bmsScore;
         Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), entry.title);
         Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, entry.artist);

@@ -798,8 +798,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             viewModel.NotifyPlaylistCellEditStarted();
             return;
         }
-        BMSFile operationChartFile = GridRowResolver.GetOperationChartFile(e.Row, GetCurrentChartOperationSourceScope());
-        if (operationChartFile == null)
+        BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
+        if (compatibilityBmsFile == null)
         {
             e.Cancel = true;
             return;
@@ -822,8 +822,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 e.Cancel = true;
                 return;
             }
-            _pendingInstallDestinationEditStates[operationChartFile] = CapturePendingInstallDestinationEditState(operationChartFile);
-            operationChartFile.IsInstallDestinationSuggestionPopupOpen = operationChartFile.HasInstallDestinationSuggestions;
+            _pendingInstallDestinationEditStates[compatibilityBmsFile] = CapturePendingInstallDestinationEditState(compatibilityBmsFile);
+            compatibilityBmsFile.IsInstallDestinationSuggestionPopupOpen = compatibilityBmsFile.HasInstallDestinationSuggestions;
             return;
         }
         e.Cancel = true;
@@ -917,8 +917,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("customTableView_CellEditEnded");
                 return;
             }
-            BMSFile operationChartFile = GridRowResolver.GetOperationChartFile(e.Row, GetCurrentChartOperationSourceScope());
-            if (operationChartFile == null)
+            BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
+            if (compatibilityBmsFile == null)
             {
                 return;
             }
@@ -949,10 +949,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
             {
-                operationChartFile.IsInstallDestinationSuggestionPopupOpen = false;
+                compatibilityBmsFile.IsInstallDestinationSuggestionPopupOpen = false;
                 if (!e.Commit)
                 {
-                    ClearPendingInstallDestinationEditState(operationChartFile);
+                    ClearPendingInstallDestinationEditState(compatibilityBmsFile);
                     return;
                 }
                 if (!CanEditInstallDestinationInCurrentSection())
@@ -960,11 +960,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return;
                 }
                 string destinationDirectory = e.Text;
-                PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(operationChartFile);
-                operationChartFile.instl_dst = destinationDirectory;
+                PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(compatibilityBmsFile);
+                compatibilityBmsFile.instl_dst = destinationDirectory;
                 Task.Run(delegate
                 {
-                    bool succeeded = viewModel.SetPendingInstallDestination(operationChartFile, destinationDirectory);
+                    bool succeeded = viewModel.SetPendingInstallDestination(compatibilityBmsFile, destinationDirectory);
                     base.Dispatcher.BeginInvoke((Action)delegate
                     {
                         if (_isClosingOrClosed)
@@ -973,11 +973,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         }
                         if (!succeeded)
                         {
-                            RestorePendingInstallDestinationEditState(operationChartFile, originalState);
+                            RestorePendingInstallDestinationEditState(compatibilityBmsFile, originalState);
                         }
                         else
                         {
-                            ClearPendingInstallDestinationEditState(operationChartFile);
+                            ClearPendingInstallDestinationEditState(compatibilityBmsFile);
                         }
                         RefreshCustomTableViewDisplay();
                     }, DispatcherPriority.Background);
@@ -1199,7 +1199,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return section == MainWindowViewModel.MainViewOperationSection.ChartInfoParseError;
     }
 
-    private static BMSFile GetOperationChartFileFromTarget(ChartOperationTarget target)
+    private static BMSFile GetCompatibilityBmsFileFromTarget(ChartOperationTarget target)
     {
         if (target?.Chart == null)
         {
@@ -1224,7 +1224,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private List<BMSFile> GetSelectedCompatibilityBmsFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
         return GetSelectedChartTargets(capability, isPendingSection)
-            .Select(GetOperationChartFileFromTarget)
+            .Select(GetCompatibilityBmsFileFromTarget)
             .Where((BMSFile file) => file != null)
             .ToList();
     }
@@ -1233,7 +1233,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         return GetSelectedChartTargets(isPendingSection)
             .Where((ChartOperationTarget target) => HasRequiredCapability(target, capability) && target.Chart.Kind == ChartFileKind.Bms)
-            .Select(GetOperationChartFileFromTarget)
+            .Select(GetCompatibilityBmsFileFromTarget)
             .Where(PendingChartEntry.IsBmsChartFile)
             .ToList();
     }
@@ -4849,7 +4849,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             selectedTargets.Add(rowTarget);
         }
-        List<BMSFile> list = selectedTargets.Select(GetOperationChartFileFromTarget).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> list = selectedTargets.Select(GetCompatibilityBmsFileFromTarget).Where((BMSFile file) => file != null).ToList();
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
         bool hasBmsonSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == ChartFileKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == ChartFileKind.Bms);

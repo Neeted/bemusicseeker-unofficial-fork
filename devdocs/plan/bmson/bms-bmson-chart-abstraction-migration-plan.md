@@ -296,7 +296,7 @@ LibraryChartRow
 - 通常一覧の所持 bmson row は `LibraryChartRow.FromBmsonSong(bmson_song)`
 - `LibraryChartRow` は表示・検索・ソート・右クリック resolver のための read model であり、DB 更新の source of truth ではない
 - pending install / package parse / maintenance 内部 adapter としての `PendingChartEntry : BMSFile` は残す
-- 保留 / 新規インストール画面で `PendingChartEntry` を `LibraryChartRow` が包む場合でも、元の `PendingChartEntry` を `Chart.CompatibilityBmsFile` / `GridRowResolver.GetOperationChartFile()` に残す。`warning`, `instl_dst`, resource health などの pending state は adapter 側の値を正とする
+- 保留 / 新規インストール画面で `PendingChartEntry` を `LibraryChartRow` が包む場合でも、元の `PendingChartEntry` を `Chart.CompatibilityBmsFile` / `GridRowResolver.GetCompatibilityBmsFile()` に残す。`warning`, `instl_dst`, resource health などの pending state は adapter 側の値を正とする
 - `ChartOperationTarget` には `SourceScope` を持たせ、同じ `LibraryChartRow` でも `PendingPackage`, `NewlyInstalledPackage`, `Library`, `PlaylistOwned`, `PlaylistMissing` を区別する。保留行は local install destination 更新対象、新規導入後行と通常所持行は library mutation 対象として扱う
 - bmson install 後は、登録された `bmson_song` を `PendingChartEntry.BmsonSong` に差し替え、`path` / `folder` / `md5` / `sha256` / `MaintenanceInfo` を同期する。これにより、新規画面の PATH 表示、Explorer、削除/移動操作が同じ実体を指す
 - pending / newly-installed bmson の操作 target は `bmson_song.path` ではなく、現在の `PendingChartEntry.path` を優先する。`bmson_song` は保存済み実体の参照として使い、表示・操作のカレント path は adapter 側を正とする
@@ -312,7 +312,7 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 
 Phase F-1 では「新規コードの入口を chart 抽象に揃える」ことを優先する。
 
-- `GridRowResolver.TryGetChartFile` / `TryGetChartOperationTarget` を primary API とし、BMS-only 互換は `GetRealBmsFile`、既存 `BMSFile` 引数 API への chart adapter 取得は `GetOperationChartFile` に限定する
+- `GridRowResolver.TryGetChartFile` / `TryGetChartOperationTarget` を primary API とし、BMS-only 互換は `GetRealBmsFile`、既存 `BMSFile` 引数 API への chart adapter 取得は `GetCompatibilityBmsFile` に限定する
 - UI handler は `ChartOperationTarget.Capabilities` で対象を絞り、BMS 専用操作だけ実体 BMS `BMSFile` へ戻す
 - 構成ファイルフルスキャンは `RunResourceHealthCheck` capability を使い、BMS / bmson の両方を chart resource health 対象にする
 - `ForceResourceHealthCheckCharts` など chart 名 API を主入口にし、production 参照のない旧名 wrapper は残さない
@@ -357,7 +357,7 @@ F-3 で進める候補:
 
 - `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は、型がすでに `LibraryChartRow` なので `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ寄せる
 - `SetBMSFilesView()` は private helper なので、`SetChartRowsView()` を主 API にし、旧名は必要なら shim にする
-- 旧 `GetSelectedGridRealFiles` / `GetSelectedGridOperationFiles` / `GetSelectedGridOperationChartFiles` は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedCompatibilityBmsFiles` / `GetSelectedPendingCompatibilityBmsFiles` に寄せる
+- 旧 grid selection helper 群は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedCompatibilityBmsFiles` / `GetSelectedPendingCompatibilityBmsFiles` に寄せる
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 

@@ -22,22 +22,22 @@ internal sealed class ChartListSourceRow
 
     private readonly Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider;
 
-    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider;
+    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider;
 
-    private PendingChartEntry bmsonOperationChartFile;
+    private PendingChartEntry bmsonCompatibilityBmsFile;
 
     private ChartListSourceRow(
         BMSFile bmsFile,
         LR2SongDBExtended.bmson_song bmsonSong,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider)
     {
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
         this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
-        this.bmsonOperationChartFileProvider = bmsonOperationChartFileProvider;
+        this.bmsonCompatibilityBmsFileProvider = bmsonCompatibilityBmsFileProvider;
         bmsonTitle = BmsonSongParser.ComposeDisplayTitle(bmsonSong);
         bmsonFolder = BmsonSongParser.ComposeDisplayFolder(bmsonSong);
         bmsonPath = bmsonSong?.path ?? string.Empty;
@@ -48,7 +48,7 @@ internal sealed class ChartListSourceRow
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; }
 
-    internal BMSFile OperationChartFile => BmsFile ?? GetOrCreateBmsonOperationChartFile();
+    internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonCompatibilityBmsFile();
 
     internal string Title => BmsFile?.Title ?? bmsonTitle;
 
@@ -63,7 +63,7 @@ internal sealed class ChartListSourceRow
     internal int? Mode => BmsFile?.mode ?? bmsonMode;
 
     internal string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(
-        OperationChartFile,
+        CompatibilityBmsFile,
         GetResourceHealthProjection(),
         resourceHealthProjectionProvider != null,
         InstallDestination);
@@ -78,11 +78,11 @@ internal sealed class ChartListSourceRow
 
     internal string Sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? string.Empty;
 
-    internal string InstallDestination => OperationChartFile?.instl_dst ?? string.Empty;
+    internal string InstallDestination => CompatibilityBmsFile?.instl_dst ?? string.Empty;
 
-    internal string InstallDestinationTitle => OperationChartFile?.InstallDestinationTitle ?? string.Empty;
+    internal string InstallDestinationTitle => CompatibilityBmsFile?.InstallDestinationTitle ?? string.Empty;
 
-    internal string InstallDestinationArtist => OperationChartFile?.InstallDestinationArtist ?? string.Empty;
+    internal string InstallDestinationArtist => CompatibilityBmsFile?.InstallDestinationArtist ?? string.Empty;
 
     internal string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
 
@@ -162,48 +162,48 @@ internal sealed class ChartListSourceRow
 
     internal BMSFile CreateFilterFile()
     {
-        return OperationChartFile;
+        return CompatibilityBmsFile;
     }
 
-    private PendingChartEntry GetOrCreateBmsonOperationChartFile()
+    private PendingChartEntry GetOrCreateBmsonCompatibilityBmsFile()
     {
         if (BmsonSong == null)
         {
             return null;
         }
-        PendingChartEntry provided = bmsonOperationChartFileProvider?.Invoke(BmsonSong);
+        PendingChartEntry provided = bmsonCompatibilityBmsFileProvider?.Invoke(BmsonSong);
         if (provided != null)
         {
-            bmsonOperationChartFile = provided;
-            return bmsonOperationChartFile;
+            bmsonCompatibilityBmsFile = provided;
+            return bmsonCompatibilityBmsFile;
         }
-        if (bmsonOperationChartFile == null || !ReferenceEquals(bmsonOperationChartFile.BmsonSong, BmsonSong))
+        if (bmsonCompatibilityBmsFile == null || !ReferenceEquals(bmsonCompatibilityBmsFile.BmsonSong, BmsonSong))
         {
-            bmsonOperationChartFile = PendingChartEntry.CreateFromBmsonSong(BmsonSong);
+            bmsonCompatibilityBmsFile = PendingChartEntry.CreateFromBmsonSong(BmsonSong);
         }
-        else if (!string.Equals(bmsonOperationChartFile.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
+        else if (!string.Equals(bmsonCompatibilityBmsFile.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
         {
-            bmsonOperationChartFile.UpdateFromBmsonSong(BmsonSong);
+            bmsonCompatibilityBmsFile.UpdateFromBmsonSong(BmsonSong);
         }
-        return bmsonOperationChartFile;
+        return bmsonCompatibilityBmsFile;
     }
 
     internal static ChartListSourceRow FromBmsFile(
         BMSFile file,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider = null)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider = null)
     {
-        return file == null ? null : new ChartListSourceRow(file, null, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonOperationChartFileProvider);
+        return file == null ? null : new ChartListSourceRow(file, null, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonCompatibilityBmsFileProvider);
     }
 
     internal static ChartListSourceRow FromBmsonSong(
         LR2SongDBExtended.bmson_song song,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider = null)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider = null)
     {
-        return song == null ? null : new ChartListSourceRow(null, song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonOperationChartFileProvider);
+        return song == null ? null : new ChartListSourceRow(null, song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonCompatibilityBmsFileProvider);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(
@@ -211,16 +211,16 @@ internal sealed class ChartListSourceRow
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonOperationChartFileProvider = null)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider = null)
     {
         List<ChartListSourceRow> rows = new List<ChartListSourceRow>();
         rows.AddRange((bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Select(file => FromBmsFile(file, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonOperationChartFileProvider))
+            .Select(file => FromBmsFile(file, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonCompatibilityBmsFileProvider))
             .Where(row => row != null));
         rows.AddRange((bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-            .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonOperationChartFileProvider))
+            .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonCompatibilityBmsFileProvider))
             .Where(row => row != null));
         return rows;
     }

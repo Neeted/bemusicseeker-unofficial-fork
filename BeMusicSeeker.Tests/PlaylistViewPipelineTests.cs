@@ -594,7 +594,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithoutOperationBmsFile()
+    public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithCompatibilityBmsFile()
     {
         LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
         {
@@ -757,7 +757,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(libraryRow.WarningTooltipText, "ambiguous install destination");
 
         LibraryChartRow rebuiltWarningRow = LibraryChartRow.FromBmsonSong(bmson);
-        rebuiltWarningRow.SetBmsonOperationChartFileProvider(song => firstLibraryTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
+        rebuiltWarningRow.SetBmsonCompatibilityBmsFileProvider(song => firstLibraryTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
         Assert.IsTrue(rebuiltWarningRow.HasHighlightedWarning);
         StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, "ambiguous install destination");
 
@@ -777,12 +777,12 @@ public sealed class PlaylistViewPipelineTests
             entry,
             realFile: null,
             resolvedBmson: bmson,
-            bmsonOperationChartFileProvider: song => firstPlaylistTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
+            bmsonCompatibilityBmsFileProvider: song => firstPlaylistTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
     }
 
     [TestMethod]
-    public void ChartListSourceRow_BmsonUsesSharedOperationChartFileForInstallRepairState()
+    public void ChartListSourceRow_BmsonUsesSharedCompatibilityBmsFileForInstallRepairState()
     {
         LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
         {
@@ -807,18 +807,18 @@ public sealed class PlaylistViewPipelineTests
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             Array.Empty<BMSFile>(),
             new[] { bmson },
-            bmsonOperationChartFileProvider: GetAdapter).Single();
-        firstSourceRow.OperationChartFile.instl_dst = "C:\\Installed\\Bmson";
-        firstSourceRow.OperationChartFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
+            bmsonCompatibilityBmsFileProvider: GetAdapter).Single();
+        firstSourceRow.CompatibilityBmsFile.instl_dst = "C:\\Installed\\Bmson";
+        firstSourceRow.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             Array.Empty<BMSFile>(),
             new[] { bmson },
-            bmsonOperationChartFileProvider: GetAdapter).Single();
+            bmsonCompatibilityBmsFileProvider: GetAdapter).Single();
         LibraryChartRow rebuiltViewRow = LibraryChartRow.FromBmsonSong(rebuiltSourceRow.BmsonSong);
-        rebuiltViewRow.SetBmsonOperationChartFileProvider(GetAdapter);
+        rebuiltViewRow.SetBmsonCompatibilityBmsFileProvider(GetAdapter);
 
-        Assert.AreSame(firstSourceRow.OperationChartFile, rebuiltSourceRow.OperationChartFile);
+        Assert.AreSame(firstSourceRow.CompatibilityBmsFile, rebuiltSourceRow.CompatibilityBmsFile);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.InstallDestination);
         StringAssert.Contains(rebuiltSourceRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationAmbiguous);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltViewRow.instl_dst);
@@ -882,7 +882,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(pending, row.Chart.CompatibilityBmsFile);
         Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
-        Assert.AreSame(pending, GridRowResolver.GetOperationChartFile(row, ChartOperationSourceScope.PendingPackage));
+        Assert.AreSame(pending, GridRowResolver.GetCompatibilityBmsFile(row, ChartOperationSourceScope.PendingPackage));
         Assert.AreEqual(pending.DisplayWarning, row.DisplayWarning);
         Assert.AreEqual(pending.WarningDigestText, row.WarningDigestText);
         Assert.AreEqual(pending.WarningTooltipText, row.WarningTooltipText);
@@ -1235,7 +1235,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
         Assert.AreSame(file, GridRowResolver.GetRealBmsFile(file));
-        Assert.AreSame(file, GridRowResolver.GetOperationChartFile(file));
+        Assert.AreSame(file, GridRowResolver.GetCompatibilityBmsFile(file));
         Assert.AreSame(file, target.Chart.BmsFile);
         Assert.AreSame(file, target.Chart.CompatibilityBmsFile);
     }

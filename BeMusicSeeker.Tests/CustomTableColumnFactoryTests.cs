@@ -510,7 +510,7 @@ public sealed class CustomTableColumnFactoryTests
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             sha256 = new string('b', 64)
         });
-        bmsonRow.OperationChartFile.InstallDestinationSuggestions = new[] { "C:\\Bmson\\A", "", "C:\\Bmson\\B" };
+        bmsonRow.CompatibilityBmsFile.InstallDestinationSuggestions = new[] { "C:\\Bmson\\A", "", "C:\\Bmson\\B" };
         CollectionAssert.AreEqual(
             new[] { "C:\\Bmson\\A", "C:\\Bmson\\B" },
             columns["InstallDst"].GetEditSuggestions(bmsonRow).ToArray());

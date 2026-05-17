@@ -60,12 +60,12 @@ internal static class GridRowResolver
         return file;
     }
 
-    internal static BMSFile GetOperationChartFile(object row)
+    internal static BMSFile GetCompatibilityBmsFile(object row)
     {
-        return GetOperationChartFile(row, ChartOperationSourceScope.Library);
+        return GetCompatibilityBmsFile(row, ChartOperationSourceScope.Library);
     }
 
-    internal static BMSFile GetOperationChartFile(object row, ChartOperationSourceScope sourceScope)
+    internal static BMSFile GetCompatibilityBmsFile(object row, ChartOperationSourceScope sourceScope)
     {
         return TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
             ? target.Chart?.CompatibilityBmsFile
@@ -246,7 +246,7 @@ internal static class GridRowResolver
         }
         if (row.ResolvedBmson != null)
         {
-            chart = CreateChartFile(row.ResolvedBmson, row.OperationChartFile);
+            chart = CreateChartFile(row.ResolvedBmson, row.CompatibilityBmsFile);
             return chart != null;
         }
         chart = new ChartFile(
@@ -279,7 +279,7 @@ internal static class GridRowResolver
         }
         if (row.ResolvedBmson != null)
         {
-            chart = CreateChartFile(row.ResolvedBmson, row.OperationChartFile);
+            chart = CreateChartFile(row.ResolvedBmson, row.CompatibilityBmsFile);
             return chart != null;
         }
         chart = new ChartFile(
@@ -337,7 +337,7 @@ internal static class GridRowResolver
             null);
     }
 
-    private static ChartFile CreateChartFile(LR2SongDBExtended.bmson_song song, BMSFile operationFile = null)
+    private static ChartFile CreateChartFile(LR2SongDBExtended.bmson_song song, BMSFile compatibilityBmsFile = null)
     {
         if (song == null)
         {
@@ -354,7 +354,7 @@ internal static class GridRowResolver
             BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             song.ChartInfo,
             null,
-            operationFile,
+            compatibilityBmsFile,
             song);
     }
 
