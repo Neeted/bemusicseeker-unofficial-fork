@@ -92,11 +92,6 @@ internal static class GridRowResolver
         }
     }
 
-    internal static bool TryGetOwnedChartRef(object row, out OwnedChartRef chart)
-    {
-        return TryGetChartRef(row, out chart);
-    }
-
     internal static bool TryGetChartOperationTarget(object row, out ChartOperationTarget target)
     {
         return TryGetChartOperationTarget(row, ChartOperationSourceScope.Library, out target);
@@ -141,11 +136,6 @@ internal static class GridRowResolver
     internal static bool IsBmsonChartRow(object row)
     {
         return TryGetChartRef(row, out OwnedChartRef chart) && chart.Kind == OwnedChartKind.Bmson;
-    }
-
-    internal static bool IsBmsonContextRow(object row)
-    {
-        return IsBmsonChartRow(row);
     }
 
     /// <summary>

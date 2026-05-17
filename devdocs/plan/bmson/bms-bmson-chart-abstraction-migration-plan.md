@@ -286,7 +286,7 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 
 Phase F-1 では「新規コードの入口を chart 抽象に揃える」ことを優先する。
 
-- `GridRowResolver.TryGetChartRef` / `TryGetChartOperationTarget` を primary API とし、BMS-only 互換 shim は `GetRealBmsFile` に限定する
+- `GridRowResolver.TryGetChartRef` / `TryGetChartOperationTarget` を primary API とし、BMS-only 互換は `GetRealBmsFile`、既存 `BMSFile` 引数 API への chart adapter 取得は `GetOperationChartFile` に限定する
 - UI handler は `ChartOperationTarget.Capabilities` で対象を絞り、BMS 専用操作だけ実体 BMS `BMSFile` へ戻す
 - 構成ファイルフルスキャンは `RunResourceHealthCheck` capability を使い、BMS / bmson の両方を chart resource health 対象にする
 - `ForceResourceHealthCheckCharts` など chart 名 API を主入口にし、production 参照のない旧名 wrapper は残さない
