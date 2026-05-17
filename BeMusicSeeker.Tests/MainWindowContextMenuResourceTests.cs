@@ -373,7 +373,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "StandaloneLibraryDatabase.EnsurePortableSongDb()");
         StringAssert.Contains(viewModelCode, "tables = new BMSPlaylist(libraryProfile.SongDbPath");
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
-        StringAssert.Contains(viewModelCode, "return new List<string>();");
+        StringAssert.Contains(viewModelCode, "return [];");
         StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable) : null;");
         string saveFollowup = ExtractBetween(
             viewModelCode,
@@ -383,7 +383,7 @@ public sealed class MainWindowContextMenuResourceTests
         int lr2CustomFolderIndex = saveFollowup.IndexOf("if (Settings.Default.OperationModeLR2DB)", StringComparison.Ordinal);
         Assert.IsTrue(headerCommitIndex >= 0);
         Assert.IsTrue(lr2CustomFolderIndex > headerCommitIndex);
-        StringAssert.Contains(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs")), "public List<string> SearchTargets { get; set; } = new List<string>();");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs")), "public List<string> SearchTargets { get; set; } = [];");
         Assert.IsFalse(viewModelCode.Contains("throw new NotImplementedException();"));
     }
 
@@ -479,7 +479,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(saveAndClose, "settingDialog.Visibility = Visibility.Hidden;");
         StringAssert.Contains(saveAndClose, "Msg_initsetting_completed");
         Assert.IsTrue(saveAndClose.IndexOf("Msg_initsetting_completed", StringComparison.Ordinal) < saveAndClose.IndexOf("viewModel.Initialize();", StringComparison.Ordinal));
-        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out var errMsg)");
+        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out string errMsg)");
         StringAssert.Contains(saveAndClose, "viewModel.IsLibraryOperationInProgress");
         StringAssert.Contains(saveAndClose, "Resources.Msg_settings_apply_blocked_during_initialization");
         StringAssert.Contains(saveAndClose, "settingDialogViewModel.ResetSettings();");
@@ -713,8 +713,8 @@ public sealed class MainWindowContextMenuResourceTests
             "private async Task SaveSettingsCore(bool runPostSaveActions)",
             "public void SaveOperationModeForRestart");
 
-        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = lr2config.GetBMSSearchDirectories().ToList();");
-        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = GetStandaloneBmsRootPathsFromSettings().ToList();");
+        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
+        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsFromSettings()];");
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
@@ -751,7 +751,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.IsFalse(addStandalone.Contains("StandaloneBmsRootPathList.Clear();"));
         StringAssert.Contains(addStandalone, "StandaloneBmsRootPathList.Add(path);");
-        StringAssert.Contains(addStandalone, "new object[1] { requestedPath }");
+        StringAssert.Contains(addStandalone, "GetSetMethod().Invoke(this, [requestedPath]);");
     }
 
     [TestMethod]
@@ -1255,14 +1255,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(dialogActionCode, "CommonOpenFileDialog");
         StringAssert.Contains(dialogActionCode, "IsFolderPicker = true");
         StringAssert.Contains(dialogActionCode, "ShowDialog(Window.GetWindow(AssociatedObject))");
-        StringAssert.Contains(dialogActionCode, "FileNames.ToArray()");
+        StringAssert.Contains(dialogActionCode, "message.Response = [.. dialog.FileNames];");
 
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddStandaloneBmsRootPathsClicked\"");
         StringAssert.Contains(settingDialogCode, "Multiselect = true");
         StringAssert.Contains(settingDialogCode, "IsFolderPicker = true");
         StringAssert.Contains(settingDialogCode, "dialog.FileNames");
         StringAssert.Contains(viewModelCode, "public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)");
-        StringAssert.Contains(viewModelCode, "NormalizeStandaloneBmsRootPaths(paths ?? Enumerable.Empty<string>())");
+        StringAssert.Contains(viewModelCode, "NormalizeStandaloneBmsRootPaths(paths ?? [])");
 
         Type actionType = typeof(MainWindow).Assembly.GetType("BeMusicSeeker.Views.CommonOpenFileDialogInteractionMessageAction");
         Assert.IsNotNull(actionType);
@@ -1300,13 +1300,13 @@ public sealed class MainWindowContextMenuResourceTests
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
 
-        StringAssert.Contains(settingDialogCode, "fileDialog.DefaultExt = \".sql\";");
-        StringAssert.Contains(settingDialogCode, "fileDialog.AddExtension = true;");
+        StringAssert.Contains(settingDialogCode, "DefaultExt = \".sql\"");
+        StringAssert.Contains(settingDialogCode, "AddExtension = true");
         StringAssert.Contains(mainWindowCode, "fileDialogHeader.DefaultExt = \".json\";");
         StringAssert.Contains(mainWindowCode, "fileDialogData.DefaultExt = \".json\";");
         StringAssert.Contains(mainWindowCode, "fileDialogHeader.AddExtension = true;");
         StringAssert.Contains(mainWindowCode, "fileDialogData.AddExtension = true;");
-        StringAssert.Contains(loadPlaylistCode, "openFileDialog.DefaultExt = \".json\";");
+        StringAssert.Contains(loadPlaylistCode, "DefaultExt = \".json\"");
     }
 
     [TestMethod]
@@ -1377,14 +1377,15 @@ public sealed class MainWindowContextMenuResourceTests
         string startupFlowDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "startup-initialization-flow.md"));
 
         StringAssert.Contains(initializationCode, "private const int DefaultInlineChartInfoBatchSize = 2048;");
-        StringAssert.Contains(initializationCode, "BlockingCollection<FileDiffParsedBatch> postParseQueue");
-        StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue");
+        StringAssert.Contains(initializationCode, "var postParseQueue = new BlockingCollection<FileDiffParsedBatch>(postParseQueueCapacity);");
+        StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue = [];");
         StringAssert.Contains(initializationCode, "BuildInlineBmsMaintenanceBatch(");
+        StringAssert.Contains(initializationCode, "Task[] workerTasks = [.. Enumerable.Range(0, parserDegree)");
         StringAssert.Contains(initializationCode, "Parallel.For(0, candidates.Count");
         StringAssert.Contains(initializationCode, "inline_maintenance_wall_ms=");
         StringAssert.Contains(initializationCode, "parser_output_wait_ms=");
-        StringAssert.Contains(initializationCode, "bms=\" + batchMetrics.BmsCount");
-        StringAssert.Contains(initializationCode, "bmson=\" + batchMetrics.BmsonCount");
+        StringAssert.Contains(initializationCode, "\" bms=\" + batchMetrics.BmsCount");
+        StringAssert.Contains(initializationCode, "\" bmson=\" + batchMetrics.BmsonCount");
 
         StringAssert.Contains(planDoc, "parser output queue capacity");
         StringAssert.Contains(planDoc, "2048");
