@@ -785,6 +785,7 @@ createTempDirectory);
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void DeferredChartInfoHydration_BuildsSessionIndexAndUsesSha256BeforeMd5()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2807,6 +2808,7 @@ createTempDirectory);
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void DeferredChartInfoHydration_AppliesExistingRowsToBmsAndBmson()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2867,6 +2869,7 @@ createTempDirectory);
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void DeferredChartInfoHydration_SkipsFullBackfillWhenNoCandidates()
     {
         TestResourceInitializer.EnsureJapaneseResources();
