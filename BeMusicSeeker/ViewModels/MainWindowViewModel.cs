@@ -17557,7 +17557,7 @@ public class MainWindowViewModel : ViewModel
         lock (lockCopyFile)
         {
             List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(chart => chart != null)];
-            List<ChartPackage> packages = getChartPackages(ref chartFiles2);
+            List<ChartPackage> packages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             for (int num = 0; num < packages.Count; num++)
             {
                 files.SearchMergeDestinationForPendingPackage(packages[num]);
@@ -19614,7 +19614,7 @@ public class MainWindowViewModel : ViewModel
         };
     }
 
-    private List<ChartPackage> getChartPackages(ref List<BeMusicSeeker.Models.BMSFile> chartFiles, bool isInstalled = false)
+    private List<ChartPackage> ExtractChartPackagesFromChartFiles(ref List<BeMusicSeeker.Models.BMSFile> chartFiles, bool isInstalled = false)
     {
         DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
         List<BeMusicSeeker.Models.BMSFile> remainingChartFiles = [];
@@ -19657,7 +19657,7 @@ public class MainWindowViewModel : ViewModel
         List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(chartFile => chartFile != null)];
         lock (lockCopyFile)
         {
-            List<ChartPackage> chartPackages = getChartPackages(ref chartFiles2);
+            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             ForceInstallPendingPackages(chartPackages);
         }
     }
@@ -20202,7 +20202,7 @@ public class MainWindowViewModel : ViewModel
         List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(chartFile => chartFile != null)];
         lock (lockCopyFile)
         {
-            List<ChartPackage> chartPackages = getChartPackages(ref chartFiles2);
+            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             ManualInstallPendingPackages(chartPackages);
         }
     }
@@ -20234,7 +20234,7 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("chartFiles");
         }
         List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(f => f != null)];
-        List<ChartPackage> chartPackages = getChartPackages(ref chartFiles2);
+        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
         RemovePendingPackages(chartPackages);
     }
 
@@ -20318,7 +20318,7 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("chartFiles");
         }
         List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(f => f != null)];
-        List<ChartPackage> chartPackages = getChartPackages(ref chartFiles2, isInstalled: true);
+        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2, isInstalled: true);
         RemoveInstalledPackageRecords(chartPackages);
     }
 
@@ -20366,7 +20366,7 @@ public class MainWindowViewModel : ViewModel
                 throw new ArgumentNullException("chartFiles");
             }
             List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(f => f != null)];
-            List<ChartPackage> chartPackages = getChartPackages(ref chartFiles2);
+            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             for (int num = 0; num < chartPackages.Count; num++)
             {
                 files.RemoveInstallDestination(chartPackages[num].ChartFiles);
