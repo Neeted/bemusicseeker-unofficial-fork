@@ -303,7 +303,7 @@ playlist detail は `PlaylistDetailSourceRow` / `PlaylistDetailRow` で表示さ
 
 playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `RealFile.RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
 
-playlist detail 表示時の `BMSFilesView` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncBMSFilesViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
+playlist detail 表示時の `ChartRowsView` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncChartRowsViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
 
 ### Playlist への追加
 
@@ -355,22 +355,22 @@ resource health は BMS / bmson 共通の表示概念である。
 `BMSFileSortEngine` は旧 `BMSFile` 互換確認用の production helper として残っていたが、通常一覧の実行経路から外れ、参照がテストだけになったため削除済みである。  
 互換・性能確認は `BmsSortCompatibilityTests` の test-local legacy baseline と `LibraryChartRowSortEngine` の比較で行う。
 
-## UI binding / naming compatibility
+## UI binding / naming boundary
 
-通常一覧の表示実体は `LibraryChartRow` へ寄っているが、public binding 名は互換のため BMS 名を残している。
+通常一覧の表示実体は `LibraryChartRow` へ寄っており、MainWindow の主要 binding 名も chart row 名へ移行済みである。
 
 代表例:
 
-- `BMSFilesView`
-- `SelectedIndexBMSFilesView`
-- `ColumnsSettingsBMSFilesView`
-- `UseAsyncBMSFilesViewBinding`
+- `ChartRowsView`
+- `SelectedIndexChartRowsView`
+- `ColumnsSettingsChartRowsView`
+- `UseAsyncChartRowsViewBinding`
 
 内部の一覧再構築は `RefreshChartRowsView(...)` / `SetChartRowsView(...)` / `ChartRowsFolderView` など chart row 名の helper に寄せている。
 
-このため、現在の仕様では「UI binding 名に BMS が残っていても、値は BMS / bmson 共通 chart row であり得る」と扱う。
+このため、現在の仕様では通常一覧 / playlist detail の表示 binding は「BMSFile collection」ではなく「BMS / bmson 共通 chart row view」として扱う。
 
-View の control 名、menu item 名、event handler 名、ログ名にも BMS 名が残る。これらは XAML wiring や既存 handler 名との互換境界であり、機械的 rename できる場合も MethodBinder / XAML / resources / tests の参照を同時に確認する。
+一方、View の control 名、menu item 名、event handler 名、ログ名にはまだ BMS 名が残る。これらは XAML wiring や既存 handler 名との互換境界であり、機械的 rename できる場合も MethodBinder / XAML / resources / tests の参照を同時に確認する。
 
 ## 現在の抽象化済み領域
 
@@ -415,9 +415,7 @@ bmson は `PendingChartEntry` として混ざるため、`ChartPackage.ChartFile
 
 ### model APIs の残存 BMS 名
 
-次の API / view 名は chart 共通処理を含むが、BMS 名を残している。
-
-- `BMSFilesView`
+`ChartRowsView` など通常一覧の public binding 名は chart row 名へ移行済みである。
 
 `RemoveChartFiles(...)` は BMS / bmson 共通の library chart 削除入口であり、旧 `RemoveBMSFiles(...)` wrapper は残さない。未使用だった single chart move wrapper も削除済みである。
 pending package install 入口も `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` へ移行済みで、旧 `InstallBMSFilesAuto` / `InstallChartPackagesForce` / `InstallChartPackagesToEstimatedDir` wrapper は残さない。

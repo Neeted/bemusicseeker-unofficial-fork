@@ -6391,7 +6391,7 @@ public class MainWindowViewModel : ViewModel
         if (_UseAsyncChartRowsViewBinding != nextUseAsyncBinding)
         {
             _UseAsyncChartRowsViewBinding = nextUseAsyncBinding;
-            RaisePropertyChanged("UseAsyncBMSFilesViewBinding");
+            RaisePropertyChanged("UseAsyncChartRowsViewBinding");
         }
     }
 
@@ -9354,10 +9354,10 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// メインリスト上に実際に表示されるBMS楽曲データ群です。
+    /// メインリスト上に実際に表示される chart row 群です。
     /// ツリーでのフォルダ選択や、各種フィルタリング（キーワード検索、モード絞り込みなど）による抽出結果が反映されます。
     /// </summary>
-    public IList BMSFilesView
+    public IList ChartRowsView
     {
         get
         {
@@ -9376,7 +9376,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     _ChartRowsView = value;
                 }
-                RaisePropertyChanged("BMSFilesView");
+                RaisePropertyChanged("ChartRowsView");
             }
         }
     }
@@ -9402,19 +9402,19 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 通常一覧 / playlist 詳細の chart row view を <see cref="BMSFilesView"/> binding へ差し替えます。
+    /// 通常一覧 / playlist 詳細の chart row view を <see cref="ChartRowsView"/> binding へ差し替えます。
     /// playlist 詳細表示では <see cref="PlaylistViewState.CurrentViewRows"/> を先に更新してから呼び出します。
     /// </summary>
     /// <param name="rows">新しい表示行。</param>
     private void SetChartRowsView(IList rows)
     {
-        BMSFilesView = rows;
+        ChartRowsView = rows;
         UpdateMainGridSummaryText(rows);
     }
 
     private void SetChartRowsView(IList rows, int distinctFolderCount)
     {
-        BMSFilesView = rows;
+        ChartRowsView = rows;
         UpdateMainGridSummaryText(rows?.Count ?? 0, distinctFolderCount);
     }
 
@@ -9731,7 +9731,7 @@ public class MainWindowViewModel : ViewModel
                 + " cacheHit=False");
             Action reflect = () =>
             {
-                if (ReferenceEquals(BMSFilesView, expectedRowsView) && IsCurrentMainSummaryFolderCountKey(key))
+                if (ReferenceEquals(ChartRowsView, expectedRowsView) && IsCurrentMainSummaryFolderCountKey(key))
                 {
                     UpdateMainGridSummaryText(key.RowCount, distinctFolderCount);
                 }
@@ -9948,13 +9948,13 @@ public class MainWindowViewModel : ViewModel
     {
         Action notify = delegate
         {
-            if (BMSFilesView is ChartListVirtualView virtualView)
+            if (ChartRowsView is ChartListVirtualView virtualView)
             {
                 virtualView.ForEachRealizedRow(RaiseBmsonPlaylistReferenceDisplayChanged);
             }
             else
             {
-                foreach (LibraryChartRow row in (BMSFilesView ?? new List<object>()).OfType<LibraryChartRow>())
+                foreach (LibraryChartRow row in (ChartRowsView ?? new List<object>()).OfType<LibraryChartRow>())
                 {
                     RaiseBmsonPlaylistReferenceDisplayChanged(row);
                 }
@@ -10232,7 +10232,7 @@ public class MainWindowViewModel : ViewModel
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         var nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
         long prepareSwapMs = 0L;
-        if (!ReferenceEquals(BMSFilesView, nextRowsView))
+        if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
@@ -10383,7 +10383,7 @@ public class MainWindowViewModel : ViewModel
             row => CreateVirtualChartSubsetRow(row, applyResourceHealthProjection),
             distinctFolderCount);
         long prepareSwapMs = 0L;
-        if (!ReferenceEquals(BMSFilesView, nextRowsView))
+        if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
@@ -10835,7 +10835,7 @@ public class MainWindowViewModel : ViewModel
 
     private HashSet<string> GetVisibleNormalLibraryVirtualSortColumnsForPrewarm()
     {
-        return GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(ColumnsSettingsBMSFilesView);
+        return GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(ColumnsSettingsChartRowsView);
     }
 
     private static HashSet<string> GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(CustomTableColumnSettings settings)
@@ -11727,7 +11727,7 @@ public class MainWindowViewModel : ViewModel
             playlistViewState.CurrentViewIdentity = requestIdentity;
             sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.SourceRows);
         }
-        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " selectedIndex=" + SelectedIndexBMSFilesView);
+        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " selectedIndex=" + SelectedIndexChartRowsView);
         return previousViewRows;
     }
 
@@ -11845,7 +11845,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public int SelectedIndexBMSFilesView
+    public int SelectedIndexChartRowsView
     {
         get
         {
@@ -11856,12 +11856,12 @@ public class MainWindowViewModel : ViewModel
             if (_SelectedIndexChartRowsView != value)
             {
                 _SelectedIndexChartRowsView = value;
-                RaisePropertyChanged("SelectedIndexBMSFilesView");
+                RaisePropertyChanged("SelectedIndexChartRowsView");
             }
         }
     }
 
-    public CustomTableColumnSettings ColumnsSettingsBMSFilesView
+    public CustomTableColumnSettings ColumnsSettingsChartRowsView
     {
         get
         {
@@ -11874,7 +11874,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             _ColumnsSettingsChartRowsView = value;
-            RaisePropertyChanged("ColumnsSettingsBMSFilesView");
+            RaisePropertyChanged("ColumnsSettingsChartRowsView");
         }
     }
 
@@ -11953,7 +11953,7 @@ public class MainWindowViewModel : ViewModel
     /// メイン一覧の表示コレクションを非同期で張るかどうかを示します。
     /// playlist 詳細表示では同期反映に切り替えて旧 ItemsSource の保持を減らします。
     /// </summary>
-    public bool UseAsyncBMSFilesViewBinding
+    public bool UseAsyncChartRowsViewBinding
     {
         get
         {
@@ -13952,7 +13952,7 @@ public class MainWindowViewModel : ViewModel
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;
         }
-        ColumnsSettingsBMSFilesView = Settings.Default.StandardCustomTableColumnSettings;
+        ColumnsSettingsChartRowsView = Settings.Default.StandardCustomTableColumnSettings;
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
         listenerForBMSPlaylist = new PropertyChangedEventListener(tables);
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
@@ -14718,7 +14718,7 @@ public class MainWindowViewModel : ViewModel
         BeMusicSeeker.Models.BMSFile bmsFile;
         try
         {
-            row = BMSFilesView[indexChartRowsView];
+            row = ChartRowsView[indexChartRowsView];
             bmsFile = GridRowResolver.GetRealBmsFile(row);
         }
         catch
@@ -14745,7 +14745,7 @@ public class MainWindowViewModel : ViewModel
             NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
         }
         NowPlayingBMS = bmsFile;
-        SelectedIndexBMSFilesView = indexChartRowsView;
+        SelectedIndexChartRowsView = indexChartRowsView;
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
         if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
         {
@@ -14893,9 +14893,9 @@ public class MainWindowViewModel : ViewModel
             else
             {
                 PlayEndBMSFile();
-                if (SelectedIndexBMSFilesView >= 0 && SelectedIndexBMSFilesView < BMSFilesView.Count)
+                if (SelectedIndexChartRowsView >= 0 && SelectedIndexChartRowsView < ChartRowsView.Count)
                 {
-                    PlayStartBmsFile(SelectedIndexBMSFilesView);
+                    PlayStartBmsFile(SelectedIndexChartRowsView);
                 }
             }
         }
@@ -14910,7 +14910,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             int num = nowPlayingChartRowsViewIndex;
-            if (num < 0 || num >= BMSFilesView.Count)
+            if (num < 0 || num >= ChartRowsView.Count)
             {
                 PlayEndBMSFile();
                 return;
@@ -14927,13 +14927,13 @@ public class MainWindowViewModel : ViewModel
             {
                 string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && File.Exists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num++;
-                if (Settings.Default.RepeatPlayMode && num == BMSFilesView.Count)
+                if (Settings.Default.RepeatPlayMode && num == ChartRowsView.Count)
                 {
                     num = 0;
                 }
-                while (Settings.Default.FolderSkipPlayMode && num != BMSFilesView.Count)
+                while (Settings.Default.FolderSkipPlayMode && num != ChartRowsView.Count)
                 {
-                    object candidateRow = BMSFilesView[num];
+                    object candidateRow = ChartRowsView[num];
                     BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetRealBmsFile(candidateRow);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
@@ -14946,13 +14946,13 @@ public class MainWindowViewModel : ViewModel
                     }
                     text = text2;
                     num++;
-                    if (Settings.Default.RepeatPlayMode && num == BMSFilesView.Count)
+                    if (Settings.Default.RepeatPlayMode && num == ChartRowsView.Count)
                     {
                         num = 0;
                     }
                 }
             }
-            if (num < BMSFilesView.Count)
+            if (num < ChartRowsView.Count)
             {
                 PlayEndBMSFile();
                 PlayStartBmsFile(num);
@@ -14973,7 +14973,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             int num = nowPlayingChartRowsViewIndex;
-            if (num < 0 || num >= BMSFilesView.Count)
+            if (num < 0 || num >= ChartRowsView.Count)
             {
                 PlayEndBMSFile();
                 return;
@@ -14992,11 +14992,11 @@ public class MainWindowViewModel : ViewModel
                 num--;
                 if (Settings.Default.RepeatPlayMode && num == -1)
                 {
-                    num = BMSFilesView.Count - 1;
+                    num = ChartRowsView.Count - 1;
                 }
                 while (Settings.Default.FolderSkipPlayMode && num != -1)
                 {
-                    object candidateRow = BMSFilesView[num];
+                    object candidateRow = ChartRowsView[num];
                     BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetRealBmsFile(candidateRow);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
@@ -15011,7 +15011,7 @@ public class MainWindowViewModel : ViewModel
                     num--;
                     if (Settings.Default.RepeatPlayMode && num == -1)
                     {
-                        num = BMSFilesView.Count - 1;
+                        num = ChartRowsView.Count - 1;
                     }
                 }
             }
@@ -15650,7 +15650,7 @@ public class MainWindowViewModel : ViewModel
             cancellationStage = "ui_apply";
             List<PlaylistDetailSourceRow> previousSourceRows = ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType, request.Identity);
             sourceRows = null;
-            SelectedIndexBMSFilesView = -1;
+            SelectedIndexChartRowsView = -1;
             base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
             stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             loadColumnSetting(ResolvePlaylistColumnSettingMode(filterType));
@@ -15709,7 +15709,7 @@ public class MainWindowViewModel : ViewModel
         {
             return true;
         }
-        SelectedIndexBMSFilesView = -1;
+        SelectedIndexChartRowsView = -1;
         base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting(ResolvePlaylistColumnSettingMode(request.Identity.FilterType));
@@ -16284,7 +16284,7 @@ public class MainWindowViewModel : ViewModel
         viewCount = nextRowsView?.Count ?? 0;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         long prepareSwapMs = 0L;
-        if (!ReferenceEquals(BMSFilesView, nextRowsView))
+        if (!ReferenceEquals(ChartRowsView, nextRowsView))
         {
             long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
@@ -17097,7 +17097,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.PlaylistCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.PlaylistCustomTableColumnSettings;
                 targetColumnSettingsVisibilityForPlaylist = Visibility.Visible;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
@@ -17110,7 +17110,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.StandardCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.StandardCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.UnregisteredFilterSelected:
@@ -17122,7 +17122,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.UnregisteredCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.UnregisteredCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.ZeroNoteFilterSelected:
@@ -17134,7 +17134,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.ZeroNoteCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.ZeroNoteCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
@@ -17146,7 +17146,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
@@ -17161,7 +17161,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.FullScanCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.FullScanCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
@@ -17173,7 +17173,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.DuplicateCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.DuplicateCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.GarbledFilterSelected:
@@ -17186,7 +17186,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.EncodingCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.EncodingCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.PendingInstallFolderSelected:
@@ -17198,7 +17198,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsBMSFilesView = Settings.Default.InstallCustomTableColumnSettings;
+                ColumnsSettingsChartRowsView = Settings.Default.InstallCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             default:

@@ -309,7 +309,7 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 ### Phase F: 命名と API を整理する
 
 長期的には、ユーザー向け文言以外の内部 API も整理する。
-ただし `BMSFile`, `BMSLibrary.BMSFiles`, `BMSFilesView` は XAML binding、設定、pending install、LR2 互換の語彙に広く残っているため、全面 rename は挙動が安定してから行う。`ChartPackage` については `ChartFiles` を primary API とし、production 参照のなくなった旧 `BMSFiles` alias は残さない。
+ただし `BMSFile`, `BMSLibrary.BMSFiles` は pending install、LR2 互換、storage row 互換の語彙に広く残っているため、全面 rename は挙動が安定してから行う。通常一覧 / playlist detail の public binding は `ChartRowsView` / `SelectedIndexChartRowsView` / `ColumnsSettingsChartRowsView` / `UseAsyncChartRowsViewBinding` へ移行済みである。`ChartPackage` については `ChartFiles` を primary API とし、production 参照のなくなった旧 `BMSFiles` alias は残さない。
 
 Phase F-1 では「新規コードの入口を chart 抽象に揃える」ことを優先する。
 
@@ -335,7 +335,7 @@ Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を�
 - pending install destination は `UpdateInstallDestination`、所持 chart の installed location 修復は `RepairInstalledLocation` として capability を分離する
 - `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
 - `BMSLibrary` では `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `RemoveChartFiles`, `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` など chart / pending package 共通名の入口へ寄せる。production 参照のなくなった旧 BMS 名 API / wrapper は残さない
-- `BMSFilesView`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す。`ChartPackage` の package 内 chart 参照は `ChartFiles` に一本化し、互換 alias は残さない
+- `BMSLibrary.BMSFiles` の rename は LR2 `song` row storage model の分離後に回す。通常一覧 / playlist detail の public binding は chart row 名へ移行済みで、`ChartPackage` の package 内 chart 参照は `ChartFiles` に一本化し、互換 alias は残さない
 
 Phase F-3 に進む前に、DataGrid sort engine を整理する。
 
@@ -356,7 +356,7 @@ Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の
 
 F-3 で進める候補 / 進捗:
 
-- `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。public binding の `BMSFilesView` は維持する
+- `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。public binding の `BMSFilesView` / `SelectedIndexBMSFilesView` / `ColumnsSettingsBMSFilesView` / `UseAsyncBMSFilesViewBinding` も `ChartRowsView` / `SelectedIndexChartRowsView` / `ColumnsSettingsChartRowsView` / `UseAsyncChartRowsViewBinding` へ移行済み
 - `SetBMSFilesView()` は private helper だったため `SetChartRowsView()` へ移行済み。production 参照のない旧名 shim は残さない
 - 旧 grid selection helper 群は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedChartCompatibilityAdapters` / `GetSelectedPendingChartCompatibilityAdapters` に寄せる
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
@@ -367,13 +367,12 @@ F-3 で進める候補 / 進捗:
 
 F-3 の実装境界:
 
-- 通常一覧の内部 cache / setter は chart row 名へ寄せるが、public binding の `BMSFilesView` は XAML / settings 互換のため維持する
+- 通常一覧の内部 cache / setter / public binding は chart row 名へ寄せる。settings 名の `BMSRootPath`, `StandaloneBmsRootPaths`, `BMSInstallDir`, `ShowDiffBMSInstallConfirmMsg` は互換設定として維持し、chart 抽象化の rename 対象から外す
 - BMS 専用 handler は `GetSelectedBmsChartFiles`、既存 API が `BMSFile` adapter を要求する共通 handler は `GetSelectedChartCompatibilityAdapters`、pending/package 互換 handler は `GetSelectedPendingChartCompatibilityAdapters` を使う
 - `BMSFileSortEngine` は残さず、通常一覧 sort の正本を `LibraryChartRowSortEngine` に一本化する
 
 F-3 では後回しにするもの:
 
-- `BMSFilesView`, `SelectedIndexBMSFilesView`, `ColumnsSettingsBMSFilesView`, `UseAsyncBMSFilesViewBinding` は XAML binding / settings / column state の public UI 契約なので rename しない
 - `ChartPackage.ChartFiles` は pending install / package chart discovery の中核であり、参照時に lazy discovery が走る意味も維持する。旧 `ChartPackage.BMSFiles` alias は残さず、「package 内 chart の BMSFile 互換 adapter list」は `ChartFiles` として扱う
 - `BMSLibrary.BMSFiles` は LR2 `song` table 側の source of truth として残す。BMS / bmson 共通表示は `LibraryChartRow` / `ChartFile` で扱い、storage model は `BMSFiles` と `BmsonSongs` の二本立てを維持する
 - `BMSFilesGarbled`, `BMSFilesZeroNote`, encoding / zero-note / LR2IR / ScoreViewer などは BMS 専用意味を持つため chart 名へ広げない
@@ -401,7 +400,7 @@ F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいった
 - `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植し、test-only だった `BMSFileSortEngine` は削除済み
 - converter / private helper など、XAML binding に影響しない内部 UI 名を小さく chart 名へ寄せる
 - `ChartPackage.ChartFiles` は primary API へ移行済みだが、型は `List<BMSFile>` の compatibility adapter list のままである。次はこの list を直接 BMS 専用と誤読しない境界整理と、`PendingChartEntry : BMSFile` の本格抽象化を検討する。ただし package discovery / pending install への影響が大きいため、実害が出た箇所から段階的に進める
-- public `BMSFilesView` / settings / column state 名の rename は互換リスクが高いため当面保留する
+- settings 名の `BMSRootPath`, `StandaloneBmsRootPaths`, `BMSInstallDir`, `ShowDiffBMSInstallConfirmMsg` は互換リスクが高いため維持する。再検討を明示しない限り、今後の chart 抽象化 rename 候補には含めない
 
 ## テスト方針
 

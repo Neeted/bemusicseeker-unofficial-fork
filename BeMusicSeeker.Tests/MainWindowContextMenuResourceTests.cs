@@ -404,7 +404,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "public async void Initialize()",
-            "ColumnsSettingsBMSFilesView");
+            "ColumnsSettingsChartRowsView");
         string saveFollowup = ExtractBetween(
             viewModelCode,
             "private async Task necessaryStepsAfterSaved()",

@@ -34,7 +34,7 @@ compositionRenderingMs=792
 最初の実装対象はメインの `dataGrid` とする。
 
 - 本体: `BeMusicSeeker/Views/MainWindow.xaml` の `Name="dataGrid"`
-- ItemsSource: `MainWindowViewModel.BMSFilesView`
+- ItemsSource: `MainWindowViewModel.ChartRowsView`
 - 行型:
   - 通常ライブラリ、フルスキャン、重複、文字化け、ゼロノート、インストール系: `LibraryChartRow`
   - プレイリスト詳細: `PlaylistDetailRow`
@@ -47,9 +47,9 @@ compositionRenderingMs=792
 
 移行時に互換面として意識する責務は以下。
 
-- `BMSFilesView` の表示。
-- `SelectedIndexBMSFilesView` との選択同期。
-- `ColumnsSettingsBMSFilesView.<Column>.Width` / `.Visibility` / `.DisplayIndex` の反映と保存。
+- `ChartRowsView` の表示。
+- `SelectedIndexChartRowsView` との選択同期。
+- `ColumnsSettingsChartRowsView.<Column>.Width` / `.Visibility` / `.DisplayIndex` の反映と保存。
 - ヘッダークリック sort と sort glyph 表示。
 - 行選択、Shift/Ctrl による複数選択、右クリック選択。
 - 行ダブルクリック、Enter 再生。
@@ -183,7 +183,7 @@ TextLayoutKey
 
 対象:
 
-- `BMSFilesView`
+- `ChartRowsView`
 - `LibraryChartRow` / `PlaylistDetailRow`
 - 固定行高
 - 固定列幅
@@ -253,7 +253,7 @@ Phase 1 完了判断:
 - `SortColumnName` / `SortDirection` を `SortParameters` へ OneWay binding し、ヘッダー右端に小さな sort glyph を独自描画する。
 - `SortParameters` は WPF binding が安定して追従できるよう `ColumnsName` / `Direction` を property として公開する。
 - `CustomTableSelectionModel` を追加し、単一選択、Ctrl toggle、Shift range、右クリック選択維持を実装する。
-- `SelectedIndexBMSFilesView` と current row を同期し、描画は複数選択 index 全体を選択色にする。
+- `SelectedIndexChartRowsView` と current row を同期し、描画は複数選択 index 全体を選択色にする。
 - `CustomTableView.GetSelectedRowsSnapshot()` を追加し、既存の選択対象取得を DataGrid / CustomTableView 両対応にする。
 - 行ダブルクリック、Enter 再生を既存処理へ接続する。
 - 行右クリックで既存 `dataGridContextMenu` / `dataGridContextMenuPlaylistMissing` を開く。
@@ -431,7 +431,7 @@ Phase 3 完了判断:
   - `custom_table_row_subscription` で `reason`, `firstIndex`, `requestedCount`, `subscribedRowCount`, `elapsedMs` を確認できるようにする。
   - ItemsSource 変更 / reset / 100ms 以上の slow case を中心に出し、通常スクロール時のログ量は抑える。
 - 一覧構成が変わる操作は、ViewModel 側の更新通知を明確にする。
-  - playlist 行削除 / folder 移動など、row 値変更ではなく `BMSFilesView` の構成が変わる操作では、`BMSFilesView` 置換、collection change、または明示的な refresh token で CustomTableView に伝わるようにする。
+  - playlist 行削除 / folder 移動など、row 値変更ではなく `ChartRowsView` の構成が変わる操作では、`ChartRowsView` 置換、collection change、または明示的な refresh token で CustomTableView に伝わるようにする。
   - 個別 command 完了後に `customTableView.RefreshDisplay()` を足し続ける方針は避け、標準通知経路に寄せる。
 - 既存の局所 `RefreshDisplay()` は当面残す。
   - 編集 commit 後など、既に安全に動いている箇所は互換目的で残してよい。
