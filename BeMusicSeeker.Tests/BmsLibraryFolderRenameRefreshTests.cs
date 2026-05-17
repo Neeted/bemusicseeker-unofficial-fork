@@ -232,6 +232,64 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void FixInstallationDirectoryCharts_BmsonChartUpdatesSongAndPersistedRow()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonRepair_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Broken");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.WriteAllText(sourceChartPath, "{}");
+            try
+            {
+                var song = new LR2SongDBExtended.bmson_song
+                {
+                    path = sourceChartPath,
+                    folder = sourceDirectoryPath,
+                    title = "Repair Bmson",
+                    md5 = "0123456789abcdef0123456789abcdef",
+                    sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                };
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                    songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
+                }
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                SetLibraryBmsonSongsWithoutNotification(library, [song]);
+                BMSFile repairTarget = PendingChartEntry.CreateFromBmsonSong(song);
+                repairTarget.instl_dst = destinationDirectoryPath;
+
+                library.FixInstallationDirectoryCharts([repairTarget]);
+
+                Assert.AreEqual(destinationChartPath, song.path);
+                Assert.AreEqual(destinationDirectoryPath, song.folder);
+                Assert.IsFalse(File.Exists(sourceChartPath));
+                Assert.IsTrue(File.Exists(destinationChartPath));
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                    Assert.AreEqual(0, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
+                    LR2SongDBExtended.bmson_song persistedSong = songDb.Table<LR2SongDBExtended.bmson_song>().Single(row => row.path == destinationChartPath);
+                    Assert.AreEqual(destinationDirectoryPath, persistedSong.folder);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void SetBMSFilesEncoding_UpdatesEncodingCellWithoutRaisingGarbledCollectionsChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();

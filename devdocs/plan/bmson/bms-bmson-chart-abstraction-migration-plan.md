@@ -11,9 +11,9 @@
 
 ### 1. bmson の移動 / 再インストール先更新が反映されない場合がある
 
-フォルダ移動や再インストール先への移動では、BMS は `song` / `folder` / `maintenance` が更新される。一方 `bmson` は `bmson_song` 側の path 更新・登録解除が一部経路で漏れる可能性がある。
+フォルダ移動や再インストール先への移動では、BMS は `song` / `folder` / `maintenance` が更新される。一方 `bmson` は、移行開始時点では `bmson_song` 側の path 更新・登録解除が一部経路で漏れる可能性があった。
 
-特に unregister を伴うフォルダ移動では、BMSFile だけを対象にして早期 return する経路があり、`bmson_song` が旧 path のまま残る候補がある。
+現行実装では folder move / merge / installed-location repair は `LibraryMutationDelta.BmsonSongPathChanges` 経由で `bmson_song.path` / `folder` を更新し、unregister は `BmsonSongsToUnregister` 経由で `bmson_song` を削除する。したがってこの項目は未対応 issue ではなく、移行開始時に見えていたリスクの記録として扱う。
 
 ### 2. bmson 行で WAV などのヘルス更新走査を実行すると表示値が壊れる場合がある
 
@@ -189,6 +189,7 @@ UI は `Kind` 直接判定ではなく capability を見る。これにより「
 | Score Viewer | Yes | No | 現状 BMS / LR2 score 前提 |
 | ranking 更新 | Yes | No | 現状 BMS / LR2 IR 前提 |
 | 導入先推定 | Yes | Yes | resource reference は format 別 parser |
+| インストール済み場所修復 | Yes | Yes | owned chart の path 修復。pending row は導入先設定として扱う |
 | 導入 / 移動 / 削除 | Yes | Yes | 永続化先は別 |
 | resource health | Yes | Yes | 計算元は format 別 |
 | maintenance table 反映 | Yes | Yes | テーブルは共有し、workflow は分離する |
@@ -408,12 +409,15 @@ F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいった
 
 - BMS row は `UseLr2Ir=true`, `RunBmsEncodingFix=true`
 - bmson row は `OpenRepositoryBySha256=true`, `UseLr2Ir=false`, `RunBmsEncodingFix=false`
+- owned bmson row は `RepairInstalledLocation=true`, `UpdateInstallDestination=false`
+- pending bmson row は `RepairInstalledLocation=false`, `UpdateInstallDestination=true`
 - playlist 所持 bmson は missing ではなく owned target になる
 - playlist 未所持 row は `IsOwned=false` のまま、chart_info があれば repository link は出せる
 
 ### mutation tests
 
 - bmson file move で `bmson_song.path` / `folder` が更新される
+- bmson installed-location repair では `BmsonSongPathChanges` が出て、`SearchCorrectInstallationDirectoryCharts` の候補状態は shared bmson adapter cache で row 再生成後も保持される
 - bmson folder move で配下の全 `bmson_song` が更新される
 - unregister 付き folder move で bmson が `bmson_song` から削除される
 - BMS と bmson 混在 folder で両方の DB が正しく更新される
