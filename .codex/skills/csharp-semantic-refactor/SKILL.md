@@ -29,16 +29,15 @@ dotnet tool list --local
 dotnet roslynator rename-symbol --help
 dotnet roslynator analyze --help
 dotnet format --help
-dotnet dotnet-format --help
 ```
 
-The repo standard is the local tool command documented in `.codex/AGENTS.md`: `dotnet dotnet-format ... --check`. Use SDK `dotnet format` only as reference or fallback when there is a specific reason.
+The repo standard is the SDK command documented in `.codex/AGENTS.md`: `dotnet format whitespace ... --verify-no-changes`. Use `dotnet format style` or `dotnet format analyzers` only when the change specifically needs style/analyzer formatting checks.
 
 If local tools are declared but commands are unavailable, run `dotnet tool restore` and retry.
 
 Treat tool manifest and analyzer packages as separate concerns:
 
-- `.config/dotnet-tools.json` enables CLI tools such as `roslynator` and `dotnet-format`.
+- `.config/dotnet-tools.json` enables repo-local CLI tools such as `roslynator`. SDK-provided `dotnet format` is not pinned in the tool manifest.
 - `Roslynator.*` `PackageReference`s enable build/IDE analyzer diagnostics and affect restore, lock files, warnings, and CI behavior.
 - Do not add analyzer packages merely to make `dotnet roslynator rename-symbol` available.
 
@@ -134,7 +133,7 @@ For semantic refactors, also verify:
 - `rg` audit for the old name and known casing variants; classify every remaining hit as valid compatibility, persisted contract, user-facing text, stale production reference, stale test reference, or removable wrapper
 - targeted `dotnet test` for the affected behavior
 - full `dotnet test` when the change crosses shared model/viewmodel/service boundaries
-- formatting verification through the repo-local `dotnet-format` command
+- formatting verification through the SDK `dotnet format whitespace` command
 - Roslynator analyzer output; treat new diagnostics as part of the change impact, not as rename tooling setup
 
 Use a subagent review when available for non-trivial refactors. Ask it to review the diff for stale old names, over-rename, missed non-symbol artifacts, compatibility wrappers, and persistence/config risks.
