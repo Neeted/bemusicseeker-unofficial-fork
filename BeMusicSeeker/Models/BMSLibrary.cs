@@ -10588,7 +10588,7 @@ public class BMSLibrary : NotificationObject
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
                     string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-                    MoveBmsFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: false);
+                    MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: false);
                     if (unregister == false)
                     {
                         InvalidateDuplicateChartGroupsCache();
@@ -10639,7 +10639,7 @@ public class BMSLibrary : NotificationObject
                     }
                     foreach (FolderAutoRenamePlan plan in plans)
                     {
-                        MoveBmsFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, raiseBmsFilesChanged: true);
+                        MoveLibraryChartFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, raiseBmsFilesChanged: true);
                     }
                     if (unregister == false)
                     {
@@ -10652,10 +10652,10 @@ public class BMSLibrary : NotificationObject
 
     public void moveBMSFolder(string srcDir, string dstDir, bool? unregister = false)
     {
-        MoveBmsFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: true);
+        MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: true);
     }
 
-    private void MoveBmsFolderInternal(string srcDir, string dstDir, bool? unregister, bool raiseBmsFilesChanged)
+    private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool raiseBmsFilesChanged)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
