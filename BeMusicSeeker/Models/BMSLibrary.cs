@@ -4202,7 +4202,7 @@ public class BMSLibrary : NotificationObject
                     InstallTableLoadResult installTableLoadResult = initializationService.LoadInstallTable(
                         dbGateway,
                         ContainsInstalledChartUnsafe,
-                        (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true));
+                        (bmsFile) => ApplyChartResourceHealthWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true));
                     if (installTableLoadResult.StaleInstallPaths.Count > 0)
                     {
                         dbGateway.DeleteInstallRows(installTableLoadResult.StaleInstallPaths);
@@ -7054,7 +7054,7 @@ reportProgress,
         }
     }
 
-    private bool checkBMSFileNeedToBeFixedAndSetWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo mtInfo = null, bool strictCheck = false)
+    private bool ApplyChartResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo mtInfo = null, bool strictCheck = false)
     {
         return maintenanceService.ApplyNeedToBeFixedWarnings(bmsFile, mtInfo, strictCheck);
     }
@@ -7772,7 +7772,7 @@ reportProgress,
                             CreateKnownChartDirectorySnapshotUnsafe(),
                             ContainsInstalledChartUnsafe,
                             dupRateThreshInOnePkg,
-                            (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true),
+                            (bmsFile) => ApplyChartResourceHealthWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true),
                             token);
                         List<ChartPackage> discoveredPackages = [.. workflow.DiscoveredPackages];
                         LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
@@ -9347,7 +9347,7 @@ reportProgress,
             }
             else
             {
-                checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
+                ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
             }
         }
         BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);

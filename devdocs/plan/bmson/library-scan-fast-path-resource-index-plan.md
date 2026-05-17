@@ -858,7 +858,7 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
 - `BMSFile.MaintenanceInfoOrigin` を追加し、`None` / `Placeholder` / `DbHydrated` / `Calculated` を明示する。lazy getter で作られる default は `Placeholder` であり、valid health snapshot ではない。
 - `TryGetMaintenanceInfoWithoutCreating()` / `HasValidMaintenanceInfoSnapshot` を追加し、resource health warning / index build は lazy default を生成しない。ここでの valid は「DB hydrate または計算済み由来」を指し、WAV/BGA/MOV の一部だけが入った persisted snapshot も既存仕様どおり warning 投影に使う。一方、bmson parse 直後の encoding-only placeholder は valid snapshot に昇格しない。
 - `maintenance_hydration` は、DB の persisted snapshot を `BMSFile` / `BmsonSong` へ attach する処理として整理した。DB row は `DbHydrated`、file diff / install / manual rescan は `Calculated` として扱う。
-- hydration apply では全件 `checkBMSFileNeedToBeFixedAndSetWarnings()` と全件 `NotifyMaintenanceInfoChanged(true, true)` を行わない。ResourceHealth は valid snapshot から `ResourceHealthIndexSnapshot` を一括 build し、view-level refresh で反映する。
+- hydration apply では全件 `ApplyChartResourceHealthWarnings()` と全件 `NotifyMaintenanceInfoChanged(true, true)` を行わない。ResourceHealth は valid snapshot から `ResourceHealthIndexSnapshot` を一括 build し、view-level refresh で反映する。
 - orphan cleanup は Phase 8B の統合済み経路を維持し、別 task を再導入しない。
 - `maintenance_hydration done` は `attachMs`, `indexBuildMs`, `validSnapshotCount`, `placeholderCount`, `viewRefreshQueued` を出す。
 - `ファイルスキャン` 右クリックメニューに `全譜面を再スキャン` を追加した。これは owned BMS 全件 + installed bmson 全件を `forceUpdate=true` で再計算する重い明示操作で、通常起動や `ReloadFileDiff` には組み込まない。
