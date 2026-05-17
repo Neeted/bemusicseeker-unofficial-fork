@@ -8007,20 +8007,20 @@ public class BMSLibrary : NotificationObject
     /// chart package のファイル群を指定ディレクトリに移動し、移動元の空フォルダを削除する。
     /// マージ処理（MergeBMSDirectory）やインストール処理（installChartPackages）から呼ばれる共通メソッド。
     /// </summary>
-    /// <param name="pkg">移動対象のBMSパッケージ</param>
+    /// <param name="pkg">移動対象の譜面パッケージ</param>
     /// <param name="installationDirectory">移動先ディレクトリ（nullの場合は自動命名）</param>
     /// <param name="showMessageBoxOnInstallFail">移動失敗時にエラーダイアログを表示するか</param>
     /// <param name="deleteAllContents">移動元フォルダを再帰削除対象として扱うか（通常インストール時は安全判定を通過した場合のみ削除）</param>
-    /// <param name="existingHashes">既存BMSハッシュのスナップショット（重複スキップ用）</param>
+    /// <param name="existingHashes">既存譜面ハッシュのスナップショット（重複スキップ用）</param>
     /// <param name="excludedComponentPaths">移動対象外のコンポーネントパス</param>
     /// <returns>移動成功時true</returns>
-    private bool moveBMSPackageFiles(BMSPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, HashSet<string> existingHashes = null, ISet<string> excludedComponentPaths = null)
+    private bool MoveChartPackageFiles(BMSPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, HashSet<string> existingHashes = null, ISet<string> excludedComponentPaths = null)
     {
         return packageInstallService.MovePackageFiles(
             pkg,
             installationDirectory,
             BmsLibraryOptionsSnapshot.CreateCurrent(),
-            createBMSFolderPath,
+            CreateChartFolderPath,
             GetDisplayedExceptionMessage,
             fileMutationService,
             dialogService,
@@ -8093,7 +8093,7 @@ public class BMSLibrary : NotificationObject
         PackageInstallExecutionResult result = packageInstallService.InstallPackages(
             installPackageList,
             installationDirectory,
-            (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => moveBMSPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths),
+            (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => MoveChartPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths),
             (files) => dbGateway.UpsertSongs(files),
             delegate (IEnumerable<BMSFile> files)
             {
@@ -10349,14 +10349,14 @@ public class BMSLibrary : NotificationObject
                 select g.Key).FirstOrDefault();
     }
 
-    private string createBMSFolderPath(IEnumerable<BMSFile> bmsFiles, string parentDir, string longestFileName = "")
+    private string CreateChartFolderPath(IEnumerable<BMSFile> chartFiles, string parentDir, string longestFileName = "")
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         int num = 250;
         int num2 = 128;
         Encoding encoding = Encoding.GetEncoding("Shift_JIS");
-        string lCSBMSInfo = GetLCSBMSInfo(bmsFiles.Select((BMSFile f) => f.Title));
-        string lCSBMSInfo2 = GetLCSBMSInfo(bmsFiles.Select((BMSFile f) => f.Artist));
+        string lCSBMSInfo = GetLCSBMSInfo(chartFiles.Select((BMSFile f) => f.Title));
+        string lCSBMSInfo2 = GetLCSBMSInfo(chartFiles.Select((BMSFile f) => f.Artist));
         string s = options.FolderNameFormat.Replace("%ARTIST%", lCSBMSInfo2).Replace("%TITLE%", lCSBMSInfo).Trim();
         if (options.UseOnlyShiftJISChars)
         {
@@ -10423,7 +10423,7 @@ public class BMSLibrary : NotificationObject
                     {
                         reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.RemoveDirWithResult(item));
                     }
-                    if (!moveBMSPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
+                    if (!MoveChartPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
                     {
                         dialogService.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
@@ -10480,7 +10480,7 @@ public class BMSLibrary : NotificationObject
                 LibraryFixInstallationResult result = libraryFileOperationsService.FixInstallationDirectory(
                     files,
                     existingHashes,
-                    (package, destinationDirectory) => moveBMSPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
+                    (package, destinationDirectory) => MoveChartPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
                     delegate (BMSFile file)
                     {
                         return dialogService.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, file.path, string.Join(Environment.NewLine, from x in BMSFiles.Where((BMSFile f) => f.hash == file.hash).Except(new BMSFile[1] { file })
@@ -10516,7 +10516,7 @@ public class BMSLibrary : NotificationObject
                 {
                     List<string> rootFolders = getBMSDirectories();
                     List<BMSFile> chartRows = GetLibraryChartRowsForFolderOperations();
-                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(bmsFiles, chartRows, rootFolders, renameRootFolder, createBMSFolderPath);
+                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(bmsFiles, chartRows, rootFolders, renameRootFolder, CreateChartFolderPath);
                     if (plans.Any((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
                     {
                         dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
