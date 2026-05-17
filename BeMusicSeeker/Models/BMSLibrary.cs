@@ -10586,7 +10586,7 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("bmsFiles");
         }
-        MoveLibraryRootFolder((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile), dstDir, unregister);
+        MoveLibraryRootFolder((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityBmsFile), dstDir, unregister);
     }
 
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
@@ -10753,7 +10753,7 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public void RemoveChartFiles(IEnumerable<BMSFile> chartFiles, bool sendToRecycleBin = true)
     {
-        RemoveLibraryCharts((chartFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile), sendToRecycleBin);
+        RemoveLibraryCharts((chartFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityBmsFile), sendToRecycleBin);
     }
 
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<LibraryChartRef> charts)
@@ -10764,7 +10764,7 @@ public class BMSLibrary : NotificationObject
             {
                 return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
                     charts,
-                    (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile)
+                    (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityBmsFile)
                         .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)));
             }
         }
@@ -10783,7 +10783,7 @@ public class BMSLibrary : NotificationObject
                 {
                     LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
                         charts,
-                        (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile)
+                        (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityBmsFile)
                             .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)),
                         ChartPackagesPending,
                         directoryResourceLookupCache,
@@ -10815,8 +10815,8 @@ public class BMSLibrary : NotificationObject
                         }
                     }
                     List<BMSFile> removedBmsFiles = result.RemovedCharts
-                        .Where((LibraryChartRef chart) => chart?.Kind == LibraryChartKind.Bms && chart.CompatibilityChartFile != null)
-                        .Select((LibraryChartRef chart) => chart.CompatibilityChartFile)
+                        .Where((LibraryChartRef chart) => chart?.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null)
+                        .Select((LibraryChartRef chart) => chart.CompatibilityBmsFile)
                         .ToList();
                     List<LR2SongDBExtended.bmson_song> removedBmsonSongs = result.RemovedCharts
                         .Where((LibraryChartRef chart) => chart?.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null)

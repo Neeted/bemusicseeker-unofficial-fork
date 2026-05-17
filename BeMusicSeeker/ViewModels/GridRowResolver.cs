@@ -68,7 +68,7 @@ internal static class GridRowResolver
     internal static BMSFile GetOperationChartFile(object row, ChartOperationSourceScope sourceScope)
     {
         return TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
-            ? target.Chart?.CompatibilityChartFile
+            ? target.Chart?.CompatibilityBmsFile
             : null;
     }
 
@@ -467,9 +467,9 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetDisplaySubtitle(object row)
     {
-        if (TryGetChartFile(row, out ChartFile chart) && chart.CompatibilityChartFile != null)
+        if (TryGetChartFile(row, out ChartFile chart) && chart.CompatibilityBmsFile != null)
         {
-            return chart.CompatibilityChartFile.subtitle ?? string.Empty;
+            return chart.CompatibilityBmsFile.subtitle ?? string.Empty;
         }
         return string.Empty;
     }

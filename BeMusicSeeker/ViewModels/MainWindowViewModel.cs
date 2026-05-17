@@ -20985,11 +20985,11 @@ public class MainWindowViewModel : ViewModel
                 tables.RemoveEntriesBMSTable(list.Except(second), bmsTable, commitFlag: false);
             }
         }
-        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(ResolvePlaylistDropCompatibilityChartFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(ResolvePlaylistDropCompatibilityBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
             List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null).ToList();
-            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropCompatibilityChartFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropCompatibilityBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
             tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
@@ -21036,7 +21036,7 @@ public class MainWindowViewModel : ViewModel
         {
             ParallelQuery<BMSTableEntry> bmsEntries = from row in sourceRows.AsParallel()
                                                       let entry = GridRowResolver.GetPlaylistEntry(row)
-                                                      let file = ResolvePlaylistDropCompatibilityChartFile(row)
+                                                      let file = ResolvePlaylistDropCompatibilityBmsFile(row)
                                                       where entry != null || file != null
                                                       select (entry != null) ? entry.Duplicate() : new BMSTableEntry(file)
                                                       {
@@ -21052,7 +21052,7 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
-    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityChartFile(object row)
+    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityBmsFile(object row)
     {
         BeMusicSeeker.Models.BMSFile realFile = GridRowResolver.GetRealBmsFile(row);
         if (realFile != null)
@@ -21060,7 +21060,7 @@ public class MainWindowViewModel : ViewModel
             return realFile;
         }
         return GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
-            ? ToCompatibilityChartFile(target)
+            ? ToCompatibilityBmsFile(target)
             : null;
     }
 
@@ -21287,7 +21287,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityChartFile != null).Select((LibraryChartRef chart) => chart.CompatibilityChartFile));
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null).Select((LibraryChartRef chart) => chart.CompatibilityBmsFile));
             files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
     }
@@ -21297,7 +21297,7 @@ public class MainWindowViewModel : ViewModel
         RemovePendingCharts(
             (targets ?? Enumerable.Empty<ChartOperationTarget>())
             .Where((ChartOperationTarget target) => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-            .Select(ToCompatibilityChartFile)
+            .Select(ToCompatibilityBmsFile)
             .Where((BeMusicSeeker.Models.BMSFile file) => file != null),
             sendToRecycleBin,
             deleteContainingPackageFoldersWhenNoBms);
@@ -21424,7 +21424,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityChartFile != null).Select((LibraryChartRef chart) => chart.CompatibilityChartFile));
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null).Select((LibraryChartRef chart) => chart.CompatibilityBmsFile));
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
@@ -21438,9 +21438,9 @@ public class MainWindowViewModel : ViewModel
             .Where((LibraryChartRef chart) => chart != null);
     }
 
-    private static BeMusicSeeker.Models.BMSFile ToCompatibilityChartFile(ChartOperationTarget target)
+    private static BeMusicSeeker.Models.BMSFile ToCompatibilityBmsFile(ChartOperationTarget target)
     {
-        return ToLibraryChartRef(target)?.ToCompatibilityChartFile();
+        return ToLibraryChartRef(target)?.ToCompatibilityBmsFile();
     }
 
     private static LibraryChartRef ToLibraryChartRef(ChartOperationTarget target)
@@ -21449,9 +21449,9 @@ public class MainWindowViewModel : ViewModel
         {
             return null;
         }
-        if (target.Chart.CompatibilityChartFile != null)
+        if (target.Chart.CompatibilityBmsFile != null)
         {
-            return LibraryChartRef.FromCompatibilityChartFile(target.Chart.CompatibilityChartFile);
+            return LibraryChartRef.FromCompatibilityBmsFile(target.Chart.CompatibilityBmsFile);
         }
         if (target.Chart.BmsonSong != null)
         {

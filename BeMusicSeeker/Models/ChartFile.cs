@@ -31,7 +31,7 @@ internal sealed class ChartFile
     internal LR2SongDBExtended.chart_info ChartInfo { get; }
 
     // Existing BMSFile-based APIs use this for both real BMS files and bmson adapters.
-    internal BMSFile CompatibilityChartFile { get; }
+    internal BMSFile CompatibilityBmsFile { get; }
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; }
 
@@ -45,7 +45,7 @@ internal sealed class ChartFile
         double? level,
         int? mode,
         LR2SongDBExtended.chart_info chartInfo,
-        BMSFile compatibilityChartFile,
+        BMSFile compatibilityBmsFile,
         LR2SongDBExtended.bmson_song bmsonSong)
     {
         Kind = kind;
@@ -58,7 +58,7 @@ internal sealed class ChartFile
         Level = level;
         Mode = mode;
         ChartInfo = chartInfo;
-        CompatibilityChartFile = compatibilityChartFile;
+        CompatibilityBmsFile = compatibilityBmsFile;
         BmsonSong = bmsonSong;
     }
 }

@@ -78,7 +78,7 @@ parent folder cache は更新通知としては bmson 変更でも無効化さ�
 - `LR2SongDBExtended.bmson_song`
 - pending / newly installed の `PendingChartEntry`
 
-`LibraryChartRow.Chart` は `ChartFile` を返す。BMS では実体 `BMSFile` を `CompatibilityChartFile` として持ち、bmson では `BmsonSong` と、必要に応じて既存 `BMSFile` API 用の adapter を `CompatibilityChartFile` として持つ。pending bmson の場合は、現在の adapter path / hash を優先しつつ `BmsonSong` も保持する。
+`LibraryChartRow.Chart` は `ChartFile` を返す。BMS では実体 `BMSFile` を `CompatibilityBmsFile` として持ち、bmson では `BmsonSong` と、必要に応じて既存 `BMSFile` API 用の adapter を `CompatibilityBmsFile` として持つ。pending bmson の場合は、現在の adapter path / hash を優先しつつ `BmsonSong` も保持する。
 
 表示列は BMS / bmson で共通化されているものが多い。
 
@@ -131,7 +131,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 - `Sha256`
 - title / artist / level / mode
 - `ChartInfo`
-- `CompatibilityChartFile`
+- `CompatibilityBmsFile`
 - `BmsonSong`
 
 `GridRowResolver.TryGetChartFile(...)` は、次の row から `ChartFile` を作る。
@@ -143,7 +143,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。
 
-`GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。bmson owned row でも `ChartFile.CompatibilityChartFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
+`GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。bmson owned row でも `ChartFile.CompatibilityBmsFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
 
 ### `ChartOperationTarget`
 
@@ -205,7 +205,7 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 
 `LibraryChartRef` は次から作れる。
 
-- `FromCompatibilityChartFile(...)`: 実体 `BMSFile` または `PendingChartEntry` の bmson adapter
+- `FromCompatibilityBmsFile(...)`: 実体 `BMSFile` または `PendingChartEntry` の bmson adapter
 - `LR2SongDBExtended.bmson_song`
 - path / md5 / sha256
 
@@ -213,7 +213,7 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 
 library chart 削除は `RemoveChartFiles(...)` / `RemoveLibraryCharts(...)` が入口で、BMS / bmson の両方を `LibraryChartRef` 経由で扱う。旧 `RemoveBMSFiles(...)` wrapper と未使用の single chart move wrapper は残していない。
 
-`ToCompatibilityChartFile()` は、BMS では保持している `BMSFile` があればそれを返し、path-only BMS ref では null を返す。bmson では保持している `BMSFile` adapter、または `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存 API へ渡すための互換変換であり、bmson の storage 正本ではない。
+`ToCompatibilityBmsFile()` は、BMS では保持している `BMSFile` があればそれを返し、path-only BMS ref では null を返す。bmson では保持している `BMSFile` adapter、または `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存 API へ渡すための互換変換であり、bmson の storage 正本ではない。
 
 ViewModel / UI 層の pending package 操作は `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `SearchMergeDestinationForPendingPackages` / `SearchMergeDestinationForPendingCharts`, `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts`, `RemovePendingPackages` / `RemovePendingPackagesAll`, `RemovePendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `SetPendingInstallDestination`, `GetPendingPackagesContainingOnlyInstalledCharts`, `DeletePendingPackageSources` を入口にする。これらは package 内 chart を扱う操作であり、BMS 専用 API ではない。
 
@@ -304,7 +304,7 @@ playlist detail 表示時の `BMSFilesView` 実体は `PlaylistDetailVirtualView
 
 `MainWindowViewModel.AddChartRowsToFolderBMSTable(...)` は、playlist table 概念として `BMSTable` 名を残しつつ、追加元の一覧 row は Chart として解決する。
 
-通常 folder への追加では、row から `ResolvePlaylistDropCompatibilityChartFile(...)` を通して `BMSFile` 互換 chart を作る。
+通常 folder への追加では、row から `ResolvePlaylistDropCompatibilityBmsFile(...)` を通して `BMSFile` 互換 chart を作る。
 
 - BMS row は実体 `BMSFile` を使う。
 - bmson library row は `ChartOperationTarget` / `LibraryChartRef` 経由で `PendingChartEntry` に変換する。
@@ -377,7 +377,7 @@ View の control 名、menu item 名、event handler 名、ログ名にも BMS �
 - UI operation: `ChartOperationTarget` + `ChartOperationCapabilities`
 - UI operation target 解決: `GridRowResolver.TryGetChartOperationTarget(...)`
 - context menu / command selection helper: `GetSelectedChartTargets(...)`
-- 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedCompatibilityChartFiles(...)` / `GetSelectedPendingCompatibilityChartFiles(...)`
+- 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedCompatibilityBmsFiles(...)` / `GetSelectedPendingCompatibilityBmsFiles(...)`
 - BMS 専用 operation helper: `GetSelectedBmsChartFiles(...)`
 - model mutation reference: `LibraryChartRef`
 - installed directory lookup: BMSFile + bmson_song の両方を hash / path で登録

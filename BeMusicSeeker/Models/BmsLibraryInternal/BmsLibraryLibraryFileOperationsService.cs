@@ -211,8 +211,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
             .ToList();
         Dictionary<BMSFile, LibraryChartRef> bmsByReference = currentCharts
-            .Where((LibraryChartRef chart) => chart.CompatibilityChartFile != null)
-            .GroupBy((LibraryChartRef chart) => chart.CompatibilityChartFile)
+            .Where((LibraryChartRef chart) => chart.CompatibilityBmsFile != null)
+            .GroupBy((LibraryChartRef chart) => chart.CompatibilityBmsFile)
             .ToDictionary((IGrouping<BMSFile, LibraryChartRef> group) => group.Key, (IGrouping<BMSFile, LibraryChartRef> group) => group.First());
         Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference = currentCharts
             .Where((LibraryChartRef chart) => chart.BmsonSong != null)
@@ -226,7 +226,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         foreach (LibraryChartRef inputChart in inputCharts ?? Enumerable.Empty<LibraryChartRef>())
         {
             result.InputCount++;
-            if (inputChart.CompatibilityChartFile == null && inputChart.BmsonSong == null)
+            if (inputChart.CompatibilityBmsFile == null && inputChart.BmsonSong == null)
             {
                 result.PathOnlyInputCount++;
             }
@@ -255,7 +255,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return null;
         }
-        if (inputChart.CompatibilityChartFile != null && bmsByReference.TryGetValue(inputChart.CompatibilityChartFile, out LibraryChartRef bmsChart))
+        if (inputChart.CompatibilityBmsFile != null && bmsByReference.TryGetValue(inputChart.CompatibilityBmsFile, out LibraryChartRef bmsChart))
         {
             return bmsChart;
         }
@@ -320,7 +320,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 .Where((ChartPackage package) => package != null)
                 .SelectMany((ChartPackage package) => package.ChartFiles ?? new List<BMSFile>());
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
-                .Select((LibraryChartRef chart) => chart.CompatibilityChartFile)
+                .Select((LibraryChartRef chart) => chart.CompatibilityBmsFile)
                 .Where((BMSFile bmsInfo) => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
             foreach (BMSFile installLinkedBmsFile in pendingFiles.Concat(libraryFiles))
             {
@@ -350,7 +350,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return;
         }
         result.RemovedCharts.Add(chart);
-        BMSFile compatibilityFile = chart.ToCompatibilityChartFile();
+        BMSFile compatibilityFile = chart.ToCompatibilityBmsFile();
         if (compatibilityFile != null)
         {
             result.RemovedFiles.Add(compatibilityFile);

@@ -22,7 +22,7 @@ internal sealed class LibraryChartRef
 
     public string Sha256 { get; }
 
-    public BMSFile CompatibilityChartFile { get; }
+    public BMSFile CompatibilityBmsFile { get; }
 
     public LR2SongDBExtended.bmson_song BmsonSong { get; }
 
@@ -31,7 +31,7 @@ internal sealed class LibraryChartRef
         string path,
         string md5,
         string sha256,
-        BMSFile compatibilityChartFile,
+        BMSFile compatibilityBmsFile,
         LR2SongDBExtended.bmson_song bmsonSong)
     {
         Kind = kind;
@@ -39,11 +39,11 @@ internal sealed class LibraryChartRef
         Directory = string.IsNullOrWhiteSpace(Path) ? null : System.IO.Path.GetDirectoryName(Path);
         Md5 = string.IsNullOrWhiteSpace(md5) ? null : md5.Trim();
         Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
-        CompatibilityChartFile = compatibilityChartFile;
+        CompatibilityBmsFile = compatibilityBmsFile;
         BmsonSong = bmsonSong;
     }
 
-    public static LibraryChartRef FromCompatibilityChartFile(BMSFile file)
+    public static LibraryChartRef FromCompatibilityBmsFile(BMSFile file)
     {
         if (file == null)
         {
@@ -98,12 +98,12 @@ internal sealed class LibraryChartRef
             null);
     }
 
-    public BMSFile ToCompatibilityChartFile()
+    public BMSFile ToCompatibilityBmsFile()
     {
         if (Kind == LibraryChartKind.Bms)
         {
-            return CompatibilityChartFile;
+            return CompatibilityBmsFile;
         }
-        return CompatibilityChartFile ?? PendingChartEntry.CreateFromBmsonSong(BmsonSong);
+        return CompatibilityBmsFile ?? PendingChartEntry.CreateFromBmsonSong(BmsonSong);
     }
 }

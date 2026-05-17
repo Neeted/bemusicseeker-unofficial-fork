@@ -772,7 +772,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void AutoRenameFolder_UsesCompatibilityChartSelectionIncludingBmson()
+    public void AutoRenameFolder_UsesCompatibilityBmsSelectionIncludingBmson()
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
@@ -794,7 +794,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()",
             "public void AutoRenameBMSFolder");
 
-        StringAssert.Contains(autoRenameClick, "GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None)");
+        StringAssert.Contains(autoRenameClick, "GetSelectedCompatibilityBmsFiles(ChartOperationCapabilities.None)");
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
         StringAssert.Contains(autoRenameAll, "GetLibraryChartFilesForFolderOperations()");
