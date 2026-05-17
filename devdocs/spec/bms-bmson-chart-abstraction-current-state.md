@@ -4,7 +4,7 @@
 
 この文書は、現行実装における BMS / bmson の譜面抽象化の状態を記録する。
 
-今後 `BMSFile` の chart 共通責務を `ChartFile` のようなアプリ内 domain model へさらに分離していくために、現在どこまで chart として共通化され、どこに BMS / LR2 前提の境界が残っているかを明文化する。
+今後 `BMSFile` に残る chart 共通責務を `ChartFile` などのアプリ内 domain model へさらに分離していくために、現在どこまで chart として共通化され、どこに BMS / LR2 前提の境界が残っているかを明文化する。
 
 この文書は移行計画ではなく、現在仕様を表す。将来の rename や抽象化を行う場合も、ここに書いた storage / read model / operation target の責務を崩さないことを前提にする。
 
@@ -120,7 +120,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 ### `ChartFile`
 
-`ChartFile` は UI 操作側の chart read model である。
+`ChartFile` は Models 配下のアプリ内 chart read model である。DB row ではなく、UI 操作や一覧 read model が参照する domain object として扱う。
 
 主なフィールド:
 
@@ -318,7 +318,7 @@ chart file bytes の読み取りは `ChartFileSnapshot` / `ChartFileContentReade
 
 この snapshot は full path、bytes、length、lastWriteTimeUtc、md5、sha256 を持つ parser / inline chart_info / maintenance 用の短命な読み取り結果であり、長期に保持する chart model ではない。`ChartFile` という名前に近いが、責務は「ファイル内容の snapshot」であり、「アプリ内の譜面実体」ではない。
 
-将来 `ChartFile` を model 層へ拡張する場合、既存 `ChartFileSnapshot` と責務が混ざらないようにする。
+`ChartFile` は Models 配下の domain/read model だが、既存 `ChartFileSnapshot` と責務が混ざらないようにする。
 
 ## Maintenance / resource health / chart_info
 
@@ -438,7 +438,7 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 
 ### `ChartFile` に求められる性質
 
-現行仕様から見ると、`ChartFile` は DB row ではなく、アプリ内で譜面を扱うための domain model として導入するのが自然である。`ChartFile` は storage 正本を直接兼ねず、Kind と storage owner を通して BMS / bmson の永続化型へ接続する。
+現行仕様では、`ChartFile` は DB row ではなく、アプリ内で譜面を扱うための domain/read model である。`ChartFile` は storage 正本を直接兼ねず、Kind と storage owner を通して BMS / bmson の永続化型へ接続する。
 
 `ChartFile` は少なくとも次を表す必要がある。
 
@@ -462,7 +462,7 @@ Kind ごとの storage 境界は次の通り。
 
 したがって、単純に `BMSFile` を `ChartFile` へ rename すると、LR2 `song` row という永続化境界と、BMS / bmson 共通の operation/read model 境界が混ざったまま名前だけ変わる。整理の主眼は、`BMSFile` から chart 共通責務を外し、BMS storage row と Chart domain model を分けることである。
 
-`ChartFile` 導入後も storage の正本は二本立てを維持する。BMS は `BMSFile` または将来の BMS song row 型、bmson は `bmson_song` が永続正本である。
+`ChartFile` が存在しても storage の正本は二本立てを維持する。BMS は `BMSFile` または将来の BMS song row 型、bmson は `bmson_song` が永続正本である。
 
 ### `ChartPackage` に求められる性質
 
@@ -496,4 +496,4 @@ Kind ごとの storage 境界は次の通り。
 4. `BMSFile` 型を見ただけで BMS 専用と判断しない。`PendingChartEntry` の kind または `ChartFile.Kind` を確認する。
 5. `ChartPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。旧 `BMSFiles` alias は削除済みであり、package 内 chart list の入口は増やさない。
 6. public binding / settings 名の BMS は互換契約として残り得る。内部 helper から段階的に chart 名へ寄せる。
-7. `ChartFile` / `ChartPackage` を導入しても、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。
+7. `ChartFile` / `ChartPackage` を使う場合も、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。

@@ -1,7 +1,6 @@
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 
-namespace BeMusicSeeker.ViewModels;
+namespace BeMusicSeeker.Models;
 
 internal enum ChartFileKind
 {

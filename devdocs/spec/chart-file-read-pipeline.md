@@ -10,7 +10,7 @@
 - `ChartFileSnapshot` は `ChartFileContentReader.ReadSnapshot(path)` で作る。
 - snapshot には `Path`, `Bytes`, `Length`, `LastWriteTimeUtc`, `Md5`, `Sha256` が入る。
 - snapshot bytes は処理中だけ保持し、DB や長期 model へ保存しない。
-- `ChartFileSnapshot` は bytes 読み取り結果であり、将来の `ChartFile` domain model とは別責務である。`ChartFile` を導入しても snapshot を storage row や長期 owner にしない。
+- `ChartFileSnapshot` は bytes 読み取り結果であり、`ChartFile` domain/read model とは別責務である。`ChartFile` は storage row でも snapshot でもない。
 - lightweight parser と `chart_info` parser は統合しない。同じ bytes を使うが、役割は分ける。
 - 新規・更新ファイル由来の補助情報は、snapshot が生きている間に作る。
 - DB に既に存在する owner 由来の補助情報だけを background hydration/backfill へ回す。

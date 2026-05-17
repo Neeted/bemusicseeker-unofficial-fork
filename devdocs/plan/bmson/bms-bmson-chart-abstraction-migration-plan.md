@@ -97,7 +97,7 @@ bmson では別処理にするもの:
 
 ### ChartFile domain model
 
-`ChartFile` を導入する場合、それは DB row ではなく本アプリで譜面を扱うための domain model とする。
+`ChartFile` は DB row ではなく本アプリで譜面を扱うための domain/read model とする。
 
 ```text
 ChartFile
@@ -123,7 +123,7 @@ Kind が BMS の場合でも、`ChartFile` 自体を `song` table に保存す�
 
 ### 共通 read model
 
-永続モデルとは別に、アプリ内で扱う共通 read model を作る。
+永続モデルとは別に、アプリ内で扱う共通 read model を使う。
 
 ```text
 ChartFile
