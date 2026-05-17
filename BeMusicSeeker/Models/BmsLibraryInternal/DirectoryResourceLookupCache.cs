@@ -305,7 +305,7 @@ internal sealed class DirectoryResourceLookupCache
         }
     }
 
-    public static DirectoryResourceLookupCache CreateFromScanResult(BmsScanResult scanResult)
+    public static DirectoryResourceLookupCache CreateFromScanResult(ChartScanResult scanResult)
     {
         var cache = new DirectoryResourceLookupCache();
         foreach (string chartDirectory in scanResult?.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
@@ -426,7 +426,7 @@ internal sealed class DirectoryResourceLookupCache
             movieRelativePathHashes));
     }
 
-    public ReverseLookupMutationResult AddDir(string directoryPath, BmsScanResult scanResult)
+    public ReverseLookupMutationResult AddDir(string directoryPath, ChartScanResult scanResult)
     {
         if (scanResult == null || string.IsNullOrWhiteSpace(directoryPath))
         {
@@ -838,7 +838,7 @@ internal sealed class DirectoryResourceLookupCache
         }
     }
 
-    private static Entry CreateEntry(BmsScanResult scanResult, string directoryPath)
+    private static Entry CreateEntry(ChartScanResult scanResult, string directoryPath)
     {
         return new Entry(
             TryGetHashes(scanResult?.AudioRelativePathHashesByChartDirectory, directoryPath),

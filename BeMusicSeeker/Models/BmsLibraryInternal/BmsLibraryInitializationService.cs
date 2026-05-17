@@ -304,14 +304,14 @@ internal sealed class BmsLibraryInitializationService
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
         IEnumerable<BMSFile> currentFiles,
-        BmsScanExecutionResult prefetchedScanResult,
+        ChartScanExecutionResult prefetchedScanResult,
         long prefetchedScanElapsedMs,
-        Func<BmsScanExecutionResult> executeScan,
+        Func<ChartScanExecutionResult> executeScan,
         IBmsLibraryDialogService dialogService,
         Action<string> logInstallPerformance = null,
         Action<string> logEverythingScan = null,
         IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs = null,
-        Func<BmsScanExecutionResult> executeBmsonScan = null,
+        Func<ChartScanExecutionResult> executeBmsonScan = null,
         Action scanCompleted = null,
         Action fileDiffStarted = null,
         Action<int, int, string> reportParseProgress = null,
@@ -320,7 +320,7 @@ internal sealed class BmsLibraryInitializationService
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
-        BmsScanExecutionResult scanResult = prefetchedScanResult;
+        ChartScanExecutionResult scanResult = prefetchedScanResult;
         if (scanResult != null && scanResult.Result != null)
         {
             result.PrefetchedScanUsed = true;
@@ -336,11 +336,11 @@ internal sealed class BmsLibraryInitializationService
             return result;
         }
         fileDiffStarted?.Invoke();
-        BmsScanResult mergedScanResult = scanResult.Result;
+        ChartScanResult mergedScanResult = scanResult.Result;
         if (executeBmsonScan != null)
         {
             var stopwatchBmsonScan = Stopwatch.StartNew();
-            BmsScanExecutionResult bmsonScanResult = executeBmsonScan();
+            ChartScanExecutionResult bmsonScanResult = executeBmsonScan();
             stopwatchBmsonScan.Stop();
             if (bmsonScanResult?.Result != null)
             {
@@ -2134,10 +2134,10 @@ internal sealed class BmsLibraryInitializationService
         return left + right;
     }
 
-    private static BmsScanResult MergeScanResults(params BmsScanResult[] scanResults)
+    private static ChartScanResult MergeScanResults(params ChartScanResult[] scanResults)
     {
-        var merged = new BmsScanResult();
-        foreach (BmsScanResult scanResult in scanResults.Where(scanResult => scanResult != null))
+        var merged = new ChartScanResult();
+        foreach (ChartScanResult scanResult in scanResults.Where(scanResult => scanResult != null))
         {
             merged.ChartFilePaths.UnionWith(scanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));

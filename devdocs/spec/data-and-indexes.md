@@ -52,9 +52,9 @@ install readiness の critical path では、導入先推定に必要な catalog
   - install readiness 前に完成している。
   - pending package batch 側へ lazy build を持ち越さない。
 
-native bridge path では `EBridge_ScanChartAndResources` の packed result から直接 resource index を作る。`BmsScanResult` は chart paths / chart directories の carrier として使い、resource dictionaries は通常起動 main path では materialize しない。
+native bridge path では `EBridge_ScanChartAndResources` の packed result から直接 resource index を作る。`ChartScanResult` は chart paths / chart directories の carrier として使い、resource dictionaries は通常起動 main path では materialize しない。
 
-Everything unavailable 時の managed fallback scan とテスト用 merge path では、`BmsScanResult` が category 別 resource dictionary を持つ。
+Everything unavailable 時の managed fallback scan とテスト用 merge path では、`ChartScanResult` が category 別 resource dictionary を持つ。
 
 ## Resource Ownership
 

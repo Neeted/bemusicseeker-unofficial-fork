@@ -32,22 +32,27 @@ internal static class ChartDirectoryScanBuilder
 
     private static readonly HashSet<string> movieExtensionsSet = new(MovieExtensions, StringComparer.OrdinalIgnoreCase);
 
-    internal static BmsScanResult BuildFromRoots(IEnumerable<string> roots)
+    internal static ChartScanResult BuildFromRoots(IEnumerable<string> roots)
     {
         RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, CreateDefaultEnumerationGroups(), verboseLog: false);
         return BuildFromGroupedPaths(enumerationResult);
     }
 
-    internal static BmsScanResult BuildFromChartDirectories(IEnumerable<string> chartDirectories)
+    internal static ChartScanResult BuildFromChartDirectories(IEnumerable<string> chartDirectories)
     {
         return BuildFromRoots(chartDirectories);
     }
 
     internal static IReadOnlyList<RootFileEnumerationGroup> CreateDefaultEnumerationGroups(bool includeAllFiles = false)
     {
+        return CreateEnumerationGroups(ChartExtensions, includeAllFiles);
+    }
+
+    internal static IReadOnlyList<RootFileEnumerationGroup> CreateEnumerationGroups(IEnumerable<string> chartExtensions, bool includeAllFiles = false)
+    {
         List<RootFileEnumerationGroup> groups =
         [
-            new RootFileEnumerationGroup(ChartGroupName, ChartExtensions),
+            new RootFileEnumerationGroup(ChartGroupName, ResolveChartExtensions(chartExtensions)),
             new RootFileEnumerationGroup(AudioGroupName, AudioExtensions),
             new RootFileEnumerationGroup(ImageGroupName, ImageExtensions),
             new RootFileEnumerationGroup(MovieGroupName, MovieExtensions)
@@ -59,7 +64,17 @@ internal static class ChartDirectoryScanBuilder
         return groups;
     }
 
-    internal static BmsScanResult BuildFromGroupedPaths(RootFileEnumerationResult enumerationResult)
+    internal static string[] ResolveChartExtensions(IEnumerable<string> chartExtensions)
+    {
+        string[] extensions = [.. (chartExtensions ?? [])
+            .Where(extension => !string.IsNullOrWhiteSpace(extension))
+            .Select(extension => extension.Trim())
+            .Select(extension => extension.StartsWith(".") ? extension : "." + extension)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        return extensions.Length == 0 ? ChartExtensions : extensions;
+    }
+
+    internal static ChartScanResult BuildFromGroupedPaths(RootFileEnumerationResult enumerationResult)
     {
         return BuildFromAbsolutePaths(
             enumerationResult?.GetPaths(ChartGroupName) ?? [],
@@ -68,13 +83,13 @@ internal static class ChartDirectoryScanBuilder
             enumerationResult?.GetPaths(MovieGroupName) ?? []);
     }
 
-    internal static BmsScanResult BuildFromAbsolutePaths(
+    internal static ChartScanResult BuildFromAbsolutePaths(
         IEnumerable<string> chartFilePaths,
         IEnumerable<string> audioFilePaths,
         IEnumerable<string> imageFilePaths,
         IEnumerable<string> movieFilePaths)
     {
-        var result = new BmsScanResult();
+        var result = new ChartScanResult();
         var normalizedChartPaths = new HashSet<string>(
             (chartFilePaths ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path))

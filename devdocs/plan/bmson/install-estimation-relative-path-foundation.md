@@ -53,7 +53,7 @@ relative path 対応の下地はかなり入っています。
   - relative path 正規化
   - rooted path / `..` / 無効文字の除外
   - 拡張子 alias 正規化
-- `BmsScanResult`
+- `ChartScanResult`
   - chart-directory keyed な `Audio/Image/Movie` relative path hash を保持
 - `EverythingFileScanner` / `FastDirectoryFileScanner`
   - どちらも relative path hash を構築可能
@@ -195,7 +195,7 @@ relative path hash を保持していても、
 
 主な対応候補:
 - Everything vs fallback の比較テスト追加
-- relative hash を含む `BmsScanResultComparer` 前提のテスト固定
+- relative hash を含む scan result comparer 前提のテスト固定
 - 増分更新後の `DirectoryResourceLookupCache` / chart-directory keyed data の整合確認
 
 完了条件:
@@ -209,7 +209,7 @@ relative path hash を保持していても、
 固定できたこと:
 
 - `bgm1` と `sound\bgm1` は別 key という semantics を docs で固定した
-- `BmsScanResult`
+- `ChartScanResult`
   - chart-directory keyed な relative hash map を source of truth とする前提を整理した
 - `DirectoryResourceLookupCache.Entry`
   - basename / relative の両方を持つ cache source of truth であることを docs / tests で固定した
@@ -350,7 +350,7 @@ Phase 4 の後で見つかった、installed candidate surface の ownership gap
 スコープ:
 - `ChartDirectoryScanBuilder`
 - Everything bridge
-- `BmsScanResult`
+- `ChartScanResult`
 - `DirectoryResourceLookupCache`
 - `DirectoryRelativePathHashIndex`
 - ancestor-shadow rule を含む install estimation の candidate suppression
@@ -446,7 +446,7 @@ Perf-3 に入る前の仕上げです。
 relative-path 文脈で固定できたこと:
 
 1. mixed package の installed-dir resolve を正経路として整理した
-2. `BmsScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` は cleanup 済み
+2. `ChartScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` は cleanup 済み
 3. `--everything-verify` は opt-in verify 導線として mainline から切り離した
 4. library build は fixed 4-query native scan に復旧済み
 5. source-side は `EBridge_ScanSourceRoots` または fast-only へ整理し、`BMSFiles` と install surface を分離した

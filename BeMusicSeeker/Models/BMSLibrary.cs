@@ -709,7 +709,7 @@ public class BMSLibrary : NotificationObject
 
     private DirectoryResourceLookupCache directoryResourceLookupCache = new();
 
-    private LibraryResourceIndex libraryResourceIndex = LibraryResourceIndex.CreateFromScanResult(new BmsScanResult());
+    private LibraryResourceIndex libraryResourceIndex = LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
 
     private readonly StartupInstallReadinessState startupInstallReadinessState = new();
 
@@ -3698,23 +3698,23 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// BMS ファイル走査のプリフェッチ結果（走査結果と所要時間）を保持するクラスです。
+    /// Chart file scan prefetch result and elapsed time.
     /// </summary>
-    private sealed class BmsScanPrefetchInfo
+    private sealed class ChartScanPrefetchInfo
     {
-        public BmsScanExecutionResult ScanResult { get; set; }
+        public ChartScanExecutionResult ScanResult { get; set; }
 
         public long ElapsedMs { get; set; }
     }
 
     /// <summary>
-    /// native bridge を優先し、Everything API が使えない場合は managed scan で BMS ファイルを走査します。
+    /// native bridge を優先し、Everything API が使えない場合は managed scan で chart files を走査します。
     /// </summary>
-    private BmsScanExecutionResult ExecuteBmsScanWithManagedFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
+    private ChartScanExecutionResult ExecuteBmsScanWithManagedFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
     {
-        IBmsFileScanner scanner = new EverythingFileScanner();
+        IChartFileScanner scanner = new EverythingFileScanner();
         reportScanner?.Invoke("Native");
-        BmsScanExecutionResult scanResult = scanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
+        ChartScanExecutionResult scanResult = scanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
         if (scanResult.Success && scanResult.Result != null)
         {
             return scanResult;
@@ -3723,20 +3723,20 @@ public class BMSLibrary : NotificationObject
         string nativeFailureReason = scanResult?.ErrorReason ?? "unknown";
         if (IsNativeBridgeContractFailure(nativeFailureReason))
         {
-            LogEverythingScan("BMS native file scan failed reason=" + nativeFailureReason);
-            throw new InvalidOperationException("BMS native file scan failed: " + nativeFailureReason);
+            LogEverythingScan("chart native file scan failed reason=" + nativeFailureReason);
+            throw new InvalidOperationException("chart native file scan failed: " + nativeFailureReason);
         }
 
-        LogEverythingScan("BMS native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
+        LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
         reportScanner?.Invoke("Fallback");
-        BmsScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
+        ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
         if (!fallbackResult.Success || fallbackResult.Result == null)
         {
             string fallbackFailureReason = fallbackResult?.ErrorReason ?? "unknown";
-            LogEverythingScan("BMS fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
-            throw new InvalidOperationException("BMS fallback file scan failed: " + fallbackFailureReason + " (native: " + nativeFailureReason + ")");
+            LogEverythingScan("chart fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
+            throw new InvalidOperationException("chart fallback file scan failed: " + fallbackFailureReason + " (native: " + nativeFailureReason + ")");
         }
-        LogEverythingScan("BMS fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
+        LogEverythingScan("chart fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
         return fallbackResult;
     }
 
@@ -3794,7 +3794,7 @@ public class BMSLibrary : NotificationObject
         bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && !options.SkipInitFileCheck);
         bool setMaintenanceInfo = !isScoreOnly;
         bool flag = !isScoreOnly;
-        Task<BmsScanPrefetchInfo> bmsScanPrefetchTask = null;
+        Task<ChartScanPrefetchInfo> bmsScanPrefetchTask = null;
         if (songTblFileCheck)
         {
             List<string> prefetchDirectories = getBMSDirectories();
@@ -3803,14 +3803,14 @@ public class BMSLibrary : NotificationObject
                 bmsScanPrefetchTask = Task.Run(delegate
                 {
                     var stopwatchPrefetch = Stopwatch.StartNew();
-                    BmsScanExecutionResult scanResult = ExecuteBmsScanWithManagedFallback(
+                    ChartScanExecutionResult scanResult = ExecuteBmsScanWithManagedFallback(
                         prefetchDirectories,
                         scannerLabel => ReportLibraryInitializationProgress(
                             LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
                             force: true));
                     stopwatchPrefetch.Stop();
-                    return new BmsScanPrefetchInfo
+                    return new ChartScanPrefetchInfo
                     {
                         ScanResult = scanResult,
                         ElapsedMs = stopwatchPrefetch.ElapsedMilliseconds
@@ -3848,7 +3848,7 @@ public class BMSLibrary : NotificationObject
                 },
                 delegate
                 {
-                    BmsScanPrefetchInfo bmsScanPrefetchInfo = null;
+                    ChartScanPrefetchInfo bmsScanPrefetchInfo = null;
                     if (songTblFileCheck && bmsScanPrefetchTask != null)
                     {
                         try
@@ -4025,7 +4025,7 @@ public class BMSLibrary : NotificationObject
         bool setMainteInfo = true,
         bool updateIrScore = true,
         bool installTblCheck = true,
-        BmsScanPrefetchInfo bmsScanPrefetchInfo = null,
+        ChartScanPrefetchInfo bmsScanPrefetchInfo = null,
         bool trackLibraryDatabaseProgress = false,
         bool trackLibraryFileCheckProgress = false)
     {
@@ -4248,7 +4248,7 @@ public class BMSLibrary : NotificationObject
     private SongTableFileCheckResult ApplyLibraryFileScanDiff(
         BmsLibraryOptionsSnapshot options,
         List<string> bmsDirectories,
-        BmsScanPrefetchInfo bmsScanPrefetchInfo,
+        ChartScanPrefetchInfo bmsScanPrefetchInfo,
         bool trackLibraryFileCheckProgress,
         string reason)
     {
@@ -4338,7 +4338,7 @@ completeFileEnumerationOnce,
         {
             BMSFiles = fileCheckResult.NextFiles;
             BmsonSongs = fileCheckResult.NextBmsonSongs;
-            libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new BmsScanResult());
+            libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
             directoryResourceLookupCache = libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
         }
         if (committedInlineChartInfoRows.Count > 0)
@@ -8073,7 +8073,7 @@ reportProgress,
                     }
                     BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
                 }
-                BmsScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedFiles.Select(bmsInfo => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct(StringComparer.OrdinalIgnoreCase));
+                ChartScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedFiles.Select(bmsInfo => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct(StringComparer.OrdinalIgnoreCase));
                 DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                 foreach (string dir in addedDirectoryScan.ChartDirectories)
                 {
@@ -8135,7 +8135,7 @@ reportProgress,
         {
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
-        BmsScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(affectedDirectories);
+        ChartScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(affectedDirectories);
         DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         foreach (string dir in affectedDirectories)
         {
@@ -10353,7 +10353,7 @@ reportProgress,
                         dialogService.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
                     }
-                    BmsScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots([dst]);
+                    ChartScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots([dst]);
                     foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
                     {
                         reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace BeMusicSeeker.Models.Utils;
 
-public class BmsScanResult
+public class ChartScanResult
 {
     public HashSet<string> ChartFilePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

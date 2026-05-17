@@ -7,11 +7,11 @@ using NLog;
 
 namespace BeMusicSeeker.Models.Utils;
 
-public class EverythingFileScanner : IBmsFileScanner
+public class EverythingFileScanner : IChartFileScanner
 {
     private static readonly Logger logger = LogManager.GetLogger("InstallPerformance.EverythingScanner");
 
-    public BmsScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> bmsExtensions, bool verboseLog = false)
+    public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false)
     {
         List<string> roots = [.. (rootDirectories ?? [])
             .Where(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
@@ -19,14 +19,14 @@ public class EverythingFileScanner : IBmsFileScanner
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (roots.Count == 0)
         {
-            return new BmsScanExecutionResult
+            return new ChartScanExecutionResult
             {
                 Success = true,
-                Result = new BmsScanResult()
+                Result = new ChartScanResult()
             };
         }
 
-        string chartQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.ChartExtensions, ext => ext.TrimStart('.')));
+        string chartQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.ResolveChartExtensions(chartExtensions), ext => ext.TrimStart('.')));
         string audioQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.AudioExtensions, ext => ext.TrimStart('.')));
         string imageQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.ImageExtensions, ext => ext.TrimStart('.')));
         string movieQuery = EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(ChartDirectoryScanBuilder.MovieExtensions, ext => ext.TrimStart('.')));
@@ -37,7 +37,7 @@ public class EverythingFileScanner : IBmsFileScanner
         }
 
         var stopwatch = Stopwatch.StartNew();
-        BmsScanExecutionResult result = EverythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery);
+        ChartScanExecutionResult result = EverythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery);
         stopwatch.Stop();
         if (!result.Success)
         {
@@ -55,7 +55,7 @@ public class EverythingFileScanner : IBmsFileScanner
                     result.NativeBridgeReason ?? result.ErrorReason ?? "unknown",
                     result.NativeBridgeMs);
             }
-            return new BmsScanExecutionResult
+            return new ChartScanExecutionResult
             {
                 Success = false,
                 ErrorReason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs

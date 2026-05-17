@@ -610,13 +610,13 @@ Everything service 側で同時 query の内部競合があるため、個別の
 続く allBase 削除では、旧 all-resource surface を削除した。保持する正本は audio / image / movie のカテゴリ別 chart-relative hash とカテゴリ別 reverse lookup だけである。
 
 - `EBridge_ScanChartAndResources` は `all_hash_*`, `self_all_hash_*`, `all_base_reverse_*`, `all_base_hash_count` を返さない。
-- `BmsScanResult` は `AllResourceBaseNameHashesByChartDirectory` / `SelfOwnedAllResourceBaseNameHashesByChartDirectory` を持たない。
+- `ChartScanResult` は `AllResourceBaseNameHashesByChartDirectory` / `SelfOwnedAllResourceBaseNameHashesByChartDirectory` を持たない。
 - `DirectoryResourceLookupCache.Entry` の `AllBaseNameHashArray` / `SelfOwnedAllBaseNameHashArray` 相当の lazy union API は削除済みである。
 - `FolderAllFileList` / `bmsFolderAllFileList` は live state / initialization result から削除した。chart directory key set と folder operation cache cleanup は `DirectoryResourceLookupCache.Keys` を正本にする。
 - generic all-base reverse lookup は削除した。導入先推定と reverse lookup はカテゴリ別 chart-relative key を使う。
 - resource health の WAV / BGA / MOV 存在判定もカテゴリ別 index を正本にする。譜面ファイルや別カテゴリ resource は、同じ stem でも存在扱いしない。
 - 拡張子なし union の live / lazy view は持たない。
-- managed `BmsScanResult` / `DirectoryResourceLookupCache.Entry` / `ChartResourceSnapshot` から category 別 basename surface を削除した。native packed result も `base` blob 名を使わず、カテゴリ別 chart-relative `resource_key` surface だけを返す。
+- managed `ChartScanResult` / `DirectoryResourceLookupCache.Entry` / `ChartResourceSnapshot` から category 別 basename surface を削除した。native packed result も `base` blob 名を使わず、カテゴリ別 chart-relative `resource_key` surface だけを返す。
 
 この変更は payload 削減と live cache 単純化の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`、および `resource_index_build` の悪化有無で見る。folder union 関連 metric は current log から削除済み。
 
@@ -630,7 +630,7 @@ folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移�
 
 続く duplicate surface 削除では、native packed result に残っていた resource-key / relative-key の alias surface を削除した。native は chart-relative key surface だけを返し、managed 側だけが互換的な `RelativePathHash` 名で受ける。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
-さらに native scan path の managed materialize から `BmsScanResult` resource dictionaries を外した。通常起動では native decoded arrays から `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接作るため、`BmsScanResult` は `ChartFilePaths` / `ChartDirectories` だけを持つ。managed fallback scan と旧分離 scan / テスト用 merge path では resource dictionaries を保持し、`LibraryResourceIndex.CreateFromScanResult(...)` の入力として使う。`resource_index_build chartRelativeKeys` と `song_tbl_file_check_cache_counts` は native header の `audio/image/movieResourceKeyHashCount` を使うため、native path で辞書を作らなくてもログ上の key count は維持される。
+さらに native scan path の managed materialize から `ChartScanResult` resource dictionaries を外した。通常起動では native decoded arrays から `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接作るため、`ChartScanResult` は `ChartFilePaths` / `ChartDirectories` だけを持つ。managed fallback scan と旧分離 scan / テスト用 merge path では resource dictionaries を保持し、`LibraryResourceIndex.CreateFromScanResult(...)` の入力として使う。`resource_index_build chartRelativeKeys` と `song_tbl_file_check_cache_counts` は native header の `audio/image/movieResourceKeyHashCount` を使うため、native path で辞書を作らなくてもログ上の key count は維持される。
 
 続く Native-1 では、resource assignment worker 内の `relativePrefix + fileName` と uppercase 文字列の一時 allocation を削減した。worker ごとの scratch buffer で `foo.wav -> foo`、`sound/foo.wav -> sound/foo` の chart-relative key を作り、同じ uppercase + xxHash32 semantics で hash 化する。また native pack の内訳として `packReverseBuildMs`, `packLayoutMs`, `packAllocMs`, `packWriteMs` を追加し、`packMs` の次のボトルネックを分解して見られるようにした。
 

@@ -346,9 +346,9 @@ internal static class EverythingNative
         }
     }
 
-    internal static BmsScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery)
+    internal static ChartScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery)
     {
-        if (!TryExecuteBridgeScan(chartQuery, audioQuery, imageQuery, movieQuery, out BmsScanExecutionResult result, out string reason, out long elapsedMs))
+        if (!TryExecuteBridgeScan(chartQuery, audioQuery, imageQuery, movieQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs))
         {
             return Failed(reason, elapsedMs);
         }
@@ -359,7 +359,7 @@ internal static class EverythingNative
         return result;
     }
 
-    private static bool TryExecuteBridgeScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out BmsScanExecutionResult result, out string reason, out long elapsedMs)
+    private static bool TryExecuteBridgeScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out ChartScanExecutionResult result, out string reason, out long elapsedMs)
     {
         result = null;
         reason = null;
@@ -788,7 +788,7 @@ internal static class EverythingNative
         }
     }
 
-    private static BmsScanExecutionResult CreateExecutionResult(
+    private static ChartScanExecutionResult CreateExecutionResult(
         EBridgeResultHeader header,
         long nativeBridgeMs,
         long managedDecodeMs,
@@ -798,12 +798,12 @@ internal static class EverythingNative
         HashSet<string> chartDirectories = MaterializeStringSet(decodedResult?.ChartDirectories);
         ulong hashDirCount = (ulong)chartDirectories.Count;
         ulong categoryResourceKeyHashEntryCount = header.audio_resource_key_hash_count + header.image_resource_key_hash_count + header.movie_resource_key_hash_count;
-        var scanResult = new BmsScanResult
+        var scanResult = new ChartScanResult
         {
             ChartFilePaths = chartFilePaths,
             ChartDirectories = chartDirectories
         };
-        return new BmsScanExecutionResult
+        return new ChartScanExecutionResult
         {
             Success = true,
             NativeBridgeUsed = true,
@@ -904,9 +904,9 @@ internal static class EverythingNative
         return Marshal.PtrToStringUni(IntPtr.Add(blobBase, checked((int)byteOffset)));
     }
 
-    private static BmsScanExecutionResult Failed(string reason, long bridgeMs = 0L)
+    private static ChartScanExecutionResult Failed(string reason, long bridgeMs = 0L)
     {
-        return new BmsScanExecutionResult
+        return new ChartScanExecutionResult
         {
             Success = false,
             ErrorReason = reason,

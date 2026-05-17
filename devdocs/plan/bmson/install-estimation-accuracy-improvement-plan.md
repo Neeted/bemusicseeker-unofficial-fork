@@ -54,7 +54,7 @@
 - Everything 経路は bridge-only とし、managed 側から `Everything3_x64.dll` を直接使わない
 - `ChartPackage` は chart discovery cache と install-estimation surface cache を分離し、`ChartFiles` は discovery 側だけを見る
 - mixed package は installed-dir resolve 基準の用語へ揃え、legacy search 命名は使わない
-- `BmsScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` を cleanup する
+- `ChartScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` を cleanup する
 - package surface metrics / logging を追加し、source-side wall-clock を可視化する
 
 一方で、このフェーズでは `BmsLibraryPackageInstallService` の install/merge package discovery 列挙は扱わない。

@@ -948,7 +948,7 @@ directory package の当時の旧 `pkg.BMSFiles` 参照に伴って source-side 
 
 1. **Cleanup / Legacy Removal**
    - mixed-package resolve の説明とログを installed-dir resolve 基準へ統一し、legacy 命名を廃止する
-   - `BmsScanResult` の obsolete compat 面を削除する
+   - `ChartScanResult` の obsolete compat 面を削除する
    - 未使用の `DirectoryResourceIndex` を削除する
    - `--everything-verify` は opt-in 検証導線として残し、mainline からは切り離す
 2. **Perf-3: package source surface / scanner 基盤整理**

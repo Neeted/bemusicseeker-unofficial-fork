@@ -494,7 +494,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile, deletedFile],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     NativeBridgeUsed = true,
@@ -576,7 +576,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -675,7 +675,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -742,7 +742,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -792,7 +792,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -908,7 +908,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -961,7 +961,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1022,7 +1022,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1088,7 +1088,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1162,7 +1162,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1226,7 +1226,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [existing],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1280,7 +1280,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [existing],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -1356,7 +1356,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 bmsFiles,
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -1365,7 +1365,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 currentBmsonSongs: bmsonSongs,
-                executeBmsonScan: () => new BmsScanExecutionResult
+                executeBmsonScan: () => new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -1420,7 +1420,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1472,7 +1472,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1529,7 +1529,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1582,7 +1582,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 gateway,
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1640,7 +1640,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 gateway,
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1809,7 +1809,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -1868,10 +1868,10 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
+                    Result = new ChartScanResult
                     {
                         ChartFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartPath },
                         ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDirectoryPath },
@@ -1951,14 +1951,14 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     NativeBridgeReason = EverythingNative.FixedScanNativeBridgeReason,
                     AudioResourceKeyHashCount = 1,
                     MovieResourceKeyHashCount = 1,
                     ResourceIndex = nativeIndex,
-                    Result = new BmsScanResult
+                    Result = new ChartScanResult
                     {
                         ChartFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartPath },
                         ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDirectoryPath }
@@ -2016,7 +2016,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [deletedFile],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -2077,7 +2077,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile, deletedFile],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -2264,7 +2264,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -2273,7 +2273,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 currentBmsonSongs: [keepSong, deletedSong],
-                executeBmsonScan: () => new BmsScanExecutionResult
+                executeBmsonScan: () => new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -2330,7 +2330,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -2391,7 +2391,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -2443,7 +2443,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -2499,7 +2499,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
                 [keepFile],
-                new BmsScanExecutionResult
+                new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -2515,7 +2515,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 logInstallPerformance: null,
                 logEverythingScan: null,
                 currentBmsonSongs: [],
-                executeBmsonScan: () => new BmsScanExecutionResult
+                executeBmsonScan: () => new ChartScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
@@ -2908,7 +2908,7 @@ public sealed class BmsLibraryInitializationServiceTests
             new BmsLibraryDbGateway(songDbPath),
             new BmsLibraryOptionsSnapshot(),
             [],
-            new BmsScanExecutionResult
+            new ChartScanExecutionResult
             {
                 Success = true,
                 Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -2928,7 +2928,7 @@ public sealed class BmsLibraryInitializationServiceTests
             new BmsLibraryDbGateway(songDbPath),
             new BmsLibraryOptionsSnapshot(),
             [],
-            new BmsScanExecutionResult
+            new ChartScanExecutionResult
             {
                 Success = true,
                 Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -2948,7 +2948,7 @@ public sealed class BmsLibraryInitializationServiceTests
             new BmsLibraryDbGateway(songDbPath),
             new BmsLibraryOptionsSnapshot(),
             [],
-            new BmsScanExecutionResult
+            new ChartScanExecutionResult
             {
                 Success = true,
                 Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
@@ -3011,7 +3011,7 @@ public sealed class BmsLibraryInitializationServiceTests
         };
     }
 
-    private static BmsScanResult CreateScanResult(IEnumerable<string> chartPaths, IDictionary<string, IEnumerable<string>> resourcesByDirectory)
+    private static ChartScanResult CreateScanResult(IEnumerable<string> chartPaths, IDictionary<string, IEnumerable<string>> resourcesByDirectory)
     {
         var chartPathSet = new HashSet<string>(chartPaths ?? [], StringComparer.OrdinalIgnoreCase);
         var chartDirectories = new HashSet<string>(
@@ -3025,7 +3025,7 @@ public sealed class BmsLibraryInitializationServiceTests
             }
         }
 
-        var result = new BmsScanResult
+        var result = new ChartScanResult
         {
             ChartFilePaths = chartPathSet,
             ChartDirectories = chartDirectories

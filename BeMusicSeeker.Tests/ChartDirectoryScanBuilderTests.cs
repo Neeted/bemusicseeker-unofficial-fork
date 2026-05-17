@@ -24,7 +24,7 @@ public sealed class ChartDirectoryScanBuilderTests
         File.WriteAllText(Path.Combine(imageDir, "bg.jpg"), "image");
         try
         {
-            BmsScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
+            ChartScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
 
             CollectionAssert.Contains(result.ChartDirectories.ToList(), chartDir);
             Assert.AreEqual(1, result.ChartFilePaths.Count);
@@ -55,7 +55,7 @@ public sealed class ChartDirectoryScanBuilderTests
         File.WriteAllText(Path.Combine(nestedSoundDir, "01.ogg"), "audio");
         try
         {
-            BmsScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
+            ChartScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
 
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootRelativeHashes));
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[] nestedRelativeHashes));
@@ -88,7 +88,7 @@ public sealed class ChartDirectoryScanBuilderTests
         File.WriteAllText(Path.Combine(nestedImageDir, "00_001_00.bmp"), "image");
         try
         {
-            BmsScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
+            ChartScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
 
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioRelativeHashes));
             Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageRelativeHashes));

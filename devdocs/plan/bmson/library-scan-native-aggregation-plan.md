@@ -260,7 +260,7 @@ library build を generic grouped enumeration から切り離し、fixed 4-query
   - `EverythingNative.ExecuteScan(...)`
   - packed native result の decode
   だけに戻す
-- `BmsFileScannerResultBuilder` と `ChartDirectoryScanBuilder.BuildFromGroupedPaths(...)` は
+- `ChartFileScannerResultBuilder` と `ChartDirectoryScanBuilder.BuildFromGroupedPaths(...)` は
   - library build mainline から外す
   - fallback / tests / small-root utility に限定する
 
@@ -294,7 +294,7 @@ library build の result contract を「managed で再構築しない」前提�
   - self-owned relative-path hashes
   - query hit counts / query ms
   - native collect / assign / merge / pack diagnostics
-- managed 側は `BmsScanResult` への 1 パス詰め替えだけにする
+- managed 側は `ChartScanResult` への 1 パス詰め替えだけにする
 - `ManagedDecodeMs` / `ManagedMaterializeMs` / `BridgeRawBufferBytes` を固定 diagnostics として追加する
 
 ### Parallelization
@@ -449,7 +449,7 @@ full-path grouped enumeration を source of truth にすると、
 
 - library build mainline から次を外す
   - `EverythingRootFileEnumerator`
-  - `BmsFileScannerResultBuilder`
+  - `ChartFileScannerResultBuilder`
   - `ChartDirectoryScanBuilder.BuildFromGroupedPaths(...)`
 - source-surface mainline から次を外す
   - grouped full-path からの `ResourceSurfaceMaterializer`

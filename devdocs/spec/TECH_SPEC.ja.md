@@ -34,7 +34,7 @@
 - `EBridge_ScanChartAndResources` が fixed scan の main path。
 - native packed result は chart-relative resource key と reverse lookup surface を含む。
 - managed 側は `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接構築する。
-- `BmsScanResult` は通常起動では chart path / chart directory carrier として使う。
+- `ChartScanResult` は通常起動では chart path / chart directory carrier として使う。
 - Everything unavailable 時は managed fallback scan から同じ semantics の index を作る。
 
 Everything scan の背景メモは `../everything/` を参照する。

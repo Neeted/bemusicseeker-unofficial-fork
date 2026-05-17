@@ -4,29 +4,29 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
 
-public class FastDirectoryFileScanner : IBmsFileScanner
+public class FastDirectoryFileScanner : IChartFileScanner
 {
-    public BmsScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> bmsExtensions, bool verboseLog = false)
+    public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions, bool verboseLog = false)
     {
         try
         {
             List<string> roots = [.. (rootDirectories ?? [])
                 .Where(p => !string.IsNullOrWhiteSpace(p))
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
-            RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(), verboseLog);
+            RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, ChartDirectoryScanBuilder.CreateEnumerationGroups(chartExtensions), verboseLog);
             if (!enumerationResult.Success)
             {
-                return new BmsScanExecutionResult
+                return new ChartScanExecutionResult
                 {
                     Success = false,
                     ErrorReason = enumerationResult.ErrorReason
                 };
             }
-            return BmsFileScannerResultBuilder.Build(enumerationResult);
+            return ChartFileScannerResultBuilder.Build(enumerationResult);
         }
         catch (Exception ex)
         {
-            return new BmsScanExecutionResult
+            return new ChartScanExecutionResult
             {
                 Success = false,
                 ErrorReason = ex.Message

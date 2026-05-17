@@ -19,7 +19,7 @@ internal sealed class LibraryResourceIndex
 
     public int DirectoryCount => DirectoryLookupCache?.Count ?? 0;
 
-    public static LibraryResourceIndex CreateFromScanResult(BmsScanResult scanResult)
+    public static LibraryResourceIndex CreateFromScanResult(ChartScanResult scanResult)
     {
         var index = new LibraryResourceIndex();
         var stopwatch = Stopwatch.StartNew();

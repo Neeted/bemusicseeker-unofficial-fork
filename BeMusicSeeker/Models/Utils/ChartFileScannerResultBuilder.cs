@@ -5,15 +5,15 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
 
-internal static class BmsFileScannerResultBuilder
+internal static class ChartFileScannerResultBuilder
 {
-    internal static BmsScanExecutionResult Build(RootFileEnumerationResult enumerationResult)
+    internal static ChartScanExecutionResult Build(RootFileEnumerationResult enumerationResult)
     {
         var buildStopwatch = Stopwatch.StartNew();
-        BmsScanResult scanResult = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
+        ChartScanResult scanResult = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
         buildStopwatch.Stop();
         long buildMs = buildStopwatch.ElapsedMilliseconds;
-        return new BmsScanExecutionResult
+        return new ChartScanExecutionResult
         {
             Success = true,
             NativeBridgeUsed = string.Equals(enumerationResult?.BackendName, "everything_bridge", StringComparison.OrdinalIgnoreCase),

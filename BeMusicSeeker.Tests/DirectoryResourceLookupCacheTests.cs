@@ -116,7 +116,7 @@ public sealed class DirectoryResourceLookupCacheTests
         uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\bgm1.wav");
         uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash("image\\logo.png");
         uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash("bga\\logo.mpg");
-        var scanResult = new BmsScanResult
+        var scanResult = new ChartScanResult
         {
             ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDir },
             AudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
