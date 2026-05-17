@@ -1209,6 +1209,40 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void FolderEditChartOperationTarget_UsesBmsonCompatibilityForOwnedRowsAndRejectsPendingRows()
+    {
+        var ownedBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Owned Bmson",
+            artist = "Artist",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        var pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Bmson\\chart.bmson",
+            folder = "C:\\Pending\\Bmson",
+            title = "Pending Bmson",
+            artist = "Artist",
+            md5 = "cccccccccccccccccccccccccccccccc",
+            sha256 = new string('c', 64)
+        });
+
+        var ownedRow = LibraryChartRow.FromBmsonSong(ownedBmson);
+        var pendingRow = LibraryChartRow.FromBmsFile(pendingBmson);
+
+        Assert.IsNull(GridRowResolver.GetRealBmsFile(ownedRow));
+        Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(ownedRow, ChartOperationSourceScope.Library, out ChartOperationTarget ownedTarget));
+        Assert.AreEqual(ChartFileKind.Bmson, ownedTarget.Chart.Kind);
+        Assert.AreEqual(ownedBmson.path, ownedTarget.Chart.Path);
+        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(ownedTarget.Chart.CompatibilityBmsFile));
+        Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(pendingRow, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingTarget));
+        Assert.IsNull(pendingTarget);
+    }
+
+    [TestMethod]
     public void ChartOperationTarget_PendingBms_SeparatesInstallDestinationFromInstalledRepair()
     {
         var file = new TestableBmsFile();

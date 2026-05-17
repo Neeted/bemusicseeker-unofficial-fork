@@ -796,21 +796,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             viewModel.NotifyPlaylistCellEditStarted();
             return;
         }
-        BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
-        if (compatibilityBmsFile == null)
-        {
-            e.Cancel = true;
-            return;
-        }
         if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
         {
-            BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.Row);
-            if (bmsFile == null)
+            if (!GridRowResolver.TryGetFolderEditChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out _))
             {
                 e.Cancel = true;
                 return;
             }
-            e.Cancel = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
+            return;
+        }
+        BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
+        if (compatibilityBmsFile == null)
+        {
+            e.Cancel = true;
             return;
         }
         if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
@@ -915,19 +913,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("customTableView_CellEditEnded");
                 return;
             }
-            BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
-            if (compatibilityBmsFile == null)
-            {
-                return;
-            }
             if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
             {
-                BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.Row);
-                if (bmsFile == null)
+                if (!GridRowResolver.TryGetFolderEditChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
                 {
                     return;
                 }
-                if (!e.Commit || IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
+                if (!e.Commit)
                 {
                     return;
                 }
@@ -936,13 +928,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     try
                     {
-                        viewModel.RenameChartFolder(bmsFile, newFolder);
+                        viewModel.RenameChartFolder(target, newFolder);
                     }
                     finally
                     {
                         RefreshCustomTableViewDisplayAsync();
                     }
                 }).Logging("customTableView_CellEditEnded");
+                return;
+            }
+            BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
+            if (compatibilityBmsFile == null)
+            {
                 return;
             }
             if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))

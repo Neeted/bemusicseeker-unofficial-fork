@@ -21107,16 +21107,23 @@ public class MainWindowViewModel : ViewModel
         }, bmsFiles);
     }
 
-    public void RenameChartFolder(BeMusicSeeker.Models.BMSFile chartFile, string newFolder)
+    internal void RenameChartFolder(ChartOperationTarget target, string newFolder)
     {
-        if (chartFile == null || string.IsNullOrWhiteSpace(newFolder))
+        string chartPath = target?.Chart?.Path;
+        if (target == null
+            || !target.HasCapability(ChartOperationCapabilities.MoveInLibrary)
+            || string.IsNullOrWhiteSpace(chartPath)
+            || string.IsNullOrWhiteSpace(newFolder))
         {
             return;
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile([chartFile]);
-            string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartFile.path);
+            if (target.Chart.CompatibilityBmsFile != null)
+            {
+                stopPlayingBMSFile([target.Chart.CompatibilityBmsFile]);
+            }
+            string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
             {
                 files.RenameChartFolder(directoryNameSimple, newFolder, false);

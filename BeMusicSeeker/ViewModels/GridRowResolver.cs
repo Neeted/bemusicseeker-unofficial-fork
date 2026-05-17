@@ -133,6 +133,19 @@ internal static class GridRowResolver
         return true;
     }
 
+    internal static bool TryGetFolderEditChartOperationTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
+    {
+        if (!TryGetChartOperationTarget(row, sourceScope, out target)
+            || !target.HasCapability(ChartOperationCapabilities.MoveInLibrary)
+            || string.IsNullOrWhiteSpace(target.Chart?.Path))
+        {
+            target = null;
+            return false;
+        }
+
+        return true;
+    }
+
     internal static bool IsBmsonChartRow(object row)
     {
         return TryGetChartFile(row, out ChartFile chart) && chart.Kind == ChartFileKind.Bmson;
