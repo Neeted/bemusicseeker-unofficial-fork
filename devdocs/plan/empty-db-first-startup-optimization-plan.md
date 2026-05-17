@@ -391,7 +391,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 - `maintenanceInfo` から resource health issue を判定する処理を副作用なし helper として分離した。
 - `ResourceHealthIndexSnapshot` を runtime-only で作成し、欠損あり / 無視リストの所属は index から返す。
-- `BMSFilesNeedToBeFixed` / `BMSFilesNeedToBeFixedIgnored` の取得では、全件 `ResourceHealth` warning 再構築を行わない。
+- `ChartFilesNeedResourceFix` / `ChartFilesNeedResourceFixIgnored` の取得では、全件 `ResourceHealth` warning 再構築を行わない。
 - `LibraryChartRow` は source `BMSFile` の non-resource warning と、resource health index 由来の projection を合成して WARNING 列を表示する。
 - `setMaintenanceInfo()` 後の全件 `ApplyNeedToBeFixedWarnings()` loop を廃止した。
 - `lazy` は主戦略にしない。欠損一覧は membership 判定で全件評価が必要なため、速度面では side-effect-free index を一度作る方を正とする。

@@ -1046,7 +1046,7 @@ public class BMSLibrary : NotificationObject
 
     public List<BMSFile> BMSFilesUnregistered => [.. BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent))];
 
-    public IEnumerable<BMSFile> BMSFilesNeedToBeFixed => GetChartsNeedResourceFix(null);
+    public IEnumerable<BMSFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
 
     public List<LR2SongDBExtended.bmson_song> BmsonSongs
     {
@@ -1076,7 +1076,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetChartsNeedResourceFix(null, forceUpdate: false, isInIgnoredList: true);
+    public IEnumerable<BMSFile> ChartFilesNeedResourceFixIgnored => GetChartsNeedResourceFix(null, forceUpdate: false, isInIgnoredList: true);
 
     /// <summary>
     /// 重複検出済みの chart group 一覧です。重複検出処理の結果が格納されます。
@@ -5440,8 +5440,8 @@ reportProgress,
             result.CleanupMs = cleanupStopwatch.ElapsedMilliseconds;
         }
         result.ViewRefreshQueued = true;
-        RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
-        RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
         RaisePropertyChanged(() => BMSFilesGarbled);
         RaisePropertyChanged(() => BMSFilesGarbledFixed);
         RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
@@ -7042,8 +7042,8 @@ reportProgress,
             }
             Task.Run(delegate
             {
-                RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
-                RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
+                RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+                RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
                 if (workflowResult.HasUpdates)
                 {
                     RaisePropertyChanged(() => BMSFilesGarbled);
@@ -7109,8 +7109,8 @@ reportProgress,
     {
         IEnumerable<BMSFile> targets = chartFiles ?? BMSFiles;
         MaintenanceWorkflowResult result = setMaintenanceInfo(targets, forceUpdate: true, includeInstalledBmson, progressReporter, cancellationToken);
-        RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
-        RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
         RaisePropertyChanged(() => BMSFilesGarbled);
         RaisePropertyChanged(() => BMSFilesGarbledFixed);
         return result;
@@ -7151,8 +7151,8 @@ reportProgress,
                 RebuildResourceHealthIndexSnapshotLocked(unset ? "resource_health_unignore" : "resource_health_ignore");
             }
         }
-        RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
-        RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
     }
 
     /// <summary>

@@ -9217,25 +9217,25 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesToBeFixed
+    private IEnumerable<BeMusicSeeker.Models.BMSFile> ChartFilesNeedResourceFix
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesNeedToBeFixed;
+                return files.ChartFilesNeedResourceFix;
             }
             return null;
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesToBeFixedIgnored
+    private IEnumerable<BeMusicSeeker.Models.BMSFile> ChartFilesNeedResourceFixIgnored
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesNeedToBeFixedIgnored;
+                return files.ChartFilesNeedResourceFixIgnored;
             }
             return null;
         }
@@ -11306,11 +11306,11 @@ public class MainWindowViewModel : ViewModel
         switch (treeMode)
         {
             case viewUpdateMode.FileMissingFilterSelected:
-                sourceFiles = BMSFilesToBeFixed;
+                sourceFiles = ChartFilesNeedResourceFix;
                 subsetName = "file_missing";
                 return true;
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                sourceFiles = BMSFilesToBeFixedIgnored;
+                sourceFiles = ChartFilesNeedResourceFixIgnored;
                 subsetName = "file_missing_ignored";
                 return true;
             case viewUpdateMode.DuplicateFilterSelected:
@@ -14178,7 +14178,7 @@ public class MainWindowViewModel : ViewModel
         {
             UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartFilesNeedResourceFix, delegate
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected)
@@ -14187,7 +14187,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_need_to_be_fixed_changed"))
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "chart_files_need_resource_fix_changed"))
                 {
                     return;
                 }
@@ -14195,10 +14195,10 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                RefreshNormalLibraryAfterWarningChanged("bms_files_need_to_be_fixed_changed");
+                RefreshNormalLibraryAfterWarningChanged("chart_files_need_resource_fix_changed");
             }
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixedIgnored, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartFilesNeedResourceFixIgnored, delegate
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected)
@@ -14207,7 +14207,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_need_to_be_fixed_ignored_changed"))
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "chart_files_need_resource_fix_ignored_changed"))
                 {
                     return;
                 }
@@ -14215,7 +14215,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                RefreshNormalLibraryAfterWarningChanged("bms_files_need_to_be_fixed_ignored_changed");
+                RefreshNormalLibraryAfterWarningChanged("chart_files_need_resource_fix_ignored_changed");
             }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
@@ -15955,11 +15955,11 @@ public class MainWindowViewModel : ViewModel
                 LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixed, CreateLibraryChartRowWithResourceHealthProjection);
+                ChartRowsFolderView = ToLibraryChartRows(ChartFilesNeedResourceFix, CreateLibraryChartRowWithResourceHealthProjection);
                 LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixedIgnored, CreateLibraryChartRowWithResourceHealthProjection);
+                ChartRowsFolderView = ToLibraryChartRows(ChartFilesNeedResourceFixIgnored, CreateLibraryChartRowWithResourceHealthProjection);
                 LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
