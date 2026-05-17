@@ -2,12 +2,12 @@
 
 ## 目的
 
-`bmson` 対応は段階導入の過程で、通常一覧では `PendingChartEntry : BMSFile`、プレイリスト詳細では `ResolvedBmson`、DB では `bmson_song` として扱われている。  
-このため「譜面ファイルとしては共通に扱いたい処理」と「BMS / LR2 専用処理」が混ざり、不整合が出始めている。
+`bmson` 対応は段階導入の過程で、当初は通常一覧では `PendingChartEntry : BMSFile`、プレイリスト詳細では `ResolvedBmson`、DB では `bmson_song` として扱われていた。
+現在は通常一覧 row は `LibraryChartRow` / `ChartListSourceRow` へ寄り、`PendingChartEntry` は主に pending / package / compatibility adapter として使う状態まで進んでいる。ただし「譜面ファイルとしては共通に扱いたい処理」と「BMS / LR2 専用処理」はまだ一部で `BMSFile` 型に同居している。
 
 この資料では、`BMS` と `bmson` をどちらも「所持譜面」として扱うための共通抽象を整理し、既存機能を壊さず段階的に移行する計画を残す。
 
-## 現在見えている問題
+## 移行開始時に見えていた問題
 
 ### 1. bmson の移動 / 再インストール先更新が反映されない場合がある
 
@@ -17,12 +17,12 @@
 
 ### 2. bmson 行で WAV などのヘルス更新走査を実行すると表示値が壊れる場合がある
 
-通常一覧の bmson は `PendingChartEntry : BMSFile` として見せているため、BMS 専用の maintenance / encoding / reload 処理へ混ざれる。  
-その結果、bmson に対して BMS parser / encoding reload が走り、`TITLE`, `ARTIST` などが空欄化する可能性がある。
+移行開始時の通常一覧の bmson は `PendingChartEntry : BMSFile` として見せていたため、BMS 専用の maintenance / encoding / reload 処理へ混ざれた。
+その結果、bmson に対して BMS parser / encoding reload が走り、`TITLE`, `ARTIST` などが空欄化する可能性があった。
 
 ### 3. 通常一覧 bmson と playlist 詳細 bmson の表現が違う
 
-- 通常一覧: `PendingChartEntry : BMSFile`
+- 通常一覧: 現行は `LibraryChartRow` / `ChartListSourceRow`。移行開始時は `PendingChartEntry : BMSFile`
 - playlist 詳細: `PlaylistDetailRow.ResolvedBmson`
 - DB: `LR2SongDBExtended.bmson_song`
 
@@ -93,7 +93,33 @@ bmson では別処理にするもの:
 | BMS / bmson 共通 | `chart_info` | 譜面メタデータ |
 
 `song` table は LR2 互換のため bmson を入れない。  
-`bmson_song` は path を主キーにし、md5 / sha256 / title / artist / resource references / chart_info relation を持つ。
+`bmson_song` row は path を主キーにし、md5 / sha256 / title / artist など catalog storage に必要な列を持つ。resource references、`ChartInfo`、`MaintenanceInfo` は runtime attach または別 table 由来の owner 情報として扱い、`bmson_song` table の永続列そのものとは分ける。
+
+### ChartFile domain model
+
+`ChartFile` を導入する場合、それは DB row ではなく本アプリで譜面を扱うための domain model とする。
+
+```text
+ChartFile
+  Kind: Bms | Bmson
+  Path
+  Directory
+  Md5
+  Sha256
+  Title
+  Artist
+  Level
+  Mode
+  Capabilities
+  StorageOwner
+    BmsSongRow?      // Kind=Bms の LR2 song row
+    BmsonSongRow?    // Kind=Bmson の app-owned bmson_song row
+  CompatibilityBmsFile? // legacy BMSFile API へ渡す必要がある場合だけ作る adapter
+```
+
+Kind が BMS の場合でも、`ChartFile` 自体を `song` table に保存するわけではない。BMS の永続化は LR2 `song` row に特化した型が担い、bmson の永続化は `bmson_song` row に特化した型が担う。`ChartFile` はそれらを owner として参照し、UI / operation / search / package install で必要な共通機能を提供する。
+
+このため `BMSFile` を機械的に `ChartFile` へ rename することは目標ではない。目標は、現行 `BMSFile` に残っている chart 共通責務を `ChartFile` / `OwnedChartRef` / `LibraryChartRow` / `ChartOperationTarget` 側へ移し、`BMSFile` 側には LR2 `song` row と BMS-format 専用処理を残すことである。
 
 ### 共通 read model
 
@@ -305,7 +331,7 @@ BMS という名前を残す箇所は、LR2 / BMS 仕様 / 既存 UI / DB 互換
 Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を整理する。
 
 - resource health は `ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` を主 API とし、BMS / bmson 両方を対象にする
-- pending install destination は `UpdateInstallDestination`、所持 BMS の再インストール先修復は `RepairInstalledLocation` として capability を分離する
+- pending install destination は `UpdateInstallDestination`、所持 chart の installed location 修復は `RepairInstalledLocation` として capability を分離する
 - `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `RemovePendingPackages`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
 - `BMSLibrary` では `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `RemoveChartFiles`, `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` など chart / pending package 共通名の入口へ寄せる。production 参照のなくなった旧 BMS 名 API / wrapper は残さない
 - `BMSFilesView`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す。`ChartPackage` の package 内 chart 参照は `ChartFiles` に一本化し、互換 alias は残さない
@@ -370,7 +396,7 @@ F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいった
 
 - `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植し、test-only だった `BMSFileSortEngine` は削除済み
 - converter / private helper など、XAML binding に影響しない内部 UI 名を小さく chart 名へ寄せる
-- `ChartPackage.ChartFiles` の呼び出し側移行と `PendingChartEntry : BMSFile` の本格抽象化を検討する。ただし package discovery / pending install への影響が大きいため、実害が出た箇所から段階的に進める
+- `ChartPackage.ChartFiles` は primary API へ移行済みだが、型は `List<BMSFile>` の compatibility adapter list のままである。次はこの list を直接 BMS 専用と誤読しない境界整理と、`PendingChartEntry : BMSFile` の本格抽象化を検討する。ただし package discovery / pending install への影響が大きいため、実害が出た箇所から段階的に進める
 - public `BMSFilesView` / settings / column state 名の rename は互換リスクが高いため当面保留する
 
 ## テスト方針

@@ -38,7 +38,7 @@
 表示文字列と sort key は `ChartInfoDisplayFormatter` と行モデル側の `Chart*` property に集約する。
 
 - `BMSFile` は通常一覧向けに `ChartInfo` から直接算出する。
-- 通常一覧の BMSON 行は `PendingChartEntry` で表示されるため、`bmson_song.ChartInfo` を `PendingChartEntry.ChartInfo` として参照できるようにする。これを忘れると BMSON だけ表示列と keyword search field が未解析扱いになる。
+- 現行の通常一覧 BMSON 行は `bmson_song` を包む `LibraryChartRow` / `ChartListSourceRow` として表示され、既存 `BMSFile` API へ渡す必要がある場合だけ `PendingChartEntry` adapter を使う。`bmson_song.ChartInfo` と adapter の `ChartInfo` が同じ値を指すようにしないと、BMSON だけ表示列と keyword search field が未解析扱いになる。
 - `PlaylistDetailSourceRow` / `PlaylistDetailRow` は `RealFile.ChartInfo` または `ResolvedBmson.ChartInfo` を利用する。
 - `ChartInfo == null` は未解析扱いで、表示は空、検索では `undefined` に一致する。
 

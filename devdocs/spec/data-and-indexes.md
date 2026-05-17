@@ -8,14 +8,18 @@
 
 - BMS
   - LR2 互換の `song` / `folder` を基礎にする。
+  - DB 上の storage row は LR2 `song` row である。現行 in-memory owner は `BMSFile : LR2SongDB.song` だが、将来 chart 共通の `ChartFile` domain model を導入しても、LR2 `song` table への永続化型とは分けて扱う。
   - SHA-256 などの拡張情報は app 側の補助 table / map で扱う。
 - BMSON
   - `bmson_song` を app 側 catalog として使う。
+  - 現行 storage row は `LR2SongDBExtended.bmson_song` であり、`song` table には入れない。
   - BMS と同じ LR2 再生 capability を持つとは扱わない。
 - digest / metadata
   - `chart_digest_map` は chart identity と chart_info hydration の橋渡しに使う partial cache である。
   - `chart_digest_map` は app schema repair 直後や初回 scan 前に完全である必要はない。missing SHA-256 は file diff / install / inline chart_info / chart info backfill など、譜面 bytes を読む処理で必要範囲を補完する。
   - `chart_info` と current parse failure は startup background hydration で memory owner / session index へ適用する。
+
+`ChartFile` という名前を使う場合は、この catalog storage row ではなく、BMS / bmson の Kind と storage owner を持つアプリ内 domain model を指す。DB 正本は BMS 用 `song` row と bmson 用 `bmson_song` row の二本立てを維持する。
 
 ## Startup DB Projection
 

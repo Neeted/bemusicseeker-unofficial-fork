@@ -52,7 +52,7 @@
 
 - library build 側と package source surface 側で shared root enumeration backend を使う
 - Everything 経路は bridge-only とし、managed 側から `Everything3_x64.dll` を直接使わない
-- `ChartPackage` に package source scan snapshot を持たせ、`BMSFiles` と install-estimation surface を再利用する
+- `ChartPackage` は chart discovery cache と install-estimation surface cache を分離し、`ChartFiles` は discovery 側だけを見る
 - mixed package は installed-dir resolve 基準の用語へ揃え、legacy search 命名は使わない
 - `BmsScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` を cleanup する
 - package surface metrics / logging を追加し、source-side wall-clock を可視化する

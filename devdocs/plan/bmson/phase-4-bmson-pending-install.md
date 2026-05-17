@@ -103,7 +103,7 @@
 - `bmson` の WARNING / WAV / BGA / MOVIE 列が埋まる
 - Pending BMS の `KEYS` 列回帰が解消している
 - Pending / install estimation / installed-only / regroup のハッシュ照合が `key-selection` に整理されている
-- 既存 BMS パッケージ処理が壊れていない
+- 既存 BMS / bmson ChartPackage 処理が壊れていない
 
 ## リスク
 

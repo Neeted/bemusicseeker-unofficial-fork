@@ -4,7 +4,7 @@
 
 この文書は、現行実装における BMS / bmson の譜面抽象化の状態を記録する。
 
-今後 `BMSFile` を `ChartFile`、`ChartPackage` を `ChartPackage` に近づけていく前に、現在どこまで chart として共通化され、どこに BMS / LR2 前提の境界が残っているかを明文化する。
+今後 `BMSFile` の chart 共通責務を `ChartFile` 相当のアプリ内 domain model へ分離していく前に、現在どこまで chart として共通化され、どこに BMS / LR2 前提の境界が残っているかを明文化する。
 
 この文書は移行計画ではなく、現在仕様を表す。将来の rename や抽象化を行う場合も、ここに書いた storage / read model / operation target の責務を崩さないことを前提にする。
 
@@ -14,6 +14,8 @@
 | :--- | :--- | :--- |
 | BMS chart | `BMSFile : LR2SongDB.song` | LR2 `song` / `folder` table 由来の所持 BMS 譜面。 |
 | bmson chart | `LR2SongDBExtended.bmson_song` | アプリ独自 table `bmson_song` 由来の所持 bmson 譜面。 |
+| storage row | LR2 `song` row, `LR2SongDBExtended.bmson_song` row | DB table へ保存する永続化単位。BMS の現行 in-memory owner は `BMSFile : LR2SongDB.song` だが、DB commit は LR2 `song` row 型として行う。bmson は app-owned `bmson_song` row。 |
+| application chart file | 将来の `ChartFile` 相当 | 本アプリで譜面を操作・表示するための domain model。直接の DB 永続化型ではなく、Kind と storage owner を持つ。 |
 | pending chart | `PendingChartEntry : BMSFile` | package / pending install 上の譜面 adapter。BMS と bmson の両方を `BMSFile` 互換 API に載せる。 |
 | chart row | `LibraryChartRow`, `ChartListSourceRow` | 通常一覧や仮想 filter / sort 用の read model。storage の正本ではない。 |
 | owned chart ref | `OwnedChartRef` | UI 操作で使う、BMS / bmson 共通の所持譜面参照。 |
@@ -437,7 +439,9 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 
 ### `ChartFile` に求められる性質
 
-現行仕様から見ると、`ChartFile` は少なくとも次を表す必要がある。
+現行仕様から見ると、`ChartFile` は DB row ではなく、アプリ内で譜面を扱うための domain model として導入するのが自然である。`ChartFile` は storage 正本を直接兼ねず、Kind と storage owner を通して BMS / bmson の永続化型へ接続する。
+
+`ChartFile` は少なくとも次を表す必要がある。
 
 - `Kind`: BMS / bmson
 - current path / directory
@@ -450,7 +454,16 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 - storage owner: `BMSFile` または `bmson_song`
 - compatibility file: legacy `BMSFile` API へ渡す必要がある場合だけ作る adapter
 
-ただし `ChartFile` は storage の正本にしてはいけない。BMS は `BMSFile`、bmson は `bmson_song` が永続正本である。
+Kind ごとの storage 境界は次の通り。
+
+| Kind | storage owner | 永続化先 | 現行責務 |
+| :--- | :--- | :--- | :--- |
+| BMS | `BMSFile` | LR2 `song` / `folder`、app-owned `chart_digest_map` など | LR2 `song` row として保存できる BMS 専用 data と、移行前から残る chart helper を併せ持つ。 |
+| bmson | `LR2SongDBExtended.bmson_song` | app-owned `bmson_song` | path / md5 / sha256 / title / artist / resource refs など bmson catalog 保存に特化する。 |
+
+したがって、単純に `BMSFile` を `ChartFile` へ rename すると、LR2 `song` row という永続化境界と、BMS / bmson 共通の operation/read model 境界が混ざったまま名前だけ変わる。整理の主眼は、`BMSFile` から chart 共通責務を外し、BMS storage row と Chart domain model を分けることである。
+
+`ChartFile` 導入後も storage の正本は二本立てを維持する。BMS は `BMSFile` または将来の BMS song row 型、bmson は `bmson_song` が永続正本である。
 
 ### `ChartPackage` に求められる性質
 

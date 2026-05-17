@@ -4,9 +4,9 @@
 
 ## 基本モデル
 
-- WARNING は主に `BMSFile.Warnings` が保持する `ChartWarning` の集合です。
+- WARNING は主に `BMSFile.Warnings` または `PendingChartEntry` adapter 上の `Warnings` が保持する `ChartWarning` の集合です。所持 bmson の storage row は `bmson_song` であり、通常一覧では `LibraryChartRow` / operation adapter を通して表示・操作されます。
 - 通常一覧と導入済み直後の `新規` 画面の `ResourceHealth` warning は例外的に、cache-aware health 判定で更新した `maintenanceInfo` から構築する runtime `ResourceHealthIndexSnapshot` を `LibraryChartRow` が投影して表示します。DB 永続 warning ではありません。
-- `maintenanceInfo` は、`MaintenanceInfoOrigin.DbHydrated` または `MaintenanceInfoOrigin.Calculated` の値だけを resource health の正本として扱います。`BMSFile.maintenanceInfo` の lazy default は `Placeholder` であり、DB 由来または計算済みの health と同じ意味には扱いません。DB 由来の partial snapshot は既存仕様どおり該当カテゴリの warning 投影に使いますが、bmson parse 直後の encoding-only placeholder は正本に昇格しません。
+- `maintenanceInfo` は、`MaintenanceInfoOrigin.DbHydrated` または `MaintenanceInfoOrigin.Calculated` の値だけを resource health の正本として扱います。`BMSFile.maintenanceInfo` や bmson adapter の lazy default は `Placeholder` であり、DB 由来または計算済みの health と同じ意味には扱いません。DB 由来の partial snapshot は既存仕様どおり該当カテゴリの warning 投影に使いますが、bmson parse 直後の encoding-only placeholder は正本に昇格しません。
 - 旧来の自由文字列 `warning` は廃止済みで、表示・tooltip・行ハイライトは structured warning から算出します。
 - `DisplayWarning` は tooltip と同じ詳細全文、`WarningDigestText` は一覧セル用 digest、`WarningTooltipText` は tooltip 詳細です。
 - `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は互換用 property として残っていますが、状態の正本は warning kind の有無です。
@@ -20,8 +20,8 @@
 - tooltip は `ShowInTooltip = true` の warning message を `Priority` 昇順で改行連結します。
 - 行ハイライトは、いずれかの warning が `HighlightRow = true` の場合に有効です。
 - `ResourceHealth` category の warning は、`instl_dst` が未設定の間だけ digest に出ます。tooltip には導入先設定後も詳細が残ります。
-- resource health の一覧所属判定は `BMSFile.Warnings` を mutation せず、`maintenanceInfo` 由来の side-effect-free index で行います。`maintenanceInfo` の resource health は file scan 由来の directory resource index を優先し、必要時のみ実ファイル確認へ fallback します。
-- 保留画面の `ResourceHealth` warning は導入前配置を評価するための一時状態です。導入成功時に source `BMSFile.Warnings` から `ResourceHealth` category を消し、導入後の通常一覧・新規画面では `maintenanceInfo` / resource health index から投影します。
+- resource health の一覧所属判定は chart warning collection を mutation せず、`maintenanceInfo` 由来の side-effect-free index で行います。BMS は `BMSFile.maintenanceInfo`、bmson は `bmson_song.MaintenanceInfo` または operation adapter の maintenance snapshot を入力にします。`maintenanceInfo` の resource health は file scan 由来の directory resource index を優先し、必要時のみ実ファイル確認へ fallback します。
+- 保留画面の `ResourceHealth` warning は導入前配置を評価するための一時状態です。導入成功時に source `BMSFile` / `PendingChartEntry` の warning collection から `ResourceHealth` category を消し、導入後の通常一覧・新規画面では `maintenanceInfo` / resource health index から投影します。
 
 ## Warning 定義
 
@@ -64,4 +64,5 @@
 
 - 定義: `BeMusicSeeker/Models/ChartWarning.cs`
 - `BMSFile` の表示 property と互換 alias: `BeMusicSeeker/Models/BMSFile.cs`
+- bmson / pending 用の `BMSFile` 互換 adapter: `BeMusicSeeker/Models/PendingChartEntry.cs`
 - WARNING 列: `WarningDigestText` を本文、`WarningTooltipText` を tooltip、`HasHighlightedWarning` を行色判定に使います。

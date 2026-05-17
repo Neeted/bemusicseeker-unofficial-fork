@@ -146,7 +146,7 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 | `startup_install_estimation_ready` | pending estimate queue を開始できる |
 | `startup_install_ready` | 現行では install estimation readiness と同じ境界 |
 | `startup_ready_data` | 導入判定に必要な catalog / resource index が揃った |
-| `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | BMS package drop など導入系 UI を操作できる境界。所持譜面一覧 / プレイリスト一覧の完全操作可能境界ではない |
+| `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | Chart package drop など導入系 UI を操作できる境界。所持譜面一覧 / プレイリスト一覧の完全操作可能境界ではない |
 | `startup_initialization_complete` | expected background phase と startup scheduler queue が空になった |
 | `startup_background_summary` | background task の queue/start/complete/failed/elapsed/lane/dependency summary |
 | `startup_presentation_flush` | 起動中に遅延した enrichment / playlist reference 依存の presentation を、初期化完了後にまとめて反映した |
