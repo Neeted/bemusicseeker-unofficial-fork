@@ -61,17 +61,48 @@
 
 ## 4. ビルド環境とコマンド
 
-ビルドは必ず以下を使用すること：
+実行環境は Windows PowerShell。
+
+ローカルツールは `.config\dotnet-tools.json` で管理する。初回、ツール manifest 変更時、またはツール状態が不明な場合は以下を実行する。
 
 ```powershell
-dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release
+dotnet tool restore
 ```
 
-実行環境は Windows PowerShell
-
 - Linux系コマンドは禁止
-  - grep → Select-String
+  - grep → rg または Select-String
   - touch → New-Item
+- 検索は `rg` を優先し、必要に応じて PowerShell の `Select-String` を使う。
+
+### 標準確認手順
+
+コード変更時は、変更範囲に応じて以下を実行すること。
+
+```powershell
+dotnet restore BeMusicSeeker-decomp.sln
+dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release
+dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release
+dotnet dotnet-format BeMusicSeeker-decomp.sln --check --no-restore
+dotnet roslynator analyze BeMusicSeeker-decomp.sln --properties Configuration=Release --severity-level warning --verbosity minimal
+```
+
+- `dotnet restore` は初回、パッケージ・ツール・プロジェクト構成変更時、または restore 状態が不明な場合に実行する。
+- `dotnet tool restore` と `dotnet restore` は別物として扱う。`dotnet-format` / `roslynator` が見つからない場合は `dotnet tool restore` を実行する。
+- 小さな変更では関連テストを優先してよいが、共有モデル・ViewModel・永続化・リソース・起動処理に触れた場合は原則として `dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release` を実行する。
+- format の標準は local tool の `dotnet dotnet-format BeMusicSeeker-decomp.sln --check --no-restore` とする。SDK 付属の `dotnet format` は補助確認または明示的な理由がある場合に限る。
+- `dotnet-format` はまず `--check` で確認する。整形のみの変更が必要な場合は、機能修正とは差分を分けて扱う。
+- `roslynator analyze` は当面レポート用途とし、既存警告を理由に通常の修正を止めない。ただし、今回の変更で新たに発生した警告は原則として同じ変更内で解消する。
+
+### .editorconfig と警告の扱い
+
+- `.editorconfig` は整形・コードスタイル・Analyzer severity の基準を置く場所とする。
+- 既存の Roslynator / Analyzer 警告は、修正前に以下へ分類する。
+  1. 安全に解消できる機械的な警告
+  2. 設計判断が必要な警告
+  3. デコンパイル由来または互換性維持のため当面残す警告
+- 警告を抑制する場合は、場当たり的に `#pragma` や属性を追加せず、まず `.editorconfig` でリポジトリ全体の方針として扱えるか検討する。
+- 特定箇所でのみ抑制する場合は、そのコード固有の理由コメントを残す。
+- Analyzer severity を `warning` / `error` に上げるのは、対象診断の既存警告を解消または意図的に文書化した後に行う。
 
 ## 5. バージョン更新作業時の手順
 
@@ -169,5 +200,5 @@ XMLコメントとは別に、以下の場合は **理由コメントを必ず�
 2. 命名改善
 3. XMLドキュメント追加・更新
 4. 必要な理由コメント追加
-5. ビルド確認
+5. `## 4. ビルド環境とコマンド` に従った確認
 6. ユーザー承認待ち（コミット前）

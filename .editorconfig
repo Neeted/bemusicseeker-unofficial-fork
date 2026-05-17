@@ -9,6 +9,10 @@ end_of_line = lf
 indent_size = 4
 trim_trailing_whitespace = true
 
+# Analyzer rollout policy:
+# - Keep broad analyzer/style severities conservative until existing warnings are triaged.
+# - Promote individual dotnet_diagnostic.<ID>.severity entries only after the current codebase is clean or intentionally documented.
+# - Prefer repository-wide .editorconfig decisions over local suppressions; use local suppressions only when the reason is specific to that code.
 dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = false
 
