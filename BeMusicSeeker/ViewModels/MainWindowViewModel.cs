@@ -21001,12 +21001,12 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void MergeBMSDirectory(string src, string dst)
+    public void MergeChartDirectory(string src, string dst)
     {
         lock (lockCopyFile)
         {
             PlayEndBMSFile(closeProcess: true);
-            files.MergeBMSDirectory(src, dst);
+            files.MergeChartDirectory(src, dst);
         }
     }
 
@@ -21107,19 +21107,19 @@ public class MainWindowViewModel : ViewModel
         }, bmsFiles);
     }
 
-    public void RenameBMSFolder(BeMusicSeeker.Models.BMSFile bmsFile, string newFolder)
+    public void RenameChartFolder(BeMusicSeeker.Models.BMSFile chartFile, string newFolder)
     {
-        if (bmsFile == null || string.IsNullOrWhiteSpace(newFolder))
+        if (chartFile == null || string.IsNullOrWhiteSpace(newFolder))
         {
             return;
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile([bmsFile]);
-            string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(bmsFile.path);
+            stopPlayingBMSFile([chartFile]);
+            string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartFile.path);
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
             {
-                files.RenameBMSFolder(directoryNameSimple, newFolder, false);
+                files.RenameChartFolder(directoryNameSimple, newFolder, false);
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
         }

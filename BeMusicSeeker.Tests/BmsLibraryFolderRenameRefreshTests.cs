@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
     [TestMethod]
-    public void RenameBMSFolder_UpdatesFolderCellWithoutRaisingBmsFilesChanged()
+    public void RenameChartFolder_UpdatesFolderCellWithoutRaisingBmsFilesChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -60,7 +60,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
 
-                library.RenameBMSFolder(sourceDirectoryPath, "Renamed");
+                library.RenameChartFolder(sourceDirectoryPath, "Renamed");
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref folderChangedCount) > 0));
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref pathChangedCount) > 0));
@@ -164,7 +164,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
-                library.RenameBMSFolder(sourceDirectoryPath, "Renamed");
+                library.RenameChartFolder(sourceDirectoryPath, "Renamed");
                 row.UpdateFromBmsonSong(song);
 
                 Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));

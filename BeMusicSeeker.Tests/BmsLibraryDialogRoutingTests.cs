@@ -48,7 +48,7 @@ public sealed class BmsLibraryDialogRoutingTests
     }
 
     [TestMethod]
-    public void RenameBMSFolder_UsesDialogServiceForMissingFolderWarning()
+    public void RenameChartFolder_UsesDialogServiceForMissingFolderWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -57,7 +57,7 @@ public sealed class BmsLibraryDialogRoutingTests
             var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Missing_" + Guid.NewGuid().ToString("N"));
 
-            library.RenameBMSFolder(missingDirectoryPath, "RenamedFolder");
+            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
 
             Assert.AreEqual(1, dialogService.Calls.Count);
             Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, dialogService.Calls[0].Caption);

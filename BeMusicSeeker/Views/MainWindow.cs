@@ -936,7 +936,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     try
                     {
-                        viewModel.RenameBMSFolder(bmsFile, newFolder);
+                        viewModel.RenameChartFolder(bmsFile, newFolder);
                     }
                     finally
                     {
@@ -4293,7 +4293,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         Task.Run(delegate
         {
-            viewModel.MergeBMSDirectory(srcPath, dstPath);
+            viewModel.MergeChartDirectory(srcPath, dstPath);
 
             // マージ完了ログ（将来のステータスバー通知に備える）
             NLogWrapper.FileLogger?.Info(string.Format(

@@ -7943,7 +7943,7 @@ reportProgress,
 
     /// <summary>
     /// chart package のファイル群を指定ディレクトリに移動し、移動元の空フォルダを削除する。
-    /// マージ処理（MergeBMSDirectory）やインストール処理（installChartPackages）から呼ばれる共通メソッド。
+    /// マージ処理（MergeChartDirectory）やインストール処理（installChartPackages）から呼ばれる共通メソッド。
     /// </summary>
     /// <param name="pkg">移動対象の譜面パッケージ</param>
     /// <param name="installationDirectory">移動先ディレクトリ（nullの場合は自動命名）</param>
@@ -10305,9 +10305,9 @@ reportProgress,
     }
 
     /// <summary>
-    /// BMS ファイル群を指定された別のディレクトリへマージ（統合移動）します。
+    /// 譜面ファイル群を指定された別のディレクトリへマージ（統合移動）します。
     /// </summary>
-    public void MergeBMSDirectory(string src, string dst)
+    public void MergeChartDirectory(string src, string dst)
     {
         if (src == null)
         {
@@ -10461,7 +10461,7 @@ reportProgress,
                         {
                             continue;
                         }
-                        RenameBMSFolder(plan.SourceDirectory, Path.GetFileName(plan.DestinationDirectory), false, renameRootFolder: true);
+                        RenameChartFolder(plan.SourceDirectory, Path.GetFileName(plan.DestinationDirectory), false, renameRootFolder: true);
                     }
                 }
             }
@@ -10478,9 +10478,9 @@ reportProgress,
     }
 
     /// <summary>
-    /// BMS フォルダを新しい名前にリネームし、song.db のパス情報を更新します。
+    /// 譜面フォルダを新しい名前にリネームし、song.db のパス情報を更新します。
     /// </summary>
-    public void RenameBMSFolder(string srcDir, string newName, bool? unregister = false, bool renameRootFolder = false)
+    public void RenameChartFolder(string srcDir, string newName, bool? unregister = false, bool renameRootFolder = false)
     {
         if (srcDir == null)
         {

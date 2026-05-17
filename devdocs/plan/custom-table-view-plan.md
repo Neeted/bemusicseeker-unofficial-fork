@@ -364,7 +364,7 @@ Phase 3 完了判断:
 - `URL1` / `URL2` はクリック操作を既存 DataGrid と同じ URL open に使い、編集開始は `F2` または文字入力だけに限定する。
 - URL 編集の commit は absolute URI のみ反映し、空文字や invalid URI は rollback 扱いで row/source/runtime completion を変更しない。
 - URL 編集中は列幅を変えず、overlay editor の幅だけを最大 250px へ広げる。
-- `FOLDER` rename は playlist 行では不可、保留インストール選択中も不可とし、commit は `MainWindowViewModel.RenameBMSFolder` へ委譲する。
+- `FOLDER` rename は playlist 行では不可、保留インストール選択中も不可とし、commit は `MainWindowViewModel.RenameChartFolder` へ委譲する。
 - `INSTL DST` は `InstallPending` / `FullScanCheck` のみ編集可とし、編集開始時の `PendingInstallDestinationEditState` を capture する。
 - `INSTL DST` commit は `SetPendingInstallDestination` へ委譲し、失敗時は `instl_dst`, title/artist, warning, suggestions, low-confidence flag を snapshot から復元する。
 - `INSTL DST` 候補は `CustomTableView` の owner-level `Popup` / `ListBox` で表示し、`Down` / `Up` / `Enter` / mouse click / `Escape` に対応する。

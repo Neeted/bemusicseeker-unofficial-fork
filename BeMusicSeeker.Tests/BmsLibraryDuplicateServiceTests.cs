@@ -256,7 +256,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
-    public void MergeBMSDirectory_BmsonOnly_ReRegistersSongAtDestination()
+    public void MergeChartDirectory_BmsonOnly_ReRegistersSongAtDestination()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -283,7 +283,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
                 }
 
-                library.MergeBMSDirectory(srcDir, dstDir);
+                library.MergeChartDirectory(srcDir, dstDir);
 
                 string dstChartPath = Path.Combine(dstDir, "chart.bmson");
                 Assert.IsFalse(File.Exists(srcChartPath));
@@ -309,7 +309,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
-    public void MergeBMSDirectory_BmsonDuplicateSkip_KeepsDestinationOnly()
+    public void MergeChartDirectory_BmsonDuplicateSkip_KeepsDestinationOnly()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -347,7 +347,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(destinationSong, typeof(LR2SongDBExtended.bmson_song));
                 }
 
-                library.MergeBMSDirectory(srcDir, dstDir);
+                library.MergeChartDirectory(srcDir, dstDir);
 
                 Assert.IsFalse(Directory.Exists(srcDir));
                 Assert.IsTrue(File.Exists(dstChartPath));
