@@ -14,9 +14,9 @@ internal class playingBmsInfoConverter : IMultiValueConverter
         }
         try
         {
-            TimeSpan timeSpan = (TimeSpan)values[0];
-            TimeSpan timeSpan2 = (TimeSpan)values[1];
-            TimeSpan timeSpan3 = (TimeSpan)values[2];
+            var timeSpan = (TimeSpan)values[0];
+            var timeSpan2 = (TimeSpan)values[1];
+            var timeSpan3 = (TimeSpan)values[2];
             int num = (int)values[3];
             int num2 = (int)values[4];
             int num3 = (int)values[5];

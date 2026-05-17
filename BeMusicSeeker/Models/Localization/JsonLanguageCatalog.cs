@@ -11,13 +11,13 @@ namespace BeMusicSeeker.Models.Localization;
 
 public static class JsonLanguageCatalog
 {
-    private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, string>> Cache = new ConcurrentDictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, IReadOnlyDictionary<string, string>> Cache = new(StringComparer.OrdinalIgnoreCase);
 
     public static void Invalidate(string cultureName)
     {
         if (!string.IsNullOrWhiteSpace(cultureName))
         {
-            Cache.TryRemove(cultureName, out var _);
+            Cache.TryRemove(cultureName, out IReadOnlyDictionary<string, string> _);
         }
     }
 
@@ -87,7 +87,7 @@ public static class JsonLanguageCatalog
                     // カルチャ名が有効かどうかを検証
                     System.Globalization.CultureInfo.GetCultureInfo(cultureName);
 
-                    var dictionary = ReadLanguageDictionary(filePath);
+                    Dictionary<string, string> dictionary = ReadLanguageDictionary(filePath);
 
                     if (dictionary != null && dictionary.TryGetValue("_language_name", out string displayName) && !string.IsNullOrWhiteSpace(displayName))
                     {
@@ -123,9 +123,9 @@ public static class JsonLanguageCatalog
         {
             json = json.Substring(1);
         }
-        using MemoryStream memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(json));
-        DataContractJsonSerializerSettings settings = new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true };
-        DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(Dictionary<string, string>), settings);
+        using var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        var settings = new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true };
+        var serializer = new DataContractJsonSerializer(typeof(Dictionary<string, string>), settings);
         return serializer.ReadObject(memoryStream) as Dictionary<string, string>;
     }
 

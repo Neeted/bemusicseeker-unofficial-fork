@@ -11,7 +11,7 @@ internal class entryUnitTypeListConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (!(value is IEnumerable<string> source))
+        if (value is not IEnumerable<string> source)
         {
             return value;
         }

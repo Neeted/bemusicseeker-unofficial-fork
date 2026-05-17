@@ -9,7 +9,7 @@ public sealed class StartupMemoryPressureServiceTests
     [TestMethod]
     public void BuildCheckpointLog_IncludesMemoryCounters()
     {
-        StartupMemorySnapshot snapshot = new StartupMemorySnapshot(10L, 20L, 30L, 1, 2, 3);
+        var snapshot = new StartupMemorySnapshot(10L, 20L, 30L, 1, 2, 3);
 
         string log = StartupMemoryPressureService.BuildCheckpointLog("file_diff", "after", snapshot);
 

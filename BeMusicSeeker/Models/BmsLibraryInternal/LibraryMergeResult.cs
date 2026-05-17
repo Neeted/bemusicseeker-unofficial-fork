@@ -6,7 +6,7 @@ internal sealed class LibraryMergeResult
 {
     public bool Success { get; set; }
 
-    public List<BMSFile> SourceFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> SourceFiles { get; } = [];
 
     public ChartPackage Repackage { get; set; }
 

@@ -438,17 +438,17 @@ public class MainWindowViewModel : ViewModel
             ScoreOnly = 4
         }
 
-        private MainWindowViewModel ownerViewModel;
+        private readonly MainWindowViewModel ownerViewModel;
 
-        private PropertyChangedEventListener ownerViewModelEventListener;
+        private readonly PropertyChangedEventListener ownerViewModelEventListener;
 
-        private PropertyChangedEventListener resourceServiceEventListener;
+        private readonly PropertyChangedEventListener resourceServiceEventListener;
 
         private bool tempOperationModeLR2DB;
 
         private string tempLR2RootPath;
 
-        private Dictionary<string, Point> lr2bodyResolutions = new Dictionary<string, Point>
+        private readonly Dictionary<string, Point> lr2bodyResolutions = new()
         {
             {
                 "  320x180 (16:9)",
@@ -602,7 +602,7 @@ public class MainWindowViewModel : ViewModel
 
         private string tempStagefilePath;
 
-        private static string defaultFolderNameFormat = "[%ARTIST%] %TITLE%";
+        private static readonly string defaultFolderNameFormat = "[%ARTIST%] %TITLE%";
 
         private string tempFolderNameFormat;
 
@@ -622,7 +622,7 @@ public class MainWindowViewModel : ViewModel
 
         private string tempEncoderExeDir;
 
-        private static string defaultEncodeFileNameFormat = "[%ARTIST%] %TITLE%";
+        private static readonly string defaultEncodeFileNameFormat = "[%ARTIST%] %TITLE%";
 
         private string tempEncodeFileNameFormat;
 
@@ -714,7 +714,7 @@ public class MainWindowViewModel : ViewModel
 
         private void ConfirmAndRestartForOperationModeChange(bool value)
         {
-            ConfirmationMessage confirmationMessage = new ConfirmationMessage(
+            var confirmationMessage = new ConfirmationMessage(
                 BeMusicSeeker.Properties.Resources.Confirm_RestartForOperationModeChange,
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxImage.Question,
@@ -857,7 +857,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        public ObservableCollection<string> StandaloneBmsRootPathList { get; } = new ObservableCollection<string>();
+        public ObservableCollection<string> StandaloneBmsRootPathList { get; } = [];
 
         public string SelectedStandaloneBmsRootPath
         {
@@ -1209,11 +1209,11 @@ public class MainWindowViewModel : ViewModel
                 string tempRootDir = tempLR2CustomFolderAsRootOutputDir;
                 if (lr2config != null)
                 {
-                    return (from d in lr2config.GetBMSSearchDirectories()
-                            where string.IsNullOrWhiteSpace(rootDir) || ownerViewModel.BMSTables == null || ownerViewModel.BMSTables.Where((BMSTable t) => t != null && t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)).All((BMSTable t) => !string.Equals(d, Path.Combine(rootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase) && (string.IsNullOrWhiteSpace(tempRootDir) || !string.Equals(d, Path.Combine(tempRootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase)))
-                            select d).ToList();
+                    return [.. (from d in lr2config.GetBMSSearchDirectories()
+                            where string.IsNullOrWhiteSpace(rootDir) || ownerViewModel.BMSTables == null || ownerViewModel.BMSTables.Where(t => t != null && t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)).All(t => !string.Equals(d, Path.Combine(rootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase) && (string.IsNullOrWhiteSpace(tempRootDir) || !string.Equals(d, Path.Combine(tempRootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase)))
+                            select d)];
                 }
-                return new List<string>();
+                return [];
             }
             private set
             {
@@ -1228,7 +1228,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return LR2ConfigBMSDirectories;
                 }
-                return StandaloneBmsRootPathList.ToList();
+                return [.. StandaloneBmsRootPathList];
             }
         }
 
@@ -1663,7 +1663,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (value)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_file_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_file_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
@@ -1689,7 +1689,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (value)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_playlist_load, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_playlist_load, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
@@ -1747,7 +1747,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (value)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_offline_score_ranking_estimation, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_offline_score_ranking_estimation, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
@@ -2027,7 +2027,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        public ReadOnlyObservableCollection<string> EncoderNames => new ReadOnlyObservableCollection<string>(new ObservableCollection<string> { "WAVE", "MP3 LAME", "AAC Nero", "Opus", "FLAC", "Ogg Vorbis" });
+        public ReadOnlyObservableCollection<string> EncoderNames => new(["WAVE", "MP3 LAME", "AAC Nero", "Opus", "FLAC", "Ogg Vorbis"]);
 
         public int EncoderIndex
         {
@@ -2100,7 +2100,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        public ReadOnlyDictionary<BMSAutoPlayWriter.Normalization, string> EncoderNormalizationNames => new ReadOnlyDictionary<BMSAutoPlayWriter.Normalization, string>(new Dictionary<BMSAutoPlayWriter.Normalization, string>
+        public ReadOnlyDictionary<BMSAutoPlayWriter.Normalization, string> EncoderNormalizationNames => new(new Dictionary<BMSAutoPlayWriter.Normalization, string>
         {
             {
                 BMSAutoPlayWriter.Normalization.NONE,
@@ -2206,13 +2206,13 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        public ReadOnlyObservableCollection<string> PlayerDriverNames => new ReadOnlyObservableCollection<string>(new ObservableCollection<string>
-        {
+        public ReadOnlyObservableCollection<string> PlayerDriverNames => new(
+        [
             "DirectSound",
             "WASAPI (" + BeMusicSeeker.Properties.Resources.Shared + ")",
             "WASAPI (" + BeMusicSeeker.Properties.Resources.Exclusive + ")",
             "ASIO"
-        });
+        ]);
 
         public int PlayerDriverIndex
         {
@@ -2233,7 +2233,7 @@ public class MainWindowViewModel : ViewModel
                         value = 0;
                     }
                     Settings.Default.PlayerDriver = (BassAudioPlayer.DeviceDriver)value;
-                    playerDeviceNames = BassAudioPlayer.DeviceList[Settings.Default.PlayerDriver].ToList();
+                    playerDeviceNames = [.. BassAudioPlayer.DeviceList[Settings.Default.PlayerDriver]];
                     RaisePropertyChanged("PlayerDriverIndex");
                     RaisePropertyChanged(() => PlayerDeviceNames);
                     RaisePropertyChanged(() => PlayerDevice);
@@ -2245,7 +2245,7 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                return playerDeviceNames ?? (playerDeviceNames = BassAudioPlayer.DeviceList[(BassAudioPlayer.DeviceDriver)PlayerDriverIndex].ToList());
+                return playerDeviceNames ??= [.. BassAudioPlayer.DeviceList[(BassAudioPlayer.DeviceDriver)PlayerDriverIndex]];
             }
             private set
             {
@@ -2257,10 +2257,10 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                BassAudioPlayer.DeviceDescriptor deviceDescriptor = PlayerDeviceNames.FirstOrDefault((BassAudioPlayer.DeviceDescriptor d) => d.Driver == Settings.Default.PlayerDevice);
+                BassAudioPlayer.DeviceDescriptor deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == Settings.Default.PlayerDevice);
                 if (deviceDescriptor.Driver == null)
                 {
-                    deviceDescriptor = PlayerDeviceNames.FirstOrDefault((BassAudioPlayer.DeviceDescriptor d) => d.Name == Settings.Default.PlayerDeviceName);
+                    deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Name == Settings.Default.PlayerDeviceName);
                     if (deviceDescriptor.Driver == null)
                     {
                         Match match = Regex.Match(Settings.Default.PlayerDeviceName ?? string.Empty, "(.*?)[\\s(\\d-]+(.*?)\\)");
@@ -2268,7 +2268,7 @@ public class MainWindowViewModel : ViewModel
                         {
                             string p1 = match.Groups[1].ToString();
                             string p2 = match.Groups[2].ToString();
-                            deviceDescriptor = PlayerDeviceNames.FirstOrDefault((BassAudioPlayer.DeviceDescriptor d) => Regex.IsMatch(d.Name ?? string.Empty, p1 + ".*" + p2));
+                            deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => Regex.IsMatch(d.Name ?? string.Empty, p1 + ".*" + p2));
                             Console.WriteLine(deviceDescriptor.Name);
                         }
                     }
@@ -2281,7 +2281,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!(Settings.Default.PlayerDevice == value))
                 {
-                    BassAudioPlayer.DeviceDescriptor deviceDescriptor = PlayerDeviceNames.FirstOrDefault((BassAudioPlayer.DeviceDescriptor d) => d.Driver == value);
+                    BassAudioPlayer.DeviceDescriptor deviceDescriptor = PlayerDeviceNames.FirstOrDefault(d => d.Driver == value);
                     Settings.Default.PlayerDevice = deviceDescriptor.Driver;
                     Settings.Default.PlayerDeviceName = deviceDescriptor.Name;
                     RaisePropertyChanged("PlayerDevice");
@@ -2359,10 +2359,7 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (_OpenRootFolderCommand == null)
-                {
-                    _OpenRootFolderCommand = new ListenerCommand<FolderSelectionMessage>(OpenRootFolder);
-                }
+                _OpenRootFolderCommand ??= new ListenerCommand<FolderSelectionMessage>(OpenRootFolder);
                 return _OpenRootFolderCommand;
             }
         }
@@ -2371,10 +2368,7 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (_OpenFileCommand == null)
-                {
-                    _OpenFileCommand = new ListenerCommand<OpeningFileSelectionMessage>(OpenFile);
-                }
+                _OpenFileCommand ??= new ListenerCommand<OpeningFileSelectionMessage>(OpenFile);
                 return _OpenFileCommand;
             }
         }
@@ -2383,10 +2377,7 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (_OpenDirCommand == null)
-                {
-                    _OpenDirCommand = new ListenerCommand<FolderSelectionMessage>(OpenDir);
-                }
+                _OpenDirCommand ??= new ListenerCommand<FolderSelectionMessage>(OpenDir);
                 return _OpenDirCommand;
             }
         }
@@ -2395,10 +2386,7 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (_AddBMSDirCommandFromMainWindow == null)
-                {
-                    _AddBMSDirCommandFromMainWindow = new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToRootFolderAndSave);
-                }
+                _AddBMSDirCommandFromMainWindow ??= new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToRootFolderAndSave);
                 return _AddBMSDirCommandFromMainWindow;
             }
         }
@@ -2407,10 +2395,7 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (_AddBMSDirCommand == null)
-                {
-                    _AddBMSDirCommand = new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToSearchRoots);
-                }
+                _AddBMSDirCommand ??= new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToSearchRoots);
                 return _AddBMSDirCommand;
             }
         }
@@ -2419,15 +2404,12 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (_RemoveDirCommand == null)
-                {
-                    _RemoveDirCommand = new ListenerCommand<string>(RemoveBMSDirectoryFromSearchRoots);
-                }
+                _RemoveDirCommand ??= new ListenerCommand<string>(RemoveBMSDirectoryFromSearchRoots);
                 return _RemoveDirCommand;
             }
         }
 
-        public List<string> Languages => App.AvailableCultures.Keys.ToList();
+        public List<string> Languages => [.. App.AvailableCultures.Keys];
 
         public string Language
         {
@@ -2437,7 +2419,7 @@ public class MainWindowViewModel : ViewModel
                 string savedDisplayName = Settings.Default.LangDisplayName;
                 if (!string.IsNullOrEmpty(savedDisplayName) && App.AvailableCultures.ContainsKey(savedDisplayName))
                     return savedDisplayName;
-                return App.AvailableCultures.FirstOrDefault((KeyValuePair<string, string> kv) => kv.Value == Settings.Default.Lang).Key;
+                return App.AvailableCultures.FirstOrDefault(kv => kv.Value == Settings.Default.Lang).Key;
             }
             set
             {
@@ -2572,10 +2554,10 @@ public class MainWindowViewModel : ViewModel
 
         public static IReadOnlyList<string> DeserializeStandaloneBmsRootPaths(string serializedPaths, string legacyBmsRootPath = null)
         {
-            List<string> paths = new List<string>();
+            List<string> paths = [];
             if (!string.IsNullOrWhiteSpace(serializedPaths))
             {
-                paths.AddRange(serializedPaths.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries));
+                paths.AddRange(serializedPaths.Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries));
             }
             if (paths.Count == 0 && !string.IsNullOrWhiteSpace(legacyBmsRootPath) && Directory.Exists(legacyBmsRootPath))
             {
@@ -2588,10 +2570,10 @@ public class MainWindowViewModel : ViewModel
         {
             if (paths == null)
             {
-                return Array.Empty<string>();
+                return [];
             }
 
-            List<string> normalized = new List<string>();
+            List<string> normalized = [];
             foreach (string path in paths)
             {
                 if (string.IsNullOrWhiteSpace(path))
@@ -2677,10 +2659,10 @@ public class MainWindowViewModel : ViewModel
             }
             if (Settings.Default.OperationModeLR2DB && lr2config != null)
             {
-                ownerViewModel.files.SearchTargets = lr2config.GetBMSSearchDirectories().ToList();
+                ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];
                 return;
             }
-            ownerViewModel.files.SearchTargets = GetStandaloneBmsRootPathsFromSettings().ToList();
+            ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsFromSettings()];
         }
 
         private bool IsLR2SongDBPathValid()
@@ -2811,7 +2793,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (lr2config != null && value != null)
             {
-                return lr2config.GetBMSSearchDirectories().All((string d) => !(value + Path.DirectorySeparatorChar).StartsWith(d + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                return lr2config.GetBMSSearchDirectories().All(d => !(value + Path.DirectorySeparatorChar).StartsWith(d + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             }
             return false;
         }
@@ -2837,7 +2819,7 @@ public class MainWindowViewModel : ViewModel
             {
                 return true;
             }
-            return PlaylistUrlCompletionSupport.TryResolveSourceUri(value, out var _);
+            return PlaylistUrlCompletionSupport.TryResolveSourceUri(value, out Uri _);
         }
 
         private bool IsLR2BackupPathValid()
@@ -2921,7 +2903,7 @@ public class MainWindowViewModel : ViewModel
                     throw new ArgumentException("パスにユニコード文字が含まれているためLR2で認識できません");
                 }
                 string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { response });
+                GetType().GetProperty(name).GetSetMethod().Invoke(this, [response]);
             }
             catch (ArgumentException ex)
             {
@@ -2937,7 +2919,7 @@ public class MainWindowViewModel : ViewModel
             if (parameter.Response != null)
             {
                 string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { parameter.Response.FirstOrDefault() });
+                GetType().GetProperty(name).GetSetMethod().Invoke(this, [parameter.Response.FirstOrDefault()]);
             }
         }
 
@@ -2946,7 +2928,7 @@ public class MainWindowViewModel : ViewModel
             if (parameter.Response != null)
             {
                 string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { parameter.Response });
+                GetType().GetProperty(name).GetSetMethod().Invoke(this, [parameter.Response]);
             }
         }
 
@@ -3032,7 +3014,7 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 string before = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
-                List<string> requestedPaths = NormalizeStandaloneBmsRootPaths(paths ?? Enumerable.Empty<string>()).ToList();
+                List<string> requestedPaths = [.. NormalizeStandaloneBmsRootPaths(paths ?? [])];
                 string requestedPath = requestedPaths.FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(requestedPath))
                 {
@@ -3051,7 +3033,7 @@ public class MainWindowViewModel : ViewModel
                 if (!string.IsNullOrWhiteSpace(messageKey))
                 {
                     string name = messageKey.Substring(messageKey.LastIndexOf('.') + 1);
-                    GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { requestedPath });
+                    GetType().GetProperty(name).GetSetMethod().Invoke(this, [requestedPath]);
                 }
                 string after = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
                 isSearchRootsChanged = !string.Equals(before, after, StringComparison.OrdinalIgnoreCase);
@@ -3081,14 +3063,14 @@ public class MainWindowViewModel : ViewModel
                 }
                 lr2config.AddBMSSearchDirectories(new string[1] { response });
                 isSearchRootsChanged = true;
-                isBMSDirectoryAdded = Directory.EnumerateFiles(response, "*", System.IO.SearchOption.AllDirectories).Any((string path) => BeMusicSeeker.Models.BMSFile.bmsExtensions.Any((string ext) => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+                isBMSDirectoryAdded = Directory.EnumerateFiles(response, "*", System.IO.SearchOption.AllDirectories).Any(path => BeMusicSeeker.Models.BMSFile.bmsExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
                 RaisePropertyChanged(() => LR2ConfigBMSDirectories);
                 RaisePropertyChanged(() => AvailableBMSDirectories);
                 RaiseValidationStateChanged();
                 if (!string.IsNullOrWhiteSpace(parameter.MessageKey))
                 {
                     string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
-                    GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { response });
+                    GetType().GetProperty(name).GetSetMethod().Invoke(this, [response]);
                 }
                 if (saveImmediately)
                 {
@@ -3180,9 +3162,7 @@ public class MainWindowViewModel : ViewModel
                     throw new InvalidOperationException("BMSインストール先ディレクトリの登録解除は出来ません");
                 }
                 string before = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
-                List<string> remaining = StandaloneBmsRootPathList
-                    .Where(path => !string.Equals(path, normalizedDir, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                List<string> remaining = [.. StandaloneBmsRootPathList.Where(path => !string.Equals(path, normalizedDir, StringComparison.OrdinalIgnoreCase))];
                 StandaloneBmsRootPathList.Clear();
                 foreach (string path in remaining)
                 {
@@ -3234,7 +3214,7 @@ public class MainWindowViewModel : ViewModel
                     RaisePropertyChanged(() => AvailableBMSDirectories);
                     RaisePropertyChanged(() => BMSInstallDir);
                     RaiseValidationStateChanged();
-                    if (ownerViewModel.BMSFiles != null && ownerViewModel.BMSFiles.Any((BeMusicSeeker.Models.BMSFile f) => f.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                    if (ownerViewModel.BMSFiles != null && ownerViewModel.BMSFiles.Any(f => f.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                     {
                         isBMSDirectoryRemoved = true;
                     }
@@ -3249,7 +3229,7 @@ public class MainWindowViewModel : ViewModel
         public void AudioPlayerInitTest(bool playSound = true)
         {
             ownerViewModel.PlayEndBMSFile(closeProcess: true);
-            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(Settings.Default.PlayerDevice) ? default(BassAudioPlayer.DeviceDescriptor) : new BassAudioPlayer.DeviceDescriptor(Settings.Default.PlayerDeviceName, Settings.Default.PlayerDevice));
+            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(Settings.Default.PlayerDevice) ? default : new BassAudioPlayer.DeviceDescriptor(Settings.Default.PlayerDeviceName, Settings.Default.PlayerDevice));
             BassAudioPlayer.Frequency = Settings.Default.PlayerSampleRate;
             BassAudioPlayer.Format = Settings.Default.PlayerFormat;
             BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, Settings.Default.uBMplayVolume)) / 100f;
@@ -3462,7 +3442,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return true;
                 }
-                return (Settings.Default.PlayerWASAPIParam != tempPlayerWASAPIParam && (Settings.Default.PlayerDriver == BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE || Settings.Default.PlayerDriver == BassAudioPlayer.DeviceDriver.WASAPI_SHARED)) ? true : false;
+                return (Settings.Default.PlayerWASAPIParam != tempPlayerWASAPIParam && (Settings.Default.PlayerDriver == BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE || Settings.Default.PlayerDriver == BassAudioPlayer.DeviceDriver.WASAPI_SHARED));
             })())
             {
                 AudioPlayerInitTest(playSound: false);
@@ -3490,8 +3470,8 @@ public class MainWindowViewModel : ViewModel
                     {
                         BeatorajaConfigService.SyncTableUrls(
                             tempBeatorajaRootPath,
-                            Enumerable.Empty<string>(),
-                            BmtTableExportService.ReadManagedTableUrls(tempBeatorajaBmtTablePath).Select((BmtTableExportService.ManagedTableUrlEntry entry) => entry.Url));
+                            [],
+                            BmtTableExportService.ReadManagedTableUrls(tempBeatorajaBmtTablePath).Select(entry => entry.Url));
                     }
                     catch (Exception ex)
                     {
@@ -3504,8 +3484,7 @@ public class MainWindowViewModel : ViewModel
 
         public bool CheckValidation()
         {
-            string errMsg;
-            return CheckValidation(out errMsg);
+            return CheckValidation(out string errMsg);
         }
 
         /// <summary>
@@ -3737,7 +3716,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.EncoderQuality = tempEncoderQuality;
             Settings.Default.EncodeFileNameFormat = tempEncodeFileNameFormat;
             Settings.Default.PlayerDriver = (BassAudioPlayer.DeviceDriver)tempPlayerDriverIndex;
-            playerDeviceNames = BassAudioPlayer.DeviceList[Settings.Default.PlayerDriver].ToList();
+            playerDeviceNames = [.. BassAudioPlayer.DeviceList[Settings.Default.PlayerDriver]];
             Settings.Default.PlayerDevice = tempPlayerDevice;
             Settings.Default.PlayerDeviceName = tempPlayerDeviceName;
             Settings.Default.PlayerSampleRate = tempPlayerSampleRate;
@@ -3893,9 +3872,9 @@ public class MainWindowViewModel : ViewModel
     {
         private BMSTable bmsTable;
 
-        private MainWindowViewModel ownerViewModel;
+        private readonly MainWindowViewModel ownerViewModel;
 
-        private bool isForNewTable;
+        private readonly bool isForNewTable;
 
         private DispatcherCollection<string> _folder_order;
 
@@ -4029,10 +4008,7 @@ public class MainWindowViewModel : ViewModel
             }
             set
             {
-                if (value == null)
-                {
-                    value = string.Empty;
-                }
+                value ??= string.Empty;
                 value = value.TrimStart();
                 if (!(_compat_prefix == value))
                 {
@@ -4235,7 +4211,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (!_is_external_sync && value)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage);
                     if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
                     {
@@ -4245,7 +4221,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else if (_is_external_sync && !value)
                 {
-                    ConfirmationMessage confirmationMessage2 = new ConfirmationMessage("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    var confirmationMessage2 = new ConfirmationMessage("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage2);
                     if (!confirmationMessage2.Response.HasValue || !confirmationMessage2.Response.Value)
                     {
@@ -4324,12 +4300,8 @@ public class MainWindowViewModel : ViewModel
 
         public PlaylistPropertyDialogViewModel(MainWindowViewModel _owner, BMSTable _table, bool _isForNewTable = false)
         {
-            if (_table == null)
-            {
-                throw new ArgumentNullException("_table");
-            }
             ownerViewModel = _owner;
-            bmsTable = _table;
+            bmsTable = _table ?? throw new ArgumentNullException("_table");
             isForNewTable = _isForNewTable;
             ownerViewModel.tables.AcquireWriterLockBMSTables();
             backupTableProperties();
@@ -4450,11 +4422,11 @@ public class MainWindowViewModel : ViewModel
             {
                 if (is_auto_folder_sort)
                 {
-                    bmsTable.Folder_order = new List<string>();
+                    bmsTable.Folder_order = [];
                 }
                 else
                 {
-                    bmsTable.Folder_order = new List<string>(folder_order);
+                    bmsTable.Folder_order = [.. folder_order];
                 }
                 bmsTable.folder_sort_key = folder_sort_key;
                 bmsTable.folder_sort_ascending = folder_sort_ascending;
@@ -4553,7 +4525,7 @@ public class MainWindowViewModel : ViewModel
                         ownerViewModel.tables.EnsurePlaylistEntriesLoaded(bmsTable, "PlaylistPropertyDialogViewModel.ApplyPostSaveUpdatesAsync");
                         using (bmsTable.ReaderWriterLock.GetReaderGuard())
                         {
-                            oldEntriesSnapshot = bmsTable.entries.ToList();
+                            oldEntriesSnapshot = [.. bmsTable.entries];
                         }
                         bmsTable = await ownerViewModel.tables.ResetBMSTableAsync(bmsTable, uri);
                         ownerViewModel.files.ReplaceReferenceBMSTable(sourceTable, bmsTable, oldEntriesSnapshot);
@@ -4738,15 +4710,12 @@ public class MainWindowViewModel : ViewModel
             {
                 return false;
             }
-            switch (Type)
+            return Type switch
             {
-                case FolderFilterType.DirectoryFilter:
-                    return ContainsIgnoreCase(file.path, Term);
-                case FolderFilterType.ArtistFilter:
-                    return ContainsIgnoreCase(file.Artist, Term);
-                default:
-                    return false;
-            }
+                FolderFilterType.DirectoryFilter => ContainsIgnoreCase(file.path, Term),
+                FolderFilterType.ArtistFilter => ContainsIgnoreCase(file.Artist, Term),
+                _ => false,
+            };
         }
 
         internal bool Matches(ChartListSourceRow row)
@@ -4755,15 +4724,12 @@ public class MainWindowViewModel : ViewModel
             {
                 return false;
             }
-            switch (Type)
+            return Type switch
             {
-                case FolderFilterType.DirectoryFilter:
-                    return ContainsIgnoreCase(row.Path, Term);
-                case FolderFilterType.ArtistFilter:
-                    return ContainsIgnoreCase(row.Artist, Term);
-                default:
-                    return false;
-            }
+                FolderFilterType.DirectoryFilter => ContainsIgnoreCase(row.Path, Term),
+                FolderFilterType.ArtistFilter => ContainsIgnoreCase(row.Artist, Term),
+                _ => false,
+            };
         }
 
         private static string EnsureTrailingDirectorySeparator(string path)
@@ -5000,13 +4966,13 @@ public class MainWindowViewModel : ViewModel
 
         internal long BuildElapsedMs;
 
-        internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesByHash = new(StringComparer.OrdinalIgnoreCase);
 
-        internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesBySha256 = new(StringComparer.OrdinalIgnoreCase);
 
-        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonByMd5 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonByMd5 = new(StringComparer.OrdinalIgnoreCase);
 
-        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonBySha256 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonBySha256 = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -5239,7 +5205,7 @@ public class MainWindowViewModel : ViewModel
 
         internal bool VisibleCompletedLogged;
 
-        internal PlaylistOpenReadinessSnapshot Readiness = new PlaylistOpenReadinessSnapshot();
+        internal PlaylistOpenReadinessSnapshot Readiness = new();
     }
 
     /// <summary>
@@ -5309,17 +5275,17 @@ public class MainWindowViewModel : ViewModel
         /// <summary>
         /// source snapshot の更新や要求バージョン採番を直列化します。
         /// </summary>
-        internal readonly object SyncRoot = new object();
+        internal readonly object SyncRoot = new();
 
         /// <summary>
         /// プレイリスト source build を単一実行に制限します。
         /// </summary>
-        internal readonly SemaphoreSlim BuildGate = new SemaphoreSlim(1, 1);
+        internal readonly SemaphoreSlim BuildGate = new(1, 1);
 
         /// <summary>
         /// 現在表示の正本となるプレイリスト行集合です。
         /// </summary>
-        internal List<PlaylistDetailSourceRow> SourceRows = new List<PlaylistDetailSourceRow>();
+        internal List<PlaylistDetailSourceRow> SourceRows = [];
 
         /// <summary>
         /// 現在一覧へ反映している表示用 snapshot です。
@@ -5350,7 +5316,7 @@ public class MainWindowViewModel : ViewModel
         /// <summary>
         /// 現在の source build をキャンセルするための token source です。
         /// </summary>
-        internal CancellationTokenSource Cancellation = new CancellationTokenSource();
+        internal CancellationTokenSource Cancellation = new();
 
         /// <summary>
         /// 現在 build 中の要求に紐づく token source です。
@@ -5584,11 +5550,11 @@ public class MainWindowViewModel : ViewModel
 
     private PropertyChangedEventListener listenerForBMSPlayer;
 
-    private object lockThis = new object();
+    private readonly object lockThis = new();
 
-    private static SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    private object lockCopyFile = new object();
+    private readonly object lockCopyFile = new();
 
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindowViewModel");
 
@@ -5602,7 +5568,7 @@ public class MainWindowViewModel : ViewModel
 
     private UiRefreshChannel deferredStartupPresentationMask = UiRefreshChannel.None;
 
-    private object lockUiSuppression = new object();
+    private readonly object lockUiSuppression = new();
 
     private bool deferredPlaylistSummaryRefreshRequested;
 
@@ -5612,11 +5578,11 @@ public class MainWindowViewModel : ViewModel
 
     private bool deferredPlaylistRefRunning;
 
-    private object lockDeferredPlaylistRef = new object();
+    private readonly object lockDeferredPlaylistRef = new();
 
-    private readonly PlaylistViewState playlistViewState = new PlaylistViewState();
+    private readonly PlaylistViewState playlistViewState = new();
 
-    private readonly object playlistLibraryIndexSync = new object();
+    private readonly object playlistLibraryIndexSync = new();
 
     private PlaylistLibraryIndexSnapshot playlistLibraryIndexSnapshot;
 
@@ -5634,27 +5600,27 @@ public class MainWindowViewModel : ViewModel
 
     private bool deferredExternalSyncRunning;
 
-    private object lockDeferredExternalSync = new object();
+    private readonly object lockDeferredExternalSync = new();
 
-    private object lockPlaylistSyncStatuses = new object();
+    private readonly object lockPlaylistSyncStatuses = new();
 
-    private readonly Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatuses = new Dictionary<string, PlaylistSyncRuntimeStatus>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatuses = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly ExternalPlaylistImportQueue externalPlaylistImportQueue = new ExternalPlaylistImportQueue();
+    private readonly ExternalPlaylistImportQueue externalPlaylistImportQueue = new();
 
     private bool deferredLibraryFolderTreeRefreshQueued;
 
-    private object lockDeferredLibraryFolderTreeRefresh = new object();
+    private readonly object lockDeferredLibraryFolderTreeRefresh = new();
 
-    private readonly object startupBackgroundTaskLock = new object();
+    private readonly object startupBackgroundTaskLock = new();
 
-    private readonly List<StartupBackgroundTaskRequest> startupBackgroundTaskQueue = new List<StartupBackgroundTaskRequest>();
+    private readonly List<StartupBackgroundTaskRequest> startupBackgroundTaskQueue = [];
 
-    private readonly HashSet<string> startupBackgroundTaskCompletedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> startupBackgroundTaskCompletedNames = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, int> startupBackgroundTaskRunningCountByLane = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> startupBackgroundTaskRunningCountByLane = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, StartupBackgroundTaskMetric> startupBackgroundTaskMetrics = new Dictionary<string, StartupBackgroundTaskMetric>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, StartupBackgroundTaskMetric> startupBackgroundTaskMetrics = new(StringComparer.OrdinalIgnoreCase);
 
     private bool startupBackgroundTaskSchedulerStarted;
 
@@ -5720,13 +5686,13 @@ public class MainWindowViewModel : ViewModel
 
     private readonly NormalLibraryRowCache regularBmsLibraryRowCache;
 
-    private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> normalLibrarySortCache = new Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>>();
+    private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> normalLibrarySortCache = [];
 
-    private readonly object normalLibrarySortCacheLock = new object();
+    private readonly object normalLibrarySortCacheLock = new();
 
-    private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualNormalLibraryOrderCache = new Dictionary<NormalLibrarySortCacheKey, ChartListOrder>();
+    private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualNormalLibraryOrderCache = [];
 
-    private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualChartSubsetOrderCache = new Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder>();
+    private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualChartSubsetOrderCache = [];
 
     private List<ChartListSourceRow> virtualNormalLibrarySourceRowCache;
 
@@ -5740,7 +5706,7 @@ public class MainWindowViewModel : ViewModel
 
     private int virtualNormalLibrarySourceRowCacheRowCount;
 
-    private readonly object virtualNormalLibraryOrderPrewarmLock = new object();
+    private readonly object virtualNormalLibraryOrderPrewarmLock = new();
 
     private Task virtualNormalLibraryOrderPrewarmTask;
 
@@ -5754,19 +5720,19 @@ public class MainWindowViewModel : ViewModel
 
     private int pendingRegularBmsRowCachePrunedCount;
 
-    private readonly Dictionary<string, LibraryChartRow> bmsonLibraryRowsByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, LibraryChartRow> bmsonLibraryRowsByPath = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
+    private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new(BmsonSongReferenceComparer.Instance);
 
-    private readonly Dictionary<string, PendingChartEntry> sharedBmsonChartAdaptersByKey = new Dictionary<string, PendingChartEntry>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PendingChartEntry> sharedBmsonChartAdaptersByKey = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, BmsonLibrarySortKeySnapshot> bmsonLibrarySortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, BmsonLibrarySortKeySnapshot> bmsonLibrarySortKeysByPath = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly object mainSummaryFolderCountCacheLock = new object();
+    private readonly object mainSummaryFolderCountCacheLock = new();
 
-    private readonly Dictionary<MainViewSummaryCacheKey, int> mainSummaryFolderCountCache = new Dictionary<MainViewSummaryCacheKey, int>();
+    private readonly Dictionary<MainViewSummaryCacheKey, int> mainSummaryFolderCountCache = [];
 
-    private readonly HashSet<MainViewSummaryCacheKey> mainSummaryFolderCountRunning = new HashSet<MainViewSummaryCacheKey>();
+    private readonly HashSet<MainViewSummaryCacheKey> mainSummaryFolderCountRunning = [];
 
     private int mainSummaryFolderCountRunId;
 
@@ -5802,17 +5768,17 @@ public class MainWindowViewModel : ViewModel
 
     private Visibility _ColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
 
-    private ObservableCollection<PlaylistSummaryRow> _PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>();
+    private ObservableCollection<PlaylistSummaryRow> _PlaylistSummaryView = [];
 
     private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;
 
-    private readonly object lockPlaylistSummaryRowsCache = new object();
+    private readonly object lockPlaylistSummaryRowsCache = new();
 
-    private List<PlaylistSummaryRow> playlistSummaryRowsCache = new List<PlaylistSummaryRow>();
+    private List<PlaylistSummaryRow> playlistSummaryRowsCache = [];
 
     private bool playlistSummaryRowsCacheValid;
 
-    private readonly Dictionary<string, PlaylistSummaryTableCountCacheEntry> playlistSummaryTableCountCache = new Dictionary<string, PlaylistSummaryTableCountCacheEntry>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PlaylistSummaryTableCountCacheEntry> playlistSummaryTableCountCache = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _IsPlaylistSummaryMode;
 
@@ -5824,7 +5790,7 @@ public class MainWindowViewModel : ViewModel
 
     private string _GridSummaryText = string.Empty;
 
-    private DropInstallQueueProcessor dropInstallQueueProcessor;
+    private readonly DropInstallQueueProcessor dropInstallQueueProcessor;
 
     private bool _IsDropInstallQueueActive;
 
@@ -5844,11 +5810,11 @@ public class MainWindowViewModel : ViewModel
 
     private int _PendingEstimateQueuePendingBatchCount;
 
-    private DropInstallQueueStatusSnapshot latestDropInstallQueueStatus = new DropInstallQueueStatusSnapshot();
+    private DropInstallQueueStatusSnapshot latestDropInstallQueueStatus = new();
 
-    private PendingInstallEstimateQueueStatusSnapshot latestPendingEstimateQueueStatus = new PendingInstallEstimateQueueStatusSnapshot();
+    private PendingInstallEstimateQueueStatusSnapshot latestPendingEstimateQueueStatus = new();
 
-    private InstallEstimationProgressSnapshot latestInstallEstimationProgress = new InstallEstimationProgressSnapshot();
+    private InstallEstimationProgressSnapshot latestInstallEstimationProgress = new();
 
     private bool _IsInstallPipelineStatusActive;
 
@@ -5876,13 +5842,13 @@ public class MainWindowViewModel : ViewModel
 
     private bool _MaintenanceRescanCanCancel;
 
-    private readonly object playlistSyncProgressLock = new object();
+    private readonly object playlistSyncProgressLock = new();
 
     private int playlistSyncProgressActiveOperationCount;
 
     private bool _IsPlaylistSyncProgressActive;
 
-    private readonly object lockPlaylistReloadCleanup = new object();
+    private readonly object lockPlaylistReloadCleanup = new();
 
     private PlaylistReloadCleanupRequest pendingPlaylistReloadCleanup;
 
@@ -5898,9 +5864,9 @@ public class MainWindowViewModel : ViewModel
 
     private double _PlaylistSyncProgressMaximum;
 
-    private readonly object startupProgressLock = new object();
+    private readonly object startupProgressLock = new();
 
-    private StartupProgressState startupProgressState = new StartupProgressState();
+    private StartupProgressState startupProgressState = new();
 
     private long startupProgressOperationTokenSeed;
 
@@ -5932,13 +5898,13 @@ public class MainWindowViewModel : ViewModel
 
     private bool _IsPlaylistSummaryKeywordSearchHelpOpen;
 
-    private readonly ObservableCollection<KeywordSearchSuggestionItem> _KeywordSearchSuggestions = new ObservableCollection<KeywordSearchSuggestionItem>();
+    private readonly ObservableCollection<KeywordSearchSuggestionItem> _KeywordSearchSuggestions = [];
 
-    private readonly ObservableCollection<KeywordSearchSuggestionItem> _PlaylistSummaryKeywordSearchSuggestions = new ObservableCollection<KeywordSearchSuggestionItem>();
+    private readonly ObservableCollection<KeywordSearchSuggestionItem> _PlaylistSummaryKeywordSearchSuggestions = [];
 
-    private readonly List<string> keywordSearchHistory = new List<string>();
+    private readonly List<string> keywordSearchHistory = [];
 
-    private readonly List<string> playlistSummaryKeywordSearchHistory = new List<string>();
+    private readonly List<string> playlistSummaryKeywordSearchHistory = [];
 
     private bool _IsKeywordSearchSuggestionPopupOpen;
 
@@ -5954,7 +5920,7 @@ public class MainWindowViewModel : ViewModel
 
     private NormalLibraryTreeFilter virtualNormalLibraryTreeFilter;
 
-    private DispatcherCollection<string> _sortedBmsParentFolderList = new DispatcherCollection<string>(DispatcherHelper.UIDispatcher);
+    private readonly DispatcherCollection<string> _sortedBmsParentFolderList = new(DispatcherHelper.UIDispatcher);
 
     private bool bmsParentFolderListViewInitialized;
 
@@ -6027,11 +5993,11 @@ public class MainWindowViewModel : ViewModel
         FolderPath
     }
 
-    private static string scoreRegisterUrl = "https://bms-score-viewer-backend.sayakaisbaka.workers.dev/bms/score/register";
+    private static readonly string scoreRegisterUrl = "https://bms-score-viewer-backend.sayakaisbaka.workers.dev/bms/score/register";
 
-    private static string scoreStatusUrl = "https://bms-score-viewer-backend.sayakaisbaka.workers.dev/bms/score/status?md5=";
+    private static readonly string scoreStatusUrl = "https://bms-score-viewer-backend.sayakaisbaka.workers.dev/bms/score/status?md5=";
 
-    private static string scoreViewUrl = "https://bms-score-viewer.pages.dev/view?md5=";
+    private static readonly string scoreViewUrl = "https://bms-score-viewer.pages.dev/view?md5=";
 
     public SettingDialogViewModel settingDialog { get; private set; }
 
@@ -6141,17 +6107,13 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private static string GetPlaylistReloadOperationKindText(PlaylistReloadOperationKind operationKind)
     {
-        switch (operationKind)
+        return operationKind switch
         {
-            case PlaylistReloadOperationKind.StartupFullReload:
-                return "startup_full";
-            case PlaylistReloadOperationKind.ManualFullReload:
-                return "manual_full";
-            case PlaylistReloadOperationKind.SinglePlaylistReload:
-                return "single";
-            default:
-                return "none";
-        }
+            PlaylistReloadOperationKind.StartupFullReload => "startup_full",
+            PlaylistReloadOperationKind.ManualFullReload => "manual_full",
+            PlaylistReloadOperationKind.SinglePlaylistReload => "single",
+            _ => "none",
+        };
     }
 
     /// <summary>
@@ -6196,7 +6158,7 @@ public class MainWindowViewModel : ViewModel
 
     internal static string BuildKeywordSearchWarningText(string keywordFilter, GridKeywordSearchContext context)
     {
-        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(keywordFilter);
+        var query = GridKeywordSearchQuery.Parse(keywordFilter);
         IReadOnlyList<GridKeywordSearchDiagnostic> diagnostics = query.GetDiagnostics(context);
         if (diagnostics.Count == 0)
         {
@@ -6206,25 +6168,18 @@ public class MainWindowViewModel : ViewModel
             Environment.NewLine,
             diagnostics
                 .Select(FormatKeywordSearchDiagnostic)
-                .Where((string text) => !string.IsNullOrWhiteSpace(text))
+                .Where(text => !string.IsNullOrWhiteSpace(text))
                 .Distinct(StringComparer.Ordinal));
     }
 
     internal static string BuildKeywordSearchHelpText(GridKeywordSearchContext context)
     {
-        string fields;
-        switch (context)
+        string fields = context switch
         {
-            case GridKeywordSearchContext.PlaylistDetail:
-                fields = BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_playlist_detail;
-                break;
-            case GridKeywordSearchContext.PlaylistSummary:
-                fields = BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_playlist_summary;
-                break;
-            default:
-                fields = BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_bmsfile;
-                break;
-        }
+            GridKeywordSearchContext.PlaylistDetail => BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_playlist_detail,
+            GridKeywordSearchContext.PlaylistSummary => BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_playlist_summary,
+            _ => BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_bmsfile,
+        };
         return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_help_template, fields);
     }
 
@@ -6236,15 +6191,12 @@ public class MainWindowViewModel : ViewModel
     /// <returns>popup 見出し。</returns>
     internal static string BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind kind)
     {
-        switch (kind)
+        return kind switch
         {
-            case KeywordSearchSuggestionKind.History:
-                return BeMusicSeeker.Properties.Resources.Keyword_search_completion_history_header;
-            case KeywordSearchSuggestionKind.Value:
-                return BeMusicSeeker.Properties.Resources.Keyword_search_completion_playlist_names_header;
-            default:
-                return BeMusicSeeker.Properties.Resources.Keyword_search_completion_fields_header;
-        }
+            KeywordSearchSuggestionKind.History => BeMusicSeeker.Properties.Resources.Keyword_search_completion_history_header,
+            KeywordSearchSuggestionKind.Value => BeMusicSeeker.Properties.Resources.Keyword_search_completion_playlist_names_header,
+            _ => BeMusicSeeker.Properties.Resources.Keyword_search_completion_fields_header,
+        };
     }
 
     /// <summary>
@@ -6256,29 +6208,23 @@ public class MainWindowViewModel : ViewModel
     internal static IReadOnlyList<KeywordSearchSuggestionItem> BuildKeywordSearchHistorySuggestions(IEnumerable<string> history, string currentText)
     {
         string safeText = currentText ?? string.Empty;
-        return (history ?? Enumerable.Empty<string>())
-            .Where((string entry) => !string.IsNullOrWhiteSpace(entry))
-            .Select((string entry) => new KeywordSearchSuggestionItem(KeywordSearchSuggestionKind.History, entry, entry, 0, safeText.Length))
+        return (history ?? [])
+            .Where(entry => !string.IsNullOrWhiteSpace(entry))
+            .Select(entry => new KeywordSearchSuggestionItem(KeywordSearchSuggestionKind.History, entry, entry, 0, safeText.Length))
             .ToArray();
     }
 
     private static string FormatKeywordSearchDiagnostic(GridKeywordSearchDiagnostic diagnostic)
     {
-        switch (diagnostic.Kind)
+        return diagnostic.Kind switch
         {
-            case GridKeywordSearchDiagnosticKind.UnknownField:
-                return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_unknown_field, diagnostic.Value);
-            case GridKeywordSearchDiagnosticKind.EmptyFieldTerm:
-                return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_field_term, diagnostic.Value);
-            case GridKeywordSearchDiagnosticKind.EmptyNegation:
-                return BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_negation;
-            case GridKeywordSearchDiagnosticKind.EmptyOr:
-                return BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_or;
-            case GridKeywordSearchDiagnosticKind.InvalidRegex:
-                return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_invalid_regex, diagnostic.Value);
-            default:
-                return string.Empty;
-        }
+            GridKeywordSearchDiagnosticKind.UnknownField => string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_unknown_field, diagnostic.Value),
+            GridKeywordSearchDiagnosticKind.EmptyFieldTerm => string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_field_term, diagnostic.Value),
+            GridKeywordSearchDiagnosticKind.EmptyNegation => BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_negation,
+            GridKeywordSearchDiagnosticKind.EmptyOr => BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_or,
+            GridKeywordSearchDiagnosticKind.InvalidRegex => string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_invalid_regex, diagnostic.Value),
+            _ => string.Empty,
+        };
     }
 
     /// <summary>
@@ -6516,7 +6462,7 @@ public class MainWindowViewModel : ViewModel
             LogPlaylistReload("playlist_reload_cleanup skipped operationKind=" + GetPlaylistReloadOperationKindText(operationKind) + " tableCount=" + tableCount + " reason=not_full_reload");
             return false;
         }
-        PlaylistReloadCleanupRequest request = new PlaylistReloadCleanupRequest
+        var request = new PlaylistReloadCleanupRequest
         {
             CleanupId = Interlocked.Increment(ref playlistReloadCleanupSeed),
             OperationKind = operationKind,
@@ -6585,9 +6531,7 @@ public class MainWindowViewModel : ViewModel
                 }
             }
             await WaitForPlaylistReloadCleanupReadinessAsync(request).ConfigureAwait(false);
-            bool oldSummaryAlive;
-            int oldSummaryRowCount;
-            TryGetPreviousPlaylistSummaryViewState(out oldSummaryAlive, out oldSummaryRowCount);
+            TryGetPreviousPlaylistSummaryViewState(out bool oldSummaryAlive, out int oldSummaryRowCount);
             WeakReference<List<PlaylistDetailSourceRow>> previousSourceWeakReference;
             WeakReference<IList> previousViewWeakReference;
             lock (playlistViewState.SyncRoot)
@@ -6619,7 +6563,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (request.WaitForStartupOperable)
         {
-            Stopwatch operableWaitStopwatch = Stopwatch.StartNew();
+            var operableWaitStopwatch = Stopwatch.StartNew();
             while (!startupReadyOperableReached && operableWaitStopwatch.ElapsedMilliseconds < 30000)
             {
                 await Task.Delay(100).ConfigureAwait(false);
@@ -6627,7 +6571,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (request.WaitForSummaryRefresh)
         {
-            Stopwatch summaryWaitStopwatch = Stopwatch.StartNew();
+            var summaryWaitStopwatch = Stopwatch.StartNew();
             while (Interlocked.Read(ref lastPlaylistSummaryBuildCompletedTimestamp) < request.RequestedAtTimestamp && summaryWaitStopwatch.ElapsedMilliseconds < 10000)
             {
                 await Task.Delay(50).ConfigureAwait(false);
@@ -6635,7 +6579,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (request.WaitForDetailRefresh)
         {
-            Stopwatch detailWaitStopwatch = Stopwatch.StartNew();
+            var detailWaitStopwatch = Stopwatch.StartNew();
             while (Interlocked.Read(ref lastPlaylistDetailBuildCompletedTimestamp) < request.RequestedAtTimestamp && detailWaitStopwatch.ElapsedMilliseconds < 10000)
             {
                 await Task.Delay(50).ConfigureAwait(false);
@@ -6689,16 +6633,11 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private static viewUpdateMode ResolveMainColumnSettingMode(viewUpdateMode mode, viewUpdateMode currentTreeMode)
     {
-        switch (mode)
+        return mode switch
         {
-            case viewUpdateMode.TreeViewFilterNotChanged:
-            case viewUpdateMode.KeywordFilterUpdated:
-            case viewUpdateMode.ModeFilterUpdated:
-            case viewUpdateMode.SortUpdated:
-                return currentTreeMode;
-            default:
-                return mode;
-        }
+            viewUpdateMode.TreeViewFilterNotChanged or viewUpdateMode.KeywordFilterUpdated or viewUpdateMode.ModeFilterUpdated or viewUpdateMode.SortUpdated => currentTreeMode,
+            _ => mode,
+        };
     }
 
     internal static int ResolveMainColumnSettingModeForTest(int mode, int currentTreeMode)
@@ -6777,7 +6716,7 @@ public class MainWindowViewModel : ViewModel
             LogPlaylistWorker("playlist_library_index_prewarm scheduled version=" + targetVersion + " reason=" + reason + " debounceMs=" + delayMs + " source=" + source);
             playlistLibraryIndexPrewarmTask = Task.Run(async delegate
             {
-                Stopwatch stopwatch = Stopwatch.StartNew();
+                var stopwatch = Stopwatch.StartNew();
                 LogPlaylistWorker("playlist_library_index_prewarm started version=" + targetVersion + " reason=" + reason + " source=" + source);
                 try
                 {
@@ -6942,13 +6881,13 @@ public class MainWindowViewModel : ViewModel
 
     private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, long targetVersion)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
-        Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, BeMusicSeeker.Models.BMSFile> filesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonByMd5 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonBySha256 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
+        var filesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        var filesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        var bmsonByMd5 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        var bmsonBySha256 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? [])
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (file == null)
@@ -6981,7 +6920,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistLibraryIndexSnapshot newSnapshot = new PlaylistLibraryIndexSnapshot
+        var newSnapshot = new PlaylistLibraryIndexSnapshot
         {
             Version = targetVersion,
             BuildElapsedMs = stopwatch.ElapsedMilliseconds,
@@ -7143,7 +7082,7 @@ public class MainWindowViewModel : ViewModel
             playlistRefRunning = deferredPlaylistRefRunning;
             playlistRefLastCompletedVersion = deferredPlaylistRefLastCompletedVersion;
         }
-        BeMusicSeeker.Models.BMSLibrary.ScoreRuntimeState scoreState = default(BeMusicSeeker.Models.BMSLibrary.ScoreRuntimeState);
+        BeMusicSeeker.Models.BMSLibrary.ScoreRuntimeState scoreState = default;
         if (files != null)
         {
             scoreState = files.GetScoreRuntimeStateForDiagnostics();
@@ -7211,7 +7150,7 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         PlaylistOpenReadinessSnapshot readiness = CapturePlaylistOpenReadinessSnapshot();
-        PlaylistOpenInteractionState interaction = new PlaylistOpenInteractionState
+        var interaction = new PlaylistOpenInteractionState
         {
             RequestVersion = request.RequestVersion,
             Identity = request.Identity,
@@ -7397,7 +7336,7 @@ public class MainWindowViewModel : ViewModel
         {
             return request;
         }
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         int coalescedCount = 0;
         LogPlaylistWorker("playlist_request_coalescing_wait started version=" + request.RequestVersion + " durationMs=" + PlaylistBuildCoalescingWindowMs);
         lock (playlistViewState.SyncRoot)
@@ -7561,7 +7500,7 @@ public class MainWindowViewModel : ViewModel
                 }
             }
             request = CoalescePlaylistBuildRequest(request);
-            CancellationTokenSource buildCancellation = new CancellationTokenSource();
+            var buildCancellation = new CancellationTokenSource();
             lock (playlistViewState.SyncRoot)
             {
                 playlistViewState.CurrentBuildCancellation?.Dispose();
@@ -7897,7 +7836,7 @@ public class MainWindowViewModel : ViewModel
     {
         lock (lockPlaylistSummaryRowsCache)
         {
-            playlistSummaryRowsCache = (rows ?? Enumerable.Empty<PlaylistSummaryRow>()).ToList();
+            playlistSummaryRowsCache = [.. (rows ?? [])];
             playlistSummaryRowsCacheValid = true;
         }
     }
@@ -7910,7 +7849,7 @@ public class MainWindowViewModel : ViewModel
             {
                 return null;
             }
-            return playlistSummaryRowsCache.ToList();
+            return [.. playlistSummaryRowsCache];
         }
     }
 
@@ -8120,7 +8059,7 @@ public class MainWindowViewModel : ViewModel
         {
             RecordStartupBackgroundTaskQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency, normalizedLane);
             version = ++startupBackgroundTaskVersion;
-            StartupBackgroundTaskRequest existing = startupBackgroundTaskQueue.LastOrDefault((StartupBackgroundTaskRequest item) => string.Equals(item.CoalesceKey, coalesceKey, StringComparison.OrdinalIgnoreCase));
+            StartupBackgroundTaskRequest existing = startupBackgroundTaskQueue.LastOrDefault(item => string.Equals(item.CoalesceKey, coalesceKey, StringComparison.OrdinalIgnoreCase));
             if (existing != null)
             {
                 existing.Reason = normalizedReason;
@@ -8389,7 +8328,7 @@ public class MainWindowViewModel : ViewModel
     {
         Task.Run(async delegate
         {
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             LogUiSuppression("startup_background_task start name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
             RecordStartupBackgroundTaskStarted(request.Name);
             try
@@ -8438,7 +8377,7 @@ public class MainWindowViewModel : ViewModel
         {
             return true;
         }
-        string[] dependencies = dependency.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        string[] dependencies = dependency.Split([','], StringSplitOptions.RemoveEmptyEntries);
         foreach (string item in dependencies)
         {
             string dependencyName = item.Trim();
@@ -8701,7 +8640,7 @@ public class MainWindowViewModel : ViewModel
             }
             DispatcherHelper.UIDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
             {
-                Stopwatch stopwatch = Stopwatch.StartNew();
+                var stopwatch = Stopwatch.StartNew();
                 bool shouldReschedule = false;
                 try
                 {
@@ -8747,10 +8686,9 @@ public class MainWindowViewModel : ViewModel
     private bool RefreshBmsParentFolderListView(bool raisePropertyChanged = true)
     {
         IEnumerable<string> source = (files != null) ? files.GetBMSParentFolderListSnapshot() : Enumerable.Empty<string>();
-        List<string> sortedParentFolders = source.Where((string path) => !string.IsNullOrWhiteSpace(path))
+        List<string> sortedParentFolders = [.. source.Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy((string path) => path, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
         bool changed = !_sortedBmsParentFolderList.SequenceEqual(sortedParentFolders, StringComparer.OrdinalIgnoreCase);
         if (changed)
         {
@@ -8771,10 +8709,7 @@ public class MainWindowViewModel : ViewModel
     private void NotifyBmsParentFolderListChanged()
     {
         bmsParentFolderListViewInitialized = false;
-        if (files != null)
-        {
-            files.NotifyBMSDirectoriesChanged();
-        }
+        files?.NotifyBMSDirectoriesChanged();
     }
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
@@ -8795,7 +8730,7 @@ public class MainWindowViewModel : ViewModel
         {
             mask = DeferStartupPresentationChannels(mask, operationToken, "startup_ui_suppress_flush");
         }
-        Stopwatch stopwatchTotal = Stopwatch.StartNew();
+        var stopwatchTotal = Stopwatch.StartNew();
         long num = 0L;
         long num2 = 0L;
         long num3 = 0L;
@@ -8804,7 +8739,7 @@ public class MainWindowViewModel : ViewModel
         bool flag = false;
         if ((mask & UiRefreshChannel.InstallTree) != 0)
         {
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             RaisePropertyChanged(() => ChartPackagesInstalled);
             RaisePropertyChanged(() => ChartPackagesPending);
             stopwatch.Stop();
@@ -8812,7 +8747,7 @@ public class MainWindowViewModel : ViewModel
         }
         if ((mask & UiRefreshChannel.PlaylistTree) != 0)
         {
-            Stopwatch stopwatch2 = Stopwatch.StartNew();
+            var stopwatch2 = Stopwatch.StartNew();
             RaisePropertyChanged(() => BMSTables);
             stopwatch2.Stop();
             num2 = stopwatch2.ElapsedMilliseconds;
@@ -8823,14 +8758,14 @@ public class MainWindowViewModel : ViewModel
         }
         if ((mask & UiRefreshChannel.DuplicateTree) != 0)
         {
-            Stopwatch stopwatch4 = Stopwatch.StartNew();
+            var stopwatch4 = Stopwatch.StartNew();
             RaisePropertyChanged(() => DuplicateChartGroups);
             stopwatch4.Stop();
             num4 = stopwatch4.ElapsedMilliseconds;
         }
         if ((mask & UiRefreshChannel.LibraryMainView) != 0)
         {
-            Stopwatch stopwatch5 = Stopwatch.StartNew();
+            var stopwatch5 = Stopwatch.StartNew();
             RefreshLibraryMainViewForCurrentFilter();
             stopwatch5.Stop();
             num5 = stopwatch5.ElapsedMilliseconds;
@@ -8911,7 +8846,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (files == null)
         {
-            return default(T);
+            return default;
         }
         UiRefreshChannel mask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask;
         lock (lockCopyFile)
@@ -9029,7 +8964,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        Action workBody = delegate
+        void workBody()
         {
             while (true)
             {
@@ -9046,11 +8981,11 @@ public class MainWindowViewModel : ViewModel
                     {
                         TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
                     }
-                    List<BMSTable> list = new List<BMSTable>();
+                    List<BMSTable> list = [];
                     tables.AcquireReaderLockBMSTables();
                     try
                     {
-                        list = BMSTables.Where((BMSTable t) => t != null).ToList();
+                        list = [.. BMSTables.Where(t => t != null)];
                     }
                     finally
                     {
@@ -9095,12 +9030,12 @@ public class MainWindowViewModel : ViewModel
                     }
                 }
             }
-        };
-        Func<Task> work = delegate
+        }
+        Task work()
         {
             workBody();
             return Task.CompletedTask;
-        };
+        }
         if (QueueStartupBackgroundTask("playlist_ref_apply", reason, null, work))
         {
             return;
@@ -9162,7 +9097,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        Func<Task> work = async delegate
+        async Task work()
         {
             while (true)
             {
@@ -9180,7 +9115,7 @@ public class MainWindowViewModel : ViewModel
                     List<Action<BMSPlaylist.PlaylistTableUpdateContext>> updateCallbackActions = null;
                     if (updateCallbackAction != null)
                     {
-                        updateCallbackActions = new List<Action<BMSPlaylist.PlaylistTableUpdateContext>> { updateCallbackAction };
+                        updateCallbackActions = [updateCallbackAction];
                     }
                     List<BMSTable> list = await tables.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
                     {
@@ -9231,7 +9166,7 @@ public class MainWindowViewModel : ViewModel
                     }
                 }
             }
-        };
+        }
         if (QueueStartupBackgroundTask("external_playlist_sync", reason, "playlist_entries_hydration", work))
         {
             return;
@@ -9535,7 +9470,7 @@ public class MainWindowViewModel : ViewModel
         }
         return rows.Cast<object>()
             .Select(GetMainGridSummaryFolderName)
-            .Where((string folder) => !string.IsNullOrWhiteSpace(folder))
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }
@@ -9563,8 +9498,8 @@ public class MainWindowViewModel : ViewModel
         {
             return -1;
         }
-        return rows.Select((ChartListSourceRow row) => row?.Folder)
-            .Where((string folder) => !string.IsNullOrWhiteSpace(folder))
+        return rows.Select(row => row?.Folder)
+            .Where(folder => !string.IsNullOrWhiteSpace(folder))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }
@@ -9573,7 +9508,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (sourceRows == null || orderedIndexes == null)
         {
-            return Array.Empty<ChartListSourceRow>();
+            return [];
         }
         return orderedIndexes
             .Where(index => index >= 0 && index < sourceRows.Count)
@@ -9595,14 +9530,12 @@ public class MainWindowViewModel : ViewModel
         out long keywordStageMs,
         out long modeStageMs)
     {
-        int[] viewOrderedIndexes = (orderedIndexes ?? Array.Empty<int>())
-            .Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)
-            .ToArray();
+        int[] viewOrderedIndexes = [.. (orderedIndexes ?? []).Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)];
 
-        Stopwatch stageStopwatch = Stopwatch.StartNew();
+        var stageStopwatch = Stopwatch.StartNew();
         if (folderFilter != null)
         {
-            List<int> folderFilteredIndexes = new List<int>(viewOrderedIndexes.Length);
+            var folderFilteredIndexes = new List<int>(viewOrderedIndexes.Length);
             foreach (int index in viewOrderedIndexes)
             {
                 ChartListSourceRow row = sourceRows[index];
@@ -9611,7 +9544,7 @@ public class MainWindowViewModel : ViewModel
                     folderFilteredIndexes.Add(index);
                 }
             }
-            viewOrderedIndexes = folderFilteredIndexes.ToArray();
+            viewOrderedIndexes = [.. folderFilteredIndexes];
         }
         folderFilteredCount = viewOrderedIndexes.Length;
         folderStageMs = stageStopwatch.ElapsedMilliseconds;
@@ -9632,13 +9565,12 @@ public class MainWindowViewModel : ViewModel
         if (modeFilter != ModeFilterType.All)
         {
             HashSet<int?> modeValues = CreateModeFilterValueSet(modeFilter);
-            viewOrderedIndexes = viewOrderedIndexes
+            viewOrderedIndexes = [.. viewOrderedIndexes
                 .Where(index =>
                 {
                     ChartListSourceRow row = sourceRows[index];
                     return row != null && modeValues.Contains(row.Mode);
-                })
-                .ToArray();
+                })];
         }
         modeFilteredCount = viewOrderedIndexes.Length;
         modeStageMs = stageStopwatch.ElapsedMilliseconds;
@@ -9679,11 +9611,9 @@ public class MainWindowViewModel : ViewModel
         out long keywordStageMs,
         out long modeStageMs)
     {
-        int[] viewOrderedIndexes = (orderedIndexes ?? Array.Empty<int>())
-            .Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)
-            .ToArray();
+        int[] viewOrderedIndexes = [.. (orderedIndexes ?? []).Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)];
 
-        Stopwatch stageStopwatch = Stopwatch.StartNew();
+        var stageStopwatch = Stopwatch.StartNew();
         if (keywordQuery != null && keywordQuery.HasTokens)
         {
             viewOrderedIndexes = viewOrderedIndexes
@@ -9699,13 +9629,12 @@ public class MainWindowViewModel : ViewModel
         if (modeFilter != ModeFilterType.All)
         {
             HashSet<int?> modeValues = CreateModeFilterValueSet(modeFilter);
-            viewOrderedIndexes = viewOrderedIndexes
+            viewOrderedIndexes = [.. viewOrderedIndexes
                 .Where(index =>
                 {
                     ChartListSourceRow row = sourceRows[index];
                     return row != null && modeValues.Contains(row.Mode);
-                })
-                .ToArray();
+                })];
         }
         modeFilteredCount = viewOrderedIndexes.Length;
         modeStageMs = stageStopwatch.ElapsedMilliseconds;
@@ -9770,7 +9699,7 @@ public class MainWindowViewModel : ViewModel
 
     private void RunMainSummaryFolderCount(int runId, MainViewSummaryCacheKey key, IReadOnlyList<ChartListSourceRow> sourceRows, IList expectedRowsView, string reason)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             LogMainViewBuild("main_summary_folder_count start reason=" + (reason ?? string.Empty)
@@ -9891,37 +9820,25 @@ public class MainWindowViewModel : ViewModel
 
     internal static MainViewOperationSection ResolveMainViewOperationSection(viewUpdateMode mode)
     {
-        switch (mode)
+        return mode switch
         {
-            case viewUpdateMode.PendingInstallFolderSelected:
-                return MainViewOperationSection.InstallPending;
-            case viewUpdateMode.NewlyInstalledFolderSelected:
-                return MainViewOperationSection.InstallInstalled;
-            case viewUpdateMode.PlaylistFilterSelected:
-            case viewUpdateMode.PlaylistNotOwnedFilterSelected:
-                return MainViewOperationSection.Playlist;
-            case viewUpdateMode.FullScanAllChartsFilterSelected:
-            case viewUpdateMode.FileMissingFilterSelected:
-            case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                return MainViewOperationSection.FullScanCheck;
-            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
-                return MainViewOperationSection.ChartInfoParseError;
-            default:
-                return MainViewOperationSection.Library;
-        }
+            viewUpdateMode.PendingInstallFolderSelected => MainViewOperationSection.InstallPending,
+            viewUpdateMode.NewlyInstalledFolderSelected => MainViewOperationSection.InstallInstalled,
+            viewUpdateMode.PlaylistFilterSelected or viewUpdateMode.PlaylistNotOwnedFilterSelected => MainViewOperationSection.Playlist,
+            viewUpdateMode.FullScanAllChartsFilterSelected or viewUpdateMode.FileMissingFilterSelected or viewUpdateMode.FileMissingIgnoredFilterSelected => MainViewOperationSection.FullScanCheck,
+            viewUpdateMode.ChartInfoParseErrorFilterSelected => MainViewOperationSection.ChartInfoParseError,
+            _ => MainViewOperationSection.Library,
+        };
     }
 
     internal static ChartOperationSourceScope ResolveMainViewChartOperationSourceScope(MainViewOperationSection section)
     {
-        switch (section)
+        return section switch
         {
-            case MainViewOperationSection.InstallPending:
-                return ChartOperationSourceScope.PendingPackage;
-            case MainViewOperationSection.InstallInstalled:
-                return ChartOperationSourceScope.NewlyInstalledPackage;
-            default:
-                return ChartOperationSourceScope.Library;
-        }
+            MainViewOperationSection.InstallPending => ChartOperationSourceScope.PendingPackage,
+            MainViewOperationSection.InstallInstalled => ChartOperationSourceScope.NewlyInstalledPackage,
+            _ => ChartOperationSourceScope.Library,
+        };
     }
 
     private void OnNormalLibrarySortKeyChanged(string propertyName)
@@ -9967,7 +9884,7 @@ public class MainWindowViewModel : ViewModel
 
     private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
-        List<string> reasons = new List<string>(2);
+        var reasons = new List<string>(2);
         if (hasBmsPathMutation)
         {
             reasons.Add(NormalLibraryBmsPathChangedReason);
@@ -10106,7 +10023,7 @@ public class MainWindowViewModel : ViewModel
 
     private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(BeMusicSeeker.Models.BMSFile file)
     {
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromBmsFile(file);
         ApplyLibraryChartRowProviders(row);
         return row;
     }
@@ -10159,10 +10076,10 @@ public class MainWindowViewModel : ViewModel
 
     private void PruneSharedBmsonChartAdapterCache(IReadOnlyCollection<LR2SongDBExtended.bmson_song> currentSongs)
     {
-        HashSet<string> currentKeys = new HashSet<string>(
-            (currentSongs ?? Array.Empty<LR2SongDBExtended.bmson_song>())
+        var currentKeys = new HashSet<string>(
+            (currentSongs ?? [])
                 .Select(GetSharedBmsonChartAdapterKey)
-                .Where((string key) => !string.IsNullOrWhiteSpace(key)),
+                .Where(key => !string.IsNullOrWhiteSpace(key)),
             StringComparer.OrdinalIgnoreCase);
         foreach (string key in sharedBmsonChartAdaptersByKey.Keys.ToList())
         {
@@ -10197,8 +10114,8 @@ public class MainWindowViewModel : ViewModel
         string installDestination = entry.instl_dst;
         string installDestinationTitle = entry.InstallDestinationTitle;
         string installDestinationArtist = entry.InstallDestinationArtist;
-        string[] suggestions = (entry.InstallDestinationSuggestions ?? Array.Empty<string>()).ToArray();
-        List<ChartWarning> warnings = entry.Warnings.ToStructuredList().ToList();
+        string[] suggestions = [.. (entry.InstallDestinationSuggestions ?? [])];
+        List<ChartWarning> warnings = [.. entry.Warnings.ToStructuredList()];
         bool isSuggestionPopupOpen = entry.IsInstallDestinationSuggestionPopupOpen;
         entry.UpdateFromBmsonSong(song);
         entry.instl_dst = installDestination;
@@ -10244,7 +10161,7 @@ public class MainWindowViewModel : ViewModel
         {
             return GetOrCreateRegularBmsLibraryRow(sourceRow.BmsFile, null);
         }
-        LibraryChartRow row = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
+        var row = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
         ApplyLibraryChartRowProviders(row);
         return row;
     }
@@ -10264,7 +10181,7 @@ public class MainWindowViewModel : ViewModel
             out bool sourceRowsCacheHit,
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
-        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
+        var keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
         NormalLibraryTreeFilter effectiveTreeFilter = ShouldApplyVirtualNormalLibraryFolderFilter(treeViewFilterTypeSelected) ? virtualNormalLibraryTreeFilter : null;
         Func<ChartListSourceRow, bool> effectiveFolderFilter = effectiveTreeFilter == null ? null : new Func<ChartListSourceRow, bool>(effectiveTreeFilter.Matches);
         string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
@@ -10302,7 +10219,7 @@ public class MainWindowViewModel : ViewModel
 
         ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
 
-        MainViewSummaryCacheKey summaryKey = new MainViewSummaryCacheKey(
+        var summaryKey = new MainViewSummaryCacheKey(
             sourceRowsSourceGeneration,
             sourceRowsSortKeyGeneration,
             modeFilteredCount,
@@ -10315,7 +10232,7 @@ public class MainWindowViewModel : ViewModel
         }
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListVirtualView nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
+        var nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
         long prepareSwapMs = 0L;
         if (!ReferenceEquals(BMSFilesView, nextRowsView))
         {
@@ -10446,7 +10363,7 @@ public class MainWindowViewModel : ViewModel
             out long orderBuildMs);
         long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
-        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
+        var keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
         int[] viewOrderedIndexes = ApplyVirtualChartSubsetFilters(
             sourceRows,
             fullOrder.Indexes,
@@ -10462,7 +10379,7 @@ public class MainWindowViewModel : ViewModel
         int distinctFolderCount = CountDistinctFoldersForSourceRows(orderedRows);
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListVirtualView nextRowsView = new ChartListVirtualView(
+        var nextRowsView = new ChartListVirtualView(
             sourceRows,
             order,
             row => CreateVirtualChartSubsetRow(row, applyResourceHealthProjection),
@@ -10572,7 +10489,7 @@ public class MainWindowViewModel : ViewModel
             {
                 return null;
             }
-            LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
+            var bmsonRow = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
             ApplyBmsonChartAdapterProvider(bmsonRow);
             if (applyResourceHealthProjection)
             {
@@ -10581,7 +10498,7 @@ public class MainWindowViewModel : ViewModel
             ApplyPlaylistReferenceDisplayProvider(bmsonRow);
             return bmsonRow;
         }
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
+        var row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
         ApplyBmsonChartAdapterProvider(row);
         if (applyResourceHealthProjection)
         {
@@ -10657,7 +10574,7 @@ public class MainWindowViewModel : ViewModel
         out long orderCacheLookupMs,
         out long orderBuildMs)
     {
-        Stopwatch lookupStopwatch = Stopwatch.StartNew();
+        var lookupStopwatch = Stopwatch.StartNew();
         int rowCount = sourceRows?.Count ?? 0;
         if (!ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
         {
@@ -10690,7 +10607,7 @@ public class MainWindowViewModel : ViewModel
             cacheKey = default;
         }
         lookupStopwatch.Stop();
-        Stopwatch buildStopwatch = Stopwatch.StartNew();
+        var buildStopwatch = Stopwatch.StartNew();
         if (!ChartListOrder.TryCreate(sourceRows, normalizedColumnName, direction, out ChartListOrder order))
         {
             throw new ArgumentException("Unsupported virtual normal library sort column.", nameof(columnName));
@@ -10727,7 +10644,7 @@ public class MainWindowViewModel : ViewModel
         out long orderCacheLookupMs,
         out long orderBuildMs)
     {
-        Stopwatch lookupStopwatch = Stopwatch.StartNew();
+        var lookupStopwatch = Stopwatch.StartNew();
         int rowCount = sourceRows?.Count ?? 0;
         if (!ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
         {
@@ -10757,7 +10674,7 @@ public class MainWindowViewModel : ViewModel
         }
 
         lookupStopwatch.Stop();
-        Stopwatch buildStopwatch = Stopwatch.StartNew();
+        var buildStopwatch = Stopwatch.StartNew();
         if (!ChartListOrder.TryCreate(sourceRows, normalizedColumnName, direction, out ChartListOrder order))
         {
             throw new ArgumentException("Unsupported virtual chart subset sort column.", nameof(columnName));
@@ -10925,7 +10842,7 @@ public class MainWindowViewModel : ViewModel
 
     private static HashSet<string> GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(CustomTableColumnSettings settings)
     {
-        HashSet<string> columns = new HashSet<string>(StringComparer.Ordinal);
+        var columns = new HashSet<string>(StringComparer.Ordinal);
         foreach (CustomTableColumn column in CustomTableColumnFactory.CreateMainColumns(settings ?? new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)))
         {
             if (string.IsNullOrWhiteSpace(column?.SortMemberPath))
@@ -10960,53 +10877,31 @@ public class MainWindowViewModel : ViewModel
 
     private static int GetVirtualNormalLibraryPrewarmOrder(string columnName)
     {
-        switch (columnName)
+        return columnName switch
         {
-            case nameof(LibraryChartRow.Title):
-                return 0;
-            case nameof(LibraryChartRow.Folder):
-                return 1;
-            case nameof(LibraryChartRow.path):
-                return 2;
-            case nameof(LibraryChartRow.Artist):
-                return 3;
-            case nameof(LibraryChartRow.clear):
-                return 0;
-            case nameof(LibraryChartRow.rateDouble):
-                return 1;
-            case nameof(LibraryChartRow.minbp):
-                return 2;
-            case nameof(LibraryChartRow.ChartJudgeSortKey):
-                return 3;
-            case nameof(LibraryChartRow.ChartNotes):
-                return 4;
-            case nameof(LibraryChartRow.ChartLongNotes):
-                return 5;
-            case nameof(LibraryChartRow.ChartScratchNotes):
-                return 6;
-            case nameof(LibraryChartRow.ChartMainBpmSortKey):
-                return 7;
-            case nameof(LibraryChartRow.ChartMinBpmSortKey):
-                return 8;
-            case nameof(LibraryChartRow.ChartMaxBpmSortKey):
-                return 9;
-            case nameof(LibraryChartRow.ChartSoflanCount):
-                return 10;
-            case nameof(LibraryChartRow.ChartTotalSortKey):
-                return 11;
-            case nameof(LibraryChartRow.ChartTotalPerNoteSortKey):
-                return 12;
-            case nameof(LibraryChartRow.ChartDurationSortKey):
-                return 13;
-            case nameof(LibraryChartRow.ChartDensitySortKey):
-                return 14;
-            case nameof(LibraryChartRow.ChartPeakDensitySortKey):
-                return 15;
-            case nameof(LibraryChartRow.ChartEndDensitySortKey):
-                return 16;
-            default:
-                return int.MaxValue;
-        }
+            nameof(LibraryChartRow.Title) => 0,
+            nameof(LibraryChartRow.Folder) => 1,
+            nameof(LibraryChartRow.path) => 2,
+            nameof(LibraryChartRow.Artist) => 3,
+            nameof(LibraryChartRow.clear) => 0,
+            nameof(LibraryChartRow.rateDouble) => 1,
+            nameof(LibraryChartRow.minbp) => 2,
+            nameof(LibraryChartRow.ChartJudgeSortKey) => 3,
+            nameof(LibraryChartRow.ChartNotes) => 4,
+            nameof(LibraryChartRow.ChartLongNotes) => 5,
+            nameof(LibraryChartRow.ChartScratchNotes) => 6,
+            nameof(LibraryChartRow.ChartMainBpmSortKey) => 7,
+            nameof(LibraryChartRow.ChartMinBpmSortKey) => 8,
+            nameof(LibraryChartRow.ChartMaxBpmSortKey) => 9,
+            nameof(LibraryChartRow.ChartSoflanCount) => 10,
+            nameof(LibraryChartRow.ChartTotalSortKey) => 11,
+            nameof(LibraryChartRow.ChartTotalPerNoteSortKey) => 12,
+            nameof(LibraryChartRow.ChartDurationSortKey) => 13,
+            nameof(LibraryChartRow.ChartDensitySortKey) => 14,
+            nameof(LibraryChartRow.ChartPeakDensitySortKey) => 15,
+            nameof(LibraryChartRow.ChartEndDensitySortKey) => 16,
+            _ => int.MaxValue,
+        };
     }
 
     internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest()
@@ -11091,7 +10986,7 @@ public class MainWindowViewModel : ViewModel
 
     private void RunVirtualNormalLibraryOrderPrewarm(int runId, string reason, IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         int cacheHitCount = 0;
         int builtCount = 0;
         int descriptorCount = descriptors?.Count ?? 0;
@@ -11133,7 +11028,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             Parallel.ForEach(
-                descriptors ?? Array.Empty<VirtualNormalLibrarySortDescriptor>(),
+                descriptors ?? [],
                 new ParallelOptions { MaxDegreeOfParallelism = degree },
                 (descriptor, loopState) =>
                 {
@@ -11329,7 +11224,7 @@ public class MainWindowViewModel : ViewModel
 
     internal static Func<ChartListSourceRow, bool> CreateVirtualNormalLibraryFolderFilterForTest(FolderFilterType type, string filterKey, out string identity)
     {
-        NormalLibraryTreeFilter filter = NormalLibraryTreeFilter.Create(type, filterKey);
+        var filter = NormalLibraryTreeFilter.Create(type, filterKey);
         identity = filter?.Identity;
         return filter == null ? null : new Func<ChartListSourceRow, bool>(filter.Matches);
     }
@@ -11477,7 +11372,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            sourceFiles = Array.Empty<BeMusicSeeker.Models.BMSFile>();
+            sourceFiles = [];
             subsetName = allSubsetName;
             return true;
         }
@@ -11506,13 +11401,13 @@ public class MainWindowViewModel : ViewModel
         {
             Thread.Sleep(100);
         }, 100u);
-        return snapshot ?? new List<BeMusicSeeker.Models.BMSFile>();
+        return snapshot ?? [];
     }
 
     private static List<BeMusicSeeker.Models.BMSFile> CreatePackageFileSnapshotCore(IEnumerable<ChartPackage> packages)
     {
-        List<BeMusicSeeker.Models.BMSFile> snapshot = new List<BeMusicSeeker.Models.BMSFile>();
-        foreach (ChartPackage package in packages ?? Enumerable.Empty<ChartPackage>())
+        List<BeMusicSeeker.Models.BMSFile> snapshot = [];
+        foreach (ChartPackage package in packages ?? [])
         {
             try
             {
@@ -11535,7 +11430,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (DuplicateChartGroups == null)
         {
-            sourceFiles = Array.Empty<BeMusicSeeker.Models.BMSFile>();
+            sourceFiles = [];
             subsetName = "duplicate_empty";
             return true;
         }
@@ -11552,7 +11447,7 @@ public class MainWindowViewModel : ViewModel
             if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
             {
                 DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                sourceFiles = duplicateGroup != null ? duplicateGroup.Files.ToList() : CreateDuplicateFileSnapshot();
+                sourceFiles = duplicateGroup != null ? [.. duplicateGroup.Files] : CreateDuplicateFileSnapshot();
                 subsetName = "duplicate_group";
                 return true;
             }
@@ -11587,16 +11482,15 @@ public class MainWindowViewModel : ViewModel
 
     private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFileSnapshot()
     {
-        return DuplicateChartGroups.SelectMany(group => group.Files).ToList();
+        return [.. DuplicateChartGroups.SelectMany(group => group.Files)];
     }
 
     private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFolderFileSnapshot(string folderPath)
     {
         string folderPrefix = folderPath + Path.DirectorySeparatorChar;
-        return DuplicateChartGroups
+        return [.. DuplicateChartGroups
             .SelectMany(group => group.Files)
-            .Where(file => file.path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+            .Where(file => file.path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))];
     }
 
     private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(viewUpdateMode treeMode)
@@ -11635,7 +11529,7 @@ public class MainWindowViewModel : ViewModel
 
     private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)
     {
-        HashSet<int?> modeValues = new HashSet<int?> { null };
+        HashSet<int?> modeValues = [null];
         if ((modeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
         {
             modeValues.Add(5);
@@ -11744,7 +11638,7 @@ public class MainWindowViewModel : ViewModel
                 playlistViewState.PreviousViewRowsWeakReference = new WeakReference<IList>(currentViewRows);
                 playlistViewState.PreviousViewGenerationId = previousViewGenerationId;
             }
-            playlistViewState.SourceRows = new List<PlaylistDetailSourceRow>();
+            playlistViewState.SourceRows = [];
             playlistViewState.CurrentViewRows = new List<object>();
             playlistViewState.CurrentTable = null;
             playlistViewState.CurrentFolderName = null;
@@ -11791,7 +11685,7 @@ public class MainWindowViewModel : ViewModel
                 playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(previousSourceRows);
                 playlistViewState.PreviousSourceGenerationId = previousGenerationId;
             }
-            playlistViewState.SourceRows = sourceRows ?? new List<PlaylistDetailSourceRow>();
+            playlistViewState.SourceRows = sourceRows ?? [];
             playlistViewState.CurrentTable = currentTable;
             playlistViewState.CurrentFolderName = currentFolderName;
             playlistViewState.CurrentFilterType = currentFilterType;
@@ -12020,7 +11914,7 @@ public class MainWindowViewModel : ViewModel
             if (_PlaylistSummaryView != value)
             {
                 ObservableCollection<PlaylistSummaryRow> previousView = _PlaylistSummaryView;
-                _PlaylistSummaryView = value ?? new ObservableCollection<PlaylistSummaryRow>();
+                _PlaylistSummaryView = value ?? [];
                 if (previousView != null && !ReferenceEquals(previousView, _PlaylistSummaryView))
                 {
                     previousPlaylistSummaryViewWeakReference = new WeakReference<ObservableCollection<PlaylistSummaryRow>>(previousView);
@@ -13044,14 +12938,14 @@ public class MainWindowViewModel : ViewModel
             SetKeywordSearchSuggestions(targetSuggestions, historySuggestions, KeywordSearchSuggestionKind.History, isPlaylistSummary);
             return;
         }
-        SetKeywordSearchSuggestions(targetSuggestions, Array.Empty<KeywordSearchSuggestionItem>(), KeywordSearchSuggestionKind.Field, isPlaylistSummary);
+        SetKeywordSearchSuggestions(targetSuggestions, [], KeywordSearchSuggestionKind.Field, isPlaylistSummary);
     }
 
     private IReadOnlyList<string> GetKeywordSearchPlaylistNameCandidates(GridKeywordSearchContext context)
     {
         if (context == GridKeywordSearchContext.PlaylistSummary || tables == null)
         {
-            return Array.Empty<string>();
+            return [];
         }
         bool lockAcquired = false;
         try
@@ -13059,10 +12953,10 @@ public class MainWindowViewModel : ViewModel
             tables.AcquireReaderLockBMSTables();
             lockAcquired = true;
             return (BMSTables ?? Enumerable.Empty<BMSTable>())
-                .Where((BMSTable table) => !string.IsNullOrWhiteSpace(table?.name))
-                .Select((BMSTable table) => table.name.Trim())
+                .Where(table => !string.IsNullOrWhiteSpace(table?.name))
+                .Select(table => table.name.Trim())
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy((string name) => name, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
         finally
@@ -13077,7 +12971,7 @@ public class MainWindowViewModel : ViewModel
     private void SetKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, IReadOnlyList<KeywordSearchSuggestionItem> suggestions, KeywordSearchSuggestionKind kind, bool isPlaylistSummary)
     {
         targetSuggestions.Clear();
-        foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? Array.Empty<KeywordSearchSuggestionItem>())
+        foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? [])
         {
             targetSuggestions.Add(suggestion);
         }
@@ -13099,7 +12993,7 @@ public class MainWindowViewModel : ViewModel
     private static void ReplaceKeywordSearchHistory(List<string> target, IEnumerable<string> source)
     {
         target.Clear();
-        target.AddRange(source ?? Enumerable.Empty<string>());
+        target.AddRange(source ?? []);
     }
 
     public PlaylistSummaryOwnedFilterType PlaylistSummaryOwnedFilter
@@ -13874,13 +13768,13 @@ public class MainWindowViewModel : ViewModel
     private async Task<bool> EnsureAppSchemaRepairApprovedForStartupAsync()
     {
         LogInitStage("app_schema_preflight_inspect_start", "Initialize");
-        AppSchemaPreflightService appSchemaPreflightService = new AppSchemaPreflightService();
+        var appSchemaPreflightService = new AppSchemaPreflightService();
         AppSchemaPreflightResult preflightResult = appSchemaPreflightService.Inspect(Settings.Default.LR2SongDBPath);
         LogInitStage("app_schema_preflight_inspect_done", "Initialize");
         if (preflightResult.WarnRequired && !bmsonMigrationApprovedForSession)
         {
             LogInitStage("app_schema_preflight_prompt_show", "Initialize");
-            ConfirmationMessage confirmationMessage = new ConfirmationMessage(BuildAppSchemaRepairWarningMessage(preflightResult), BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+            var confirmationMessage = new ConfirmationMessage(BuildAppSchemaRepairWarningMessage(preflightResult), BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
             base.Messenger.Raise(confirmationMessage);
             LogInitStage("app_schema_preflight_prompt_close", "Initialize");
             if (confirmationMessage.Response != true)
@@ -13899,9 +13793,9 @@ public class MainWindowViewModel : ViewModel
 
     private void ApplyAppSchemaRepairForStartupOrThrow(AppSchemaPreflightService appSchemaPreflightService, AppSchemaPreflightResult preflightResult)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         LogInitStage("app_schema_repair_start", "Initialize");
-        BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
+        var gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
         long schemaStartMs = stopwatch.ElapsedMilliseconds;
         if (preflightResult.WarnRequired || preflightResult.NeedsAppSchemaVersionRepair || preflightResult.RepairRequired)
         {
@@ -13935,10 +13829,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (Settings.Default.OperationModeLR2DB)
         {
-            if (lr2config == null)
-            {
-                lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
-            }
+            lr2config ??= new LR2Config(Settings.Default.LR2ConfigXmlPath);
             string playerId = lr2config.GetPlayerId();
             string scoreDbPath = Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score\\" + playerId + ".db";
             if (playerId == null || !File.Exists(scoreDbPath))
@@ -13948,7 +13839,7 @@ public class MainWindowViewModel : ViewModel
             return new LibraryProfile(
                 operationModeLR2DB: true,
                 songDbPath: Settings.Default.LR2SongDBPath,
-                searchRoots: Array.Empty<string>(),
+                searchRoots: [],
                 lr2ConfigProvider: () => lr2config,
                 lr2ScoreDbPath: scoreDbPath,
                 canWriteLr2Config: true,
@@ -14089,7 +13980,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
             {
-                MaintenanceFilterType type = (MaintenanceFilterType)treeViewFilterTypeSelected;
+                var type = (MaintenanceFilterType)treeViewFilterTypeSelected;
                 if (type != MaintenanceFilterType.DuplicateFilter)
                 {
                     ExecMaintenanceFilter(type);
@@ -14569,9 +14460,9 @@ public class MainWindowViewModel : ViewModel
         if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled)
         {
             Backup.Target lR2BackupTarget = Settings.Default.LR2BackupTarget;
-            List<string> bkPaths = new List<string>();
+            List<string> bkPaths = [];
             string songDBPath = null;
-            List<string> scoreDBPaths = new List<string>();
+            List<string> scoreDBPaths = [];
             if (lR2BackupTarget.HasFlag(Backup.Target.Config) && File.Exists(Settings.Default.LR2ConfigXmlPath))
             {
                 bkPaths.Add(Settings.Default.LR2ConfigXmlPath);
@@ -14586,11 +14477,11 @@ public class MainWindowViewModel : ViewModel
                 bkPaths.Add(Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score");
                 try
                 {
-                    scoreDBPaths = Directory.EnumerateFiles(Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score", "*.db", System.IO.SearchOption.AllDirectories).ToList();
+                    scoreDBPaths = [.. Directory.EnumerateFiles(Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score", "*.db", System.IO.SearchOption.AllDirectories)];
                 }
                 catch
                 {
-                    scoreDBPaths = new List<string>();
+                    scoreDBPaths = [];
                 }
             }
             if (bkPaths.Count > 0)
@@ -14619,42 +14510,42 @@ public class MainWindowViewModel : ViewModel
                 }).Logging("Initialize");
             }
         }
-        SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
-        Action taskAdd1 = delegate
+        var semaphore = new SemaphoreSlim(1, 1);
+        void taskAdd1()
         {
             tables.Initialize(reloadExtPlaylist: false, null, semaphore, queueBeatorajaBmtExportAfterHydration: Settings.Default.SkipInitPlaylistLoad);
-        };
-        Action taskAdd2 = delegate
+        }
+        void taskAdd2()
         {
             try
             {
                 IsLoadingExternalCollectionBMSTables = true;
                 List<BMSTableSimple> bMSTableInfo = BMSPlaylist.GetBMSTableInfo(Settings.Default.TableListURL);
-                BMSTableSimpleCategorized bMSTableSimpleCategorized = new BMSTableSimpleCategorized();
-                IEnumerable<string> source = bMSTableInfo.Select((BMSTableSimple bMSTableSimple) => bMSTableSimple.tag1).Distinct();
-                bMSTableSimpleCategorized.Children = source.Select((string name) => new BMSTableSimpleCategorized
+                var bMSTableSimpleCategorized = new BMSTableSimpleCategorized();
+                IEnumerable<string> source = bMSTableInfo.Select(bMSTableSimple => bMSTableSimple.tag1).Distinct();
+                bMSTableSimpleCategorized.Children = [.. source.Select(name => new BMSTableSimpleCategorized
                 {
                     name = name
-                }).ToList();
+                })];
                 foreach (BMSTableSimpleCategorized child in bMSTableSimpleCategorized.Children)
                 {
                     string tag1 = child.name;
-                    child.Children = (from tt in bMSTableInfo
-                                      where tt.tag1 == tag1 && string.IsNullOrWhiteSpace(tt.tag2)
-                                      select new BMSTableSimpleCategorized(tt)).ToList();
-                    List<BMSTableSimple> source2 = bMSTableInfo.Where((BMSTableSimple tt) => tt.tag1 == tag1 && !string.IsNullOrWhiteSpace(tt.tag2)).ToList();
-                    foreach (string t2 in (from tt in source2.Select((BMSTableSimple tt) => tt.tag2).Distinct()
+                    child.Children = [.. (from tt in bMSTableInfo
+                                          where tt.tag1 == tag1 && string.IsNullOrWhiteSpace(tt.tag2)
+                                          select new BMSTableSimpleCategorized(tt))];
+                    List<BMSTableSimple> source2 = [.. bMSTableInfo.Where(tt => tt.tag1 == tag1 && !string.IsNullOrWhiteSpace(tt.tag2))];
+                    foreach (string t2 in (from tt in source2.Select(tt => tt.tag2).Distinct()
                                            orderby tt
                                            select tt).ToList())
                     {
                         child.Children.Add(new BMSTableSimpleCategorized
                         {
                             name = t2,
-                            Children = (from tt in source2
-                                        where tt.tag2 == t2
-                                        select new BMSTableSimpleCategorized(tt) into tt
-                                        orderby tt.name
-                                        select tt).ToList()
+                            Children = [.. (from tt in source2
+                                            where tt.tag2 == t2
+                                            select new BMSTableSimpleCategorized(tt) into tt
+                                            orderby tt.name
+                                            select tt)]
                         });
                     }
                 }
@@ -14664,7 +14555,7 @@ public class MainWindowViewModel : ViewModel
             catch
             {
             }
-        };
+        }
         Thread.Yield();
         startupReadyInstallStopwatch = Stopwatch.StartNew();
         startupReadyOperableStopwatch = Stopwatch.StartNew();
@@ -14678,7 +14569,7 @@ public class MainWindowViewModel : ViewModel
         {
             await Task.Run(delegate
             {
-                files.InitializeStartup(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
+                files.InitializeStartup([taskAdd1, taskAdd2], semaphore);
             }).Logging("Initialize");
             LogInitStage("files_initialize_done", "Initialize");
             TryLogStartupReadyData();
@@ -14817,10 +14708,7 @@ public class MainWindowViewModel : ViewModel
     public void CloseProcess()
     {
         Settings.Default.Save();
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.CloseProcess();
-        }
+        bmsPlayer?.CloseProcess();
         bool num = LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0));
         bool flag = LR2ScoreDBExtended.Lock(new TimeSpan(0, 1, 0));
         if (!num || !flag)
@@ -14867,12 +14755,12 @@ public class MainWindowViewModel : ViewModel
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
         if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
         {
-            ChartPackage chartPackage = ChartPackagesPending.Where((ChartPackage pkg) => pkg.ChartFiles.Contains(bmsFile)).FirstOrDefault();
+            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => pkg.ChartFiles.Contains(bmsFile)).FirstOrDefault();
             if (chartPackage == null)
             {
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_warn_play_temp_install, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.YesNo, "ConfirmationDialog");
+                    var confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_warn_play_temp_install, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.YesNo, "ConfirmationDialog");
                     base.Messenger.Raise(confirmationMessage);
                     if (confirmationMessage.Response == false)
                     {
@@ -14898,13 +14786,18 @@ public class MainWindowViewModel : ViewModel
                 }
                 bmsFile.path = Path.Combine(Path.GetDirectoryName(bmsFile.path), text);
             }
-            List<string> list = new List<string>();
+            List<string> list = [];
             if (Directory.Exists(chartPackage.path))
             {
-                string[] extensionsPermitted = BeMusicSeeker.Models.BMSFile.bmsExtensions.Concat(BeMusicSeeker.Models.BMSFile.wavExtensions).Concat(BeMusicSeeker.Models.BMSFile.bgaImageExtensions).ToArray();
-                list = (from f in Directory.EnumerateFiles(chartPackage.path, "*", System.IO.SearchOption.TopDirectoryOnly)
-                        where extensionsPermitted.Any((string e) => f.EndsWith(e, StringComparison.OrdinalIgnoreCase))
-                        select f).ToList();
+                string[] extensionsPermitted =
+                [
+                    .. BeMusicSeeker.Models.BMSFile.bmsExtensions,
+                    .. BeMusicSeeker.Models.BMSFile.wavExtensions,
+                    .. BeMusicSeeker.Models.BMSFile.bgaImageExtensions,
+                ];
+                list = [.. (from f in Directory.EnumerateFiles(chartPackage.path, "*", System.IO.SearchOption.TopDirectoryOnly)
+                        where extensionsPermitted.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase))
+                        select f)];
             }
             else
             {
@@ -15162,7 +15055,7 @@ public class MainWindowViewModel : ViewModel
         if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
         {
             string protecDir = Path.GetDirectoryName(NowPlayingBMS.path);
-            if (bmsFiles.Where((BeMusicSeeker.Models.BMSFile s) => !string.IsNullOrWhiteSpace(NowPlayingBMS?.path)).Any((BeMusicSeeker.Models.BMSFile s) => protecDir.StartsWith(Path.GetDirectoryName(s.path), StringComparison.OrdinalIgnoreCase)))
+            if (bmsFiles.Where(s => !string.IsNullOrWhiteSpace(NowPlayingBMS?.path)).Any(s => protecDir.StartsWith(Path.GetDirectoryName(s.path), StringComparison.OrdinalIgnoreCase)))
             {
                 PlayEndBMSFile(closeProcess: true);
             }
@@ -15173,10 +15066,7 @@ public class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (bmsPlayer != null)
-            {
-                bmsPlayer.RestartPlayingBMSfile();
-            }
+            bmsPlayer?.RestartPlayingBMSfile();
         }
     }
 
@@ -15230,50 +15120,32 @@ public class MainWindowViewModel : ViewModel
 
     internal void uBMplayShowInfo()
     {
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.ShowInfo();
-        }
+        bmsPlayer?.ShowInfo();
     }
 
     internal void uBMplayShowEffect()
     {
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.ShowEffect();
-        }
+        bmsPlayer?.ShowEffect();
     }
 
     internal void uBMplayChangePlayside()
     {
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.ChangePlayside();
-        }
+        bmsPlayer?.ChangePlayside();
     }
 
     internal void uBMplayIncreaseHighSpeed()
     {
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.IncreaseHighSpeed();
-        }
+        bmsPlayer?.IncreaseHighSpeed();
     }
 
     internal void uBMplayDecreaseHighSpeed()
     {
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.DecreaseHighSpeed();
-        }
+        bmsPlayer?.DecreaseHighSpeed();
     }
 
     internal void uBMplayVolumeChanged()
     {
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.VolumeChanged();
-        }
+        bmsPlayer?.VolumeChanged();
     }
 
     /// <summary>
@@ -15321,7 +15193,7 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private List<PlaylistDetailSourceRow> BuildPlaylistSourceRows(BMSTable bmsTable, string folderName, bool onlyNotOwned, PlaylistLibraryIndexSnapshot libraryIndexSnapshot, int requestVersion, CancellationToken cancellationToken, ref string cancellationStage, out int scoreUpdateTargetCount, out long entryResolveMs, out long scoreProbeMs, out long sourceMaterializeMs, out PlaylistScoreProbeMetrics scoreProbeMetrics)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         scoreUpdateTargetCount = 0;
         entryResolveMs = 0L;
         scoreProbeMs = 0L;
@@ -15329,9 +15201,9 @@ public class MainWindowViewModel : ViewModel
         scoreProbeMetrics = new PlaylistScoreProbeMetrics();
         if (bmsTable == null)
         {
-            return new List<PlaylistDetailSourceRow>();
+            return [];
         }
-        Stopwatch entryHydrationStopwatch = Stopwatch.StartNew();
+        var entryHydrationStopwatch = Stopwatch.StartNew();
         tables?.EnsurePlaylistEntriesLoaded(bmsTable, "BuildPlaylistSourceRows");
         entryHydrationStopwatch.Stop();
         cancellationToken.ThrowIfCancellationRequested();
@@ -15348,7 +15220,7 @@ public class MainWindowViewModel : ViewModel
             : new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
         cancellationStage = "hash_index";
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, BeMusicSeeker.Models.BMSScore)>();
+        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = [];
         cancellationStage = "entry_resolve";
         foreach (BMSTableEntry entry in bmsTable.GetEntriesExceptDummy())
         {
@@ -15376,7 +15248,7 @@ public class MainWindowViewModel : ViewModel
         }
         cancellationToken.ThrowIfCancellationRequested();
         List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshot)> preparedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, LR2SongDBExtended.chart_info, PlaylistScoreProbeBmsFile, BeMusicSeeker.Models.BMSScore)>(resolvedEntries.Count);
-        Stopwatch chartInfoLookupStopwatch = Stopwatch.StartNew();
+        var chartInfoLookupStopwatch = Stopwatch.StartNew();
         int missingChartInfoResolveTargets = 0;
         int chartInfoResolvedCount = 0;
         int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
@@ -15412,13 +15284,13 @@ public class MainWindowViewModel : ViewModel
         {
             cancellationStage = "score_probe_prepare";
             cancellationToken.ThrowIfCancellationRequested();
-            List<(BMSTableEntry, PlaylistScoreProbeBmsFile)> scoreProbeRows = preparedEntries.Where((row) => row.scoreProbe != null).Select((row) => (row.entry, row.scoreProbe)).ToList();
+            List<(BMSTableEntry, PlaylistScoreProbeBmsFile)> scoreProbeRows = [.. preparedEntries.Where((row) => row.scoreProbe != null).Select((row) => (row.entry, row.scoreProbe))];
             cancellationToken.ThrowIfCancellationRequested();
             cancellationStage = "score_probe";
             scoreProbeMetrics = SetPlaylistScoreProbeSnapshots(scoreProbeRows, requestVersion, cancellationToken);
         }
         scoreProbeMs = stopwatch.ElapsedMilliseconds - entryResolveMs;
-        List<PlaylistDetailSourceRow> playlistRows = new List<PlaylistDetailSourceRow>(preparedEntries.Count);
+        var playlistRows = new List<PlaylistDetailSourceRow>(preparedEntries.Count);
         cancellationStage = "source_row_materialize";
         foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in preparedEntries)
         {
@@ -15436,7 +15308,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="cancellationToken">キャンセルトークン。</param>
     private PlaylistScoreProbeMetrics SetPlaylistScoreProbeSnapshots(IReadOnlyList<(BMSTableEntry entry, PlaylistScoreProbeBmsFile probe)> scoreProbeRows, int requestVersion, CancellationToken cancellationToken)
     {
-        PlaylistScoreProbeMetrics summary = new PlaylistScoreProbeMetrics
+        var summary = new PlaylistScoreProbeMetrics
         {
             TargetCount = scoreProbeRows?.Count ?? 0
         };
@@ -15453,7 +15325,7 @@ public class MainWindowViewModel : ViewModel
         {
             cancellationToken.ThrowIfCancellationRequested();
             int count = Math.Min(chunkSize, scoreProbeRows.Count - offset);
-            List<BeMusicSeeker.Models.BMSFile> chunk = new List<BeMusicSeeker.Models.BMSFile>(count);
+            var chunk = new List<BeMusicSeeker.Models.BMSFile>(count);
             for (int index = 0; index < count; index++)
             {
                 chunk.Add(scoreProbeRows[offset + index].probe);
@@ -15498,9 +15370,9 @@ public class MainWindowViewModel : ViewModel
     {
         if (rows == null)
         {
-            return new List<PlaylistDetailRow>();
+            return [];
         }
-        List<PlaylistDetailRow> clones = new List<PlaylistDetailRow>();
+        List<PlaylistDetailRow> clones = [];
         foreach (PlaylistDetailSourceRow row in rows)
         {
             PlaylistDetailRow playlistRow = CreatePlaylistViewRowClone(row);
@@ -15581,12 +15453,12 @@ public class MainWindowViewModel : ViewModel
         out long modeStageMs,
         out long sortStageMs)
     {
-        Stopwatch stageStopwatch = Stopwatch.StartNew();
-        IReadOnlyList<PlaylistDetailSourceRow> effectiveSourceRows = sourceRows ?? Array.Empty<PlaylistDetailSourceRow>();
+        var stageStopwatch = Stopwatch.StartNew();
+        IReadOnlyList<PlaylistDetailSourceRow> effectiveSourceRows = sourceRows ?? [];
         List<PlaylistDetailSourceRow> keywordRows;
         if (!string.IsNullOrWhiteSpace(keywordFilter))
         {
-            GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(keywordFilter);
+            var query = GridKeywordSearchQuery.Parse(keywordFilter);
             keywordRows = effectiveSourceRows.AsParallel().Where(delegate (PlaylistDetailSourceRow row)
             {
                 return query.MatchesPlaylistDetail(row);
@@ -15594,7 +15466,7 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            keywordRows = (effectiveSourceRows as List<PlaylistDetailSourceRow>) ?? effectiveSourceRows.ToList();
+            keywordRows = (effectiveSourceRows as List<PlaylistDetailSourceRow>) ?? [.. effectiveSourceRows];
         }
         keywordStageMs = stageStopwatch.ElapsedMilliseconds;
         keywordCount = keywordRows.Count;
@@ -15603,7 +15475,7 @@ public class MainWindowViewModel : ViewModel
         List<PlaylistDetailSourceRow> modeRows;
         if (modeFilter != ModeFilterType.All)
         {
-            List<int?> modeFlag = new List<int?> { null };
+            List<int?> modeFlag = [null];
             if ((modeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
             {
                 modeFlag.Add(5);
@@ -15624,7 +15496,7 @@ public class MainWindowViewModel : ViewModel
             {
                 modeFlag.Add(14);
             }
-            modeRows = keywordRows.Where((PlaylistDetailSourceRow file) => modeFlag.Contains(file.mode)).ToList();
+            modeRows = [.. keywordRows.Where(file => modeFlag.Contains(file.mode))];
         }
         else
         {
@@ -15666,7 +15538,7 @@ public class MainWindowViewModel : ViewModel
             out keywordStageMs,
             out modeStageMs,
             out sortStageMs);
-        Stopwatch stageStopwatch = Stopwatch.StartNew();
+        var stageStopwatch = Stopwatch.StartNew();
         List<PlaylistDetailRow> viewRows = CreatePlaylistViewRowsFromSource(sortedSourceRows);
         viewMaterializeMs = stageStopwatch.ElapsedMilliseconds;
         return viewRows;
@@ -15674,7 +15546,7 @@ public class MainWindowViewModel : ViewModel
 
     internal static PlaylistDetailVirtualView ApplyPlaylistVirtualViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
     {
-        Stopwatch stageStopwatch = Stopwatch.StartNew();
+        var stageStopwatch = Stopwatch.StartNew();
         List<PlaylistDetailSourceRow> sortedSourceRows = ApplyPlaylistSourceRows(
             sourceRows,
             keywordFilter,
@@ -15687,7 +15559,7 @@ public class MainWindowViewModel : ViewModel
             out modeStageMs,
             out sortStageMs);
         stageStopwatch.Restart();
-        PlaylistDetailVirtualView viewRows = new PlaylistDetailVirtualView(
+        var viewRows = new PlaylistDetailVirtualView(
             sortedSourceRows,
             CountDistinctFoldersForPlaylistSourceRows(sortedSourceRows));
         viewMaterializeMs = stageStopwatch.ElapsedMilliseconds;
@@ -15708,7 +15580,7 @@ public class MainWindowViewModel : ViewModel
             sourceGenerationId = playlistViewState.SourceGenerationId;
             currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
         }
-        sourceRows ??= new List<PlaylistDetailSourceRow>();
+        sourceRows ??= [];
         sourceCount = sourceRows.Count;
         LogPlaylistViewApply("started mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
         IList finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs, out long _);
@@ -15729,7 +15601,7 @@ public class MainWindowViewModel : ViewModel
         viewUpdateMode mode = request.Mode;
         viewUpdateMode requestedMode = request.RequestedMode;
         object parameter = request.Parameter;
-        Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
+        var viewBuildStopwatch = Stopwatch.StartNew();
         long stageStartMs = 0L;
         long folderStageMs = 0L;
         long keywordStageMs = 0L;
@@ -15749,7 +15621,7 @@ public class MainWindowViewModel : ViewModel
         long scoreProbeMs = 0L;
         long sourceMaterializeMs = 0L;
         long viewMaterializeMs = 0L;
-        PlaylistScoreProbeMetrics scoreProbeMetrics = new PlaylistScoreProbeMetrics();
+        var scoreProbeMetrics = new PlaylistScoreProbeMetrics();
         string sortProfile = "not_sorted";
         List<PlaylistDetailSourceRow> sourceRows = null;
         List<PlaylistDetailSourceRow> previousSourceRows = null;
@@ -15855,19 +15727,12 @@ public class MainWindowViewModel : ViewModel
         viewUpdateMode mode = request.Mode;
         viewUpdateMode requestedMode = request.RequestedMode;
         object parameter = request.Parameter;
-        Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
-        long keywordStageMs = 0L;
-        long modeStageMs = 0L;
-        long sortStageMs = 0L;
+        var viewBuildStopwatch = Stopwatch.StartNew();
         long columnStageMs = 0L;
         long callbackStageMs = 0L;
-        int sourceCount = 0;
-        int keywordCount = 0;
-        int modeCount = 0;
         int viewCount = 0;
-        string sortProfile = "not_sorted";
         cancellationToken.ThrowIfCancellationRequested();
-        IList finalRows = ApplyPlaylistViewFromCurrentSource(mode, out sourceCount, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs, out sortProfile);
+        IList finalRows = ApplyPlaylistViewFromCurrentSource(mode, out int sourceCount, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out string sortProfile);
         viewCount = finalRows.Count;
         if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(request.RequestVersion))
         {
@@ -15892,7 +15757,7 @@ public class MainWindowViewModel : ViewModel
         sourceCount = 0;
         dependencyCount = 0;
         patchedCount = 0;
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         List<PlaylistDetailSourceRow> sourceRows;
         lock (playlistViewState.SyncRoot)
         {
@@ -15951,7 +15816,7 @@ public class MainWindowViewModel : ViewModel
         {
             return false;
         }
-        if (existing.updated_at == default(DateTime) || incoming.updated_at == default(DateTime))
+        if (existing.updated_at == default || incoming.updated_at == default)
         {
             return false;
         }
@@ -16032,7 +15897,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
     private void RefreshChartRowsView(viewUpdateMode mode, object parameter = null)
     {
-        Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
+        var viewBuildStopwatch = Stopwatch.StartNew();
         long stageStartMs = 0L;
         long folderStageMs = 0L;
         long keywordStageMs = 0L;
@@ -16139,15 +16004,15 @@ public class MainWindowViewModel : ViewModel
                     {
                         if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
                         {
-                            DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault((DuplicateGroup group) => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                            ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.Files : DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files));
+                            DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
+                            ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.Files : DuplicateChartGroups.SelectMany(g => g.Files));
                         }
                         else
                         {
                             string dirname2 = duplicateContext.Value;
                             RetryHelper.RetryIfError(delegate
                             {
-                                ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files)
+                                ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany(g => g.Files)
                                                                          where f.path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                                                          select f);
                             }, delegate (Exception ex)
@@ -16169,14 +16034,14 @@ public class MainWindowViewModel : ViewModel
                     }
                     else
                     {
-                        if (!(parameter is string))
+                        if (parameter is not string)
                         {
                             break;
                         }
                         string dirname = parameter as string;
                         RetryHelper.RetryIfError(delegate
                         {
-                            ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files)
+                            ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany(g => g.Files)
                                                                      where f.path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                                                      select f);
                         }, delegate (Exception ex)
@@ -16191,7 +16056,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files));
+                    ChartRowsFolderView = ToLibraryChartRows(DuplicateChartGroups.SelectMany(g => g.Files));
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16236,11 +16101,11 @@ public class MainWindowViewModel : ViewModel
                             {
                                 return p.ChartFiles;
                             }
-                            return Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
+                            return [];
                         }
                         catch
                         {
-                            return Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
+                            return [];
                         }
                     }), CreateLibraryChartRowWithResourceHealthProjection);
                 }, delegate (Exception ex)
@@ -16272,11 +16137,11 @@ public class MainWindowViewModel : ViewModel
                             {
                                 return p.ChartFiles;
                             }
-                            return Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
+                            return [];
                         }
                         catch
                         {
-                            return Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
+                            return [];
                         }
                     }));
                 }, delegate (Exception ex)
@@ -16288,7 +16153,7 @@ public class MainWindowViewModel : ViewModel
                 }, 100u);
                 break;
         }
-        ChartRowsFolderView = ((ChartRowsFolderView == null) ? new List<LibraryChartRow>() : ChartRowsFolderView.ToList());
+        ChartRowsFolderView = ((ChartRowsFolderView == null) ? new List<LibraryChartRow>() : [.. ChartRowsFolderView]);
         folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         folderCount = ChartRowsFolderView.Count();
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -16297,7 +16162,7 @@ public class MainWindowViewModel : ViewModel
             if (!string.IsNullOrWhiteSpace(KeywordFilter))
             {
                 ChartRowsKeywordFilterView = new List<LibraryChartRow>();
-                GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(KeywordFilter);
+                var query = GridKeywordSearchQuery.Parse(KeywordFilter);
                 ChartRowsKeywordFilterView = from r in ChartRowsFolderView.AsParallel()
                                              where query.MatchesLibraryChartRow(r)
                                              select r;
@@ -16307,7 +16172,7 @@ public class MainWindowViewModel : ViewModel
                 ChartRowsKeywordFilterView = ChartRowsFolderView;
             }
         }
-        ChartRowsKeywordFilterView = ((ChartRowsKeywordFilterView == null) ? new List<LibraryChartRow>() : ChartRowsKeywordFilterView.ToList());
+        ChartRowsKeywordFilterView = ((ChartRowsKeywordFilterView == null) ? new List<LibraryChartRow>() : [.. ChartRowsKeywordFilterView]);
         keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         keywordCount = ChartRowsKeywordFilterView.Count();
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -16315,7 +16180,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (ModeFilter != ModeFilterType.All)
             {
-                List<int?> modeFlag = new List<int?> { null };
+                List<int?> modeFlag = [null];
                 if ((ModeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
                 {
                     modeFlag.Add(5);
@@ -16336,14 +16201,14 @@ public class MainWindowViewModel : ViewModel
                 {
                     modeFlag.Add(14);
                 }
-                ChartRowsModeFilterView = ChartRowsKeywordFilterView.Where((LibraryChartRow f) => modeFlag.Contains(f.mode));
+                ChartRowsModeFilterView = ChartRowsKeywordFilterView.Where(f => modeFlag.Contains(f.mode));
             }
             else
             {
                 ChartRowsModeFilterView = ChartRowsKeywordFilterView;
             }
         }
-        ChartRowsModeFilterView = ((ChartRowsModeFilterView == null) ? new List<LibraryChartRow>() : ChartRowsModeFilterView.ToList());
+        ChartRowsModeFilterView = ((ChartRowsModeFilterView == null) ? new List<LibraryChartRow>() : [.. ChartRowsModeFilterView]);
         modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         modeCount = ChartRowsModeFilterView.Count();
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -16369,7 +16234,7 @@ public class MainWindowViewModel : ViewModel
             }
             bool isTreeSelectionRequest = requestedMode != viewUpdateMode.TreeViewFilterNotChanged && requestedMode < viewUpdateMode.KeywordFilterUpdated;
             bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;
-            List<LibraryChartRow> modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
+            var modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
             bool isFullNormalLibraryResult = treeViewFilterTypeSelected == viewUpdateMode.FolderFilterSelected
                 && FolderFilter == null
                 && string.IsNullOrWhiteSpace(KeywordFilter)
@@ -16387,7 +16252,7 @@ public class MainWindowViewModel : ViewModel
             }
             else if (TryGetNormalLibrarySortCache(isFullNormalLibraryResult, columnName, direction, modeFilterList?.Count ?? modeCount, out List<LibraryChartRow> cachedRows, out NormalLibrarySortCacheKey sortCacheKey, out _))
             {
-                Stopwatch sortCacheStopwatch = Stopwatch.StartNew();
+                var sortCacheStopwatch = Stopwatch.StartNew();
                 nextRowsView = cachedRows;
                 sortCacheStopwatch.Stop();
                 sortReuse = true;
@@ -16433,7 +16298,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else
                 {
-                    folderSortSourceSnapshot = ChartRowsModeFilterView.ToList();
+                    folderSortSourceSnapshot = [.. ChartRowsModeFilterView];
                 }
                 folderSortColumnName = columnName;
                 folderSortDirection = direction;
@@ -16506,7 +16371,7 @@ public class MainWindowViewModel : ViewModel
         LibraryRowCacheBuildStats rowCacheStats,
         out LibraryRowsBuildMetrics metrics)
     {
-        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        var totalStopwatch = Stopwatch.StartNew();
         long regularFilterMs = 0L;
         long bmsonFilterMs = 0L;
         long regularRowMaterializeMs;
@@ -16514,39 +16379,37 @@ public class MainWindowViewModel : ViewModel
         long concatToListMs;
         int sourceBmsCount = CountIfCheap(bmsFiles);
         int sourceBmsonCount = CountIfCheap(bmsonRows);
-        IEnumerable<BeMusicSeeker.Models.BMSFile> regularRows = (bmsFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile file) => file != null);
-        IEnumerable<LibraryChartRow> normalizedBmsonRows = (bmsonRows ?? Enumerable.Empty<LibraryChartRow>()).Where((LibraryChartRow row) => row != null);
+        IEnumerable<BeMusicSeeker.Models.BMSFile> regularRows = (bmsFiles ?? []).Where(file => file != null);
+        IEnumerable<LibraryChartRow> normalizedBmsonRows = (bmsonRows ?? []).Where(row => row != null);
         if (folderFilter != null)
         {
-            Stopwatch filterStopwatch = Stopwatch.StartNew();
+            var filterStopwatch = Stopwatch.StartNew();
             regularRows = regularRows.AsParallel().Where(folderFilter);
-            List<BeMusicSeeker.Models.BMSFile> filteredRegularRows = regularRows.ToList();
+            List<BeMusicSeeker.Models.BMSFile> filteredRegularRows = [.. regularRows];
             filterStopwatch.Stop();
             regularFilterMs = filterStopwatch.ElapsedMilliseconds;
             regularRows = filteredRegularRows;
 
             filterStopwatch.Restart();
-            normalizedBmsonRows = normalizedBmsonRows.AsParallel().Where((LibraryChartRow row) => folderFilter(row.BmsFile ?? PendingChartEntry.CreateFromBmsonSong(row.BmsonSong)));
-            List<LibraryChartRow> filteredBmsonRows = normalizedBmsonRows.ToList();
+            normalizedBmsonRows = normalizedBmsonRows.AsParallel().Where(row => folderFilter(row.BmsFile ?? PendingChartEntry.CreateFromBmsonSong(row.BmsonSong)));
+            List<LibraryChartRow> filteredBmsonRows = [.. normalizedBmsonRows];
             filterStopwatch.Stop();
             bmsonFilterMs = filterStopwatch.ElapsedMilliseconds;
             normalizedBmsonRows = filteredBmsonRows;
         }
 
-        Stopwatch materializeStopwatch = Stopwatch.StartNew();
+        var materializeStopwatch = Stopwatch.StartNew();
         List<LibraryChartRow> regularLibraryRows = ToLibraryChartRows(regularRows, bmsRowFactory ?? LibraryChartRow.FromBmsFile);
         materializeStopwatch.Stop();
         regularRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
         materializeStopwatch.Restart();
-        List<LibraryChartRow> bmsonLibraryRows = normalizedBmsonRows.ToList();
+        List<LibraryChartRow> bmsonLibraryRows = [.. normalizedBmsonRows];
         materializeStopwatch.Stop();
         bmsonRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
-        Stopwatch concatStopwatch = Stopwatch.StartNew();
-        List<LibraryChartRow> rows = new List<LibraryChartRow>(regularLibraryRows.Count + bmsonLibraryRows.Count);
-        rows.AddRange(regularLibraryRows);
-        rows.AddRange(bmsonLibraryRows);
+        var concatStopwatch = Stopwatch.StartNew();
+        List<LibraryChartRow> rows = [.. regularLibraryRows, .. bmsonLibraryRows];
         concatStopwatch.Stop();
         concatToListMs = concatStopwatch.ElapsedMilliseconds;
         totalStopwatch.Stop();
@@ -16572,7 +16435,7 @@ public class MainWindowViewModel : ViewModel
 
     private LibraryRowCacheBuildStats CreateRegularRowCacheBuildStats()
     {
-        LibraryRowCacheBuildStats stats = new LibraryRowCacheBuildStats
+        var stats = new LibraryRowCacheBuildStats
         {
             PrunedCount = pendingRegularBmsRowCachePrunedCount
         };
@@ -16739,10 +16602,9 @@ public class MainWindowViewModel : ViewModel
 
     private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<BeMusicSeeker.Models.BMSFile> files, Func<BeMusicSeeker.Models.BMSFile, LibraryChartRow> rowFactory)
     {
-        return (files ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
+        return [.. (files ?? [])
             .Select(rowFactory ?? LibraryChartRow.FromBmsFile)
-            .Where((LibraryChartRow row) => row != null)
-            .ToList();
+            .Where(row => row != null)];
     }
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode mode, viewUpdateMode currentTreeMode)
@@ -16795,29 +16657,25 @@ public class MainWindowViewModel : ViewModel
 
     private List<LibraryChartRow> GetBmsonLibraryRowsSnapshot()
     {
-        return bmsonLibraryRowsByPath.Values
-            .OrderBy((LibraryChartRow row) => row.path ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return [.. bmsonLibraryRowsByPath.Values.OrderBy(row => row.path ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
     }
 
     private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        List<LR2SongDBExtended.bmson_song> snapshot = (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<LR2SongDBExtended.bmson_song> snapshot = [.. (bmsonSongs ?? [])
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
         PruneSharedBmsonChartAdapterCache(snapshot);
-        HashSet<string> nextPaths = new HashSet<string>(snapshot.Select((LR2SongDBExtended.bmson_song song) => song.path), StringComparer.OrdinalIgnoreCase);
-        bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any((string path) => !nextPaths.Contains(path));
+        var nextPaths = new HashSet<string>(snapshot.Select(song => song.path), StringComparer.OrdinalIgnoreCase);
+        bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any(path => !nextPaths.Contains(path));
         bool sourceReferenceChanged = false;
         bool sortKeyChanged = membershipChanged;
-        Dictionary<string, LibraryChartRow> nextByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
-        Dictionary<string, BmsonLibrarySortKeySnapshot> nextSortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
+        var nextByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
+        var nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
+        var nextSortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDBExtended.bmson_song song in snapshot)
         {
-            LibraryChartRow row = null;
-            bool foundBySameReference = bmsonLibraryRowsBySong.TryGetValue(song, out row);
+            bool foundBySameReference = bmsonLibraryRowsBySong.TryGetValue(song, out LibraryChartRow row);
             if (!foundBySameReference)
             {
                 bmsonLibraryRowsByPath.TryGetValue(song.path, out row);
@@ -16878,7 +16736,7 @@ public class MainWindowViewModel : ViewModel
         {
             return nextSong != null;
         }
-        BmsonLibrarySortKeySnapshot previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
+        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
         row.UpdateFromBmsonSong(nextSong);
         return previousSortKeys.HasChanged(row);
     }
@@ -16889,7 +16747,7 @@ public class MainWindowViewModel : ViewModel
         {
             return false;
         }
-        BmsonLibrarySortKeySnapshot previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
+        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
         mutateCurrentSong(row.BmsonSong);
         return previousSortKeys.HasChanged(row);
     }
@@ -17175,7 +17033,7 @@ public class MainWindowViewModel : ViewModel
 
     private sealed class BmsonSongReferenceComparer : IEqualityComparer<LR2SongDBExtended.bmson_song>
     {
-        internal static readonly BmsonSongReferenceComparer Instance = new BmsonSongReferenceComparer();
+        internal static readonly BmsonSongReferenceComparer Instance = new();
 
         public bool Equals(LR2SongDBExtended.bmson_song x, LR2SongDBExtended.bmson_song y)
         {
@@ -17222,39 +17080,24 @@ public class MainWindowViewModel : ViewModel
 
     private bool IsMainColumnSettingTargetReady(viewUpdateMode mode)
     {
-        switch (mode)
+        return mode switch
         {
-            case viewUpdateMode.PlaylistFilterSelected:
-            case viewUpdateMode.PlaylistNotOwnedFilterSelected:
-                return Settings.Default.PlaylistCustomTableColumnSettings != null;
-            case viewUpdateMode.FolderFilterSelected:
-                return Settings.Default.StandardCustomTableColumnSettings != null;
-            case viewUpdateMode.UnregisteredFilterSelected:
-                return Settings.Default.UnregisteredCustomTableColumnSettings != null;
-            case viewUpdateMode.ZeroNoteFilterSelected:
-                return Settings.Default.ZeroNoteCustomTableColumnSettings != null;
-            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
-                return Settings.Default.ChartInfoParseErrorCustomTableColumnSettings != null;
-            case viewUpdateMode.FileMissingFilterSelected:
-            case viewUpdateMode.FileMissingIgnoredFilterSelected:
-            case viewUpdateMode.FullScanAllChartsFilterSelected:
-            case viewUpdateMode.NewlyInstalledFolderSelected:
-                return Settings.Default.FullScanCustomTableColumnSettings != null;
-            case viewUpdateMode.DuplicateFilterSelected:
-                return Settings.Default.DuplicateCustomTableColumnSettings != null;
-            case viewUpdateMode.GarbledFilterSelected:
-            case viewUpdateMode.GarbleFixedFilterSelected:
-                return Settings.Default.EncodingCustomTableColumnSettings != null;
-            case viewUpdateMode.PendingInstallFolderSelected:
-                return Settings.Default.InstallCustomTableColumnSettings != null;
-            default:
-                return false;
-        }
+            viewUpdateMode.PlaylistFilterSelected or viewUpdateMode.PlaylistNotOwnedFilterSelected => Settings.Default.PlaylistCustomTableColumnSettings != null,
+            viewUpdateMode.FolderFilterSelected => Settings.Default.StandardCustomTableColumnSettings != null,
+            viewUpdateMode.UnregisteredFilterSelected => Settings.Default.UnregisteredCustomTableColumnSettings != null,
+            viewUpdateMode.ZeroNoteFilterSelected => Settings.Default.ZeroNoteCustomTableColumnSettings != null,
+            viewUpdateMode.ChartInfoParseErrorFilterSelected => Settings.Default.ChartInfoParseErrorCustomTableColumnSettings != null,
+            viewUpdateMode.FileMissingFilterSelected or viewUpdateMode.FileMissingIgnoredFilterSelected or viewUpdateMode.FullScanAllChartsFilterSelected or viewUpdateMode.NewlyInstalledFolderSelected => Settings.Default.FullScanCustomTableColumnSettings != null,
+            viewUpdateMode.DuplicateFilterSelected => Settings.Default.DuplicateCustomTableColumnSettings != null,
+            viewUpdateMode.GarbledFilterSelected or viewUpdateMode.GarbleFixedFilterSelected => Settings.Default.EncodingCustomTableColumnSettings != null,
+            viewUpdateMode.PendingInstallFolderSelected => Settings.Default.InstallCustomTableColumnSettings != null,
+            _ => false,
+        };
     }
 
     private void loadColumnSetting(viewUpdateMode mode, bool isInit = false)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         long stageStartMs = stopwatch.ElapsedMilliseconds;
         long normalizeMs = 0L;
         long visibilityMs = 0L;
@@ -17540,7 +17383,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        CancellationTokenSource cancellationSource = new CancellationTokenSource();
+        var cancellationSource = new CancellationTokenSource();
         maintenanceRescanCancellationTokenSource = cancellationSource;
         UpdateMaintenanceRescanProgressStatus(new MaintenanceWorkflowProgress
         {
@@ -17549,7 +17392,7 @@ public class MainWindowViewModel : ViewModel
         });
         Task.Run(delegate
         {
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan start scope=all_owned");
@@ -17705,7 +17548,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("packages");
         }
-        List<ChartPackage> list = packages.Where((ChartPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         lock (lockCopyFile)
         {
             for (int num = 0; num < list.Count; num++)
@@ -17742,7 +17585,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            List<BeMusicSeeker.Models.BMSFile> chartFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile chart) => chart != null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(chart => chart != null)];
             List<ChartPackage> packages = getChartPackages(ref chartFiles2);
             for (int num = 0; num < packages.Count; num++)
             {
@@ -17920,18 +17763,18 @@ public class MainWindowViewModel : ViewModel
     /// <param name="installPaths">インストールの対象となるファイルまたはディレクトリパスのコレクション。</param>
     /// <param name="token">処理を中止するためのキャンセレーショントークン。</param>
     /// <param name="onEachCompleted">インストール処理完了時に呼ばれるコールバック。</param>
-    public void InstallChartPackages(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null, Action onEachPathProcessed = null)
+    public void InstallChartPackages(IEnumerable<string> installPaths, CancellationToken token = default, Action<bool> onEachCompleted = null, Action onEachPathProcessed = null)
     {
         if (files == null)
         {
             return;
         }
-        string[] normalizedInstallPaths = (installPaths ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)).ToArray();
+        string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         if (normalizedInstallPaths.Length == 0)
         {
             return;
         }
-        List<ChartPackage> list = new List<ChartPackage>();
+        List<ChartPackage> list = [];
         lock (lockCopyFile)
         {
             try
@@ -17957,7 +17800,7 @@ public class MainWindowViewModel : ViewModel
             tables.AcquireReaderLockBMSTables();
             try
             {
-                files.AddReferenceBMSTables(BMSTables, list.SelectMany((ChartPackage p) => p.ChartFiles));
+                files.AddReferenceBMSTables(BMSTables, list.SelectMany(p => p.ChartFiles));
                 InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
             }
             finally
@@ -18227,7 +18070,7 @@ public class MainWindowViewModel : ViewModel
             startupInitializationCompleteStopwatch = Stopwatch.StartNew();
             startupInitializationCompleteLogged = false;
         }
-        StartupProgressState state = new StartupProgressState
+        var state = new StartupProgressState
         {
             OperationKind = operationKind,
             OperationToken = Interlocked.Increment(ref startupProgressOperationTokenSeed),
@@ -19098,7 +18941,7 @@ public class MainWindowViewModel : ViewModel
         }
         Action flush = delegate
         {
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             LogUiSuppression("startup_presentation_flush start mask=" + mask);
             FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken(), allowStartupPresentationDefer: false, logReadiness: false);
             stopwatch.Stop();
@@ -19161,15 +19004,14 @@ public class MainWindowViewModel : ViewModel
         List<StartupBackgroundTaskMetric> metrics;
         lock (startupBackgroundTaskLock)
         {
-            metrics = startupBackgroundTaskMetrics.Values
-                .OrderBy((StartupBackgroundTaskMetric metric) => metric.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(CloneStartupBackgroundTaskMetric)
-                .ToList();
+            metrics = [.. startupBackgroundTaskMetrics.Values
+                .OrderBy(metric => metric.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(CloneStartupBackgroundTaskMetric)];
         }
-        long queued = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.QueuedCount);
-        long started = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.StartedCount);
-        long completed = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.CompletedCount);
-        long failed = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.FailedCount);
+        long queued = metrics.Sum(metric => metric.QueuedCount);
+        long started = metrics.Sum(metric => metric.StartedCount);
+        long completed = metrics.Sum(metric => metric.CompletedCount);
+        long failed = metrics.Sum(metric => metric.FailedCount);
         string taskSummary = metrics.Count == 0
             ? "(none)"
             : string.Join(";", metrics.Select(FormatStartupBackgroundTaskMetric));
@@ -19265,19 +19107,14 @@ public class MainWindowViewModel : ViewModel
     /// <returns>進行中ラベル。</returns>
     private static string GetStartupProgressRunningLabel(StartupProgressOperationKind operationKind)
     {
-        switch (operationKind)
+        return operationKind switch
         {
-            case StartupProgressOperationKind.ReloadFileDiff:
-                return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_files;
-            case StartupProgressOperationKind.ScoreOnly:
-                return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_scores;
-            case StartupProgressOperationKind.FullReinitialize:
-                return BeMusicSeeker.Properties.Resources.Statusbar_progress_full_reinitialize;
-            case StartupProgressOperationKind.ReloadTables:
-                return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_tables;
-            default:
-                return BeMusicSeeker.Properties.Resources.Statusbar_progress_startup;
-        }
+            StartupProgressOperationKind.ReloadFileDiff => BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_files,
+            StartupProgressOperationKind.ScoreOnly => BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_scores,
+            StartupProgressOperationKind.FullReinitialize => BeMusicSeeker.Properties.Resources.Statusbar_progress_full_reinitialize,
+            StartupProgressOperationKind.ReloadTables => BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_tables,
+            _ => BeMusicSeeker.Properties.Resources.Statusbar_progress_startup,
+        };
     }
 
     /// <summary>
@@ -19481,62 +19318,56 @@ public class MainWindowViewModel : ViewModel
 
     private static StartupProgressPhase GetInitialExpectedStartupProgressPhases(StartupProgressOperationKind operationKind)
     {
-        switch (operationKind)
+        return operationKind switch
         {
-            case StartupProgressOperationKind.Startup:
-                return StartupProgressPhase.CoreInitializeStarted
-                    | StartupProgressPhase.LibraryDatabaseLoadDone
-                    | StartupProgressPhase.LibraryFileEnumerationDone
-                    | StartupProgressPhase.LibraryFileDiffDone
-                    | StartupProgressPhase.StartupReadyData
-                    | StartupProgressPhase.StartupReadyUi
-                    | StartupProgressPhase.StartupReadyOperable
-                    | StartupProgressPhase.PlaylistReferenceApplied
-                    | StartupProgressPhase.ExternalPlaylistSyncDone
-                    | StartupProgressPhase.ScoreHydrationDone
-                    | StartupProgressPhase.RankingRefreshDone
-                    | StartupProgressPhase.MaintenanceDeferredDone
-                    | StartupProgressPhase.InstallableMaintenanceDeferredDone
-                    | StartupProgressPhase.ChartDigestBackfillDone
-                    | StartupProgressPhase.ChartInfoBackfillDone
-                    | StartupProgressPhase.ChartInfoHydrationDone
-                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
-            case StartupProgressOperationKind.FullReinitialize:
-                return StartupProgressPhase.CoreInitializeStarted
-                    | StartupProgressPhase.LibraryDatabaseLoadDone
-                    | StartupProgressPhase.LibraryFileEnumerationDone
-                    | StartupProgressPhase.LibraryFileDiffDone
-                    | StartupProgressPhase.StartupReadyOperable
-                    | StartupProgressPhase.PlaylistReferenceApplied
-                    | StartupProgressPhase.ScoreHydrationDone
-                    | StartupProgressPhase.RankingRefreshDone
-                    | StartupProgressPhase.MaintenanceDeferredDone
-                    | StartupProgressPhase.InstallableMaintenanceDeferredDone
-                    | StartupProgressPhase.ChartDigestBackfillDone
-                    | StartupProgressPhase.ChartInfoBackfillDone
-                    | StartupProgressPhase.ChartInfoHydrationDone
-                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
-            case StartupProgressOperationKind.ReloadFileDiff:
-                return StartupProgressPhase.CoreInitializeStarted
-                    | StartupProgressPhase.LibraryFileEnumerationDone
-                    | StartupProgressPhase.LibraryFileDiffDone
-                    | StartupProgressPhase.StartupReadyOperable
-                    | StartupProgressPhase.PlaylistReferenceApplied
-                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
-            case StartupProgressOperationKind.ScoreOnly:
-                return StartupProgressPhase.CoreInitializeStarted
-                    | StartupProgressPhase.StartupReadyOperable
-                    | StartupProgressPhase.ScoreHydrationDone
-                    | StartupProgressPhase.RankingRefreshDone;
-            case StartupProgressOperationKind.ReloadTables:
-                return StartupProgressPhase.CoreInitializeStarted
-                    | StartupProgressPhase.StartupReadyOperable
-                    | StartupProgressPhase.PlaylistReferenceApplied
-                    | StartupProgressPhase.ExternalPlaylistSyncDone
-                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
-            default:
-                return StartupProgressPhase.CoreInitializeStarted | StartupProgressPhase.StartupReadyOperable;
-        }
+            StartupProgressOperationKind.Startup => StartupProgressPhase.CoreInitializeStarted
+                                | StartupProgressPhase.LibraryDatabaseLoadDone
+                                | StartupProgressPhase.LibraryFileEnumerationDone
+                                | StartupProgressPhase.LibraryFileDiffDone
+                                | StartupProgressPhase.StartupReadyData
+                                | StartupProgressPhase.StartupReadyUi
+                                | StartupProgressPhase.StartupReadyOperable
+                                | StartupProgressPhase.PlaylistReferenceApplied
+                                | StartupProgressPhase.ExternalPlaylistSyncDone
+                                | StartupProgressPhase.ScoreHydrationDone
+                                | StartupProgressPhase.RankingRefreshDone
+                                | StartupProgressPhase.MaintenanceDeferredDone
+                                | StartupProgressPhase.InstallableMaintenanceDeferredDone
+                                | StartupProgressPhase.ChartDigestBackfillDone
+                                | StartupProgressPhase.ChartInfoBackfillDone
+                                | StartupProgressPhase.ChartInfoHydrationDone
+                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
+            StartupProgressOperationKind.FullReinitialize => StartupProgressPhase.CoreInitializeStarted
+                                | StartupProgressPhase.LibraryDatabaseLoadDone
+                                | StartupProgressPhase.LibraryFileEnumerationDone
+                                | StartupProgressPhase.LibraryFileDiffDone
+                                | StartupProgressPhase.StartupReadyOperable
+                                | StartupProgressPhase.PlaylistReferenceApplied
+                                | StartupProgressPhase.ScoreHydrationDone
+                                | StartupProgressPhase.RankingRefreshDone
+                                | StartupProgressPhase.MaintenanceDeferredDone
+                                | StartupProgressPhase.InstallableMaintenanceDeferredDone
+                                | StartupProgressPhase.ChartDigestBackfillDone
+                                | StartupProgressPhase.ChartInfoBackfillDone
+                                | StartupProgressPhase.ChartInfoHydrationDone
+                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
+            StartupProgressOperationKind.ReloadFileDiff => StartupProgressPhase.CoreInitializeStarted
+                                | StartupProgressPhase.LibraryFileEnumerationDone
+                                | StartupProgressPhase.LibraryFileDiffDone
+                                | StartupProgressPhase.StartupReadyOperable
+                                | StartupProgressPhase.PlaylistReferenceApplied
+                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
+            StartupProgressOperationKind.ScoreOnly => StartupProgressPhase.CoreInitializeStarted
+                                | StartupProgressPhase.StartupReadyOperable
+                                | StartupProgressPhase.ScoreHydrationDone
+                                | StartupProgressPhase.RankingRefreshDone,
+            StartupProgressOperationKind.ReloadTables => StartupProgressPhase.CoreInitializeStarted
+                                | StartupProgressPhase.StartupReadyOperable
+                                | StartupProgressPhase.PlaylistReferenceApplied
+                                | StartupProgressPhase.ExternalPlaylistSyncDone
+                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
+            _ => StartupProgressPhase.CoreInitializeStarted | StartupProgressPhase.StartupReadyOperable,
+        };
     }
 
     private static int CountCompletedExpectedStartupProgressPhases(StartupProgressState state)
@@ -19565,7 +19396,7 @@ public class MainWindowViewModel : ViewModel
     internal static StartupProgressTestResult ReduceStartupProgressForTest(string operationKindName, params string[] actions)
     {
         StartupProgressOperationKind operationKind = ParseStartupProgressOperationKindForTest(operationKindName);
-        StartupProgressState state = new StartupProgressState
+        var state = new StartupProgressState
         {
             OperationKind = operationKind,
             IsActive = true,
@@ -19574,13 +19405,13 @@ public class MainWindowViewModel : ViewModel
         };
         int ignoredRequests = 0;
         int ignoredCompletes = 0;
-        foreach (string rawAction in actions ?? Array.Empty<string>())
+        foreach (string rawAction in actions ?? [])
         {
             if (string.IsNullOrWhiteSpace(rawAction))
             {
                 continue;
             }
-            string[] parts = rawAction.Split(new[] { ':' }, 2);
+            string[] parts = rawAction.Split([':'], 2);
             if (parts.Length != 2)
             {
                 throw new ArgumentException("Action must be formatted as verb:PhaseName.", nameof(actions));
@@ -19692,7 +19523,7 @@ public class MainWindowViewModel : ViewModel
 
     internal static int GetInitialStartupProgressExpectedCountForTest(string operationKindName)
     {
-        StartupProgressState state = new StartupProgressState
+        var state = new StartupProgressState
         {
             OperationKind = ParseStartupProgressOperationKindForTest(operationKindName),
             ExpectedPhases = GetInitialExpectedStartupProgressPhases(ParseStartupProgressOperationKindForTest(operationKindName))
@@ -19789,19 +19620,14 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private static bool ShouldTrackStartupProgressPlaylistReference(string reason, StartupProgressOperationKind operationKind)
     {
-        switch (operationKind)
+        return operationKind switch
         {
-            case StartupProgressOperationKind.Startup:
-                return string.Equals(reason, "Initialize", StringComparison.Ordinal) || string.Equals(reason, "DeferredExternalSync:Initialize", StringComparison.Ordinal);
-            case StartupProgressOperationKind.ReloadFileDiff:
-                return string.Equals(reason, "ReloadFileDiff", StringComparison.Ordinal);
-            case StartupProgressOperationKind.FullReinitialize:
-                return string.Equals(reason, "FullReinitialize", StringComparison.Ordinal);
-            case StartupProgressOperationKind.ReloadTables:
-                return string.Equals(reason, "DeferredExternalSync:ReloadTables", StringComparison.Ordinal);
-            default:
-                return false;
-        }
+            StartupProgressOperationKind.Startup => string.Equals(reason, "Initialize", StringComparison.Ordinal) || string.Equals(reason, "DeferredExternalSync:Initialize", StringComparison.Ordinal),
+            StartupProgressOperationKind.ReloadFileDiff => string.Equals(reason, "ReloadFileDiff", StringComparison.Ordinal),
+            StartupProgressOperationKind.FullReinitialize => string.Equals(reason, "FullReinitialize", StringComparison.Ordinal),
+            StartupProgressOperationKind.ReloadTables => string.Equals(reason, "DeferredExternalSync:ReloadTables", StringComparison.Ordinal),
+            _ => false,
+        };
     }
 
     /// <summary>
@@ -19809,25 +19635,22 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private static bool ShouldTrackStartupProgressExternalSync(string reason, StartupProgressOperationKind operationKind)
     {
-        switch (operationKind)
+        return operationKind switch
         {
-            case StartupProgressOperationKind.Startup:
-                return string.Equals(reason, "Initialize", StringComparison.Ordinal);
-            case StartupProgressOperationKind.ReloadTables:
-                return string.Equals(reason, "ReloadTables", StringComparison.Ordinal);
-            default:
-                return false;
-        }
+            StartupProgressOperationKind.Startup => string.Equals(reason, "Initialize", StringComparison.Ordinal),
+            StartupProgressOperationKind.ReloadTables => string.Equals(reason, "ReloadTables", StringComparison.Ordinal),
+            _ => false,
+        };
     }
 
     private List<ChartPackage> getChartPackages(ref List<BeMusicSeeker.Models.BMSFile> bmsFiles, bool isInstalled = false)
     {
         DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
-        List<BeMusicSeeker.Models.BMSFile> list = new List<BeMusicSeeker.Models.BMSFile>();
-        List<ChartPackage> list2 = new List<ChartPackage>();
+        List<BeMusicSeeker.Models.BMSFile> list = [];
+        List<ChartPackage> list2 = [];
         foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles)
         {
-            ChartPackage chartPackage = source.FirstOrDefault((ChartPackage p) => p.ChartFiles.Contains(file));
+            ChartPackage chartPackage = source.FirstOrDefault(p => p.ChartFiles.Contains(file));
             if (chartPackage == null)
             {
                 list.Add(file);
@@ -19838,7 +19661,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
         bmsFiles = list;
-        return list2.Distinct().ToList();
+        return [.. list2.Distinct()];
     }
 
     public void ForceInstallPendingPackages(IEnumerable<ChartPackage> packages)
@@ -19847,11 +19670,11 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("packages");
         }
-        List<ChartPackage> list = packages.Where((ChartPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         RunPendingInstallMutation(delegate
         {
             files.ForceInstallPendingPackages(list);
-        }, list.SelectMany((ChartPackage p) => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, list.SelectMany(p => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     public void ForceInstallPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
@@ -19860,7 +19683,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("chartFiles");
         }
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile chartFile) => chartFile != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = [.. chartFiles.Where(chartFile => chartFile != null)];
         lock (lockCopyFile)
         {
             List<ChartPackage> chartPackages = getChartPackages(ref bmsFiles2);
@@ -19874,11 +19697,11 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("packages");
         }
-        List<ChartPackage> list = packages.Where((ChartPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         RunPendingInstallMutation(delegate
         {
             files.InstallPendingPackagesToEstimatedDestinations(list);
-        }, list.SelectMany((ChartPackage p) => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, list.SelectMany(p => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     private void SetPlaylistSummaryMode(bool enabled)
@@ -19946,16 +19769,10 @@ public class MainWindowViewModel : ViewModel
 
     public void RebuildPlaylistSummaryView(bool runAsync = true)
     {
-        Action action = delegate
+        void action()
         {
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
-            int tableCount;
-            int entryScanCount;
-            int unloadedTableCount;
-            int summaryCacheHitCount;
-            int summaryCacheMissCount;
-            List<PlaylistSummaryRow> rows = BuildPlaylistSummaryRows(out playlistSummaryOwnedHashSnapshot, out tableCount, out entryScanCount, out unloadedTableCount, out summaryCacheHitCount, out summaryCacheMissCount);
+            var stopwatch = Stopwatch.StartNew();
+            List<PlaylistSummaryRow> rows = BuildPlaylistSummaryRows(out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount, out int unloadedTableCount, out int summaryCacheHitCount, out int summaryCacheMissCount);
             long buildMs = stopwatch.ElapsedMilliseconds;
             if (unloadedTableCount == 0)
             {
@@ -19966,7 +19783,7 @@ public class MainWindowViewModel : ViewModel
             LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " unloadedTableCount=" + unloadedTableCount + " entryScanCount=" + entryScanCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Hashes?.Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Hashes?.Count ?? 0) + " ownedSnapshotVersion=" + (playlistSummaryOwnedHashSnapshot?.Version ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " summaryCacheHit=false tableCacheHit=" + summaryCacheHitCount + " tableCacheMiss=" + summaryCacheMissCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
             LogMainViewBuild("playlist_summary_cache tableCount=" + tableCount + " entryScanCount=" + entryScanCount + " cacheHit=" + summaryCacheHitCount + " cacheMiss=" + summaryCacheMissCount + " elapsedMs=" + buildMs);
             ApplyPlaylistSummaryPresentation(rows, stopwatch, buildMs);
-        };
+        }
         if (!runAsync)
         {
             action();
@@ -19979,7 +19796,7 @@ public class MainWindowViewModel : ViewModel
 
     private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount, out int unloadedTableCount, out int summaryCacheHitCount, out int summaryCacheMissCount)
     {
-        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>();
+        List<PlaylistSummaryRow> rows = [];
         entryScanCount = 0;
         summaryCacheHitCount = 0;
         summaryCacheMissCount = 0;
@@ -19988,14 +19805,14 @@ public class MainWindowViewModel : ViewModel
         HashSet<string> ownedMd5Hashes = playlistSummaryOwnedHashSnapshot?.Md5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         HashSet<string> ownedSha256Hashes = playlistSummaryOwnedHashSnapshot?.Sha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int ownedSnapshotVersion = playlistSummaryOwnedHashSnapshot?.Version ?? 0;
-        List<BMSTable> tablesSnapshot = new List<BMSTable>();
+        List<BMSTable> tablesSnapshot = [];
         unloadedTableCount = 0;
         if (tables != null)
         {
             tables.AcquireReaderLockBMSTables();
             try
             {
-                tablesSnapshot = BMSTables.Where((BMSTable t) => t != null).OrderBy((BMSTable t) => t.name ?? string.Empty).ToList();
+                tablesSnapshot = [.. BMSTables.Where(t => t != null).OrderBy(t => t.name ?? string.Empty)];
             }
             finally
             {
@@ -20006,7 +19823,7 @@ public class MainWindowViewModel : ViewModel
         foreach (BMSTable table in tablesSnapshot)
         {
             bool entriesLoaded = table.ArePlaylistEntriesLoaded;
-            PlaylistSummaryCountResult countResult = new PlaylistSummaryCountResult();
+            var countResult = new PlaylistSummaryCountResult();
             string countCacheKey = entriesLoaded ? GetPlaylistSummaryTableCountCacheKey(table, ownedSnapshotVersion) : null;
             if (entriesLoaded && TryGetPlaylistSummaryTableCountCache(countCacheKey, out countResult))
             {
@@ -20071,7 +19888,7 @@ public class MainWindowViewModel : ViewModel
 
     private bool TryGetPlaylistSummaryTableCountCache(string key, out PlaylistSummaryCountResult countResult)
     {
-        countResult = default(PlaylistSummaryCountResult);
+        countResult = default;
         if (string.IsNullOrWhiteSpace(key))
         {
             return false;
@@ -20119,7 +19936,7 @@ public class MainWindowViewModel : ViewModel
 
     private void ApplyPlaylistSummaryPresentation(List<PlaylistSummaryRow> rawRows, Stopwatch stopwatch, long buildMs)
     {
-        List<PlaylistSummaryRow> safeRawRows = rawRows ?? new List<PlaylistSummaryRow>();
+        List<PlaylistSummaryRow> safeRawRows = rawRows ?? [];
         PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(safeRawRows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter, PlaylistSummarySortParameters, false);
         Action reflect = delegate
         {
@@ -20128,7 +19945,7 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows);
-            GridSummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum((PlaylistSummaryRow r) => r.TotalCharts), presentationResult.Rows.Count);
+            GridSummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum(r => r.TotalCharts), presentationResult.Rows.Count);
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
@@ -20151,8 +19968,8 @@ public class MainWindowViewModel : ViewModel
 
     internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(IEnumerable<PlaylistSummaryRow> rows, string keywordFilter, PlaylistSummaryOwnedFilterType ownedFilter, cSortParameters sortParameters, bool useLegacySort)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<PlaylistSummaryRow> filteredRows = ApplyPlaylistSummaryFilters(rows, keywordFilter, ownedFilter).ToList();
+        var stopwatch = Stopwatch.StartNew();
+        List<PlaylistSummaryRow> filteredRows = [.. ApplyPlaylistSummaryFilters(rows, keywordFilter, ownedFilter)];
         long filterElapsedMs = stopwatch.ElapsedMilliseconds;
         List<PlaylistSummaryRow> sortedRows = PlaylistSummarySortEngine.Sort(filteredRows, sortParameters, useLegacySort, out string sortProfile);
         long sortElapsedMs = stopwatch.ElapsedMilliseconds - filterElapsedMs;
@@ -20171,10 +19988,10 @@ public class MainWindowViewModel : ViewModel
 
     internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(IEnumerable<BMSTableEntry> entries, HashSet<string> ownedMd5Hashes, HashSet<string> ownedSha256Hashes)
     {
-        PlaylistSummaryCountResult result = default(PlaylistSummaryCountResult);
+        PlaylistSummaryCountResult result = default;
         HashSet<string> safeOwnedMd5Hashes = ownedMd5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         HashSet<string> safeOwnedSha256Hashes = ownedSha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSTableEntry entry in entries ?? Enumerable.Empty<BMSTableEntry>())
+        foreach (BMSTableEntry entry in entries ?? [])
         {
             result.ScannedEntries++;
             if (entry == null || entry.is_removed)
@@ -20243,14 +20060,14 @@ public class MainWindowViewModel : ViewModel
 
     internal static IEnumerable<PlaylistSummaryRow> ApplyPlaylistSummaryFilters(IEnumerable<PlaylistSummaryRow> rows, string keywordFilter, PlaylistSummaryOwnedFilterType ownedFilter)
     {
-        IEnumerable<PlaylistSummaryRow> source = rows ?? Enumerable.Empty<PlaylistSummaryRow>();
+        IEnumerable<PlaylistSummaryRow> source = rows ?? [];
         string text = (keywordFilter ?? string.Empty).Trim();
         if (!string.IsNullOrWhiteSpace(text))
         {
-            GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(text);
-            source = source.Where((PlaylistSummaryRow row) => query.MatchesPlaylistSummary(row));
+            var query = GridKeywordSearchQuery.Parse(text);
+            source = source.Where(row => query.MatchesPlaylistSummary(row));
         }
-        return source.Where((PlaylistSummaryRow row) => IsPlaylistSummaryRowMatchedOwnedFilter(row, ownedFilter));
+        return source.Where(row => IsPlaylistSummaryRowMatchedOwnedFilter(row, ownedFilter));
     }
 
     private bool IsPlaylistSummaryRowMatchedOwnedFilter(PlaylistSummaryRow row)
@@ -20264,15 +20081,12 @@ public class MainWindowViewModel : ViewModel
         {
             return false;
         }
-        switch (ownedFilter)
+        return ownedFilter switch
         {
-            case PlaylistSummaryOwnedFilterType.OwnedComplete:
-                return row.TotalCharts > 0 && row.OwnedCharts == row.TotalCharts;
-            case PlaylistSummaryOwnedFilterType.OwnedIncomplete:
-                return row.TotalCharts == 0 || row.OwnedCharts < row.TotalCharts;
-            default:
-                return true;
-        }
+            PlaylistSummaryOwnedFilterType.OwnedComplete => row.TotalCharts > 0 && row.OwnedCharts == row.TotalCharts,
+            PlaylistSummaryOwnedFilterType.OwnedIncomplete => row.TotalCharts == 0 || row.OwnedCharts < row.TotalCharts,
+            _ => true,
+        };
     }
 
     public void ApplyPlaylistSummaryFlags(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null)
@@ -20281,7 +20095,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        List<PlaylistSummaryRow> list = rows.Where((PlaylistSummaryRow r) => r?.TableRef != null).GroupBy((PlaylistSummaryRow r) => r.TableRef).Select((IGrouping<BMSTable, PlaylistSummaryRow> g) => g.First()).ToList();
+        List<PlaylistSummaryRow> list = [.. rows.Where(r => r?.TableRef != null).GroupBy(r => r.TableRef).Select(g => g.First())];
         if (list.Count == 0)
         {
             return;
@@ -20349,7 +20163,7 @@ public class MainWindowViewModel : ViewModel
         {
             return Task.CompletedTask;
         }
-        List<BMSTable> tablesToResync = rows.Where((PlaylistSummaryRow r) => r?.TableRef != null).Select((PlaylistSummaryRow r) => r.TableRef).Distinct().ToList();
+        List<BMSTable> tablesToResync = [.. rows.Where(r => r?.TableRef != null).Select(r => r.TableRef).Distinct()];
         return ResyncPlaylistsAsync(tablesToResync);
     }
 
@@ -20364,24 +20178,24 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        List<BMSTable> list = tablesToResync.Where((BMSTable t) => t != null).Distinct().Where(delegate (BMSTable item)
+        List<BMSTable> list = [.. tablesToResync.Where(t => t != null).Distinct().Where(delegate (BMSTable item)
         {
             Uri uri2 = item.Page_url ?? item.Header_url;
             return uri2 != null && uri2.IsAbsoluteUri;
-        }).ToList();
+        })];
         if (list.Count == 0)
         {
             return;
         }
         PlaylistReloadOperationKind playlistReloadOperationKind = (list.Count > 1) ? PlaylistReloadOperationKind.ManualFullReload : PlaylistReloadOperationKind.SinglePlaylistReload;
-        Stopwatch playlistReloadStopwatch = Stopwatch.StartNew();
+        var playlistReloadStopwatch = Stopwatch.StartNew();
         BeginPlaylistSyncProgressOperation();
         try
         {
             LogPlaylistReload("playlist_reload_operation started operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count);
             List<BMSPlaylist.PlaylistReloadTargetResult> results = await tables.ReloadPlaylistTargetsAsync(
                 list,
-                new List<Action<BMSPlaylist.PlaylistTableUpdateContext>> { CreatePlaylistReferenceReplaceUpdateCallback() },
+                [CreatePlaylistReferenceReplaceUpdateCallback()],
                 delegate (PlaylistSyncAttemptResult result)
                 {
                     if (result == null)
@@ -20414,7 +20228,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("chartFiles");
         }
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile chartFile) => chartFile != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = [.. chartFiles.Where(chartFile => chartFile != null)];
         lock (lockCopyFile)
         {
             List<ChartPackage> chartPackages = getChartPackages(ref bmsFiles2);
@@ -20448,7 +20262,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("chartFiles");
         }
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = [.. chartFiles.Where(f => f != null)];
         List<ChartPackage> chartPackages = getChartPackages(ref bmsFiles2);
         RemovePendingPackages(chartPackages);
     }
@@ -20457,7 +20271,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (files == null)
         {
-            return new List<ChartPackage>();
+            return [];
         }
         lock (lockCopyFile)
         {
@@ -20469,7 +20283,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (files == null)
         {
-            return new List<BeMusicSeeker.Models.BMSFile>();
+            return [];
         }
         lock (lockCopyFile)
         {
@@ -20477,7 +20291,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void DeletePendingPackageSources(IEnumerable<ChartPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    public void DeletePendingPackageSources(IEnumerable<ChartPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default, Action onEachProcessed = null)
     {
         if (packages == null)
         {
@@ -20489,32 +20303,29 @@ public class MainWindowViewModel : ViewModel
         });
     }
 
-    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> targetFiles, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> targetFiles, CancellationToken token = default, Action onEachProcessed = null)
     {
-        List<BeMusicSeeker.Models.BMSFile> list = ((targetFiles != null) ? targetFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList() : GetPendingBmsFormatChartFilesSnapshot());
+        List<BeMusicSeeker.Models.BMSFile> list = ((targetFiles != null) ? [.. targetFiles.Where(f => f != null)] : GetPendingBmsFormatChartFilesSnapshot());
         RunPendingInstallMutation(delegate
         {
             files.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(list, token, onEachProcessed);
         }, list);
     }
 
-    public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
     {
         if (packages == null)
         {
             throw new ArgumentNullException("packages");
         }
-        List<ChartPackage> list = packages.Where((ChartPackage pkg) => pkg != null).ToList();
-        List<BeMusicSeeker.Models.BMSFile> list2 = list.SelectMany((ChartPackage pkg) => pkg.ChartFiles ?? new List<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+        List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
+        List<BeMusicSeeker.Models.BMSFile> list2 = [.. list.SelectMany(pkg => pkg.ChartFiles ?? []).Where(f => f != null)];
         return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), list2);
     }
 
     public void RemoveInstalledPackageRecordsAll()
     {
-        if (files != null)
-        {
-            files.RemoveInstalledPackageRecordsAll();
-        }
+        files?.RemoveInstalledPackageRecordsAll();
     }
 
     public void RemoveInstalledPackageRecords(IEnumerable<ChartPackage> packages)
@@ -20535,7 +20346,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("bmsFiles");
         }
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = [.. bmsFiles.Where(f => f != null)];
         List<ChartPackage> chartPackages = getChartPackages(ref bmsFiles2, isInstalled: true);
         RemoveInstalledPackageRecords(chartPackages);
     }
@@ -20561,7 +20372,7 @@ public class MainWindowViewModel : ViewModel
             {
                 throw new ArgumentNullException("packages");
             }
-            List<ChartPackage> list = packages.Where((ChartPackage f) => f != null).ToList();
+            List<ChartPackage> list = [.. packages.Where(f => f != null)];
             for (int num = 0; num < list.Count; num++)
             {
                 files.RemoveInstallDestination(list[num].ChartFiles);
@@ -20583,7 +20394,7 @@ public class MainWindowViewModel : ViewModel
             {
                 throw new ArgumentNullException("chartFiles");
             }
-            List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = [.. chartFiles.Where(f => f != null)];
             List<ChartPackage> chartPackages = getChartPackages(ref bmsFiles2);
             for (int num = 0; num < chartPackages.Count; num++)
             {
@@ -20650,7 +20461,7 @@ public class MainWindowViewModel : ViewModel
 
     private async Task DrainExternalPlaylistImportQueueAsync()
     {
-        List<ExternalPlaylistImportOutcome> outcomes = new List<ExternalPlaylistImportOutcome>();
+        List<ExternalPlaylistImportOutcome> outcomes = [];
         int completedCount = 0;
         BeginPlaylistSyncProgressOperation();
         try
@@ -20747,7 +20558,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        StringBuilder message = new StringBuilder();
+        var message = new StringBuilder();
         message.AppendFormat(
             BeMusicSeeker.Properties.Resources.Playlist_import_result_summary_format,
             summary.ImportedCount,
@@ -20836,7 +20647,7 @@ public class MainWindowViewModel : ViewModel
         {
             return PlaylistSyncStatusMapper.CreateNone();
         }
-        if (snapshot.TryGetValue(playlistSyncStatusKey, out var value) && value != null)
+        if (snapshot.TryGetValue(playlistSyncStatusKey, out PlaylistSyncRuntimeStatus value) && value != null)
         {
             return value;
         }
@@ -20946,10 +20757,7 @@ public class MainWindowViewModel : ViewModel
 
     internal void AddChartRowsToFolderBMSTable(IEnumerable<object> rows, BMSTable bmsTable, string folderName = "")
     {
-        if (folderName == null)
-        {
-            folderName = string.Empty;
-        }
+        folderName ??= string.Empty;
         if (rows == null)
         {
             throw new ArgumentNullException(nameof(rows));
@@ -20960,22 +20768,22 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         tables.EnsurePlaylistEntriesLoaded(bmsTable, "MainWindowViewModel.AddChartRowsToFolderBMSTable");
-        List<object> sourceRows = rows.Where((object row) => row != null).ToList();
+        List<object> sourceRows = [.. rows.Where(row => row != null)];
         if (sourceRows.Count == 0)
         {
             return;
         }
         if (sourceRows.All(GridRowResolver.IsPlaylistRow))
         {
-            List<BMSTableEntry> list = sourceRows.Select(GridRowResolver.GetPlaylistEntry).Where((BMSTableEntry entry) => entry != null && entry.parent == bmsTable).ToList();
-            List<BMSTableEntry> second = list.Where((BMSTableEntry entry) => string.Equals(entry.folder ?? string.Empty, folderName, StringComparison.Ordinal)).ToList();
+            List<BMSTableEntry> list = [.. sourceRows.Select(GridRowResolver.GetPlaylistEntry).Where(entry => entry != null && entry.parent == bmsTable)];
+            List<BMSTableEntry> second = [.. list.Where(entry => string.Equals(entry.folder ?? string.Empty, folderName, StringComparison.Ordinal))];
             if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
             {
                 tables.RemoveEntriesBMSTable(list, bmsTable, commitFlag: false);
             }
             else
             {
-                sourceRows = sourceRows.Where((object row) => !second.Contains(GridRowResolver.GetPlaylistEntry(row))).ToList();
+                sourceRows = [.. sourceRows.Where(row => !second.Contains(GridRowResolver.GetPlaylistEntry(row)))];
                 if (sourceRows.Count == 0)
                 {
                     return;
@@ -20983,17 +20791,17 @@ public class MainWindowViewModel : ViewModel
                 tables.RemoveEntriesBMSTable(list.Except(second), bmsTable, commitFlag: false);
             }
         }
-        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(ResolvePlaylistDropChartAdapter).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = [.. sourceRows.Select(ResolvePlaylistDropChartAdapter).Where(file => file != null)];
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
-            List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null).ToList();
-            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChartAdapter).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
-            tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
+            List<object> playlistEntryRows = [.. sourceRows.Where(row => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null)];
+            List<BeMusicSeeker.Models.BMSFile> source = [.. sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChartAdapter).Where(file => file != null)];
+            tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where(entry => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
                 return;
             }
-            foreach (IGrouping<string, BeMusicSeeker.Models.BMSFile> item in source.GroupBy((BeMusicSeeker.Models.BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path), StringComparer.OrdinalIgnoreCase).ToList())
+            foreach (IGrouping<string, BeMusicSeeker.Models.BMSFile> item in source.GroupBy(f => DirectoryExt.GetDirectoryNameSimple(f.path), StringComparer.OrdinalIgnoreCase).ToList())
             {
                 List<string> md5sInTheSameDir = null;
                 foreach (BeMusicSeeker.Models.BMSFile item2 in item)
@@ -21008,25 +20816,22 @@ public class MainWindowViewModel : ViewModel
                         break;
                     }
                 }
-                if (md5sInTheSameDir == null)
-                {
-                    md5sInTheSameDir = new List<string>();
-                }
+                md5sInTheSameDir ??= [];
                 string text = null;
                 if (md5sInTheSameDir.Count > 0)
                 {
-                    text = bmsTable.folder_list.Where((string folder) => !string.IsNullOrWhiteSpace(folder)).FirstOrDefault((string folder) => (from e in bmsTable.entries
+                    text = bmsTable.folder_list.Where(folder => !string.IsNullOrWhiteSpace(folder)).FirstOrDefault(folder => (from e in bmsTable.entries
                                                                                                                                                 where e.folder == folder
                                                                                                                                                 select e.md5).ToList().Intersect(md5sInTheSameDir, StringComparer.OrdinalIgnoreCase).Any());
                 }
                 if (string.IsNullOrWhiteSpace(text))
                 {
-                    text = BMSLibrary.GetLCSBMSInfo(item.Select((BeMusicSeeker.Models.BMSFile f) => f.Title));
+                    text = BMSLibrary.GetLCSBMSInfo(item.Select(f => f.Title));
                     text = tables.CreateNewFolderBMSTable(bmsTable, text, commitFlag: false);
                 }
-                tables.AddPlaylistEntriesToFolderBMSTable(item.Select((BeMusicSeeker.Models.BMSFile f) => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
+                tables.AddPlaylistEntriesToFolderBMSTable(item.Select(f => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
                 {
-                    Org_md5 = PendingChartEntry.IsBmsonChartFile(f) ? new List<string>() : md5sInTheSameDir
+                    Org_md5 = PendingChartEntry.IsBmsonChartFile(f) ? [] : md5sInTheSameDir
                 }), bmsTable, text, commitFlag: false);
             }
         }
@@ -21069,7 +20874,7 @@ public class MainWindowViewModel : ViewModel
             return null;
         }
         return PendingChartEntry.IsBmsonChartFile(file)
-            ? new List<string>()
+            ? []
             : files.GetMD5sOfTheSameSong(file);
     }
 
@@ -21167,7 +20972,7 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         string lines = File.ReadAllText(fileName, Encoding.UTF8);
-        Action action = delegate
+        void action()
         {
             try
             {
@@ -21184,7 +20989,7 @@ public class MainWindowViewModel : ViewModel
             {
                 base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             }
-        };
+        }
         if (System.Windows.Application.Current.Dispatcher.CheckAccess())
         {
             action();
@@ -21208,19 +21013,17 @@ public class MainWindowViewModel : ViewModel
         }
         try
         {
-            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(Settings.Default.LR2SongDBPath))
+            using var lR2SongDBExtended = new LR2SongDBExtended(Settings.Default.LR2SongDBPath);
+            string savepoint = lR2SongDBExtended.SaveTransactionPoint();
+            try
             {
-                string savepoint = lR2SongDBExtended.SaveTransactionPoint();
-                try
-                {
-                    lR2SongDBExtended.Uninstall();
-                    lR2SongDBExtended.Commit();
-                }
-                catch (Exception)
-                {
-                    lR2SongDBExtended.RollbackTo(savepoint);
-                    throw;
-                }
+                lR2SongDBExtended.Uninstall();
+                lR2SongDBExtended.Commit();
+            }
+            catch (Exception)
+            {
+                lR2SongDBExtended.RollbackTo(savepoint);
+                throw;
             }
         }
         finally
@@ -21265,10 +21068,10 @@ public class MainWindowViewModel : ViewModel
 
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)
     {
-        List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary).ToList();
+        List<LibraryChartRef> charts = [.. ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary)];
         if (charts.Count == 0)
         {
-            return new List<string>();
+            return [];
         }
         lock (lockCopyFile)
         {
@@ -21278,14 +21081,14 @@ public class MainWindowViewModel : ViewModel
 
     internal void RemoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, IEnumerable<string> approvedWholeFolderDeletePaths = null)
     {
-        List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary).ToList();
+        List<LibraryChartRef> charts = [.. ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary)];
         if (charts.Count == 0)
         {
             return;
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null).Select((LibraryChartRef chart) => chart.CompatibilityBmsFile));
+            stopPlayingBMSFile(charts.Where(chart => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null).Select(chart => chart.CompatibilityBmsFile));
             files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
     }
@@ -21293,10 +21096,10 @@ public class MainWindowViewModel : ViewModel
     internal void RemovePendingCharts(IEnumerable<ChartOperationTarget> targets, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
         RemovePendingCharts(
-            (targets ?? Enumerable.Empty<ChartOperationTarget>())
-            .Where((ChartOperationTarget target) => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
+            (targets ?? [])
+            .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
             .Select(ToCompatibilityBmsFile)
-            .Where((BeMusicSeeker.Models.BMSFile file) => file != null),
+            .Where(file => file != null),
             sendToRecycleBin,
             deleteContainingPackageFoldersWhenNoBms);
     }
@@ -21369,11 +21172,9 @@ public class MainWindowViewModel : ViewModel
             PlayEndBMSFile(closeProcess: true);
             if (!string.IsNullOrWhiteSpace(parentDir))
             {
-                enumerable = enumerable.Where((BeMusicSeeker.Models.BMSFile f) => f.path.StartsWith(parentDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                enumerable = enumerable.Where(f => f.path.StartsWith(parentDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             }
-            List<BeMusicSeeker.Models.BMSFile> targetCharts = enumerable
-                .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
-                .ToList();
+            List<BeMusicSeeker.Models.BMSFile> targetCharts = [.. enumerable.Where(file => file != null)];
             if (targetCharts.Count == 0)
             {
                 return;
@@ -21385,20 +21186,16 @@ public class MainWindowViewModel : ViewModel
 
     private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()
     {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = (BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
-            .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
-            .ToList();
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = [.. (BMSFiles ?? []).Where(file => file != null)];
         chartFiles.AddRange((files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             .Select(PendingChartEntry.CreateFromBmsonSong)
-            .Where((PendingChartEntry entry) => entry != null));
+            .Where(entry => entry != null));
         return chartFiles;
     }
 
     public void AutoRenameChartFolders(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFilesSource)
     {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = (chartFilesSource ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
-            .Where((BeMusicSeeker.Models.BMSFile file) => file != null)
-            .ToList();
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = [.. (chartFilesSource ?? []).Where(file => file != null)];
         if (chartFiles.Count == 0)
         {
             return;
@@ -21413,16 +21210,14 @@ public class MainWindowViewModel : ViewModel
 
     internal void MoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, string newParentDirectory)
     {
-        List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.MoveInLibrary)
-            .Where((LibraryChartRef chart) => !string.IsNullOrWhiteSpace(chart.Path))
-            .ToList();
+        List<LibraryChartRef> charts = [.. ToLibraryChartRefs(targets, ChartOperationCapabilities.MoveInLibrary).Where(chart => !string.IsNullOrWhiteSpace(chart.Path))];
         if (charts.Count == 0 || string.IsNullOrWhiteSpace(newParentDirectory))
         {
             return;
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null).Select((LibraryChartRef chart) => chart.CompatibilityBmsFile));
+            stopPlayingBMSFile(charts.Where(chart => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null).Select(chart => chart.CompatibilityBmsFile));
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
@@ -21430,10 +21225,10 @@ public class MainWindowViewModel : ViewModel
 
     private static IEnumerable<LibraryChartRef> ToLibraryChartRefs(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)
     {
-        return (targets ?? Enumerable.Empty<ChartOperationTarget>())
-            .Where((ChartOperationTarget target) => target != null && target.HasCapability(requiredCapability))
+        return (targets ?? [])
+            .Where(target => target != null && target.HasCapability(requiredCapability))
             .Select(ToLibraryChartRef)
-            .Where((LibraryChartRef chart) => chart != null);
+            .Where(chart => chart != null);
     }
 
     private static BeMusicSeeker.Models.BMSFile ToCompatibilityBmsFile(ChartOperationTarget target)
@@ -21477,7 +21272,7 @@ public class MainWindowViewModel : ViewModel
             }
             try
             {
-                List<string> normalizedHashes = hashes.Where((string hash) => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                List<string> normalizedHashes = [.. hashes.Where(hash => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase)];
                 if (normalizedHashes.Count == 0)
                 {
                     return;
@@ -21485,7 +21280,7 @@ public class MainWindowViewModel : ViewModel
                 List<BMSLibrary.IRDataCacheInfo> iRDataNeedUpdates = files.GetIRDataNeedUpdates(normalizedHashes);
                 if (iRDataNeedUpdates.Count > 0)
                 {
-                    if (DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Download + ": " + iRDataNeedUpdates.Count + Environment.NewLine + BeMusicSeeker.Properties.Resources.Skip + ": " + (normalizedHashes.Count - iRDataNeedUpdates.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Size + ": " + FileSizeHelper.GetReadableFileSize(iRDataNeedUpdates.Select((BMSLibrary.IRDataCacheInfo c) => c.size).Sum()), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk, MessageBoxResult.OK) == MessageBoxResult.OK)
+                    if (DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Download + ": " + iRDataNeedUpdates.Count + Environment.NewLine + BeMusicSeeker.Properties.Resources.Skip + ": " + (normalizedHashes.Count - iRDataNeedUpdates.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Size + ": " + FileSizeHelper.GetReadableFileSize(iRDataNeedUpdates.Select(c => c.size).Sum()), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk, MessageBoxResult.OK) == MessageBoxResult.OK)
                     {
                         List<BMSLibrary.IRDataCacheInfo> list = files.DownloadIRData(iRDataNeedUpdates);
                         DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_completed + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (iRDataNeedUpdates.Count - list.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + list.Count, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
@@ -21605,7 +21400,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(targets));
         }
-        List<ScoreViewerTarget> normalizedTargets = targets.Where((ScoreViewerTarget target) => target != null && !string.IsNullOrWhiteSpace(target.Hash)).ToList();
+        List<ScoreViewerTarget> normalizedTargets = [.. targets.Where(target => target != null && !string.IsNullOrWhiteSpace(target.Hash))];
         if (normalizedTargets.Count == 0)
         {
             return null;
@@ -21615,7 +21410,7 @@ public class MainWindowViewModel : ViewModel
         string resultViewUrl = null;
         if (normalizedTargets.Count > 1)
         {
-            ConfirmationMessage confirmationMessage = new ConfirmationMessage(
+            var confirmationMessage = new ConfirmationMessage(
                 BeMusicSeeker.Properties.Resources.Msg_register_chart + Environment.NewLine + Environment.NewLine + normalizedTargets.Count + " " + BeMusicSeeker.Properties.Resources.Num_chart,
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxImage.Asterisk,
@@ -21653,7 +21448,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)
                 {
-                    ConfirmationMessage uploadConfirmMessage = new ConfirmationMessage(
+                    var uploadConfirmMessage = new ConfirmationMessage(
                         BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine + (target.Title ?? string.Empty) + Environment.NewLine + "MD5: " + currentFileHash + Environment.NewLine + Environment.NewLine + "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")",
                         BeMusicSeeker.Properties.Resources.Confirm,
                         MessageBoxImage.Asterisk,
@@ -21692,7 +21487,7 @@ public class MainWindowViewModel : ViewModel
         return resultViewUrl;
     }
 
-    public void ConvertBMSToAudioFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string saveDir, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null)
+    public void ConvertBMSToAudioFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string saveDir, CancellationToken token = default, Action<bool> onEachCompleted = null)
     {
         if (!Directory.Exists(saveDir))
         {
@@ -21716,7 +21511,7 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 num++;
-                Ribbit.BMS.BMSFile bMSFile = new Ribbit.BMS.BMSFile(bmsFile.path);
+                var bMSFile = new Ribbit.BMS.BMSFile(bmsFile.path);
                 string text = new Dictionary<string, string>
                 {
                     {
@@ -21740,7 +21535,7 @@ public class MainWindowViewModel : ViewModel
                         Path.GetFileName(bmsFile.path)
                     },
                     { "%HASH%", bMSFile.Md5 }
-                }.Aggregate(Settings.Default.EncodeFileNameFormat, (string i, KeyValuePair<string, string> r) => i.Replace(r.Key, r.Value)).NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide()
+                }.Aggregate(Settings.Default.EncodeFileNameFormat, (i, r) => i.Replace(r.Key, r.Value)).NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide()
                     .RemoveInvalidFileNameChars()
                     .Trim();
                 if (string.IsNullOrWhiteSpace(text))

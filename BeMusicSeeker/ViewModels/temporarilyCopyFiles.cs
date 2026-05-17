@@ -12,11 +12,11 @@ namespace BeMusicSeeker.ViewModels;
 
 internal class temporarilyCopyFiles : IDisposable
 {
-    private int sleep;
+    private readonly int sleep;
 
-    private List<string> copiedFilesSrc = new List<string>();
+    private readonly List<string> copiedFilesSrc = [];
 
-    private List<string> copiedFilesDst = new List<string>();
+    private readonly List<string> copiedFilesDst = [];
 
     public void Dispose()
     {
@@ -61,7 +61,7 @@ internal class temporarilyCopyFiles : IDisposable
         {
             throw new ArgumentNullException("dstDir");
         }
-        if (!srcFiles.All((string file) => File.Exists(file) || Directory.Exists(file)))
+        if (!srcFiles.All(file => File.Exists(file) || Directory.Exists(file)))
         {
             throw new ArgumentException("srcFiles");
         }
@@ -73,11 +73,11 @@ internal class temporarilyCopyFiles : IDisposable
         {
             sleep = wait;
         }
-        copiedFilesSrc = srcFiles.Where(delegate (string file)
+        copiedFilesSrc = [.. srcFiles.Where(delegate (string file)
         {
             string path = Path.Combine(dstDir, Path.GetFileName(file));
             return !File.Exists(path) && !Directory.Exists(path);
-        }).ToList();
+        })];
         try
         {
             copiedFilesSrc.AsParallel().ForAll(delegate (string srcFile)
@@ -109,7 +109,7 @@ internal class temporarilyCopyFiles : IDisposable
         catch
         {
             Dispose();
-            copiedFilesDst = new List<string>();
+            copiedFilesDst = [];
         }
     }
 

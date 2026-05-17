@@ -17,7 +17,7 @@ internal sealed class PlaylistDetailVirtualView : IList, IChartListViewMetadata
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         int distinctFolderCount = -1)
     {
-        this.sourceRows = sourceRows ?? Array.Empty<PlaylistDetailSourceRow>();
+        this.sourceRows = sourceRows ?? [];
         realizedRows = new PlaylistDetailRow[this.sourceRows.Count];
         this.distinctFolderCount = distinctFolderCount;
     }

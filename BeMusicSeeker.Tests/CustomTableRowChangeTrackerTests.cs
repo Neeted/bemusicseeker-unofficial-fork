@@ -15,10 +15,10 @@ public sealed class CustomTableRowChangeTrackerTests
     public void ReplaceVisibleRows_OnlyTracksVisibleRows()
     {
         int changedCount = 0;
-        TestRow row0 = new TestRow();
-        TestRow row1 = new TestRow();
-        TestRow row2 = new TestRow();
-        CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
+        var row0 = new TestRow();
+        var row1 = new TestRow();
+        var row2 = new TestRow();
+        var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
 
         tracker.ReplaceVisibleRows(new object[] { row0, row1, row2 }, 1, 1);
         row0.RaiseChanged();
@@ -33,11 +33,11 @@ public sealed class CustomTableRowChangeTrackerTests
     public void ReplaceVisibleRows_ScrollsSubscriptions()
     {
         int changedCount = 0;
-        TestRow row1 = new TestRow();
-        TestRow row2 = new TestRow();
-        TestRow row3 = new TestRow();
-        object[] rows = { row1, row2, row3 };
-        CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
+        var row1 = new TestRow();
+        var row2 = new TestRow();
+        var row3 = new TestRow();
+        object[] rows = [row1, row2, row3];
+        var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
 
         tracker.ReplaceVisibleRows(rows, 0, 2);
         tracker.ReplaceVisibleRows(rows, 1, 2);
@@ -54,11 +54,11 @@ public sealed class CustomTableRowChangeTrackerTests
     public void ReplaceVisibleRows_RebuildsSubscriptionsAndIgnoresNonNotifyRows()
     {
         int changedCount = 0;
-        TestRow oldRow = new TestRow();
-        TestRow newRow = new TestRow();
-        object plainRow = new object();
-        object[] rows = { newRow, plainRow };
-        CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
+        var oldRow = new TestRow();
+        var newRow = new TestRow();
+        object plainRow = new();
+        object[] rows = [newRow, plainRow];
+        var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
         tracker.ReplaceVisibleRows(new object[] { oldRow }, 0, 1);
 
         tracker.ReplaceVisibleRows(rows, 0, 2);
@@ -73,9 +73,9 @@ public sealed class CustomTableRowChangeTrackerTests
     public void ReplaceVisibleRows_TracksDuplicateRowReferencesWithReferenceCount()
     {
         int changedCount = 0;
-        TestRow duplicatedRow = new TestRow();
-        TestRow otherRow = new TestRow();
-        CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
+        var duplicatedRow = new TestRow();
+        var otherRow = new TestRow();
+        var tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
 
         tracker.ReplaceVisibleRows(new object[] { duplicatedRow, duplicatedRow, otherRow }, 0, 2);
         tracker.ReplaceVisibleRows(new object[] { duplicatedRow, duplicatedRow, otherRow }, 1, 2);
@@ -93,7 +93,7 @@ public sealed class CustomTableRowChangeTrackerTests
         RunOnSta(delegate
         {
             int redrawCount = 0;
-            CustomTableRedrawScheduler scheduler = new CustomTableRedrawScheduler(
+            var scheduler = new CustomTableRedrawScheduler(
                 Dispatcher.CurrentDispatcher,
                 delegate { redrawCount++; });
 
@@ -123,11 +123,11 @@ public sealed class CustomTableRowChangeTrackerTests
         {
             int dispatcherThreadId = Thread.CurrentThread.ManagedThreadId;
             int actionThreadId = -1;
-            CustomTableRedrawScheduler scheduler = new CustomTableRedrawScheduler(
+            var scheduler = new CustomTableRedrawScheduler(
                 Dispatcher.CurrentDispatcher,
                 delegate { actionThreadId = Thread.CurrentThread.ManagedThreadId; });
 
-            Thread worker = new Thread((ThreadStart)delegate
+            var worker = new Thread((ThreadStart)delegate
             {
                 scheduler.Request();
                 scheduler.Request();
@@ -147,9 +147,9 @@ public sealed class CustomTableRowChangeTrackerTests
     [TestMethod]
     public void RowInvalidationQueue_CoalescesDuplicateRowsUntilDrain()
     {
-        CustomTableRowInvalidationQueue queue = new CustomTableRowInvalidationQueue();
-        object row = new object();
-        object otherRow = new object();
+        var queue = new CustomTableRowInvalidationQueue();
+        object row = new();
+        object otherRow = new();
 
         Assert.IsTrue(queue.Enqueue(row));
         Assert.IsFalse(queue.Enqueue(row));
@@ -166,7 +166,7 @@ public sealed class CustomTableRowChangeTrackerTests
 
     private static void DrainDispatcher()
     {
-        DispatcherFrame frame = new DispatcherFrame();
+        var frame = new DispatcherFrame();
         Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
         {
             frame.Continue = false;
@@ -177,7 +177,7 @@ public sealed class CustomTableRowChangeTrackerTests
     private static void RunOnSta(Action action)
     {
         Exception exception = null!;
-        Thread thread = new Thread(delegate ()
+        var thread = new Thread(delegate ()
         {
             try
             {

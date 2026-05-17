@@ -17,7 +17,7 @@ internal class dateTimeToDateStringConverter : IValueConverter
         // HasValue なら日付文字列を返し、そうでなければ空文字列を返す。
         if (value is DateTime || value is DateTime?)
         {
-            DateTime? dateTime = value as DateTime?;
+            var dateTime = value as DateTime?;
             if (dateTime.HasValue)
             {
                 return dateTime.Value.ToShortDateString();

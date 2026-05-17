@@ -89,9 +89,9 @@ public static class NLogWrapper
 
     public static void SetMinLogLevel(this Target target, LogLevel minlevel)
     {
-        foreach (LoggingRule item in LogManager.Configuration?.LoggingRules?.Where((LoggingRule r) => r.Targets.Contains(target)))
+        foreach (LoggingRule item in LogManager.Configuration?.LoggingRules?.Where(r => r.Targets.Contains(target)))
         {
-            foreach (LogLevel item2 in LogLevel.AllLoggingLevels.Where((LogLevel l) => l < minlevel))
+            foreach (LogLevel item2 in LogLevel.AllLoggingLevels.Where(l => l < minlevel))
             {
                 item.DisableLoggingForLevel(item2);
             }
@@ -101,9 +101,9 @@ public static class NLogWrapper
 
     public static void SetDefaultConfigurationMinLogLevel(LogLevel minlevel)
     {
-        foreach (LoggingRule item in LogManager.Configuration?.LoggingRules?.Where((LoggingRule r) => r.LoggerNamePattern == "*"))
+        foreach (LoggingRule item in LogManager.Configuration?.LoggingRules?.Where(r => r.LoggerNamePattern == "*"))
         {
-            foreach (LogLevel item2 in LogLevel.AllLoggingLevels.Where((LogLevel l) => l < minlevel))
+            foreach (LogLevel item2 in LogLevel.AllLoggingLevels.Where(l => l < minlevel))
             {
                 item.DisableLoggingForLevel(item2);
             }
@@ -228,11 +228,8 @@ public static class NLogWrapper
         {
             target.Layout = DefaultLayout;
         }
-        if (target.Name == null)
-        {
-            target.Name = target.GetType().ToString();
-        }
-        if (!(target is DebuggerTarget))
+        target.Name ??= target.GetType().ToString();
+        if (target is not NLog.Targets.DebuggerTarget)
         {
             if (asDefault)
             {

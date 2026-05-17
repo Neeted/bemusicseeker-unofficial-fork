@@ -9,7 +9,7 @@ public sealed class StartupInstallReadinessStateTests
     [TestMethod]
     public void CanStartInstallEstimation_RequiresCatalogResourceIndexAndPendingPackages()
     {
-        StartupInstallReadinessState state = new StartupInstallReadinessState();
+        var state = new StartupInstallReadinessState();
 
         Assert.IsFalse(state.CanStartInstallEstimation());
         Assert.AreEqual("catalog,resource_index,pending_packages", state.GetInstallEstimationBlockedReason());
@@ -30,7 +30,7 @@ public sealed class StartupInstallReadinessStateTests
     [TestMethod]
     public void TryMarkInstallEstimationReady_CompletesOnlyOnceAfterPrerequisites()
     {
-        StartupInstallReadinessState state = new StartupInstallReadinessState();
+        var state = new StartupInstallReadinessState();
 
         Assert.IsFalse(state.TryMarkInstallEstimationReady());
         Assert.IsFalse(state.InstallEstimationReady);
@@ -47,7 +47,7 @@ public sealed class StartupInstallReadinessStateTests
     [TestMethod]
     public void TryMarkInstallReady_CompletesOnlyOnceAfterInstallEstimationReady()
     {
-        StartupInstallReadinessState state = new StartupInstallReadinessState();
+        var state = new StartupInstallReadinessState();
 
         Assert.IsFalse(state.TryMarkInstallReady());
         Assert.IsFalse(state.InstallReady);
@@ -65,7 +65,7 @@ public sealed class StartupInstallReadinessStateTests
     [TestMethod]
     public void Reset_ClearsAllReadinessTokens()
     {
-        StartupInstallReadinessState state = new StartupInstallReadinessState();
+        var state = new StartupInstallReadinessState();
         state.MarkCatalogLoaded();
         state.MarkDestinationResourceIndexReady();
         state.MarkPendingPackagesRestored();

@@ -13,7 +13,7 @@ public sealed class PlaylistSyncAttemptResultTests
     [TestMethod]
     public void CreateFailure_ClassifiesHeaderUrlNotFound()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/table.html"), new PlaylistHeaderUriNotFoundException(new Uri("https://example.com/table.html")));
+        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/table.html"), new PlaylistHeaderUriNotFoundException(new Uri("https://example.com/table.html")));
 
         Assert.AreEqual(PlaylistSyncStatusKind.HeaderNotFound, result.FailureKind);
     }
@@ -21,7 +21,7 @@ public sealed class PlaylistSyncAttemptResultTests
     [TestMethod]
     public void CreateFailure_ClassifiesHeaderParse()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new ArgumentException("header", "_header_json"));
+        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new ArgumentException("header", "_header_json"));
 
         Assert.AreEqual(PlaylistSyncStatusKind.HeaderParseError, result.FailureKind);
     }
@@ -29,7 +29,7 @@ public sealed class PlaylistSyncAttemptResultTests
     [TestMethod]
     public void CreateFailure_ClassifiesHeaderParseException()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new PlaylistHeaderParseException("header", new FormatException("bad json")));
+        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new PlaylistHeaderParseException("header", new FormatException("bad json")));
 
         Assert.AreEqual(PlaylistSyncStatusKind.HeaderParseError, result.FailureKind);
         StringAssert.Contains(result.Detail, "bad json");
@@ -38,7 +38,7 @@ public sealed class PlaylistSyncAttemptResultTests
     [TestMethod]
     public void CreateFailure_ClassifiesDataParse()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/score.json"), new ArgumentException("data", "_data_json"));
+        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/score.json"), new ArgumentException("data", "_data_json"));
 
         Assert.AreEqual(PlaylistSyncStatusKind.DataParseError, result.FailureKind);
     }
@@ -46,7 +46,7 @@ public sealed class PlaylistSyncAttemptResultTests
     [TestMethod]
     public void CreateFailure_ClassifiesDataParseException()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/score.json"), new PlaylistDataParseException("data", new FormatException("bad data")));
+        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/score.json"), new PlaylistDataParseException("data", new FormatException("bad data")));
 
         Assert.AreEqual(PlaylistSyncStatusKind.DataParseError, result.FailureKind);
         StringAssert.Contains(result.Detail, "bad data");
@@ -55,7 +55,7 @@ public sealed class PlaylistSyncAttemptResultTests
     [TestMethod]
     public void CreateFailure_ClassifiesInvalidDataUrl()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new InvalidOperationException("Failed to resolve playlist data_url. rawDataUrl=./score.json"));
+        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new InvalidOperationException("Failed to resolve playlist data_url. rawDataUrl=./score.json"));
 
         Assert.AreEqual(PlaylistSyncStatusKind.InvalidDataUrl, result.FailureKind);
     }

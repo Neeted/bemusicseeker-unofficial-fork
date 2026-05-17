@@ -14,7 +14,7 @@ internal sealed class ChartDeleteTargetResolution
 {
     internal ChartDeleteRoute Route { get; set; }
 
-    internal List<ChartOperationTarget> Targets { get; } = new List<ChartOperationTarget>();
+    internal List<ChartOperationTarget> Targets { get; } = [];
 
     internal bool UsedContextFallback { get; set; }
 
@@ -32,10 +32,8 @@ internal static class ChartDeleteTargetResolver
         ChartOperationTarget contextTarget,
         MainWindowViewModel.MainViewOperationSection currentSection)
     {
-        List<ChartOperationTarget> selected = (selectedTargets ?? Enumerable.Empty<ChartOperationTarget>())
-            .Where(IsDeleteCandidate)
-            .ToList();
-        ChartDeleteTargetResolution result = new ChartDeleteTargetResolution
+        List<ChartOperationTarget> selected = [.. (selectedTargets ?? []).Where(IsDeleteCandidate)];
+        var result = new ChartDeleteTargetResolution
         {
             SelectedInputCount = selected.Count,
             ContextScope = contextTarget?.SourceScope
@@ -44,7 +42,7 @@ internal static class ChartDeleteTargetResolver
         List<ChartOperationTarget> candidates = selected;
         if (candidates.Count == 0 && IsDeleteCandidate(contextTarget))
         {
-            candidates = new List<ChartOperationTarget> { contextTarget };
+            candidates = [contextTarget];
             result.UsedContextFallback = true;
         }
 

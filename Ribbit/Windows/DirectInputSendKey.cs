@@ -79,7 +79,7 @@ public static class DirectInputSendKey
 
     public static void SendKey(short DIK, KEYEVENTF KeyUporDown, short VK = 0)
     {
-        INPUT[] array = new INPUT[1];
+        var array = new INPUT[1];
         array[0].type = 1;
         array[0].u.ki.wVk = (short)(((KeyUporDown & KEYEVENTF.KEYEVENTF_UNICODE) != KEYEVENTF.KEYEVENTF_UNICODE) ? VK : 0);
         array[0].u.ki.wScan = DIK;

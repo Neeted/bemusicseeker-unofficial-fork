@@ -11,7 +11,7 @@ internal class pathAbbreviationConvberter : IValueConverter
         string result = string.Empty;
         if (value != null && value is string)
         {
-            string[] array = ((string)value).Split(new char[1] { '\\' }, StringSplitOptions.None);
+            string[] array = ((string)value).Split(['\\'], StringSplitOptions.None);
             if (array.Length > 1)
             {
                 result = ((array.Length <= 3) ? ((string)value) : string.Join("\\", array[0], "...", array[array.Length - 2], array[array.Length - 1]));

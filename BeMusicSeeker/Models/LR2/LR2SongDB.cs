@@ -341,7 +341,7 @@ public class LR2SongDB : SQLiteConnectionEx
 
     private string _dbPath;
 
-    public static Regex md5HashRegex = new Regex("^[a-fA-F0-9]{32}$", RegexOptions.Compiled);
+    public static Regex md5HashRegex = new("^[a-fA-F0-9]{32}$", RegexOptions.Compiled);
 
     public string DBPath
     {

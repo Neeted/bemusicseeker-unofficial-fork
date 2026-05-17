@@ -18,7 +18,7 @@ internal sealed class CustomTableTextLayoutCache
     internal CustomTableTextLayoutCache(int maxEntryCount = DefaultMaxEntryCount)
     {
         this.maxEntryCount = Math.Max(1, maxEntryCount);
-        cache = new Dictionary<Key, FormattedText>();
+        cache = [];
         insertionOrder = new Queue<Key>();
     }
 
@@ -45,7 +45,7 @@ internal sealed class CustomTableTextLayoutCache
         Brush effectiveForeground = foreground ?? Brushes.Black;
         CultureInfo effectiveCulture = culture ?? CultureInfo.CurrentUICulture;
         CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
-        Key key = Key.Create(text, maxTextWidth, maxTextHeight, alignment, effectiveTextStyle, scoreFontFamily, effectiveForeground, pixelsPerDip, effectiveCulture);
+        var key = Key.Create(text, maxTextWidth, maxTextHeight, alignment, effectiveTextStyle, scoreFontFamily, effectiveForeground, pixelsPerDip, effectiveCulture);
         if (cache.TryGetValue(key, out FormattedText formattedText))
         {
             hit = true;
@@ -92,7 +92,7 @@ internal sealed class CustomTableTextLayoutCache
             return false;
         }
         CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
-        FormattedText measuredText = new FormattedText(
+        var measuredText = new FormattedText(
             text,
             culture ?? CultureInfo.CurrentUICulture,
             FlowDirection.LeftToRight,

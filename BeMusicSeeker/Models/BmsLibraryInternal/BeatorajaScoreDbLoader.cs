@@ -20,13 +20,13 @@ internal sealed class BeatorajaScoreDbLoader
     /// <returns>sha256 をキーにした score map。</returns>
     internal Dictionary<string, BMSScore> LoadModeZeroScores(string scoreDbPath)
     {
-        Dictionary<string, BMSScore> scores = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+        var scores = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(scoreDbPath) || !File.Exists(scoreDbPath))
         {
             return scores;
         }
 
-        using SQLiteConnection connection = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+        using var connection = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
         List<BeatorajaScoreRow> rows = connection.Query<BeatorajaScoreRow>(
             "SELECT sha256, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount FROM score WHERE mode = ?",
             NormalScoreMode);

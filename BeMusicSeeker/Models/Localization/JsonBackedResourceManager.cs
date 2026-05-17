@@ -5,17 +5,11 @@ using System.Resources;
 
 namespace BeMusicSeeker.Models.Localization;
 
-public sealed class JsonBackedResourceManager : ResourceManager
+public sealed class JsonBackedResourceManager(string baseName, Assembly assembly) : ResourceManager(baseName, assembly)
 {
     private static readonly CultureInfo JaCulture = CultureInfo.GetCultureInfo("ja-JP");
 
-    private readonly ResourceManager fallbackResourceManager;
-
-    public JsonBackedResourceManager(string baseName, Assembly assembly)
-        : base(baseName, assembly)
-    {
-        fallbackResourceManager = new ResourceManager(baseName, assembly);
-    }
+    private readonly ResourceManager fallbackResourceManager = new ResourceManager(baseName, assembly);
 
     public override string GetString(string name, CultureInfo culture)
     {
@@ -25,7 +19,7 @@ public sealed class JsonBackedResourceManager : ResourceManager
         // First try to resolve from JSON languages (including user-customized ja-JP.json)
         if (App.AvailableCultures != null && App.AvailableCultures.Values.Contains(cultureName))
         {
-            if (JsonLanguageCatalog.TryGetString(cultureName, name, out var value))
+            if (JsonLanguageCatalog.TryGetString(cultureName, name, out string value))
             {
                 return value;
             }

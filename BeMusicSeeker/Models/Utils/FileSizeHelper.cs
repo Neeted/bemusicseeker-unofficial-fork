@@ -2,7 +2,7 @@ namespace BeMusicSeeker.Models.Utils;
 
 public static class FileSizeHelper
 {
-    private static readonly string[] Units = new string[9] { "B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB" };
+    private static readonly string[] Units = ["B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"];
 
     public static string GetReadableFileSize(long size)
     {

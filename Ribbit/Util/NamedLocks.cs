@@ -4,9 +4,9 @@ namespace Ribbit.Util;
 
 public class NamedLocks<T>
 {
-    private Dictionary<T, object> locks = new Dictionary<T, object>();
+    private readonly Dictionary<T, object> locks = [];
 
-    private object lockObject = new object();
+    private readonly object lockObject = new();
 
     public object GetLockObject(T name)
     {

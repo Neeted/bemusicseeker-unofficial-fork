@@ -39,7 +39,7 @@ internal sealed class LibraryChartRow : NotificationObject
             LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
             if (bmsonSong != null)
             {
-                PendingChartEntry pending = BmsFile as PendingChartEntry;
+                var pending = BmsFile as PendingChartEntry;
                 bool isPendingBmson = pending?.IsBmsonChart == true;
                 BMSFile compatibilityBmsFile = BmsFile ?? GetOrCreateBmsonChartAdapter();
                 return new ChartFile(
@@ -90,7 +90,7 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        PendingChartEntry pending = file as PendingChartEntry;
+        var pending = file as PendingChartEntry;
         return new LibraryChartRow(file, pending?.IsBmsonChart == true ? pending.BmsonSong : null);
     }
 
@@ -395,7 +395,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private LR2SongDBExtended.bmson_song GetBmsonSong()
     {
-        return (BmsFile as PendingChartEntry)?.IsBmsonChart == true
+        return BmsFile is PendingChartEntry { IsBmsonChart: true }
             ? ((PendingChartEntry)BmsFile).BmsonSong
             : BmsonSong;
     }

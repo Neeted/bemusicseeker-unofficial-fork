@@ -62,7 +62,7 @@ public static class ChartInfoExportRunner
     private const string MetadataDbFileName = "chart-info-metadata.db";
 
     private static readonly string[] ChartInfoColumns =
-    {
+    [
         "sha256",
         "md5",
         "charthash",
@@ -92,7 +92,7 @@ public static class ChartInfoExportRunner
         "lanenotes",
         "parser_version",
         "updated_at"
-    };
+    ];
 
     public static ChartInfoExportResult Export(ChartInfoExportOptions options)
     {
@@ -131,7 +131,7 @@ public static class ChartInfoExportRunner
         ChartInfoExportResult result;
         DateTime generatedAtUtc = DateTime.UtcNow;
         string bundleId = Guid.NewGuid().ToString("N");
-        using (SQLiteConnection output = new SQLiteConnection(outputPath, storeDateTimeAsTicks: true))
+        using (var output = new SQLiteConnection(outputPath, storeDateTimeAsTicks: true))
         {
             CreateOutputSchema(output);
             output.Execute("ATTACH DATABASE " + SqlQuote(sourcePath) + " AS src;");
@@ -229,10 +229,10 @@ public static class ChartInfoExportRunner
         }
 
         string[] candidates =
-        {
+        [
             @"C:\Program Files\7-Zip\7z.exe",
             @"C:\Program Files (x86)\7-Zip\7z.exe"
-        };
+        ];
         foreach (string candidate in candidates)
         {
             if (File.Exists(candidate))
@@ -246,7 +246,7 @@ public static class ChartInfoExportRunner
 
     private static void RunSevenZip(string sevenZipPath, string archiveOutputPath, string stagingDirectoryPath)
     {
-        ProcessStartInfo startInfo = new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = sevenZipPath,
             Arguments = "a -t7z -mx=9 -mmt=on -bd -y " + QuoteProcessArgument(archiveOutputPath) + " " + QuoteProcessArgument(MetadataDbFileName),
@@ -256,12 +256,7 @@ public static class ChartInfoExportRunner
             RedirectStandardError = true,
             CreateNoWindow = true
         };
-        using Process process = Process.Start(startInfo);
-        if (process == null)
-        {
-            throw new InvalidOperationException("Failed to start 7z.exe.");
-        }
-
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start 7z.exe.");
         string stdout = process.StandardOutput.ReadToEnd();
         string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
@@ -299,7 +294,7 @@ public static class ChartInfoExportRunner
 
     private static void ValidateSourceDatabase(string sourcePath)
     {
-        using SQLiteConnection source = new SQLiteConnection(sourcePath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        using var source = new SQLiteConnection(sourcePath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
         if (!TableExists(source, "chart_info"))
         {
             throw new InvalidDataException("Source DB does not contain chart_info table.");
@@ -424,8 +419,8 @@ public static class ChartInfoExportRunner
 
     private static void RequireColumns(SQLiteConnection db, string tableName, IEnumerable<string> requiredColumns)
     {
-        HashSet<string> columns = new HashSet<string>(
-            db.Query<TableInfoRow>("PRAGMA table_info('" + tableName.Replace("'", "''") + "');").Select((TableInfoRow row) => row.name),
+        var columns = new HashSet<string>(
+            db.Query<TableInfoRow>("PRAGMA table_info('" + tableName.Replace("'", "''") + "');").Select(row => row.name),
             StringComparer.OrdinalIgnoreCase);
         foreach (string column in requiredColumns)
         {

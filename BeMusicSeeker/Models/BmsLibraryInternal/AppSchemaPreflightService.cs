@@ -18,35 +18,25 @@ internal enum RepairableBmsonSchemaIssues
     BmsonSongFolderIndexMissing = 0x40
 }
 
-internal sealed class AppSchemaPreflightResult
+internal sealed class AppSchemaPreflightResult(bool needsPlaylistEntrySha256Repair, bool needsChartDigestMapSchema, bool needsBmsonSongSchema, bool needsAppSchemaVersionRepair, RepairableBmsonSchemaIssues repairableBmsonSchemaIssues, bool? needsAppSchemaVersionWarning = null)
 {
-    public bool NeedsPlaylistEntrySha256Repair { get; }
+    public bool NeedsPlaylistEntrySha256Repair { get; } = needsPlaylistEntrySha256Repair;
 
-    public bool NeedsChartDigestMapSchema { get; }
+    public bool NeedsChartDigestMapSchema { get; } = needsChartDigestMapSchema;
 
-    public bool NeedsBmsonSongSchema { get; }
+    public bool NeedsBmsonSongSchema { get; } = needsBmsonSongSchema;
 
-    public bool NeedsAppSchemaVersionRepair { get; }
+    public bool NeedsAppSchemaVersionRepair { get; } = needsAppSchemaVersionRepair;
 
-    public bool NeedsAppSchemaVersionWarning { get; }
+    public bool NeedsAppSchemaVersionWarning { get; } = needsAppSchemaVersionWarning ?? needsAppSchemaVersionRepair;
 
-    public RepairableBmsonSchemaIssues RepairableBmsonSchemaIssues { get; }
+    public RepairableBmsonSchemaIssues RepairableBmsonSchemaIssues { get; } = repairableBmsonSchemaIssues;
 
     public bool RepairRequired => NeedsPlaylistEntrySha256Repair || RepairableBmsonSchemaIssues != 0;
 
     public bool WarnRequired => NeedsPlaylistEntrySha256Repair || NeedsAppSchemaVersionWarning;
 
     public bool RequiresWarning => WarnRequired;
-
-    public AppSchemaPreflightResult(bool needsPlaylistEntrySha256Repair, bool needsChartDigestMapSchema, bool needsBmsonSongSchema, bool needsAppSchemaVersionRepair, RepairableBmsonSchemaIssues repairableBmsonSchemaIssues, bool? needsAppSchemaVersionWarning = null)
-    {
-        NeedsPlaylistEntrySha256Repair = needsPlaylistEntrySha256Repair;
-        NeedsChartDigestMapSchema = needsChartDigestMapSchema;
-        NeedsBmsonSongSchema = needsBmsonSongSchema;
-        NeedsAppSchemaVersionRepair = needsAppSchemaVersionRepair;
-        NeedsAppSchemaVersionWarning = needsAppSchemaVersionWarning ?? needsAppSchemaVersionRepair;
-        RepairableBmsonSchemaIssues = repairableBmsonSchemaIssues;
-    }
 }
 
 internal sealed class AppSchemaPreflightService
@@ -61,7 +51,7 @@ internal sealed class AppSchemaPreflightService
         {
             throw new ArgumentException(songDbPath, nameof(songDbPath));
         }
-        using SQLiteConnection db = new SQLiteConnection(songDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        using var db = new SQLiteConnection(songDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
         return Inspect(db);
     }
 
@@ -217,16 +207,10 @@ internal sealed class AppSchemaPreflightService
         return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + BMSPlaylist.SqlQuoteForTest(indexName) + ";") > 0;
     }
 
-    private readonly struct AppSchemaVersionPreflight
+    private readonly struct AppSchemaVersionPreflight(bool needsRepair, bool needsWarning)
     {
-        public AppSchemaVersionPreflight(bool needsRepair, bool needsWarning)
-        {
-            NeedsRepair = needsRepair;
-            NeedsWarning = needsWarning;
-        }
+        public bool NeedsRepair { get; } = needsRepair;
 
-        public bool NeedsRepair { get; }
-
-        public bool NeedsWarning { get; }
+        public bool NeedsWarning { get; } = needsWarning;
     }
 }

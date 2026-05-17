@@ -11,9 +11,9 @@ internal class backupTargetConverter : IValueConverter
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        Backup.Target target = (Backup.Target)value;
+        var target = (Backup.Target)value;
         string value2 = parameter as string;
-        Backup.Target target2 = (Backup.Target)Enum.Parse(typeof(Backup.Target), value2);
+        var target2 = (Backup.Target)Enum.Parse(typeof(Backup.Target), value2);
         flags = target;
         return (target & target2) == target2;
     }
@@ -22,7 +22,7 @@ internal class backupTargetConverter : IValueConverter
     {
         bool num = (bool)value;
         string value2 = parameter as string;
-        Backup.Target target = (Backup.Target)Enum.Parse(typeof(Backup.Target), value2);
+        var target = (Backup.Target)Enum.Parse(typeof(Backup.Target), value2);
         if (num)
         {
             flags |= target;

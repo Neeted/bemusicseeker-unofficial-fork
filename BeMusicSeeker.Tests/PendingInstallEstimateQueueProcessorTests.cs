@@ -13,14 +13,14 @@ public sealed class PendingInstallEstimateQueueProcessorTests
     [TestMethod]
     public void Enqueue_ProcessesBatchesSequentiallyAndReportsProgress()
     {
-        List<string> processed = new List<string>();
-        List<PendingInstallEstimateQueueStatusSnapshot> snapshots = new List<PendingInstallEstimateQueueStatusSnapshot>();
-        object syncRoot = new object();
+        List<string> processed = [];
+        List<PendingInstallEstimateQueueStatusSnapshot> snapshots = [];
+        object syncRoot = new();
         Exception? backgroundFailure = null;
-        ManualResetEventSlim firstStarted = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim releaseFirst = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim secondFinished = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim progressReported = new ManualResetEventSlim(initialState: false);
+        var firstStarted = new ManualResetEventSlim(initialState: false);
+        var releaseFirst = new ManualResetEventSlim(initialState: false);
+        var secondFinished = new ManualResetEventSlim(initialState: false);
+        var progressReported = new ManualResetEventSlim(initialState: false);
         PendingInstallEstimateQueueProcessor? processor = null;
         processor = new PendingInstallEstimateQueueProcessor(
             delegate (PendingInstallEstimateBatchRequest request, CancellationToken token)
@@ -87,15 +87,15 @@ public sealed class PendingInstallEstimateQueueProcessorTests
                 throw backgroundFailure;
             }
             CollectionAssert.AreEqual(new[] { "startup", "drop" }, processed);
-            Assert.IsTrue(snapshots.Any((PendingInstallEstimateQueueStatusSnapshot snapshot) => snapshot.IsActive && snapshot.CurrentDisplayName == "startup" && snapshot.PendingBatchCount == 1));
+            Assert.IsTrue(snapshots.Any(snapshot => snapshot.IsActive && snapshot.CurrentDisplayName == "startup" && snapshot.PendingBatchCount == 1));
         }
     }
 
     [TestMethod]
     public void GetStatusSnapshot_ReturnsInactiveSnapshotAfterCompletion()
     {
-        ManualResetEventSlim completed = new ManualResetEventSlim(initialState: false);
-        PendingInstallEstimateQueueProcessor processor = new PendingInstallEstimateQueueProcessor(
+        var completed = new ManualResetEventSlim(initialState: false);
+        var processor = new PendingInstallEstimateQueueProcessor(
             delegate (PendingInstallEstimateBatchRequest request, CancellationToken token)
             {
                 completed.Set();
@@ -121,7 +121,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
 
     private static ChartPackage CreatePackage(string path)
     {
-        ChartPackage package = new ChartPackage
+        var package = new ChartPackage
         {
             path = path
         };

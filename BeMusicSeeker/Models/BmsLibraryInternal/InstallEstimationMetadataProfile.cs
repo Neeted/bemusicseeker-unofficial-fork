@@ -43,9 +43,9 @@ internal static class InstallEstimationMetadataNormalizer
     internal const double TitleFuzzyStrongThreshold = 0.88;
     internal const double TitleWeakThreshold = 0.72;
 
-    private static readonly Regex whitespaceRegex = new Regex("\\s+", RegexOptions.Compiled);
+    private static readonly Regex whitespaceRegex = new("\\s+", RegexOptions.Compiled);
 
-    private static readonly string[] artistDiffPrefixes = { "notes", "note", "obj" };
+    private static readonly string[] artistDiffPrefixes = ["notes", "note", "obj"];
 
     internal static string NormalizeTitleForTieBreak(string value)
     {
@@ -156,8 +156,8 @@ internal static class InstallEstimationMetadataNormalizer
 
     internal static InstallEstimationMetadataProfile BuildProfile(IEnumerable<(string Title, string Artist, string Path)> records)
     {
-        IEnumerable<(string Title, string Artist, string Path)> effectiveRecords = records ?? Enumerable.Empty<(string Title, string Artist, string Path)>();
-        List<MetadataRecord> normalizedRecords = effectiveRecords
+        IEnumerable<(string Title, string Artist, string Path)> effectiveRecords = records ?? [];
+        List<MetadataRecord> normalizedRecords = [.. effectiveRecords
             .Select((ValueTuple<string, string, string> record) =>
             {
                 string normalizedTitle = NormalizeTitleForTieBreak(record.Item1);
@@ -169,16 +169,15 @@ internal static class InstallEstimationMetadataNormalizer
                     Pair = ComposePair(normalizedTitle, normalizedArtist),
                     Path = record.Item3 ?? string.Empty
                 };
-            })
-            .ToList();
+            })];
 
         return new InstallEstimationMetadataProfile
         {
-            DominantNormalizedTitle = SelectDominantValue(normalizedRecords, (MetadataRecord record) => record.Title, out int titleSupportCount),
+            DominantNormalizedTitle = SelectDominantValue(normalizedRecords, record => record.Title, out int titleSupportCount),
             TitleSupportCount = titleSupportCount,
-            DominantNormalizedArtist = SelectDominantValue(normalizedRecords, (MetadataRecord record) => record.Artist, out int artistSupportCount),
+            DominantNormalizedArtist = SelectDominantValue(normalizedRecords, record => record.Artist, out int artistSupportCount),
             ArtistSupportCount = artistSupportCount,
-            DominantNormalizedTitleArtistPair = SelectDominantValue(normalizedRecords, (MetadataRecord record) => record.Pair, out int pairSupportCount),
+            DominantNormalizedTitleArtistPair = SelectDominantValue(normalizedRecords, record => record.Pair, out int pairSupportCount),
             PairSupportCount = pairSupportCount,
             SourceChartCount = normalizedRecords.Count
         };
@@ -257,7 +256,7 @@ internal static class InstallEstimationMetadataNormalizer
 
     private static Dictionary<string, int> BuildBigramCounts(string value)
     {
-        Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(value))
         {
             return counts;
@@ -286,25 +285,25 @@ internal static class InstallEstimationMetadataNormalizer
         }
 
         DominantGroup bestGroup = records
-            .Select((MetadataRecord record, int index) => new DominantGroupItem
+            .Select((record, index) => new DominantGroupItem
             {
                 Value = selector(record) ?? string.Empty,
                 Path = record.Path ?? string.Empty,
                 Index = index
             })
-            .GroupBy((DominantGroupItem item) => item.Value, StringComparer.Ordinal)
-            .Select((IGrouping<string, DominantGroupItem> group) => new DominantGroup
+            .GroupBy(item => item.Value, StringComparer.Ordinal)
+            .Select(group => new DominantGroup
             {
                 Value = group.Key ?? string.Empty,
                 Count = group.Count(),
                 HasNonEmptyValue = !string.IsNullOrWhiteSpace(group.Key),
-                FirstPath = group.Select((DominantGroupItem item) => item.Path ?? string.Empty).OrderBy((string path) => path, StringComparer.OrdinalIgnoreCase).FirstOrDefault() ?? string.Empty,
-                FirstIndex = group.Min((DominantGroupItem item) => item.Index)
+                FirstPath = group.Select(item => item.Path ?? string.Empty).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).FirstOrDefault() ?? string.Empty,
+                FirstIndex = group.Min(item => item.Index)
             })
-            .OrderByDescending((DominantGroup group) => group.Count)
-            .ThenByDescending((DominantGroup group) => group.HasNonEmptyValue)
-            .ThenBy((DominantGroup group) => group.FirstPath, StringComparer.OrdinalIgnoreCase)
-            .ThenBy((DominantGroup group) => group.FirstIndex)
+            .OrderByDescending(group => group.Count)
+            .ThenByDescending(group => group.HasNonEmptyValue)
+            .ThenBy(group => group.FirstPath, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.FirstIndex)
             .FirstOrDefault();
 
         if (bestGroup == null)

@@ -8,7 +8,7 @@ internal sealed class PendingInstallDestinationSelectionResult
 
     public string ValidatedDestinationDirectory { get; set; }
 
-    public List<BMSFile> TargetFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> TargetFiles { get; } = [];
 
     public string WarningMessage { get; set; }
 }

@@ -6,7 +6,7 @@ internal sealed class IrScorePrefetchResult
 {
     public int Lr2Id { get; set; }
 
-    public List<LR2IRScore> ScoreTable { get; } = new List<LR2IRScore>();
+    public List<LR2IRScore> ScoreTable { get; } = [];
 
     public string ScoreDigestSha256 { get; set; }
 

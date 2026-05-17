@@ -27,7 +27,7 @@ internal static class DispatcherCollectionExt
 
     public static List<T> Remove<T>(this DispatcherCollection<T> collection, IEnumerable<T> items) where T : class
     {
-        List<T> list = new List<T>();
+        List<T> list = [];
         foreach (int item in Enumerable.Range(0, items.Count()))
         {
             if (collection.RemoveExt(items.ElementAt(item)))

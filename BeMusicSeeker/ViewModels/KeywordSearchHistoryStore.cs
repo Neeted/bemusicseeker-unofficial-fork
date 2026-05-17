@@ -25,10 +25,10 @@ internal static class KeywordSearchHistoryStore
     {
         if (string.IsNullOrWhiteSpace(serializedHistory))
         {
-            return Array.Empty<string>();
+            return [];
         }
-        List<string> history = new List<string>();
-        foreach (string line in serializedHistory.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+        List<string> history = [];
+        foreach (string line in serializedHistory.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries))
         {
             try
             {
@@ -56,10 +56,10 @@ internal static class KeywordSearchHistoryStore
     /// <returns>Base64 行形式の履歴文字列。</returns>
     internal static string Serialize(IEnumerable<string> history)
     {
-        string[] entries = NormalizeEntries(history).ToArray();
+        string[] entries = [.. NormalizeEntries(history)];
         return string.Join(
             Environment.NewLine,
-            entries.Select((string entry) => Convert.ToBase64String(Encoding.UTF8.GetBytes(entry))));
+            entries.Select(entry => Convert.ToBase64String(Encoding.UTF8.GetBytes(entry))));
     }
 
     /// <summary>
@@ -75,15 +75,18 @@ internal static class KeywordSearchHistoryStore
         {
             return NormalizeEntries(history).ToArray();
         }
-        List<string> entries = new List<string> { normalizedEntry };
-        entries.AddRange(NormalizeEntries(history).Where((string current) => !string.Equals(current, normalizedEntry, StringComparison.OrdinalIgnoreCase)));
+        List<string> entries =
+        [
+            normalizedEntry,
+            .. NormalizeEntries(history).Where(current => !string.Equals(current, normalizedEntry, StringComparison.OrdinalIgnoreCase)),
+        ];
         return entries.Take(MaxHistoryCount).ToArray();
     }
 
     private static IEnumerable<string> NormalizeEntries(IEnumerable<string> history)
     {
-        List<string> entries = new List<string>();
-        foreach (string entry in history ?? Enumerable.Empty<string>())
+        List<string> entries = [];
+        foreach (string entry in history ?? [])
         {
             string normalizedEntry = NormalizeEntry(entry);
             if (!string.IsNullOrEmpty(normalizedEntry) && !entries.Contains(normalizedEntry, StringComparer.OrdinalIgnoreCase))

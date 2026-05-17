@@ -139,14 +139,14 @@ internal static class EverythingNative
 
     internal static string BuildFilesQuery(string[] roots, string[] extensions)
     {
-        string ext = string.Join(";", extensions ?? Array.Empty<string>());
-        string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? Array.Empty<string>(), (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+        string ext = string.Join(";", extensions ?? []);
+        string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
         return "file: " + paths + " <ext:" + ext + ">";
     }
 
     internal static string BuildAllFilesQuery(string[] roots)
     {
-        string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? Array.Empty<string>(), (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+        string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? [], root => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
         return "file: " + paths;
     }
 
@@ -154,12 +154,11 @@ internal static class EverythingNative
     {
         result = null;
         reason = null;
-        List<string> normalizedRoots = (rootDirectories ?? Array.Empty<string>())
-            .Where((string root) => !string.IsNullOrWhiteSpace(root))
+        List<string> normalizedRoots = [.. (rootDirectories ?? [])
+            .Where(root => !string.IsNullOrWhiteSpace(root))
             .Select(NormalizeSourceRootDirectory)
-            .Where((string root) => !string.IsNullOrWhiteSpace(root))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .Where(root => !string.IsNullOrWhiteSpace(root))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (normalizedRoots.Count == 0)
         {
             result = new BridgeSourceRootScanResult();
@@ -172,8 +171,8 @@ internal static class EverythingNative
 
         IntPtr resultPtr = IntPtr.Zero;
         IntPtr nativeRoots = IntPtr.Zero;
-        List<IntPtr> allocatedStrings = new List<IntPtr>();
-        System.Diagnostics.Stopwatch totalStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        List<IntPtr> allocatedStrings = [];
+        var totalStopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             nativeRoots = Marshal.AllocHGlobal(checked(Marshal.SizeOf<EBridgeSourceRootRequestNative>() * normalizedRoots.Count));
@@ -181,7 +180,7 @@ internal static class EverythingNative
             {
                 IntPtr rootPath = Marshal.StringToHGlobalUni(normalizedRoots[i]);
                 allocatedStrings.Add(rootPath);
-                EBridgeSourceRootRequestNative nativeRoot = new EBridgeSourceRootRequestNative
+                var nativeRoot = new EBridgeSourceRootRequestNative
                 {
                     root_id = (uint)i,
                     root_path = rootPath
@@ -189,13 +188,13 @@ internal static class EverythingNative
                 Marshal.StructureToPtr(nativeRoot, IntPtr.Add(nativeRoots, i * Marshal.SizeOf<EBridgeSourceRootRequestNative>()), false);
             }
 
-            string[] roots = normalizedRoots.ToArray();
+            string[] roots = [.. normalizedRoots];
             string chartQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.ChartExtensions);
             string audioQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.AudioExtensions);
             string imageQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.ImageExtensions);
             string movieQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.MovieExtensions);
 
-            System.Diagnostics.Stopwatch nativeBridgeStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var nativeBridgeStopwatch = System.Diagnostics.Stopwatch.StartNew();
             int status = EBridge_ScanSourceRoots(nativeRoots, (uint)normalizedRoots.Count, chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
             nativeBridgeStopwatch.Stop();
             long nativeBridgeMs = nativeBridgeStopwatch.ElapsedMilliseconds;
@@ -217,11 +216,11 @@ internal static class EverythingNative
                 return false;
             }
 
-            System.Diagnostics.Stopwatch decodeStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var decodeStopwatch = System.Diagnostics.Stopwatch.StartNew();
             SourceRootDecodedResult decodedResult = DecodeSourceRootsResult(header);
             decodeStopwatch.Stop();
 
-            System.Diagnostics.Stopwatch materializeStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var materializeStopwatch = System.Diagnostics.Stopwatch.StartNew();
             result = CreateSourceRootScanResult(header, nativeBridgeMs, decodeStopwatch.ElapsedMilliseconds, decodedResult);
             materializeStopwatch.Stop();
             result.ManagedMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
@@ -278,7 +277,7 @@ internal static class EverythingNative
 
         IntPtr resultPtr = IntPtr.Zero;
         IntPtr nativeQueries = IntPtr.Zero;
-        List<IntPtr> allocatedStrings = new List<IntPtr>();
+        List<IntPtr> allocatedStrings = [];
         try
         {
             nativeQueries = Marshal.AllocHGlobal(checked(Marshal.SizeOf<EBridgeGroupedQueryNative>() * queries.Count));
@@ -286,7 +285,7 @@ internal static class EverythingNative
             {
                 IntPtr queryText = Marshal.StringToHGlobalUni(queries[i].QueryText ?? string.Empty);
                 allocatedStrings.Add(queryText);
-                EBridgeGroupedQueryNative nativeQuery = new EBridgeGroupedQueryNative
+                var nativeQuery = new EBridgeGroupedQueryNative
                 {
                     group_id = queries[i].GroupId,
                     query_text = queryText
@@ -367,7 +366,7 @@ internal static class EverythingNative
         reason = null;
         elapsedMs = 0L;
         IntPtr resultPtr = IntPtr.Zero;
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             if (!EnsureFixedScanAvailable(out reason))
@@ -375,7 +374,7 @@ internal static class EverythingNative
                 return false;
             }
 
-            Stopwatch nativeBridgeStopwatch = Stopwatch.StartNew();
+            var nativeBridgeStopwatch = Stopwatch.StartNew();
             int status = EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
             nativeBridgeStopwatch.Stop();
             long nativeBridgeMs = nativeBridgeStopwatch.ElapsedMilliseconds;
@@ -407,11 +406,11 @@ internal static class EverythingNative
                 return false;
             }
 
-            Stopwatch decodeStopwatch = Stopwatch.StartNew();
+            var decodeStopwatch = Stopwatch.StartNew();
             FixedScanDecodedResult decodedResult = DecodeFixedScanResult(header);
             decodeStopwatch.Stop();
 
-            Stopwatch materializeStopwatch = Stopwatch.StartNew();
+            var materializeStopwatch = Stopwatch.StartNew();
             result = CreateExecutionResult(header, nativeBridgeMs, decodeStopwatch.ElapsedMilliseconds, decodedResult);
             materializeStopwatch.Stop();
             result.ManagedMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
@@ -511,7 +510,7 @@ internal static class EverythingNative
 
     private static BridgeGroupedEnumerationResult ReadGroupedEnumerationResult(EBridgeGroupedFilesResultHeader header)
     {
-        BridgeGroupedEnumerationResult result = new BridgeGroupedEnumerationResult
+        var result = new BridgeGroupedEnumerationResult
         {
             TotalFileCount = (int)header.total_file_count,
             EnumerationMs = header.enumeration_ms
@@ -535,7 +534,7 @@ internal static class EverythingNative
     private static SourceRootDecodedResult DecodeSourceRootsResult(EBridgeSourceRootsResultHeader header)
     {
         string[] rootPaths = ReadStringArray(header.root_count, header.root_offsets, header.root_blob);
-        SourceRootDecodedEntry[] entries = new SourceRootDecodedEntry[checked((int)header.root_count)];
+        var entries = new SourceRootDecodedEntry[checked((int)header.root_count)];
         int entryHeaderSize = Marshal.SizeOf<EBridgeSourceRootEntryHeader>();
         for (ulong i = 0; i < header.root_count; i += 1)
         {
@@ -544,7 +543,7 @@ internal static class EverythingNative
             entries[checked((int)i)] = new SourceRootDecodedEntry
             {
                 RootId = entryHeader.root_id,
-                ChartPaths = ReadStringList(entryHeader.chart_count, entryHeader.chart_offsets, header.chart_blob).ToArray(),
+                ChartPaths = [.. ReadStringList(entryHeader.chart_count, entryHeader.chart_offsets, header.chart_blob)],
                 AudioRelativeHashes = ReadHashArray(entryHeader.audio_resource_key_hash_offset, entryHeader.audio_resource_key_hash_length, header.audio_resource_key_hashes_blob),
                 ImageRelativeHashes = ReadHashArray(entryHeader.image_resource_key_hash_offset, entryHeader.image_resource_key_hash_length, header.image_resource_key_hashes_blob),
                 MovieRelativeHashes = ReadHashArray(entryHeader.movie_resource_key_hash_offset, entryHeader.movie_resource_key_hash_length, header.movie_resource_key_hashes_blob),
@@ -562,7 +561,7 @@ internal static class EverythingNative
 
     private static List<string> ReadStringList(ulong count, IntPtr offsets, IntPtr blob)
     {
-        List<string> values = new List<string>();
+        List<string> values = [];
         for (ulong i = 0; i < count; i += 1)
         {
             uint byteOffset = (uint)Marshal.ReadInt32(offsets, checked((int)(i * 4)));
@@ -579,7 +578,7 @@ internal static class EverythingNative
     {
         if (blob == IntPtr.Zero || length == 0)
         {
-            return Array.Empty<uint>();
+            return [];
         }
         int count = checked((int)length);
         uint[] hashes = new uint[count];
@@ -606,7 +605,7 @@ internal static class EverythingNative
             uint hashLength = lengths[i];
             if (hashLength == 0)
             {
-                hashesByDirectoryIndex[i] = Array.Empty<uint>();
+                hashesByDirectoryIndex[i] = [];
                 continue;
             }
             int count = checked((int)hashLength);
@@ -626,7 +625,7 @@ internal static class EverythingNative
 
     private static unsafe Dictionary<uint, string[]> ReadReverseHashMap(ulong keyCount, IntPtr keys, IntPtr offsets, IntPtr lengths, IntPtr indicesBlob, uint indexBytes, string[] chartDirectories)
     {
-        Dictionary<uint, string[]> map = new Dictionary<uint, string[]>(checked((int)keyCount));
+        var map = new Dictionary<uint, string[]>(checked((int)keyCount));
         if (keyCount == 0 || keys == IntPtr.Zero || offsets == IntPtr.Zero || lengths == IntPtr.Zero || indicesBlob == IntPtr.Zero)
         {
             return map;
@@ -648,7 +647,7 @@ internal static class EverythingNative
             uint length = lengthValues[i];
             if (length == 0)
             {
-                map[key] = Array.Empty<string>();
+                map[key] = [];
                 continue;
             }
             if (byteOffset % indexBytes != 0)
@@ -664,11 +663,11 @@ internal static class EverythingNative
                     string directory = chartDirectories[directoryIndex];
                     if (!string.IsNullOrWhiteSpace(directory))
                     {
-                        map[key] = new[] { directory };
+                        map[key] = [directory];
                         continue;
                     }
                 }
-                map[key] = Array.Empty<string>();
+                map[key] = [];
                 continue;
             }
 
@@ -693,7 +692,7 @@ internal static class EverythingNative
             }
             else if (outputCount == 0)
             {
-                map[key] = Array.Empty<string>();
+                map[key] = [];
             }
             else
             {
@@ -713,8 +712,8 @@ internal static class EverythingNative
 
     private static HashSet<string> MaterializeStringSet(IEnumerable<string> values)
     {
-        HashSet<string> set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string value in values ?? Array.Empty<string>())
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string value in values ?? [])
         {
             if (!string.IsNullOrWhiteSpace(value))
             {
@@ -730,7 +729,7 @@ internal static class EverythingNative
         long managedDecodeMs,
         SourceRootDecodedResult decodedResult)
     {
-        BridgeSourceRootScanResult result = new BridgeSourceRootScanResult
+        var result = new BridgeSourceRootScanResult
         {
             BackendName = SourceRootScanBackendName,
             NativeBridgeMs = nativeBridgeMs,
@@ -747,8 +746,8 @@ internal static class EverythingNative
             DedupeMs = header.dedupe_ms,
             PackMs = header.pack_ms
         };
-        string[] rootPaths = decodedResult?.RootPaths ?? Array.Empty<string>();
-        SourceRootDecodedEntry[] entries = decodedResult?.Entries ?? Array.Empty<SourceRootDecodedEntry>();
+        string[] rootPaths = decodedResult?.RootPaths ?? [];
+        SourceRootDecodedEntry[] entries = decodedResult?.Entries ?? [];
         int count = Math.Min(rootPaths.Length, entries.Length);
         for (int i = 0; i < count; i++)
         {
@@ -762,7 +761,7 @@ internal static class EverythingNative
             result.Entries[rootPath] = new BridgeSourceRootEntryResult
             {
                 RootPath = rootPath,
-                ChartPaths = decodedEntry.ChartPaths ?? Array.Empty<string>(),
+                ChartPaths = decodedEntry.ChartPaths ?? [],
                 ResourceEntry = new DirectoryResourceLookupCache.Entry(
                     decodedEntry.AudioRelativeHashes,
                     decodedEntry.ImageRelativeHashes,
@@ -801,7 +800,7 @@ internal static class EverythingNative
         HashSet<string> chartDirectories = MaterializeStringSet(decodedResult?.ChartDirectories);
         ulong hashDirCount = (ulong)chartDirectories.Count;
         ulong categoryResourceKeyHashEntryCount = header.audio_resource_key_hash_count + header.image_resource_key_hash_count + header.movie_resource_key_hash_count;
-        BmsScanResult scanResult = new BmsScanResult
+        var scanResult = new BmsScanResult
         {
             ChartFilePaths = chartFilePaths,
             ChartDirectories = chartDirectories
@@ -987,7 +986,7 @@ internal static class EverythingNative
 
     internal sealed class BridgeGroupedEnumerationResult
     {
-        internal Dictionary<uint, BridgeGroupedEnumerationGroupResult> Groups { get; } = new Dictionary<uint, BridgeGroupedEnumerationGroupResult>();
+        internal Dictionary<uint, BridgeGroupedEnumerationGroupResult> Groups { get; } = [];
 
         internal int TotalFileCount { get; set; }
 
@@ -998,7 +997,7 @@ internal static class EverythingNative
     {
         internal string RootPath { get; set; } = string.Empty;
 
-        internal string[] ChartPaths { get; set; } = Array.Empty<string>();
+        internal string[] ChartPaths { get; set; } = [];
 
         internal DirectoryResourceLookupCache.Entry ResourceEntry { get; set; } = new DirectoryResourceLookupCache.Entry();
 
@@ -1055,40 +1054,40 @@ internal static class EverythingNative
 
     private sealed class FixedScanDecodedResult
     {
-        internal string[] ChartPaths { get; set; } = Array.Empty<string>();
+        internal string[] ChartPaths { get; set; } = [];
 
-        internal string[] ChartDirectories { get; set; } = Array.Empty<string>();
+        internal string[] ChartDirectories { get; set; } = [];
 
-        internal uint[][] AudioRelativeHashes { get; set; } = Array.Empty<uint[]>();
+        internal uint[][] AudioRelativeHashes { get; set; } = [];
 
-        internal uint[][] ImageRelativeHashes { get; set; } = Array.Empty<uint[]>();
+        internal uint[][] ImageRelativeHashes { get; set; } = [];
 
-        internal uint[][] MovieRelativeHashes { get; set; } = Array.Empty<uint[]>();
+        internal uint[][] MovieRelativeHashes { get; set; } = [];
 
-        internal uint[][] SelfOwnedAudioRelativeHashes { get; set; } = Array.Empty<uint[]>();
+        internal uint[][] SelfOwnedAudioRelativeHashes { get; set; } = [];
 
-        internal uint[][] SelfOwnedImageRelativeHashes { get; set; } = Array.Empty<uint[]>();
+        internal uint[][] SelfOwnedImageRelativeHashes { get; set; } = [];
 
-        internal uint[][] SelfOwnedMovieRelativeHashes { get; set; } = Array.Empty<uint[]>();
+        internal uint[][] SelfOwnedMovieRelativeHashes { get; set; } = [];
 
-        internal Dictionary<uint, string[]> AudioRelativeReverseDirectories { get; set; } = new Dictionary<uint, string[]>();
+        internal Dictionary<uint, string[]> AudioRelativeReverseDirectories { get; set; } = [];
 
-        internal Dictionary<uint, string[]> ImageRelativeReverseDirectories { get; set; } = new Dictionary<uint, string[]>();
+        internal Dictionary<uint, string[]> ImageRelativeReverseDirectories { get; set; } = [];
 
-        internal Dictionary<uint, string[]> MovieRelativeReverseDirectories { get; set; } = new Dictionary<uint, string[]>();
+        internal Dictionary<uint, string[]> MovieRelativeReverseDirectories { get; set; } = [];
     }
 
     private sealed class SourceRootDecodedEntry
     {
         internal uint RootId { get; set; }
 
-        internal string[] ChartPaths { get; set; } = Array.Empty<string>();
+        internal string[] ChartPaths { get; set; } = [];
 
-        internal uint[] AudioRelativeHashes { get; set; } = Array.Empty<uint>();
+        internal uint[] AudioRelativeHashes { get; set; } = [];
 
-        internal uint[] ImageRelativeHashes { get; set; } = Array.Empty<uint>();
+        internal uint[] ImageRelativeHashes { get; set; } = [];
 
-        internal uint[] MovieRelativeHashes { get; set; } = Array.Empty<uint>();
+        internal uint[] MovieRelativeHashes { get; set; } = [];
 
         internal int ChartFileCount { get; set; }
 
@@ -1099,9 +1098,9 @@ internal static class EverythingNative
 
     private sealed class SourceRootDecodedResult
     {
-        internal string[] RootPaths { get; set; } = Array.Empty<string>();
+        internal string[] RootPaths { get; set; } = [];
 
-        internal SourceRootDecodedEntry[] Entries { get; set; } = Array.Empty<SourceRootDecodedEntry>();
+        internal SourceRootDecodedEntry[] Entries { get; set; } = [];
     }
 
     [StructLayout(LayoutKind.Sequential)]

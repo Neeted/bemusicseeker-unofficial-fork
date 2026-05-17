@@ -12,7 +12,7 @@ internal class windowsFormsHostVisibilitiesConverter : IMultiValueConverter
     {
         try
         {
-            if (values.Take(4).Cast<Visibility>().Any((Visibility v) => v == Visibility.Visible))
+            if (values.Take(4).Cast<Visibility>().Any(v => v == Visibility.Visible))
             {
                 return Visibility.Collapsed;
             }

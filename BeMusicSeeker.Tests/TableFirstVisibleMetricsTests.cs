@@ -22,14 +22,14 @@ public sealed class TableFirstVisibleMetricsTests
     [TestMethod]
     public void Format_IncludesComparableFields()
     {
-        TableFirstVisibleTiming timing = new TableFirstVisibleTiming(
+        var timing = new TableFirstVisibleTiming(
             requestVersion: 7,
             requestToBuildStartMs: 10,
             requestToBuildCompleteMs: 20,
             requestToVisibleRenderMs: 90,
             buildToVisibleRenderMs: 70,
             viewCount: 979);
-        TableFirstVisibleMetrics metrics = new TableFirstVisibleMetrics(
+        var metrics = new TableFirstVisibleMetrics(
             controlType: "CustomTableView",
             trigger: "custom_onrender",
             sourceGenerationId: 11,
@@ -61,14 +61,14 @@ public sealed class TableFirstVisibleMetricsTests
     [TestMethod]
     public void Format_CanMarkPreparationRender()
     {
-        TableFirstVisibleTiming timing = new TableFirstVisibleTiming(
+        var timing = new TableFirstVisibleTiming(
             requestVersion: 8,
             requestToBuildStartMs: 10,
             requestToBuildCompleteMs: 20,
             requestToVisibleRenderMs: 30,
             buildToVisibleRenderMs: 10,
             viewCount: 100);
-        TableFirstVisibleMetrics metrics = new TableFirstVisibleMetrics(
+        var metrics = new TableFirstVisibleMetrics(
             controlType: "CustomTableView",
             trigger: "custom_onrender",
             sourceGenerationId: 1,

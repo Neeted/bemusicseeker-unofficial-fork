@@ -5,13 +5,13 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartInfoInlineBuildResult
 {
-    public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+    public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> AppliedRows { get; } = new List<LR2SongDBExtended.chart_info>();
+    public List<LR2SongDBExtended.chart_info> AppliedRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = new List<LR2SongDBExtended.chart_info_parse_failure>();
+    public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = [];
 
-    public List<string> ParseFailureDeleteMd5s { get; } = new List<string>();
+    public List<string> ParseFailureDeleteMd5s { get; } = [];
 
     public int TargetCount { get; set; }
 

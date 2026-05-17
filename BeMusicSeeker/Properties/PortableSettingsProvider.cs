@@ -14,7 +14,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
 {
     internal const string SettingsSectionName = "BeMusicSeeker.Properties.Settings";
 
-    private static readonly HashSet<string> ObsoleteSettingNames = new HashSet<string>(StringComparer.Ordinal)
+    private static readonly HashSet<string> ObsoleteSettingNames = new(StringComparer.Ordinal)
     {
         "StandardColumnsSettings",
         "ZeroNoteColumnsSettings",
@@ -39,7 +39,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         {
             name = nameof(PortableSettingsProvider);
         }
-        config ??= new NameValueCollection();
+        config ??= [];
         base.Initialize(name, config);
     }
 
@@ -56,12 +56,12 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
 
     public override SettingsPropertyValueCollection GetPropertyValues(SettingsContext context, SettingsPropertyCollection collection)
     {
-        SettingsPropertyValueCollection settingsPropertyValueCollection = new SettingsPropertyValueCollection();
+        SettingsPropertyValueCollection settingsPropertyValueCollection = [];
         Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)> dictionary = LoadSettingMap();
         foreach (SettingsProperty item in collection)
         {
-            SettingsPropertyValue settingsPropertyValue = new SettingsPropertyValue(item);
-            if (dictionary.TryGetValue(item.Name, out var value))
+            var settingsPropertyValue = new SettingsPropertyValue(item);
+            if (dictionary.TryGetValue(item.Name, out (SettingsSerializeAs serializeAs, string serializedValue) value))
             {
                 settingsPropertyValue.SerializedValue = value.serializedValue;
             }
@@ -82,10 +82,10 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
             Directory.CreateDirectory(PortableSettingsPath.ConfigDirectoryPath);
             if (File.Exists(PortableSettingsPath.UserConfigPath))
             {
-                FileInfo fileInfo = new FileInfo(PortableSettingsPath.UserConfigPath);
+                var fileInfo = new FileInfo(PortableSettingsPath.UserConfigPath);
                 if (fileInfo.IsReadOnly)
                 {
-                    UnauthorizedAccessException ex = new UnauthorizedAccessException("Portable settings file is read-only.");
+                    var ex = new UnauthorizedAccessException("Portable settings file is read-only.");
                     NLogWrapper.TraceLogger?.Error(ex, "portable_settings_save blocked_readonly path=" + PortableSettingsPath.UserConfigPath);
                     WriteFallbackErrorLog("portable_settings_save blocked_readonly path=" + PortableSettingsPath.UserConfigPath, ex);
                     return;
@@ -102,7 +102,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
             {
                 string serialized = GetSerializedValue(item);
                 string value = item.Property.SerializeAs.ToString();
-                XElement xElement2 = xElement.Elements("setting").FirstOrDefault((XElement e) => string.Equals((string)e.Attribute("name"), item.Name, StringComparison.Ordinal));
+                XElement xElement2 = xElement.Elements("setting").FirstOrDefault(e => string.Equals((string)e.Attribute("name"), item.Name, StringComparison.Ordinal));
                 if (xElement2 == null)
                 {
                     xElement2 = new XElement("setting");
@@ -186,7 +186,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
                     text = text.Substring(num + 2);
                 }
             }
-            XElement xElement = XElement.Parse("<root>" + text + "</root>");
+            var xElement = XElement.Parse("<root>" + text + "</root>");
             valueElement.Add(xElement.Nodes());
             return true;
         }
@@ -198,14 +198,14 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
 
     private static Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)> LoadSettingMap()
     {
-        Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)> dictionary = new Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)>(StringComparer.Ordinal);
+        var dictionary = new Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)>(StringComparer.Ordinal);
         if (!File.Exists(PortableSettingsPath.UserConfigPath))
         {
             return dictionary;
         }
         try
         {
-            XDocument xDocument = XDocument.Load(PortableSettingsPath.UserConfigPath);
+            var xDocument = XDocument.Load(PortableSettingsPath.UserConfigPath);
             XElement xElement = xDocument.Root?.Element("userSettings")?.Element(SettingsSectionName);
             if (xElement == null)
             {
@@ -219,7 +219,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
                     continue;
                 }
                 string text = (string)item.Attribute("serializeAs");
-                if (!Enum.TryParse<SettingsSerializeAs>(text, out var result))
+                if (!Enum.TryParse<SettingsSerializeAs>(text, out SettingsSerializeAs result))
                 {
                     result = SettingsSerializeAs.String;
                 }
@@ -250,7 +250,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
             {
             }
         }
-        XDocument xDocument = new XDocument(new XElement("configuration", new XElement("userSettings", new XElement(SettingsSectionName))));
+        var xDocument = new XDocument(new XElement("configuration", new XElement("userSettings", new XElement(SettingsSectionName))));
         return xDocument;
     }
 
@@ -260,9 +260,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         {
             return 0;
         }
-        List<XElement> obsoleteSettings = settingsSection.Elements("setting")
-            .Where((XElement e) => ObsoleteSettingNames.Contains((string)e.Attribute("name") ?? string.Empty))
-            .ToList();
+        List<XElement> obsoleteSettings = [.. settingsSection.Elements("setting").Where(e => ObsoleteSettingNames.Contains((string)e.Attribute("name") ?? string.Empty))];
         foreach (XElement setting in obsoleteSettings)
         {
             setting.Remove();

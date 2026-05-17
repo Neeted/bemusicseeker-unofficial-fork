@@ -15,7 +15,7 @@ public abstract class WindowHandles : IEnumerable<IntPtr>, IEnumerable
 
     public WindowHandles()
     {
-        handles = new List<IntPtr>();
+        handles = [];
     }
 
     public IEnumerator<IntPtr> GetEnumerator()

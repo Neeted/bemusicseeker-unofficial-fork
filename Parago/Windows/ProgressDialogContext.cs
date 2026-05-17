@@ -11,16 +11,8 @@ public class ProgressDialogContext
 
     public ProgressDialogContext(BackgroundWorker worker, DoWorkEventArgs arguments)
     {
-        if (worker == null)
-        {
-            throw new ArgumentNullException("worker");
-        }
-        if (arguments == null)
-        {
-            throw new ArgumentNullException("arguments");
-        }
-        Worker = worker;
-        Arguments = arguments;
+        Worker = worker ?? throw new ArgumentNullException("worker");
+        Arguments = arguments ?? throw new ArgumentNullException("arguments");
     }
 
     public bool CheckCancellationPending()

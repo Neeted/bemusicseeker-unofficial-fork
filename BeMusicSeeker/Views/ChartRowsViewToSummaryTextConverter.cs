@@ -20,9 +20,9 @@ internal class ChartRowsViewToSummaryTextConverter : IValueConverter
         }
         if (value is IEnumerable rows)
         {
-            List<object> rowList = rows.Cast<object>().Where((object row) => row != null).ToList();
+            List<object> rowList = [.. rows.Cast<object>().Where(row => row != null)];
             int count = rowList.Count;
-            int num = rowList.Select(GetFolderName).Where((string folder) => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            int num = rowList.Select(GetFolderName).Where(folder => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
             return FormatSummaryText(count, num);
         }
         return string.Empty;

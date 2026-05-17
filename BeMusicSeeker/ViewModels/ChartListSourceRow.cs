@@ -213,15 +213,17 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null)
     {
-        List<ChartListSourceRow> rows = new List<ChartListSourceRow>();
-        rows.AddRange((bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Select(file => FromBmsFile(file, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider))
-            .Where(row => row != null));
-        rows.AddRange((bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-            .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider))
-            .Where(row => row != null));
+        List<ChartListSourceRow> rows =
+        [
+            .. (bmsFiles ?? [])
+                .Select(file => FromBmsFile(file, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider))
+                .Where(row => row != null),
+            .. (bmsonSongs ?? [])
+                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
+                .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider))
+                .Where(row => row != null),
+        ];
         return rows;
     }
 

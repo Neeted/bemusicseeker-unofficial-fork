@@ -55,40 +55,28 @@ internal static class ChartInfoDisplayFormatter
 
     internal static string FormatDifficulty(int? difficulty)
     {
-        switch (difficulty ?? 0)
+        return (difficulty ?? 0) switch
         {
-            case 1:
-                return "BEGINNER";
-            case 2:
-                return "NORMAL";
-            case 3:
-                return "HYPER";
-            case 4:
-                return "ANOTHER";
-            case 5:
-                return "INSANE";
-            default:
-                return difficulty.HasValue ? difficulty.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
-        }
+            1 => "BEGINNER",
+            2 => "NORMAL",
+            3 => "HYPER",
+            4 => "ANOTHER",
+            5 => "INSANE",
+            _ => difficulty.HasValue ? difficulty.Value.ToString(CultureInfo.InvariantCulture) : string.Empty,
+        };
     }
 
     internal static string GetDifficultyColorKey(int? difficulty)
     {
-        switch (difficulty ?? 0)
+        return (difficulty ?? 0) switch
         {
-            case 1:
-                return "Beginner";
-            case 2:
-                return "Normal";
-            case 3:
-                return "Hyper";
-            case 4:
-                return "Another";
-            case 5:
-                return "Insane";
-            default:
-                return string.Empty;
-        }
+            1 => "Beginner",
+            2 => "Normal",
+            3 => "Hyper",
+            4 => "Another",
+            5 => "Insane",
+            _ => string.Empty,
+        };
     }
 
     internal static string FormatJudge(int? judge)
@@ -144,7 +132,7 @@ internal static class ChartInfoDisplayFormatter
     internal static string FormatFeature(int feature)
     {
         string[] names =
-        {
+        [
             HasFeature(feature, FeatureUndefinedLongNote) ? "LN" : null,
             HasFeature(feature, FeatureMineNote) ? "MINE" : null,
             HasFeature(feature, FeatureRandom) ? "RANDOM" : null,
@@ -153,8 +141,8 @@ internal static class ChartInfoDisplayFormatter
             HasFeature(feature, FeatureHellChargeNote) ? "HCN" : null,
             HasFeature(feature, FeatureStopSequence) ? "STOP" : null,
             HasFeature(feature, FeatureScroll) ? "SCROLL" : null
-        };
-        return string.Join(" ", names.Where((string item) => !string.IsNullOrEmpty(item)));
+        ];
+        return string.Join(" ", names.Where(item => !string.IsNullOrEmpty(item)));
     }
 
     internal static int? GetScratchNotes(LR2SongDBExtended.chart_info chartInfo)

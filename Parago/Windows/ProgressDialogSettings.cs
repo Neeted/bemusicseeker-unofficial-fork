@@ -2,11 +2,11 @@ namespace Parago.Windows;
 
 public class ProgressDialogSettings
 {
-    public static ProgressDialogSettings WithLabelOnly = new ProgressDialogSettings(showSubLabel: false, showCancelButton: false, showProgressBarIndeterminate: true);
+    public static ProgressDialogSettings WithLabelOnly = new(showSubLabel: false, showCancelButton: false, showProgressBarIndeterminate: true);
 
-    public static ProgressDialogSettings WithSubLabel = new ProgressDialogSettings(showSubLabel: true, showCancelButton: false, showProgressBarIndeterminate: true);
+    public static ProgressDialogSettings WithSubLabel = new(showSubLabel: true, showCancelButton: false, showProgressBarIndeterminate: true);
 
-    public static ProgressDialogSettings WithSubLabelAndCancel = new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: true);
+    public static ProgressDialogSettings WithSubLabelAndCancel = new(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: true);
 
     public bool ShowSubLabel { get; set; }
 

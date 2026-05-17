@@ -25,9 +25,9 @@ internal sealed class PendingResourceOverwriteExecutionResult
 
     public bool Canceled { get; set; }
 
-    public List<ChartPackage> PendingPackagesToRemove { get; } = new List<ChartPackage>();
+    public List<ChartPackage> PendingPackagesToRemove { get; } = [];
 
-    public List<string> InstallRowsToDelete { get; } = new List<string>();
+    public List<string> InstallRowsToDelete { get; } = [];
 
     public PendingInstalledOnlyResourceOverwriteResult ToPublicResult()
     {

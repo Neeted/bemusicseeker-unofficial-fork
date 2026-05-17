@@ -5,7 +5,7 @@ namespace BeMusicSeeker.Views;
 
 internal sealed class CustomTableSelectionModel
 {
-    private readonly SortedSet<int> selectedIndices = new SortedSet<int>();
+    private readonly SortedSet<int> selectedIndices = [];
     private int itemCount;
 
     internal int CurrentIndex { get; private set; } = -1;
@@ -71,7 +71,7 @@ internal sealed class CustomTableSelectionModel
         int anchor = IsValidIndex(AnchorIndex) ? AnchorIndex : index;
         int start = anchor < index ? anchor : index;
         int end = anchor < index ? index : anchor;
-        HashSet<int> before = new HashSet<int>(selectedIndices);
+        var before = new HashSet<int>(selectedIndices);
         selectedIndices.Clear();
         for (int i = start; i <= end; i++)
         {
@@ -159,7 +159,7 @@ internal sealed class CustomTableSelectionModel
 
     internal bool CoerceToItemCount()
     {
-        int[] outOfRange = selectedIndices.Where(index => !IsValidIndex(index)).ToArray();
+        int[] outOfRange = [.. selectedIndices.Where(index => !IsValidIndex(index))];
         foreach (int index in outOfRange)
         {
             selectedIndices.Remove(index);

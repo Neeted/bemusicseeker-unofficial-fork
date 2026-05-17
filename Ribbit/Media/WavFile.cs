@@ -5,15 +5,15 @@ namespace Ribbit.Media;
 
 internal static class WavFile
 {
-    private static byte[] RIFF_HEADER = new byte[4] { 82, 73, 70, 70 };
+    private static readonly byte[] RIFF_HEADER = [82, 73, 70, 70];
 
-    private static byte[] FORMAT_WAVE = new byte[4] { 87, 65, 86, 69 };
+    private static readonly byte[] FORMAT_WAVE = [87, 65, 86, 69];
 
-    private static byte[] FORMAT_TAG = new byte[4] { 102, 109, 116, 32 };
+    private static readonly byte[] FORMAT_TAG = [102, 109, 116, 32];
 
-    private static byte[] AUDIO_FORMAT = new byte[2] { 1, 0 };
+    private static readonly byte[] AUDIO_FORMAT = [1, 0];
 
-    private static byte[] SUBCHUNK_ID = new byte[4] { 100, 97, 116, 97 };
+    private static readonly byte[] SUBCHUNK_ID = [100, 97, 116, 97];
 
     private const int BYTES_PER_SAMPLE = 2;
 

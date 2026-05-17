@@ -17,7 +17,7 @@ internal sealed class LibraryRowCacheBuildStats
 
 internal sealed class NormalLibraryRowCache
 {
-    private readonly Dictionary<BMSFile, LibraryChartRow> rowsByFile = new Dictionary<BMSFile, LibraryChartRow>(BmsFileReferenceComparer.Instance);
+    private readonly Dictionary<BMSFile, LibraryChartRow> rowsByFile = new(BmsFileReferenceComparer.Instance);
 
     internal NormalLibraryRowCache()
     {
@@ -54,10 +54,10 @@ internal sealed class NormalLibraryRowCache
 
     internal int Prune(IEnumerable<BMSFile> currentFiles)
     {
-        HashSet<BMSFile> current = new HashSet<BMSFile>(
-            (currentFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null),
+        var current = new HashSet<BMSFile>(
+            (currentFiles ?? []).Where(file => file != null),
             BmsFileReferenceComparer.Instance);
-        List<BMSFile> removed = rowsByFile.Keys.Where((BMSFile file) => !current.Contains(file)).ToList();
+        List<BMSFile> removed = [.. rowsByFile.Keys.Where(file => !current.Contains(file))];
         foreach (BMSFile file in removed)
         {
             rowsByFile.Remove(file);
@@ -72,7 +72,7 @@ internal sealed class NormalLibraryRowCache
 
     private sealed class BmsFileReferenceComparer : IEqualityComparer<BMSFile>
     {
-        internal static readonly BmsFileReferenceComparer Instance = new BmsFileReferenceComparer();
+        internal static readonly BmsFileReferenceComparer Instance = new();
 
         public bool Equals(BMSFile x, BMSFile y)
         {

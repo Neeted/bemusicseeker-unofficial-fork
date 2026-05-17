@@ -6,8 +6,8 @@ namespace Ribbit.BMS;
 
 public static class BMSBase64
 {
-    private static readonly char[] B64E = new char[64]
-    {
+    private static readonly char[] B64E =
+    [
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
         'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
         'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
@@ -15,10 +15,10 @@ public static class BMSBase64
         'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n',
         'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x',
         'y', 'z', '+', '/'
-    };
+    ];
 
-    private static readonly int[] B64D = new int[256]
-    {
+    private static readonly int[] B64D =
+    [
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -45,7 +45,7 @@ public static class BMSBase64
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1
-    };
+    ];
 
     public static readonly ReadOnlyCollection<int> MapFromBase64Set = Enumerable.Range(0, 4096).ToList().AsReadOnly();
 
@@ -87,11 +87,11 @@ public static class BMSBase64
         });
     }).ToList().AsReadOnly();
 
-    public static readonly ReadOnlyCollection<int> MapToBase36Subset = MapToBase36Set.Select((int i) => MapFromBase36Set[i]).ToList().AsReadOnly();
+    public static readonly ReadOnlyCollection<int> MapToBase36Subset = MapToBase36Set.Select(i => MapFromBase36Set[i]).ToList().AsReadOnly();
 
-    public static readonly ReadOnlyCollection<int> MapToBase16Subset = MapToBase16Set.Select((int i) => MapFromBase16Set[i]).ToList().AsReadOnly();
+    public static readonly ReadOnlyCollection<int> MapToBase16Subset = MapToBase16Set.Select(i => MapFromBase16Set[i]).ToList().AsReadOnly();
 
-    public static readonly ReadOnlyCollection<ReadOnlyCollection<int>> AlternativesForBase36Set = MapToBase36Subset.Select((int v, int i) => MapToBase36Subset.Where((int num, int num2) => num == v && num2 != i).ToList().AsReadOnly()).ToList().AsReadOnly();
+    public static readonly ReadOnlyCollection<ReadOnlyCollection<int>> AlternativesForBase36Set = MapToBase36Subset.Select((v, i) => MapToBase36Subset.Where((num, num2) => num == v && num2 != i).ToList().AsReadOnly()).ToList().AsReadOnly();
 
     public const int MaxValue = 4095;
 
@@ -101,11 +101,11 @@ public static class BMSBase64
         {
             throw new ArgumentOutOfRangeException("value", "Argument should be 0 <= value <= " + 4095);
         }
-        return new string(new char[2]
-        {
+        return new string(
+        [
             B64E[(value & 0xFC0) >> 6],
             B64E[value & 0x3F]
-        });
+        ]);
     }
 
     public static int ToInt(string s)

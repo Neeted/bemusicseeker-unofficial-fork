@@ -16,9 +16,9 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_UsesVisiblePhaseThreePointFiveColumnsForStandardView()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
-        string[] ids = CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id).ToArray();
+        string[] ids = [.. CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id)];
 
         CollectionAssert.AreEqual(
             new[]
@@ -60,14 +60,14 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_CanCreateAllMainTableColumns()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
         }
 
-        string[] ids = CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id).ToArray();
+        string[] ids = [.. CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id)];
 
         CollectionAssert.AreEqual(
             new[]
@@ -131,7 +131,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_KeepsStatusColumnVisibleFirstAndFixed()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
 
         CustomTableColumn status = CustomTableColumnFactory.CreateMainColumns(settings).First();
 
@@ -146,7 +146,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_KeepsModeColumnFixedAtFifty()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
         CustomTableColumn mode = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "Mode");
 
@@ -159,7 +159,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_UsesExpectedWidthConstraintsForHashAndRanking()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
@@ -178,13 +178,13 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_ReflectsVisibilityWidthAndDisplayIndex()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         settings.Status.Visibility = Visibility.Hidden;
         settings.Title.Visibility = Visibility.Hidden;
         settings.ChartJudge.DisplayIndex = 0;
         settings.ChartJudge.Width = 77;
 
-        CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
 
         Assert.IsFalse(columns.Any(column => column.Id == "Title"));
         Assert.AreEqual("ChartJudge", columns[0].Id);
@@ -194,14 +194,14 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreatePlaylistSummaryColumns_CreatesAllSummaryColumns()
     {
-        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        var settings = new PlaylistSummaryColumnSettings();
         foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
         }
 
-        string[] ids = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Select(column => column.Id).ToArray();
+        string[] ids = [.. CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Select(column => column.Id)];
 
         CollectionAssert.AreEqual(
             new[]
@@ -225,13 +225,13 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreatePlaylistSummaryColumns_ReflectsVisibilityWidthAndDisplayIndex()
     {
-        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        var settings = new PlaylistSummaryColumnSettings();
         settings.PlaylistId.Visibility = Visibility.Hidden;
         settings.Name.DisplayIndex = 20;
         settings.Status.DisplayIndex = 0;
         settings.Status.Width = 123;
 
-        CustomTableColumn[] columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToArray();
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings)];
 
         Assert.IsFalse(columns.Any(column => column.Id == "PlaylistId"));
         Assert.AreEqual("Status", columns[0].Id);
@@ -242,7 +242,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreatePlaylistSummaryColumns_AssignsSortPathsAndActionMetadata()
     {
-        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        var settings = new PlaylistSummaryColumnSettings();
         var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
 
         Assert.AreEqual(nameof(PlaylistSummaryRow.PlaylistId), columns["PlaylistId"].SortMemberPath);
@@ -265,7 +265,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsAutoTrimTooltipPolicy()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
@@ -274,7 +274,7 @@ public sealed class CustomTableColumnFactoryTests
 
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
         string[] disabled =
-        {
+        [
             "Status",
             "Mode",
             "Clear",
@@ -285,7 +285,7 @@ public sealed class CustomTableColumnFactoryTests
             "WavHealth",
             "BgaHealth",
             "MovieHealth"
-        };
+        ];
 
         foreach (string id in disabled)
         {
@@ -299,7 +299,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreatePlaylistSummaryColumns_AssignsAutoTrimTooltipPolicy()
     {
-        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        var settings = new PlaylistSummaryColumnSettings();
         foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
@@ -319,9 +319,9 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreatePlaylistSummaryColumns_FormatsActionsTooltipsAndFailureBackground()
     {
-        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        var settings = new PlaylistSummaryColumnSettings();
         var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
-        PlaylistSummaryRow row = new PlaylistSummaryRow
+        var row = new PlaylistSummaryRow
         {
             LinkUri = new Uri("https://example.com/"),
             IsExternalSync = true,
@@ -348,7 +348,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsPhaseTwoSortMemberPaths()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.Visibility = Visibility.Visible;
@@ -386,11 +386,9 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_StandardVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
-        CustomTableColumn[] sortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
-            .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
-            .ToArray();
+        CustomTableColumn[] sortableColumns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))];
 
         Assert.IsTrue(sortableColumns.Length > 0);
         foreach (CustomTableColumn column in sortableColumns)
@@ -404,7 +402,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_DuplicateVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
 
         AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
     }
@@ -412,7 +410,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_FullScanVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN);
 
         AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
     }
@@ -420,7 +418,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_InstallVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL);
 
         AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
     }
@@ -428,16 +426,15 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AllSortableMainColumnsAreVirtualRegistryColumnsOrExplicitlyExcluded()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.Visibility = Visibility.Visible;
         }
 
-        CustomTableColumn[] unsupportedSortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
+        CustomTableColumn[] unsupportedSortableColumns = [.. CustomTableColumnFactory.CreateMainColumns(settings)
             .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
-            .Where(column => !ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out _))
-            .ToArray();
+            .Where(column => !ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out _))];
 
         Assert.AreEqual(1, unsupportedSortableColumns.Length);
         Assert.AreEqual("EntryLevel", unsupportedSortableColumns[0].Id);
@@ -446,9 +443,7 @@ public sealed class CustomTableColumnFactoryTests
 
     private static void AssertVisibleSortMemberPathsAreVirtualRegistryColumns(CustomTableColumnSettings settings)
     {
-        CustomTableColumn[] sortableColumns = CustomTableColumnFactory.CreateMainColumns(settings)
-            .Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))
-            .ToArray();
+        CustomTableColumn[] sortableColumns = [.. CustomTableColumnFactory.CreateMainColumns(settings).Where(column => !string.IsNullOrWhiteSpace(column.SortMemberPath))];
 
         Assert.IsTrue(sortableColumns.Length > 0);
         foreach (CustomTableColumn column in sortableColumns)
@@ -471,7 +466,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsPhaseFourEditableMetadata()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
@@ -519,7 +514,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_UsesActualUrlTextForUrlEditing()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         settings.Url1.Visibility = Visibility.Visible;
         settings.Url2.Visibility = Visibility.Visible;
         var entry = new BMSTableEntry
@@ -540,7 +535,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsPhaseSevenTextStyles()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
@@ -559,20 +554,20 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsUndefinedBackgroundSelectors()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
             layout.Visibility = Visibility.Visible;
         }
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
-        UndefinedChartInfoRow undefinedRow = new UndefinedChartInfoRow
+        var undefinedRow = new UndefinedChartInfoRow
         {
             ChartLevelUndefined = true,
             ChartDifficultyUndefined = true,
             ChartTotalUndefined = true
         };
-        UndefinedChartInfoRow definedRow = new UndefinedChartInfoRow();
+        var definedRow = new UndefinedChartInfoRow();
 
         Assert.IsNotNull(columns["Level"].GetBackground(undefinedRow));
         Assert.IsNotNull(columns["ChartDifficulty"].GetBackground(undefinedRow));
@@ -587,7 +582,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_AssignsTooltipSelectors()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;
@@ -618,7 +613,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_ConvertsUrlDownloadTextToIconGlyph()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         settings.Url1.Visibility = Visibility.Visible;
         CustomTableColumn urlColumn = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "Url1");
         var row = new { UrlDownloadIconText = "download" };
@@ -629,7 +624,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CreateMainColumns_FormatsStatusAndSuffixColumns()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.Visibility = Visibility.Visible;
@@ -656,7 +651,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableColumnLayout_ResolvesHorizontalOffset()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         settings.Title.DisplayIndex = -1;
         settings.Artist.DisplayIndex = -1;
         settings.Path.DisplayIndex = -1;
@@ -711,7 +706,7 @@ public sealed class CustomTableColumnFactoryTests
         settings.RankingLastupdate.Visibility = Visibility.Hidden;
         settings.TScore.Visibility = Visibility.Hidden;
         settings.ScoreDifficulty.Visibility = Visibility.Hidden;
-        CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
 
         bool resolved = CustomTableColumnLayout.TryResolveColumn(columns, tableX: 125, out CustomTableColumn column, out int columnIndex, out double columnX);
 
@@ -731,7 +726,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableColumnLayout_ResizeHitPrefersResizableColumnBoundary()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         settings.Title.DisplayIndex = -1;
         settings.Artist.DisplayIndex = -1;
         settings.Url1.DisplayIndex = -1;
@@ -786,7 +781,7 @@ public sealed class CustomTableColumnFactoryTests
         settings.RankingLastupdate.Visibility = Visibility.Hidden;
         settings.TScore.Visibility = Visibility.Hidden;
         settings.ScoreDifficulty.Visibility = Visibility.Hidden;
-        CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
 
         bool titleResize = CustomTableColumnLayout.TryResolveResizeColumn(columns, surfaceX: 99, horizontalOffset: 0, viewportWidth: 200, margin: 4, out CustomTableColumn titleColumn, out _, out _);
         bool fixedUrlResize = CustomTableColumnLayout.TryResolveResizeColumn(columns, surfaceX: 220, horizontalOffset: 0, viewportWidth: 240, margin: 4, out CustomTableColumn urlColumn, out _, out _);
@@ -801,7 +796,7 @@ public sealed class CustomTableColumnFactoryTests
     public void CustomTableDataTransfer_BuildsVisibleColumnTsvAndNormalizesCellText()
     {
         CustomTableColumnSettings settings = CreateOnlyTitleArtistSettings();
-        CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
         var rows = new[]
         {
             new { Title = "A\tTitle", Artist = "Artist\r\nOne" },
@@ -816,7 +811,7 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableDataTransfer_BuildsSingleCellTextFromEditTextAndNormalizes()
     {
-        CustomTableColumn column = new CustomTableColumn(
+        var column = new CustomTableColumn(
             "Url",
             "URL",
             null,
@@ -846,13 +841,13 @@ public sealed class CustomTableColumnFactoryTests
     [TestMethod]
     public void CustomTableDataTransfer_CreatesLegacyAndCustomDragFormats()
     {
-        object[] rows = { new object(), new object() };
+        object[] rows = [new(), new()];
 
         DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows);
 
         Assert.IsTrue(dataObject.GetDataPresent(CustomTableDataTransfer.SelectedRowsDataFormat));
         Assert.IsTrue(dataObject.GetDataPresent(CustomTableDataTransfer.LegacySelectedRowsDataFormat));
-        Assert.IsTrue(CustomTableDataTransfer.TryGetSelectedRows(dataObject, out var resolvedRows));
+        Assert.IsTrue(CustomTableDataTransfer.TryGetSelectedRows(dataObject, out System.Collections.Generic.List<object>? resolvedRows));
         Assert.AreEqual(2, resolvedRows.Count);
     }
 
@@ -860,7 +855,7 @@ public sealed class CustomTableColumnFactoryTests
     public void CustomTableDataTransfer_ReordersColumnsWithoutMovingStatus()
     {
         CustomTableColumnSettings settings = CreateOnlyTitleArtistSettings(includeStatus: true);
-        CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
         CustomTableColumn title = columns.Single(column => column.Id == "Title");
         CustomTableColumn artist = columns.Single(column => column.Id == "Artist");
         CustomTableColumn status = columns.Single(column => column.Id == "Status");
@@ -868,7 +863,7 @@ public sealed class CustomTableColumnFactoryTests
         bool reordered = CustomTableDataTransfer.TryReorderVisibleColumns(columns, artist, status, insertAfterTarget: false);
 
         Assert.IsTrue(reordered);
-        CustomTableColumn[] reorderedColumns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CustomTableColumn[] reorderedColumns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
         CollectionAssert.AreEqual(new[] { "Status", "Artist", "Title" }, reorderedColumns.Select(column => column.Id).ToArray());
         Assert.IsFalse(status.CanReorder);
         Assert.IsTrue(title.CanReorder);
@@ -876,7 +871,7 @@ public sealed class CustomTableColumnFactoryTests
 
     private static CustomTableColumnSettings CreateOnlyTitleArtistSettings(bool includeStatus = false)
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings();
+        var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
         {
             layout.DisplayIndex = -1;

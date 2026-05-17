@@ -5,19 +5,19 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class SongTableLoadResult
 {
-    public List<string> Pragmas { get; } = new List<string>();
+    public List<string> Pragmas { get; } = [];
 
-    public List<BMSFile> LoadedFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> LoadedFiles { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> LoadedBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+    public List<LR2SongDBExtended.bmson_song> LoadedBmsonSongs { get; } = [];
 
-    public List<BMSFile> UpdatedSongs { get; } = new List<BMSFile>();
+    public List<BMSFile> UpdatedSongs { get; } = [];
 
-    public List<string> DeletedSongPaths { get; } = new List<string>();
+    public List<string> DeletedSongPaths { get; } = [];
 
-    public List<LR2SongDB.folder> UpdatedFolders { get; } = new List<LR2SongDB.folder>();
+    public List<LR2SongDB.folder> UpdatedFolders { get; } = [];
 
-    public List<string> DeletedFolderPaths { get; } = new List<string>();
+    public List<string> DeletedFolderPaths { get; } = [];
 
     public Dictionary<string, string> ChartDigestMap { get; } = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
 

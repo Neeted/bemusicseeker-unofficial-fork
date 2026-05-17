@@ -78,7 +78,7 @@ public class SerializableVersion : ICloneable, IComparable
         {
             throw new ArgumentNullException("version");
         }
-        char[] separator = new char[1] { '.' };
+        char[] separator = ['.'];
         string[] array = version.Split(separator);
         int num = array.Length;
         if (num < 2 || num > 4)
@@ -202,11 +202,11 @@ public class SerializableVersion : ICloneable, IComparable
         {
             return 1;
         }
-        if (!(version is SerializableVersion))
+        if (version is not SerializableVersion)
         {
             throw new ArgumentException("Arg_MustBeVersion");
         }
-        SerializableVersion serializableVersion = (SerializableVersion)version;
+        var serializableVersion = (SerializableVersion)version;
         if (major != serializableVersion.Major)
         {
             if (major > serializableVersion.Major)
@@ -244,11 +244,11 @@ public class SerializableVersion : ICloneable, IComparable
 
     public override bool Equals(object obj)
     {
-        if (obj == null || !(obj is SerializableVersion))
+        if (obj == null || obj is not SerializableVersion)
         {
             return false;
         }
-        SerializableVersion serializableVersion = (SerializableVersion)obj;
+        var serializableVersion = (SerializableVersion)obj;
         if (major == serializableVersion.Major && minor == serializableVersion.Minor && build == serializableVersion.Build && revision == serializableVersion.Revision)
         {
             return true;
@@ -263,7 +263,7 @@ public class SerializableVersion : ICloneable, IComparable
 
     public static bool operator ==(SerializableVersion v1, SerializableVersion v2)
     {
-        return v1?.Equals(v2) ?? ((object)v2 == null);
+        return v1?.Equals(v2) ?? (v2 is null);
     }
 
     public static bool operator >(SerializableVersion v1, SerializableVersion v2)

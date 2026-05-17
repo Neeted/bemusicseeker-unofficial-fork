@@ -194,7 +194,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(styles, "Name=\"SubMenu\" Background=\"{DynamicResource App.PopupBackgroundBrush}\" Grid.IsSharedSizeScope=\"True\" MaxHeight=\"{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height, Converter={StaticResource MenuMaxHeightConverter}}\"");
         StringAssert.Contains(styles, "VerticalScrollBarVisibility=\"Auto\" CanContentScroll=\"False\" MaxHeight=\"{Binding ElementName=SubMenu, Path=MaxHeight}\"");
 
-        MenuMaxHeightConverter converter = new MenuMaxHeightConverter();
+        var converter = new MenuMaxHeightConverter();
 
         Assert.AreEqual(576d, converter.Convert(768d, typeof(double), null, CultureInfo.InvariantCulture));
         Assert.AreEqual(160d, converter.Convert(double.NaN, typeof(double), null, CultureInfo.InvariantCulture));
@@ -246,7 +246,7 @@ public sealed class MainWindowContextMenuResourceTests
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string[] keys =
-        {
+        [
             "Beatoraja_integration",
             "FilePath_beatoraja_root",
             "Use_beatoraja_scoreDB",
@@ -255,7 +255,7 @@ public sealed class MainWindowContextMenuResourceTests
             "Register_beatoraja_bmt_urls",
             "Error_InvalidBeatorajaRootPath",
             "Error_InvalidBeatorajaScoreDbPath"
-        };
+        ];
         foreach (string key in keys)
         {
             StringAssert.Contains(resources, "name=\"" + key + "\"");
@@ -331,12 +331,12 @@ public sealed class MainWindowContextMenuResourceTests
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string[] keys =
-        {
+        [
             "Standalone_BMSDirectories",
             "Add_BMSDirectory",
             "Remove_BMSDirectory",
             "Error_InvalidStandaloneBmsRootPaths"
-        };
+        ];
         foreach (string key in keys)
         {
             StringAssert.Contains(resources, "name=\"" + key + "\"");
@@ -737,7 +737,7 @@ public sealed class MainWindowContextMenuResourceTests
         Directory.CreateDirectory(installRoot);
         try
         {
-            var normalized = MainWindowViewModel.SettingDialogViewModel.NormalizeStandaloneBmsRootPaths(new[] { firstRoot, secondRoot, installRoot });
+            IReadOnlyList<string> normalized = MainWindowViewModel.SettingDialogViewModel.NormalizeStandaloneBmsRootPaths(new[] { firstRoot, secondRoot, installRoot });
 
             Assert.AreEqual(3, normalized.Count);
             Assert.IsTrue(normalized.Contains(firstRoot, StringComparer.OrdinalIgnoreCase));
@@ -888,7 +888,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SidebarTreeViewWidthSetting_PropertyNormalizesBackingValue()
     {
-        Settings settings = new Settings();
+        var settings = new Settings();
 
         settings["TreeViewWidth"] = 0d;
         Assert.AreEqual(Settings.DefaultTreeViewWidth, settings.TreeViewWidth);
@@ -903,7 +903,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void AppearanceThemeSetting_NormalizesValuesAndResourcesExist()
     {
-        Settings settings = new Settings();
+        var settings = new Settings();
 
         settings["AppearanceTheme"] = "Dark";
         Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
@@ -1177,7 +1177,7 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string[] promotedLabels =
-        {
+        [
             Resources.Details_test_notscan,
             Resources.Details_test_notcheck_playlists,
             Resources.Details_test_startup_select_install_pending,
@@ -1187,7 +1187,7 @@ public sealed class MainWindowContextMenuResourceTests
             Resources.Details_test_delete_pending_source_after_install,
             Resources.Details_test_smart_component_overwrite,
             Resources.Details_test_keep_smart_overwrite_protected_by_rename
-        };
+        ];
 
         foreach (string label in promotedLabels)
         {
@@ -1211,7 +1211,7 @@ public sealed class MainWindowContextMenuResourceTests
         string legacyMigratorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "LegacyUserConfigMigrator.cs"));
 
         Dictionary<string, string> settingsDefaults = ReadSettingsCodeDefaults(settingsCode);
-        Dictionary<string, string> appConfigDefaults = XDocument.Load(appConfigPath)
+        var appConfigDefaults = XDocument.Load(appConfigPath)
             .Descendants("setting")
             .Where(setting => setting.Attribute("name") != null)
             .ToDictionary(
@@ -1270,21 +1270,21 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsNotNull(parseMethod);
         MethodInfo inferDefaultExtensionMethod = actionType.GetMethod("InferDefaultExtensionForTest", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(inferDefaultExtensionMethod);
-        var parsed = ((System.Collections.IEnumerable)parseMethod.Invoke(null, new object[] { "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*" }))
+        var parsed = ((System.Collections.IEnumerable)parseMethod.Invoke(null, ["song.db (*.db)|*.db|すべてのファイル(*.*)|*.*"]))
             .Cast<Tuple<string, string>>()
             .ToList();
         Assert.AreEqual(2, parsed.Count);
         Assert.AreEqual("song.db (*.db)", parsed[0].Item1);
         Assert.AreEqual("*.db", parsed[0].Item2);
         Assert.AreEqual("*.*", parsed[1].Item2);
-        var fallback = ((System.Collections.IEnumerable)parseMethod.Invoke(null, new object[] { "broken" }))
+        var fallback = ((System.Collections.IEnumerable)parseMethod.Invoke(null, ["broken"]))
             .Cast<Tuple<string, string>>()
             .ToList();
         Assert.AreEqual("*.*", fallback[0].Item2);
-        Assert.AreEqual("db", inferDefaultExtensionMethod.Invoke(null, new object[] { "song.db", "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*" }));
-        Assert.AreEqual("xml", inferDefaultExtensionMethod.Invoke(null, new object[] { "config.xml", "|config.xm?|すべてのファイル(*.*)|*.*" }));
-        Assert.AreEqual("bmp", inferDefaultExtensionMethod.Invoke(null, new object[] { string.Empty, "Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png|すべてのファイル(*.*)|*.*" }));
-        Assert.IsNull(inferDefaultExtensionMethod.Invoke(null, new object[] { string.Empty, "すべてのファイル(*.*)|*.*" }));
+        Assert.AreEqual("db", inferDefaultExtensionMethod.Invoke(null, ["song.db", "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*"]));
+        Assert.AreEqual("xml", inferDefaultExtensionMethod.Invoke(null, ["config.xml", "|config.xm?|すべてのファイル(*.*)|*.*"]));
+        Assert.AreEqual("bmp", inferDefaultExtensionMethod.Invoke(null, [string.Empty, "Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png|すべてのファイル(*.*)|*.*"]));
+        Assert.IsNull(inferDefaultExtensionMethod.Invoke(null, [string.Empty, "すべてのファイル(*.*)|*.*"]));
         StringAssert.Contains(dialogActionCode, "dialog.DefaultExtension = defaultExtension");
         StringAssert.Contains(dialogActionCode, "InferDefaultExtensionForTest(message.FileName, message.Filter)");
         StringAssert.Contains(settingDialogXaml, "Filter=\"|config.xm?|");
@@ -1421,7 +1421,7 @@ public sealed class MainWindowContextMenuResourceTests
 
     private static string FindRepositoryRoot()
     {
-        DirectoryInfo directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory != null)
         {
             if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker-decomp.sln")))
@@ -1437,7 +1437,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string path = kind == ChartFileKind.Bmson ? @"C:\Charts\chart.bmson" : @"C:\Charts\chart.bms";
         BMSFile bmsFile = kind == ChartFileKind.Bms ? new BMSFile { path = path } : null!;
-        ChartFile chart = new ChartFile(
+        var chart = new ChartFile(
             kind,
             path,
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -1462,7 +1462,7 @@ public sealed class MainWindowContextMenuResourceTests
 
     private static Dictionary<string, string> ReadSettingsCodeDefaults(string settingsCode)
     {
-        Dictionary<string, string> defaults = new Dictionary<string, string>(StringComparer.Ordinal);
+        var defaults = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (Match match in Regex.Matches(
             settingsCode,
             @"\[DefaultSettingValue\((?<value>DefaultAppearanceTheme|DefaultTableListUrl|null|""(?<literal>(?:\\.|[^""])*)"")\)\]\s*public\s+\S+\s+(?<name>\w+)\s*\{",

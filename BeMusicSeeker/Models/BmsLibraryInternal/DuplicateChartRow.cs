@@ -36,7 +36,7 @@ internal sealed class DuplicateChartRow
 
     public static DuplicateChartRow CreateFromBmsonSong(LR2SongDBExtended.bmson_song song)
     {
-        PendingChartEntry displayRow = PendingChartEntry.CreateFromBmsonSong(song);
+        var displayRow = PendingChartEntry.CreateFromBmsonSong(song);
         if (displayRow == null)
         {
             return null;

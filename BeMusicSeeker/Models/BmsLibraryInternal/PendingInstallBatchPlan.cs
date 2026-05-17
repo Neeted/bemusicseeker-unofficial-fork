@@ -4,11 +4,11 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PendingInstallBatchPlan
 {
-    public List<ChartPackage> SelectedPendingPackages { get; } = new List<ChartPackage>();
+    public List<ChartPackage> SelectedPendingPackages { get; } = [];
 
-    public List<PendingInstallBatchGroup> Groups { get; } = new List<PendingInstallBatchGroup>();
+    public List<PendingInstallBatchGroup> Groups { get; } = [];
 
-    public List<ChartPackage> CleanupOnlyCandidates { get; } = new List<ChartPackage>();
+    public List<ChartPackage> CleanupOnlyCandidates { get; } = [];
 
     public HashSet<string> MoveGuardHashes { get; set; } = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 

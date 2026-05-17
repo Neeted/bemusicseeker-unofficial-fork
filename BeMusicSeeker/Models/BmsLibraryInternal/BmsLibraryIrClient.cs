@@ -14,13 +14,13 @@ internal sealed class BmsLibraryIrClient : IBmsLibraryIrClient
 
     public string GetPlayerScoresXml(int lr2Id)
     {
-        Uri uri = new Uri("http://www.dream-pro.info/~lavalse/LR2IR/2/getplayerxml.cgi?id=" + lr2Id);
+        var uri = new Uri("http://www.dream-pro.info/~lavalse/LR2IR/2/getplayerxml.cgi?id=" + lr2Id);
         return AppHttpClient.Shared.GetString(uri, Encoding.GetEncoding("shift_jis"));
     }
 
     public List<BMSLibrary.IRDataCacheInfo> GetRankingInfo(Uri rankingInfoUrl, IEnumerable<string> md5s)
     {
-        List<string> hashes = (md5s ?? Enumerable.Empty<string>()).Where((string md5) => LR2SongDB.md5HashRegex.IsMatch(md5)).ToList();
+        List<string> hashes = [.. (md5s ?? []).Where(md5 => LR2SongDB.md5HashRegex.IsMatch(md5))];
         dynamic body = new DynamicJson(DynamicJson.JsonType.array);
         for (int i = 0; i < hashes.Count; i++)
         {
@@ -30,7 +30,7 @@ internal sealed class BmsLibraryIrClient : IBmsLibraryIrClient
         {
             { "Accept", "application/json" }
         }));
-        return (from ri in ((object[])response).Select(delegate (dynamic item)
+        return [.. (from ri in ((object[])response).Select(delegate (dynamic item)
                 {
                     try
                     {
@@ -42,12 +42,12 @@ internal sealed class BmsLibraryIrClient : IBmsLibraryIrClient
                     }
                 })
                 where ri != null
-                select ri).ToList();
+                select ri)];
     }
 
     public void DownloadRankingData(Uri rankingDataUrl, string md5, string destinationPath)
     {
-        Uri address = new Uri(rankingDataUrl, "./" + md5 + ".xml");
+        var address = new Uri(rankingDataUrl, "./" + md5 + ".xml");
         AppHttpClient.Shared.DownloadFile(address, destinationPath);
     }
 
@@ -56,7 +56,7 @@ internal sealed class BmsLibraryIrClient : IBmsLibraryIrClient
         string searchUrl = string.Empty;
         string searchUrlSabun = string.Empty;
         BMSLibrary.IRSongInfo info = null;
-        System.Threading.Tasks.Task task = System.Threading.Tasks.Task.Run(delegate
+        var task = System.Threading.Tasks.Task.Run(delegate
         {
             dynamic json = DynamicJson.Parse(AppHttpClient.Shared.GetString(new Uri(songInfoUrl, "./" + md5OrLr2BmsId), Encoding.UTF8));
             info = new BMSLibrary.IRSongInfo(json);

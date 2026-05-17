@@ -150,13 +150,13 @@ internal sealed class InstallEstimationResult
 
     public InstallEstimationLowConfidenceKind LowConfidenceKind { get; set; } = InstallEstimationLowConfidenceKind.None;
 
-    public List<InstallEstimationCandidate> Candidates { get; } = new List<InstallEstimationCandidate>();
+    public List<InstallEstimationCandidate> Candidates { get; } = [];
 
     public InstallEstimationCandidate SelectedCandidate => Candidates.Count > 0 ? Candidates[0] : null;
 
     public InstallEstimationCandidate SecondCandidate => Candidates.Count > 1 ? Candidates[1] : null;
 
-    public List<string> SuggestedDestinationDirectories { get; } = new List<string>();
+    public List<string> SuggestedDestinationDirectories { get; } = [];
 
     public int CandidateDirectoryCount { get; set; }
 

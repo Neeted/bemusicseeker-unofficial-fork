@@ -11,7 +11,7 @@ namespace BeMusicSeeker.ViewModels;
 internal sealed class ChartListOrder
 {
     private static readonly ChartListOrderColumnDefinition[] columnDefinitions =
-    {
+    [
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.Title),
             row => row?.Title ?? string.Empty,
@@ -322,7 +322,7 @@ internal sealed class ChartListOrder
             typeof(int?).Name,
             MainViewDataDependency.ChartInfo,
             prewarmByDefault: true)
-    };
+    ];
 
     private ChartListOrder(
         int[] indexes,
@@ -332,7 +332,7 @@ internal sealed class ChartListOrder
         string propertyTypeName,
         string stringSortKind)
     {
-        Indexes = indexes ?? Array.Empty<int>();
+        Indexes = indexes ?? [];
         ColumnName = columnName ?? string.Empty;
         Direction = direction;
         SortProfile = sortProfile ?? string.Empty;
@@ -363,7 +363,7 @@ internal sealed class ChartListOrder
     internal ChartListOrder WithIndexes(int[] indexes)
     {
         return new ChartListOrder(
-            indexes ?? Array.Empty<int>(),
+            indexes ?? [],
             ColumnName,
             Direction,
             SortProfile,
@@ -383,12 +383,12 @@ internal sealed class ChartListOrder
             return false;
         }
 
-        IReadOnlyList<ChartListSourceRow> safeRows = rows ?? Array.Empty<ChartListSourceRow>();
-        Func<int, string> titleKeySelector = index => safeRows[index]?.Title ?? string.Empty;
+        IReadOnlyList<ChartListSourceRow> safeRows = rows ?? [];
+        string titleKeySelector(int index) => safeRows[index]?.Title ?? string.Empty;
         IOrderedEnumerable<int> orderedIndexes;
         if (definition.KeyKind == ChartListOrderKeyKind.Comparable)
         {
-            Func<int, IComparable> primaryKeySelector = index => definition.ComparableKeySelector(safeRows[index]);
+            IComparable primaryKeySelector(int index) => definition.ComparableKeySelector(safeRows[index]);
             IComparer<IComparable> comparer = Comparer<IComparable>.Create(CompareComparable);
             orderedIndexes = direction == ListSortDirection.Descending
                 ? Enumerable.Range(0, safeRows.Count)
@@ -400,7 +400,7 @@ internal sealed class ChartListOrder
         }
         else
         {
-            Func<int, string> primaryKeySelector = index => definition.StringKeySelector(safeRows[index]);
+            string primaryKeySelector(int index) => definition.StringKeySelector(safeRows[index]);
             orderedIndexes = direction == ListSortDirection.Descending
                 ? Enumerable.Range(0, safeRows.Count)
                     .OrderByDescending(primaryKeySelector, StringComparer.OrdinalIgnoreCase)
@@ -411,7 +411,7 @@ internal sealed class ChartListOrder
         }
 
         order = new ChartListOrder(
-            orderedIndexes.ToArray(),
+            [.. orderedIndexes],
             definition.NormalizedColumnName,
             direction,
             definition.SortProfile,
@@ -590,7 +590,7 @@ internal readonly struct ChartListOrderColumnDefinition
         StringSortKind = stringSortKind ?? string.Empty;
         Dependency = dependency;
         PrewarmPriority = ResolvePrewarmPriority(NormalizedColumnName);
-        this.aliases = aliases ?? Array.Empty<string>();
+        this.aliases = aliases ?? [];
     }
 
     internal string NormalizedColumnName { get; }
@@ -668,40 +668,12 @@ internal readonly struct ChartListOrderColumnDefinition
 
     private static int ResolvePrewarmPriority(string normalizedColumnName)
     {
-        switch (normalizedColumnName)
+        return normalizedColumnName switch
         {
-            case nameof(LibraryChartRow.Title):
-            case nameof(LibraryChartRow.Folder):
-            case nameof(LibraryChartRow.path):
-            case nameof(LibraryChartRow.Artist):
-                return 1;
-            case nameof(LibraryChartRow.clear):
-            case nameof(LibraryChartRow.rateDouble):
-            case nameof(LibraryChartRow.minbp):
-            case nameof(LibraryChartRow.ChartJudgeSortKey):
-            case nameof(LibraryChartRow.ChartNotes):
-            case nameof(LibraryChartRow.ChartLongNotes):
-            case nameof(LibraryChartRow.ChartScratchNotes):
-            case nameof(LibraryChartRow.ChartMainBpmSortKey):
-            case nameof(LibraryChartRow.ChartMinBpmSortKey):
-            case nameof(LibraryChartRow.ChartMaxBpmSortKey):
-            case nameof(LibraryChartRow.ChartSoflanCount):
-            case nameof(LibraryChartRow.ChartTotalSortKey):
-            case nameof(LibraryChartRow.ChartTotalPerNoteSortKey):
-            case nameof(LibraryChartRow.ChartDurationSortKey):
-            case nameof(LibraryChartRow.ChartDensitySortKey):
-            case nameof(LibraryChartRow.ChartPeakDensitySortKey):
-            case nameof(LibraryChartRow.ChartEndDensitySortKey):
-                return 2;
-            case nameof(LibraryChartRow.WAVHealth):
-            case nameof(LibraryChartRow.BGAHealth):
-            case nameof(LibraryChartRow.MovieHealth):
-            case nameof(LibraryChartRow.encoding):
-            case nameof(LibraryChartRow.WarningDigestText):
-            case nameof(LibraryChartRow.level):
-                return 0;
-            default:
-                return 3;
-        }
+            nameof(LibraryChartRow.Title) or nameof(LibraryChartRow.Folder) or nameof(LibraryChartRow.path) or nameof(LibraryChartRow.Artist) => 1,
+            nameof(LibraryChartRow.clear) or nameof(LibraryChartRow.rateDouble) or nameof(LibraryChartRow.minbp) or nameof(LibraryChartRow.ChartJudgeSortKey) or nameof(LibraryChartRow.ChartNotes) or nameof(LibraryChartRow.ChartLongNotes) or nameof(LibraryChartRow.ChartScratchNotes) or nameof(LibraryChartRow.ChartMainBpmSortKey) or nameof(LibraryChartRow.ChartMinBpmSortKey) or nameof(LibraryChartRow.ChartMaxBpmSortKey) or nameof(LibraryChartRow.ChartSoflanCount) or nameof(LibraryChartRow.ChartTotalSortKey) or nameof(LibraryChartRow.ChartTotalPerNoteSortKey) or nameof(LibraryChartRow.ChartDurationSortKey) or nameof(LibraryChartRow.ChartDensitySortKey) or nameof(LibraryChartRow.ChartPeakDensitySortKey) or nameof(LibraryChartRow.ChartEndDensitySortKey) => 2,
+            nameof(LibraryChartRow.WAVHealth) or nameof(LibraryChartRow.BGAHealth) or nameof(LibraryChartRow.MovieHealth) or nameof(LibraryChartRow.encoding) or nameof(LibraryChartRow.WarningDigestText) or nameof(LibraryChartRow.level) => 0,
+            _ => 3,
+        };
     }
 }

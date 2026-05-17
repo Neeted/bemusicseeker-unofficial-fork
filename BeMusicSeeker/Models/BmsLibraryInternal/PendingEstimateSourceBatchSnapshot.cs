@@ -38,11 +38,11 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public string SourceDirectory { get; set; } = string.Empty;
 
-    public List<BMSFile> PackageFiles { get; set; } = new List<BMSFile>();
+    public List<BMSFile> PackageFiles { get; set; } = [];
 
-    public List<BMSFile> AlreadyInstalledFiles { get; set; } = new List<BMSFile>();
+    public List<BMSFile> AlreadyInstalledFiles { get; set; } = [];
 
-    public List<BMSFile> MissingFiles { get; set; } = new List<BMSFile>();
+    public List<BMSFile> MissingFiles { get; set; } = [];
 
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
 
@@ -63,9 +63,9 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
 internal sealed class PendingEstimateSourceBatchSnapshot
 {
-    private readonly Dictionary<ChartPackage, PendingEstimateSourceBatchPackageState> packageStatesByPackage = new Dictionary<ChartPackage, PendingEstimateSourceBatchPackageState>();
+    private readonly Dictionary<ChartPackage, PendingEstimateSourceBatchPackageState> packageStatesByPackage = [];
 
-    public List<PendingEstimateSourceBatchPackageState> PackageStates { get; } = new List<PendingEstimateSourceBatchPackageState>();
+    public List<PendingEstimateSourceBatchPackageState> PackageStates { get; } = [];
 
     public int RootCount { get; set; }
 

@@ -49,13 +49,13 @@ internal static class BmsonSongParser
         DateTime updatedAt)
     {
         BmsonInfo info = root?.Info ?? new BmsonInfo();
-        LR2SongDBExtended.bmson_song result = new LR2SongDBExtended.bmson_song
+        var result = new LR2SongDBExtended.bmson_song
         {
             path = fullPath,
             folder = Path.GetDirectoryName(fullPath) ?? string.Empty,
             title = info.Title ?? string.Empty,
             subtitle = ComposeSubtitle(info.Subtitle, info.ChartName),
-            artist = ComposeArtist(info.Artist, info.Subartists ?? Array.Empty<string>()),
+            artist = ComposeArtist(info.Artist, info.Subartists ?? []),
             genre = info.Genre ?? string.Empty,
             level = info.Level.HasValue ? (double?)info.Level.Value : null,
             mode_hint = info.ModeHint ?? string.Empty,
@@ -125,19 +125,19 @@ internal static class BmsonSongParser
 
     private static List<string> ReadBmsonWavFiles(BmsonDocument document, string previewMusic)
     {
-        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         AddNormalizedComponentPath(files, previewMusic);
         foreach (string channelName in EnumerateAudioChannelNames(document))
         {
             AddNormalizedComponentPath(files, channelName);
         }
-        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
+        return [.. files.OrderBy(item => item, StringComparer.OrdinalIgnoreCase)];
     }
 
     private static List<string> ReadBmsonBgaFiles(BmsonDocument document)
     {
-        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BmsonBgaHeader header in document?.Bga?.BgaHeader ?? Array.Empty<BmsonBgaHeader>())
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BmsonBgaHeader header in document?.Bga?.BgaHeader ?? [])
         {
             string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(header?.Name);
             if (!string.IsNullOrWhiteSpace(normalized))
@@ -149,14 +149,14 @@ internal static class BmsonSongParser
                 }
             }
         }
-        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
+        return [.. files.OrderBy(item => item, StringComparer.OrdinalIgnoreCase)];
     }
 
     private static IEnumerable<string> EnumerateAudioChannelNames(BmsonDocument document)
     {
-        return (document?.SoundChannels ?? Array.Empty<BmsonSoundChannel>()).Select((BmsonSoundChannel channel) => channel?.Name)
-            .Concat((document?.KeyChannels ?? Array.Empty<BmsonMineChannel>()).Select((BmsonMineChannel channel) => channel?.Name))
-            .Concat((document?.MineChannels ?? Array.Empty<BmsonMineChannel>()).Select((BmsonMineChannel channel) => channel?.Name));
+        return (document?.SoundChannels ?? []).Select(channel => channel?.Name)
+            .Concat((document?.KeyChannels ?? []).Select(channel => channel?.Name))
+            .Concat((document?.MineChannels ?? []).Select(channel => channel?.Name));
     }
 
     private static void AddNormalizedComponentPath(ISet<string> files, string filePath)
@@ -190,7 +190,7 @@ internal static class BmsonSongParser
     private static string ComposeArtist(string artist, IReadOnlyList<string> subartists)
     {
         string safeArtist = artist ?? string.Empty;
-        string safeSubartists = string.Join(",", (subartists ?? Array.Empty<string>()).Where((string item) => !string.IsNullOrWhiteSpace(item)));
+        string safeSubartists = string.Join(",", (subartists ?? []).Where(item => !string.IsNullOrWhiteSpace(item)));
         if (string.IsNullOrWhiteSpace(safeArtist))
         {
             return safeSubartists;
@@ -205,10 +205,10 @@ internal static class BmsonSongParser
     private static string ComputeHash(string filePath, HashAlgorithm algorithm)
     {
         using (algorithm)
-        using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             byte[] hash = algorithm.ComputeHash(stream);
-            StringBuilder builder = new StringBuilder(hash.Length * 2);
+            var builder = new StringBuilder(hash.Length * 2);
             foreach (byte value in hash)
             {
                 builder.Append(value.ToString("x2"));

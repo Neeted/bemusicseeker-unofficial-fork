@@ -9,7 +9,7 @@ public sealed class LR2ScoreDBExtended : LR2ScoreDB
 {
     private bool doNotUnlock;
 
-    private static object lockObject = new object();
+    private static readonly object lockObject = new();
 
     public static bool Lock(TimeSpan timespan)
     {
@@ -63,7 +63,7 @@ public sealed class LR2ScoreDBExtended : LR2ScoreDB
             doNotUnlock = true;
             return;
         }
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         Monitor.Enter(lockObject);
         stopwatch.Stop();
         ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;

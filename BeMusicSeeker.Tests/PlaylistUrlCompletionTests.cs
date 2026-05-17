@@ -35,15 +35,15 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public void ParseMd5UrlMappingTsv_SkipsHeaderInvalidRowsAndKeepsFirstDuplicate()
     {
-        string content = string.Join("\r\n", new[]
-        {
+        string content = string.Join("\r\n",
+        [
             "md5\turl_diff\turl",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-a\thttps://example.com/main-a",
             "not-md5\thttps://example.com/diff-invalid\thttps://example.com/main-invalid",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-duplicate\thttps://example.com/main-duplicate",
             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\t\t",
             "cccccccccccccccccccccccccccccccc\t\thttps://example.com/main-c"
-        });
+        ]);
 
         PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseMd5UrlMappingTsv(content);
 
@@ -181,13 +181,13 @@ public sealed class PlaylistUrlCompletionTests
             Settings.Default.OverwritePlaylistUrlsWithCompletion = false;
             Settings.Default.EnableStellaFullPlaylistUrlCompletion = true;
             Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/map-a.tsv";
-            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) =>
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = (uri, cancellationToken) =>
             {
                 tsvFetchCount++;
                 string mainUrl = uri.AbsoluteUri.IndexOf("map-b.tsv", StringComparison.OrdinalIgnoreCase) >= 0 ? "https://example.com/main-tsv-b" : "https://example.com/main-tsv-a";
                 return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\thttps://example.com/diff-tsv\t" + mainUrl);
             };
-            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) =>
+            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = (uri, cancellationToken) =>
             {
                 stellaFetchCount++;
                 return Task.FromResult("[" +
@@ -195,11 +195,11 @@ public sealed class PlaylistUrlCompletionTests
                     "{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella-b\",\"url_diff\":\"https://example.com/diff-stella-b\"}" +
                     "]");
             };
-            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(5001, "CompletionTable");
             BMSTableEntry tsvEntry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "TsvSong");
             BMSTableEntry stellaEntry = CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "StellaSong");
-            table.entries = new List<BMSTableEntry> { tsvEntry, stellaEntry };
+            table.entries = [tsvEntry, stellaEntry];
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
 
             await playlist.RefreshPlaylistUrlCompletionForTestsAsync("first");
@@ -249,16 +249,16 @@ public sealed class PlaylistUrlCompletionTests
             Settings.Default.OverwritePlaylistUrlsWithCompletion = false;
             Settings.Default.EnableStellaFullPlaylistUrlCompletion = false;
             Settings.Default.PlaylistMd5UrlMappingTsvUri = "https://example.com/empty.tsv";
-            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) => Task.FromResult("md5\turl_diff\turl");
-            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = (Uri uri, CancellationToken cancellationToken) =>
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = (uri, cancellationToken) => Task.FromResult("md5\turl_diff\turl");
+            BMSPlaylist.PlaylistUrlCompletionStellaContentFetcherForTests = (uri, cancellationToken) =>
             {
                 stellaFetchCount++;
                 return Task.FromResult("[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"url\":\"https://example.com/main-stella\",\"url_diff\":\"https://example.com/diff-stella\"}]");
             };
-            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(5002, "StellaToggleTable");
             BMSTableEntry stellaEntry = CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "StellaSong");
-            table.entries = new List<BMSTableEntry> { stellaEntry };
+            table.entries = [stellaEntry];
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
 
             await playlist.RefreshPlaylistUrlCompletionForTestsAsync("disabled");
@@ -297,12 +297,12 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public void PlaylistDetailSourceRow_UsesEffectiveUrlForDisplay()
     {
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.ApplySnapshot("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "SongE", 7);
-        BMSTableEntry entry = new BMSTableEntry(file);
+        var entry = new BMSTableEntry(file);
         entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
-        PlaylistDetailSourceRow sourceRow = new PlaylistDetailSourceRow(entry, file);
+        var sourceRow = new PlaylistDetailSourceRow(entry, file);
 
         Assert.AreEqual(new Uri("https://example.com/runtime"), sourceRow.Url);
         Assert.AreEqual(new Uri("https://example.com/runtime-diff"), sourceRow.Url_diff);
@@ -316,17 +316,17 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             BMSPlaylist.EnsureSchema(tempDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4001, "LocalTable");
             BMSTableEntry entry = CreateEntry("ffffffffffffffffffffffffffffffff", "LocalSong");
-            table.entries = new List<BMSTableEntry> { entry };
+            table.entries = [entry];
             InsertPlaylistHeader(tempDbPath, table);
             entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
             playlist.CommitBMSTableEntry(entry);
 
-            using LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath);
-            BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single((BMSTableEntry row) => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
+            using var db = new LR2SongDBExtended(tempDbPath);
+            BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
             Assert.AreEqual(new Uri("https://example.com/runtime"), entry.Url);
             Assert.AreEqual(new Uri("https://example.com/runtime-diff"), entry.Url_diff);
             Assert.IsNull(entry.RuntimeUrlCompletion);
@@ -348,21 +348,21 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             BMSPlaylist.EnsureSchema(tempDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4002, "ExternalTable");
             table.Page_url = new Uri("https://example.com/page.html");
             table.Header_url = new Uri("https://example.com/header.json");
             table.Data_url = new Uri("https://example.com/data.json");
             table.EnableExternalSync();
             BMSTableEntry entry = CreateEntry("12121212121212121212121212121212", "ExternalSong");
-            table.entries = new List<BMSTableEntry> { entry };
+            table.entries = [entry];
             InsertPlaylistHeader(tempDbPath, table);
             entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
             playlist.CommitBMSTableEntry(entry);
 
-            using LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath);
-            BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single((BMSTableEntry row) => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
+            using var db = new LR2SongDBExtended(tempDbPath);
+            BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
             Assert.IsNull(entry.Url);
             Assert.IsNull(entry.Url_diff);
             Assert.AreEqual(new Uri("https://example.com/runtime"), entry.EffectiveUrl);
@@ -384,7 +384,7 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             BMSPlaylist.EnsureSchema(tempDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4003, "ShaTable");
             InsertPlaylistHeader(tempDbPath, table);
             TestablePlaylistEntry first = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "memo-1");
@@ -395,8 +395,8 @@ public sealed class PlaylistUrlCompletionTests
             playlist.CommitBMSTableEntry(first);
             playlist.CommitBMSTableEntry(second);
 
-            using LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath);
-            List<BMSTableEntry> rows = db.Table<BMSTableEntry>().Where((BMSTableEntry row) => row.playlist_id == table.playlist_id && row.sha256 == second.sha256).ToList();
+            using var db = new LR2SongDBExtended(tempDbPath);
+            List<BMSTableEntry> rows = [.. db.Table<BMSTableEntry>().Where(row => row.playlist_id == table.playlist_id && row.sha256 == second.sha256)];
             Assert.AreEqual(1, rows.Count);
             Assert.AreEqual("memo-2", rows[0].memo);
             Assert.IsNull(rows[0].md5);
@@ -413,7 +413,7 @@ public sealed class PlaylistUrlCompletionTests
     {
         TestablePlaylistEntry entry = CreateShaOnlyEntry("5656565656565656565656565656565656565656565656565656565656565656", "ShaRoundTrip", "memo");
 
-        BMSTableEntry reloaded = new BMSTableEntry(entry.ToDynamicJson());
+        var reloaded = new BMSTableEntry(entry.ToDynamicJson());
 
         Assert.AreEqual(entry.sha256, reloaded.sha256);
         Assert.AreEqual(entry.title, reloaded.title);
@@ -428,7 +428,7 @@ public sealed class PlaylistUrlCompletionTests
 
         dynamic json = entry.ToDynamicJson();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), ((object[])json.org_md5s).Select((object value) => value?.ToString()).ToArray());
+        CollectionAssert.AreEqual(Array.Empty<string>(), ((object[])json.org_md5s).Select(value => value?.ToString()).ToArray());
         Assert.AreEqual(string.Empty, (string)json.org_md5);
         Assert.AreEqual(string.Empty, entry.org_md5);
     }
@@ -442,7 +442,7 @@ public sealed class PlaylistUrlCompletionTests
 
         dynamic json = entry.ToDynamicJson();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), ((object[])json.org_md5s).Select((object value) => value?.ToString()).ToArray());
+        CollectionAssert.AreEqual(Array.Empty<string>(), ((object[])json.org_md5s).Select(value => value?.ToString()).ToArray());
         Assert.AreEqual(string.Empty, (string)json.org_md5);
     }
 
@@ -454,10 +454,10 @@ public sealed class PlaylistUrlCompletionTests
         try
         {
             BMSPlaylist.EnsureSchema(tempDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4004, "BmsonTable");
             InsertPlaylistHeader(tempDbPath, table);
-            PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            var pending = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = Path.Combine(Path.GetTempPath(), "playlist-bmson-test", "song.bmson"),
                 folder = string.Empty,
@@ -467,17 +467,17 @@ public sealed class PlaylistUrlCompletionTests
                 md5 = "99999999999999999999999999999999",
                 sha256 = "8989898989898989898989898989898989898989898989898989898989898989"
             });
-            BMSTableEntry entry = new BMSTableEntry(pending)
+            var entry = new BMSTableEntry(pending)
             {
                 folder = string.Empty,
-                playlist_id = table.playlist_id
+                playlist_id = table.playlist_id,
+                Org_md5 = null
             };
-            entry.Org_md5 = null;
 
             playlist.CommitBMSTableEntry(entry);
 
-            using LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath);
-            BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single((BMSTableEntry row) => row.playlist_id == table.playlist_id && row.sha256 == entry.sha256);
+            using var db = new LR2SongDBExtended(tempDbPath);
+            BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.sha256 == entry.sha256);
             Assert.IsNull(storedEntry.md5);
             Assert.AreEqual("8989898989898989898989898989898989898989898989898989898989898989", storedEntry.sha256);
             Assert.AreEqual(string.Empty, storedEntry.org_md5);
@@ -490,7 +490,7 @@ public sealed class PlaylistUrlCompletionTests
 
     private static BMSTableEntry CreateEntry(string md5, string title)
     {
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.ApplySnapshot(md5, title, 7);
         return new BMSTableEntry(file)
         {
@@ -500,7 +500,7 @@ public sealed class PlaylistUrlCompletionTests
 
     private static TestablePlaylistEntry CreateShaOnlyEntry(string sha256, string title, string memo)
     {
-        TestablePlaylistEntry entry = new TestablePlaylistEntry
+        var entry = new TestablePlaylistEntry
         {
             folder = string.Empty,
             memo = memo
@@ -523,7 +523,7 @@ public sealed class PlaylistUrlCompletionTests
 
     private static void InsertPlaylistHeader(string songDbPath, BMSTable table)
     {
-        using LR2SongDBExtended db = new LR2SongDBExtended(songDbPath);
+        using var db = new LR2SongDBExtended(songDbPath);
         db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
     }
 
@@ -542,7 +542,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistUrlCompletionTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string tempDbPath = Path.Combine(tempDirectory, "song.db");
-        using (LR2SongDBExtended _ = new LR2SongDBExtended(tempDbPath))
+        using (var _ = new LR2SongDBExtended(tempDbPath))
         {
         }
         return tempDbPath;

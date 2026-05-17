@@ -17,7 +17,7 @@ public sealed class CustomTableTextLayoutCacheTests
     {
         RunOnSta(delegate
         {
-            CustomTableTextLayoutCache cache = new CustomTableTextLayoutCache();
+            var cache = new CustomTableTextLayoutCache();
 
             FormattedText first = Create(cache, out bool firstHit, text: "AAA");
             FormattedText second = Create(cache, out bool secondHit, text: "AAA");
@@ -53,7 +53,7 @@ public sealed class CustomTableTextLayoutCacheTests
     {
         RunOnSta(delegate
         {
-            CustomTableTextLayoutCache cache = new CustomTableTextLayoutCache(maxEntryCount: 2);
+            var cache = new CustomTableTextLayoutCache(maxEntryCount: 2);
             Create(cache, out _, text: "A");
             Create(cache, out _, text: "B");
             Create(cache, out bool existingHit, text: "A");
@@ -97,7 +97,7 @@ public sealed class CustomTableTextLayoutCacheTests
 
     private static void AssertKeyChangeMisses(Action<CustomTableTextLayoutCache> seed, Func<CustomTableTextLayoutCache, bool> candidate)
     {
-        CustomTableTextLayoutCache cache = new CustomTableTextLayoutCache();
+        var cache = new CustomTableTextLayoutCache();
         seed(cache);
         bool hit = candidate(cache);
         Assert.IsFalse(hit);
@@ -132,7 +132,7 @@ public sealed class CustomTableTextLayoutCacheTests
     private static void RunOnSta(Action action)
     {
         Exception exception = null!;
-        Thread thread = new Thread((ThreadStart)delegate
+        var thread = new Thread((ThreadStart)delegate
         {
             try
             {

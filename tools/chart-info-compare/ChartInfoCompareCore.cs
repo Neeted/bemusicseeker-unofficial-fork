@@ -46,7 +46,7 @@ public static class ChartInfoCompareRunner
             options.BeatorajaInfoDbPath,
             "SELECT sha256, n, ln, s, ls, total, density, peakdensity, enddensity, mainbpm, distribution, speedchange, lanenotes FROM information WHERE sha256 IS NOT NULL AND sha256 <> '';");
 
-        ChartInfoCompareResult result = new ChartInfoCompareResult
+        var result = new ChartInfoCompareResult
         {
             AppSongDbPath = options.AppSongDbPath,
             BeatorajaSongDbPath = options.BeatorajaSongDbPath,
@@ -55,7 +55,7 @@ public static class ChartInfoCompareRunner
             InformationCount = informationRows.Count,
             ComparedAtUtc = DateTime.UtcNow
         };
-        HashSet<string> referenceSha256s = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var referenceSha256s = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         using (SQLiteConnection songDb = OpenReadOnly(options.BeatorajaSongDbPath))
         {
@@ -126,9 +126,9 @@ public static class ChartInfoCompareRunner
     {
         using SQLiteConnection connection = OpenReadOnly(dbPath);
         return connection.Query<T>(sql)
-            .Where((T row) => !string.IsNullOrWhiteSpace(row.sha256))
-            .GroupBy((T row) => row.sha256, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary((IGrouping<string, T> group) => group.Key, (IGrouping<string, T> group) => group.First(), StringComparer.OrdinalIgnoreCase);
+            .Where(row => !string.IsNullOrWhiteSpace(row.sha256))
+            .GroupBy(row => row.sha256, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
     }
 
     private static void AddMissing(ChartInfoCompareResult result, BeatorajaSongRow song, bool random)
@@ -149,14 +149,14 @@ public static class ChartInfoCompareRunner
     private static bool HasAnyDiff(BeatorajaSongRow song, BeatorajaInformationRow information, AppChartInfoRow actual, double epsilon)
     {
         int before = 0;
-        FieldDiffAccumulator accumulator = new FieldDiffAccumulator();
+        var accumulator = new FieldDiffAccumulator();
         CompareRows(accumulator, song, information, actual, epsilon);
         return accumulator.TotalDiffs > before;
     }
 
     private static void CompareNonRandom(ChartInfoCompareResult result, BeatorajaSongRow song, BeatorajaInformationRow information, AppChartInfoRow actual, double epsilon)
     {
-        FieldDiffAccumulator accumulator = new FieldDiffAccumulator(result, song, actual);
+        var accumulator = new FieldDiffAccumulator(result, song, actual);
         CompareRows(accumulator, song, information, actual, epsilon);
         if (accumulator.TotalDiffs > 0)
         {
@@ -207,11 +207,11 @@ public static class ChartInfoCompareRunner
         }
         Directory.CreateDirectory(options.OutputDirectory);
         File.WriteAllText(Path.Combine(options.OutputDirectory, "summary.json"), result.ToJson(), new UTF8Encoding(false));
-        WriteCsv(Path.Combine(options.OutputDirectory, "field_diffs.csv"), new[] { "field,count" }.Concat(result.FieldDiffs.Select((FieldDiffSummary diff) => Csv(diff.Field) + "," + diff.Count.ToString(CultureInfo.InvariantCulture))));
-        WriteCsv(Path.Combine(options.OutputDirectory, "diff_samples.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.DiffSamples.Select((CompareSample sample) => sample.ToCsv())));
-        WriteCsv(Path.Combine(options.OutputDirectory, "missing_chart_info.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.MissingSamples.Select((CompareSample sample) => sample.ToCsv())));
-        WriteCsv(Path.Combine(options.OutputDirectory, "extra_chart_info.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.ExtraSamples.Select((CompareSample sample) => sample.ToCsv())));
-        WriteCsv(Path.Combine(options.OutputDirectory, "random_value_diff_samples.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.RandomDiffSamples.Select((CompareSample sample) => sample.ToCsv())));
+        WriteCsv(Path.Combine(options.OutputDirectory, "field_diffs.csv"), new[] { "field,count" }.Concat(result.FieldDiffs.Select(diff => Csv(diff.Field) + "," + diff.Count.ToString(CultureInfo.InvariantCulture))));
+        WriteCsv(Path.Combine(options.OutputDirectory, "diff_samples.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.DiffSamples.Select(sample => sample.ToCsv())));
+        WriteCsv(Path.Combine(options.OutputDirectory, "missing_chart_info.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.MissingSamples.Select(sample => sample.ToCsv())));
+        WriteCsv(Path.Combine(options.OutputDirectory, "extra_chart_info.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.ExtraSamples.Select(sample => sample.ToCsv())));
+        WriteCsv(Path.Combine(options.OutputDirectory, "random_value_diff_samples.csv"), new[] { "field,sha256,path,expected,actual" }.Concat(result.RandomDiffSamples.Select(sample => sample.ToCsv())));
     }
 
     private static void ExportFixtureIfRequested(ChartInfoCompareOptions options, ChartInfoCompareResult result)
@@ -238,16 +238,16 @@ public static class ChartInfoCompareRunner
         Dictionary<string, BeatorajaInformationRow> informationRows = LoadDictionary<BeatorajaInformationRow>(
             options.BeatorajaInfoDbPath,
             "SELECT sha256, n, ln, s, ls, total, density, peakdensity, enddensity, mainbpm, distribution, speedchange, lanenotes FROM information WHERE sha256 IS NOT NULL AND sha256 <> '';");
-        using SQLiteConnection fixtureDb = new SQLiteConnection(Path.Combine(options.FixtureOutputDirectory, "expected.db"));
+        using var fixtureDb = new SQLiteConnection(Path.Combine(options.FixtureOutputDirectory, "expected.db"));
         fixtureDb.CreateTable<FixtureSampleChart>();
         fixtureDb.CreateTable<FixtureBeatorajaSong>();
         fixtureDb.CreateTable<FixtureBeatorajaInformation>();
         fixtureDb.CreateTable<FixtureExpectedChartInfo>();
         fixtureDb.CreateTable<FixtureComparisonSummary>();
 
-        List<ManifestEntry> manifestEntries = new List<ManifestEntry>();
+        List<ManifestEntry> manifestEntries = [];
         int fixtureId = 0;
-        foreach (BeatorajaSongRow song in result.NonRandomDiffSongs.OrderBy((BeatorajaSongRow row) => row.sha256, StringComparer.OrdinalIgnoreCase))
+        foreach (BeatorajaSongRow song in result.NonRandomDiffSongs.OrderBy(row => row.sha256, StringComparer.OrdinalIgnoreCase))
         {
             if (!informationRows.TryGetValue(song.sha256, out BeatorajaInformationRow info))
             {
@@ -326,7 +326,7 @@ public static class ChartInfoCompareRunner
 
     private static string BuildManifestJson(ChartInfoCompareOptions options, ChartInfoCompareResult result, IReadOnlyList<ManifestEntry> entries)
     {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         builder.AppendLine("{");
         builder.AppendLine("  \"generated_at_utc\": " + Json(DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture)) + ",");
         builder.AppendLine("  \"app_song_db\": " + Json(options.AppSongDbPath) + ",");
@@ -362,7 +362,7 @@ public static class ChartInfoCompareRunner
         {
             return "null";
         }
-        StringBuilder builder = new StringBuilder("\"");
+        var builder = new StringBuilder("\"");
         foreach (char c in value)
         {
             switch (c)
@@ -399,8 +399,8 @@ public static class ChartInfoCompareRunner
 
 public sealed class ChartInfoCompareResult
 {
-    private readonly Dictionary<string, FieldDiffSummary> fieldDiffs = new Dictionary<string, FieldDiffSummary>(StringComparer.Ordinal);
-    private readonly Dictionary<string, BeatorajaSongRow> nonRandomDiffSongs = new Dictionary<string, BeatorajaSongRow>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FieldDiffSummary> fieldDiffs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, BeatorajaSongRow> nonRandomDiffSongs = new(StringComparer.OrdinalIgnoreCase);
 
     public string AppSongDbPath { get; set; }
 
@@ -436,15 +436,15 @@ public sealed class ChartInfoCompareResult
 
     public string FixtureExportSkippedReason { get; set; }
 
-    public List<CompareSample> DiffSamples { get; } = new List<CompareSample>();
+    public List<CompareSample> DiffSamples { get; } = [];
 
-    public List<CompareSample> MissingSamples { get; } = new List<CompareSample>();
+    public List<CompareSample> MissingSamples { get; } = [];
 
-    public List<CompareSample> ExtraSamples { get; } = new List<CompareSample>();
+    public List<CompareSample> ExtraSamples { get; } = [];
 
-    public List<CompareSample> RandomDiffSamples { get; } = new List<CompareSample>();
+    public List<CompareSample> RandomDiffSamples { get; } = [];
 
-    public IReadOnlyList<FieldDiffSummary> FieldDiffs => fieldDiffs.Values.OrderByDescending((FieldDiffSummary item) => item.Count).ThenBy((FieldDiffSummary item) => item.Field, StringComparer.Ordinal).ToList();
+    public IReadOnlyList<FieldDiffSummary> FieldDiffs => fieldDiffs.Values.OrderByDescending(item => item.Count).ThenBy(item => item.Field, StringComparer.Ordinal).ToList();
 
     public IReadOnlyCollection<BeatorajaSongRow> NonRandomDiffSongs => nonRandomDiffSongs.Values;
 
@@ -496,7 +496,7 @@ public sealed class ChartInfoCompareResult
 
     public string ToConsoleSummary()
     {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         builder.AppendLine("chart_info production compare");
         foreach (KeyValuePair<string, string> item in GetSummaryValues())
         {
@@ -511,9 +511,9 @@ public sealed class ChartInfoCompareResult
 
     public string ToJson()
     {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         builder.AppendLine("{");
-        List<KeyValuePair<string, string>> values = GetSummaryValues().ToList();
+        List<KeyValuePair<string, string>> values = [.. GetSummaryValues()];
         for (int i = 0; i < values.Count; i++)
         {
             KeyValuePair<string, string> item = values[i];

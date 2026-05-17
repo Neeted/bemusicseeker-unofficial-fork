@@ -36,13 +36,13 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
     }
 
-    public struct DeviceDescriptor
+    public struct DeviceDescriptor(string name, string driver)
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = name;
 
-        public string Driver { get; set; }
+        public string Driver { get; set; } = driver;
 
-        public string FriendlyName
+        public readonly string FriendlyName
         {
             get
             {
@@ -52,12 +52,6 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 }
                 return "(Default device)";
             }
-        }
-
-        public DeviceDescriptor(string name, string driver)
-        {
-            Name = name;
-            Driver = driver;
         }
     }
 
@@ -111,7 +105,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private static readonly ReadOnlyDictionary<Type, BASSFXType> FxParameterTypeToBASSFXType;
 
-    private static ConcurrentDictionary<BASSFXType, Tuple<int, object>> FxParameters;
+    private static readonly ConcurrentDictionary<BASSFXType, Tuple<int, object>> FxParameters;
 
     public static readonly ReadOnlyCollection<float> EqualizerFrequencies;
 
@@ -151,7 +145,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     private float _volume;
 
-    private static Type _oggDecoderType;
+    private static readonly Type _oggDecoderType;
 
     private readonly uint fileNameHash;
 
@@ -442,11 +436,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         IsInitialized = false;
     }
 
-    public static DeviceDescriptor Initialize(DeviceDriver driver = DeviceDriver.WASAPI_EXCLUSIVE, DeviceDescriptor desc = default(DeviceDescriptor), float lParam = 0f, params object[] param)
+    public static DeviceDescriptor Initialize(DeviceDriver driver = DeviceDriver.WASAPI_EXCLUSIVE, DeviceDescriptor desc = default, float lParam = 0f, params object[] param)
     {
         if (IsInitialized || driver == DeviceDriver.INVALID)
         {
-            return default(DeviceDescriptor);
+            return default;
         }
         DriverType = driver;
         latencyParam = lParam;
@@ -509,7 +503,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 break;
             default:
                 InitializeNullDevice();
-                desc = default(DeviceDescriptor);
+                desc = default;
                 DriverType = DeviceDriver.NULL_DEVICE;
                 break;
         }
@@ -530,9 +524,9 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     static BassAudioPlayer()
     {
         StaticLockObject = new object();
-        InstanceLocks = new Dictionary<int, object>();
+        InstanceLocks = [];
         Locks = new NamedLocks<uint>();
-        OnMemoryFileCache = new Dictionary<uint, CachedData>();
+        OnMemoryFileCache = [];
         FromBASSASIOFormat = new ReadOnlyDictionary<BASSASIOFormat, SampleFormat>(new Dictionary<BASSASIOFormat, SampleFormat>
         {
             {
@@ -832,7 +826,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         DeviceList = getDeviceList();
         try
         {
-            _oggDecoderType = DllLoader.GetTypes(Path.Combine(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86"), Environment.Is64BitProcess ? "OggVorbis.NET64.dll" : "OggVorbis.NET.dll")).FirstOrDefault((Type t) => t.AssemblyQualifiedName.Contains("OggVorbisDotNet"));
+            _oggDecoderType = DllLoader.GetTypes(Path.Combine(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86"), Environment.Is64BitProcess ? "OggVorbis.NET64.dll" : "OggVorbis.NET.dll")).FirstOrDefault(t => t.AssemblyQualifiedName.Contains("OggVorbisDotNet"));
             if (_oggDecoderType == null)
             {
                 NLogWrapper.NetworkLogger?.Error(string.Concat(new PlatformNotSupportedException(string.Concat("OggVorbisDotNet.OggDecodeStream is not found", Environment.NewLine, Environment.OSVersion, Environment.Is64BitProcess ? " (x64)" : " (x86)")), Environment.NewLine, Environment.StackTrace));
@@ -851,7 +845,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
     }
 
-    private static DeviceDescriptor InitializeAsio(DeviceDescriptor desc = default(DeviceDescriptor))
+    private static DeviceDescriptor InitializeAsio(DeviceDescriptor desc = default)
     {
         if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
         {
@@ -868,7 +862,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         bool flag = false;
         if (!desc.Equals(default(DeviceDescriptor)))
         {
-            device = array.Select((BASS_ASIO_DEVICEINFO info, int idx) => new { info, idx }).FirstOrDefault(s => desc.Name == s.info.name && desc.Driver == s.info.driver)?.idx ?? array.Select((BASS_ASIO_DEVICEINFO info, int idx) => new { info, idx }).FirstOrDefault(s => desc.Name == s.info.name)?.idx ?? 0;
+            device = array.Select((info, idx) => new { info, idx }).FirstOrDefault(s => desc.Name == s.info.name && desc.Driver == s.info.driver)?.idx ?? array.Select((info, idx) => new { info, idx }).FirstOrDefault(s => desc.Name == s.info.name)?.idx ?? 0;
         }
         else
         {
@@ -883,11 +877,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             throw new Exception("BASS_ASIO_Init failed: " + bASSError2);
         }
         Frequency = ((Frequency == SampleRate.AUTO) ? SampleRate.SAMPLE_RATE_48000Hz : Frequency);
-        Func<SampleRate, bool> func = delegate (SampleRate rate)
+        bool func(SampleRate rate)
         {
             Frequency = rate;
             return BassAsio.BASS_ASIO_CheckRate((double)Frequency) && BassAsio.BASS_ASIO_SetRate((double)Frequency);
-        };
+        }
         if (!func(Frequency))
         {
             Frequency = ((Frequency == SampleRate.SAMPLE_RATE_44100Hz) ? SampleRate.SAMPLE_RATE_88200Hz : Frequency);
@@ -994,11 +988,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             BASSError bASSError4 = Bass.BASS_ErrorGetCode();
             throw new Exception("BASS_ASIO_ChannelSetRate failed: " + bASSError4);
         }
-        Func<BASSASIOFormat, bool> func2 = delegate (BASSASIOFormat format)
+        bool func2(BASSASIOFormat format)
         {
             Format = FromBASSASIOFormat[format];
             return BassAsio.BASS_ASIO_ChannelSetFormat(input: false, 0, format);
-        };
+        }
         if (Format == SampleFormat.AUTO)
         {
             Format = FromBASSASIOFormat[BASSASIOFormat.BASS_ASIO_FORMAT_FLOAT];
@@ -1053,7 +1047,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                 throw new Exception("BASS_ASIO_ChannelJoin failed: " + bASSError7);
             }
         }
-        BASSFlag flags = (BASSFlag)(((Format == SampleFormat.SAMPLE_FLOAT_32BIT) ? 256 : 0) | 0x200000 | 0x20000);
+        var flags = (BASSFlag)(((Format == SampleFormat.SAMPLE_FLOAT_32BIT) ? 256 : 0) | 0x200000 | 0x20000);
         inputMixer = BassMix.BASS_Mixer_StreamCreate((int)num, 2, flags);
         if (inputMixer == 0)
         {
@@ -1075,10 +1069,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return desc;
         }
-        return default(DeviceDescriptor);
+        return default;
     }
 
-    private static DeviceDescriptor InitializeWasapi(DeviceDescriptor desc = default(DeviceDescriptor), bool isSharedMode = false, params object[] param)
+    private static DeviceDescriptor InitializeWasapi(DeviceDescriptor desc = default, bool isSharedMode = false, params object[] param)
     {
         bool num = param != null && param.Length != 0 && param[0] is bool && (bool)param[0];
         if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
@@ -1087,7 +1081,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             throw new Exception("BASS_Init failed: " + bASSError);
         }
         Bass.BASS_SetConfig(BASSConfig.BASS_CONFIG_UPDATEPERIOD, 0);
-        var array = (from i in BassWasapi.BASS_WASAPI_GetDeviceInfos().Select((BASS_WASAPI_DEVICEINFO info, int idx) => new { info, idx })
+        var array = (from i in BassWasapi.BASS_WASAPI_GetDeviceInfos().Select((info, idx) => new { info, idx })
                      where !i.info.IsUnplugged && !i.info.IsLoopback && i.info.IsEnabled && !i.info.IsInput
                      select i).ToArray();
         if (array.Length == 0)
@@ -1189,12 +1183,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return desc;
         }
-        return default(DeviceDescriptor);
+        return default;
     }
 
-    private static DeviceDescriptor InitializeDirectSound(DeviceDescriptor desc = default(DeviceDescriptor))
+    private static DeviceDescriptor InitializeDirectSound(DeviceDescriptor desc = default)
     {
-        var array = (from i in Bass.BASS_GetDeviceInfos().Select((BASS_DEVICEINFO info, int idx) => new { info, idx })
+        var array = (from i in Bass.BASS_GetDeviceInfos().Select((info, idx) => new { info, idx })
                      where i.info.IsEnabled
                      select i).ToArray();
         if (array.Length == 0)
@@ -1250,10 +1244,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return desc;
         }
-        return default(DeviceDescriptor);
+        return default;
     }
 
-    private static void InitializeNullDevice(DeviceDescriptor desc = default(DeviceDescriptor))
+    private static void InitializeNullDevice(DeviceDescriptor desc = default)
     {
         if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
         {
@@ -1388,11 +1382,11 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             throw new ArgumentNullException("parameter");
         }
-        if (!FxParameterTypeToBASSFXType.TryGetValue(parameter.GetType(), out var value))
+        if (!FxParameterTypeToBASSFXType.TryGetValue(parameter.GetType(), out BASSFXType value))
         {
             return;
         }
-        if (FxParameters.TryGetValue(value, out var value2) && value2.Item1 != 0)
+        if (FxParameters.TryGetValue(value, out Tuple<int, object> value2) && value2.Item1 != 0)
         {
             FxParameters[value] = new Tuple<int, object>(value2.Item1, parameter);
             if (!Bass.BASS_FXSetParameters(value2.Item1, parameter))
@@ -1410,7 +1404,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     public static void RemoveFX(BASSFXType fxType)
     {
-        if (IsInitialized && FxParameters.TryRemove(fxType, out var value) && value.Item1 != 0 && !Bass.BASS_ChannelRemoveFX(inputMixer, value.Item1))
+        if (IsInitialized && FxParameters.TryRemove(fxType, out Tuple<int, object> value) && value.Item1 != 0 && !Bass.BASS_ChannelRemoveFX(inputMixer, value.Item1))
         {
             BASSError bASSError = Bass.BASS_ErrorGetCode();
             NLogWrapper.TraceLogger?.Warn("BASS_ChannelRemoveFX failed: " + bASSError);
@@ -1421,7 +1415,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         if (IsInitialized)
         {
-            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = FxParameters.ToArray();
+            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
             foreach (KeyValuePair<BASSFXType, Tuple<int, object>> keyValuePair in array)
             {
                 RemoveFX(keyValuePair.Key);
@@ -1431,7 +1425,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     public static void DisableFX(BASSFXType fxType)
     {
-        if (IsInitialized && FxParameters.TryGetValue(fxType, out var value) && value.Item1 != 0)
+        if (IsInitialized && FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 != 0)
         {
             if (!Bass.BASS_ChannelRemoveFX(inputMixer, value.Item1))
             {
@@ -1450,7 +1444,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         if (IsInitialized)
         {
-            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = FxParameters.ToArray();
+            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
             foreach (KeyValuePair<BASSFXType, Tuple<int, object>> keyValuePair in array)
             {
                 DisableFX(keyValuePair.Key);
@@ -1460,7 +1454,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     public static void EnableFX(BASSFXType fxType)
     {
-        if (IsInitialized && FxParameters.TryGetValue(fxType, out var value) && value.Item1 == 0)
+        if (IsInitialized && FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 == 0)
         {
             value = new Tuple<int, object>(Bass.BASS_ChannelSetFX(inputMixer, fxType, 0), value.Item2);
             if (value.Item1 == 0)
@@ -1480,7 +1474,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
     {
         if (IsInitialized)
         {
-            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = FxParameters.ToArray();
+            KeyValuePair<BASSFXType, Tuple<int, object>>[] array = [.. FxParameters];
             foreach (KeyValuePair<BASSFXType, Tuple<int, object>> keyValuePair in array)
             {
                 EnableFX(keyValuePair.Key);
@@ -1490,7 +1484,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     public static bool FXCreated(BASSFXType fxType)
     {
-        if (FxParameters.TryGetValue(fxType, out var _))
+        if (FxParameters.TryGetValue(fxType, out Tuple<int, object> _))
         {
             return true;
         }
@@ -1499,7 +1493,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 
     public static bool FXEnabled(BASSFXType fxType)
     {
-        if (FxParameters.TryGetValue(fxType, out var value) && value.Item1 != 0)
+        if (FxParameters.TryGetValue(fxType, out Tuple<int, object> value) && value.Item1 != 0)
         {
             return true;
         }
@@ -1513,10 +1507,12 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
             return;
         }
         equalizer = Bass.BASS_ChannelSetFX(inputMixer, BASSFXType.BASS_FX_BFX_PEAKEQ, 0);
-        BASS_BFX_PEAKEQ bASS_BFX_PEAKEQ = new BASS_BFX_PEAKEQ();
-        bASS_BFX_PEAKEQ.fQ = 0f;
-        bASS_BFX_PEAKEQ.fBandwidth = 2.5f;
-        bASS_BFX_PEAKEQ.lChannel = BASSFXChan.BASS_BFX_CHANALL;
+        var bASS_BFX_PEAKEQ = new BASS_BFX_PEAKEQ
+        {
+            fQ = 0f,
+            fBandwidth = 2.5f,
+            lChannel = BASSFXChan.BASS_BFX_CHANALL
+        };
         for (int i = 0; i < EqualizerFrequencies.Count; i++)
         {
             bASS_BFX_PEAKEQ.lBand = i;
@@ -1554,8 +1550,10 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         }
         if (EQEnabled)
         {
-            BASS_BFX_PEAKEQ bASS_BFX_PEAKEQ = new BASS_BFX_PEAKEQ();
-            bASS_BFX_PEAKEQ.lBand = slot;
+            var bASS_BFX_PEAKEQ = new BASS_BFX_PEAKEQ
+            {
+                lBand = slot
+            };
             if (!Bass.BASS_FXGetParameters(equalizer, bASS_BFX_PEAKEQ))
             {
                 BASSError bASSError = Bass.BASS_ErrorGetCode();
@@ -1590,7 +1588,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         {
             return DeviceList;
         }
-        Dictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>> dictionary = new Dictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>>();
+        Dictionary<DeviceDriver, ReadOnlyCollection<DeviceDescriptor>> dictionary = [];
         if (!Bass.BASS_Init(0, 44100, BASSInit.BASS_DEVICE_DEFAULT, IntPtr.Zero))
         {
             BASSError bASSError = Bass.BASS_ErrorGetCode();
@@ -1705,7 +1703,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                     try
                     {
                         using FileStream fileStream = File.OpenRead(fileName);
-                        using Stream stream = (Stream)Activator.CreateInstance(_oggDecoderType, fileStream);
+                        using var stream = (Stream)Activator.CreateInstance(_oggDecoderType, fileStream);
                         long num = (long)_oggDecoderType.GetProperty("Length").GetMethod.Invoke(stream, null);
                         int sampleRate = (int)_oggDecoderType.GetProperty("SamplesPerSecond").GetMethod.Invoke(stream, null);
                         int channelCount = (int)_oggDecoderType.GetProperty("Channels").GetMethod.Invoke(stream, null);
@@ -1714,7 +1712,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
                         }
                         _sampleBuffer = new byte[num + 44];
                         stream.Read(_sampleBuffer, 44, _sampleBuffer.Length);
-                        using MemoryStream targetStream = new MemoryStream(_sampleBuffer, 0, 44);
+                        using var targetStream = new MemoryStream(_sampleBuffer, 0, 44);
                         WavFile.WriteHeader(targetStream, _sampleBuffer.Length - 44, channelCount, sampleRate);
                     }
                     catch (Exception ex)

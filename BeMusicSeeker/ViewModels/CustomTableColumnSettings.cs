@@ -219,7 +219,7 @@ public class CustomTableColumnSettings : NotificationObject
     {
         get
         {
-            return _EntryLevel ?? (_EntryLevel = CreateHiddenLayout(80));
+            return _EntryLevel ??= CreateHiddenLayout(80);
         }
         set
         {
@@ -507,14 +507,11 @@ public class CustomTableColumnSettings : NotificationObject
     {
         get
         {
-            if (_Sha256 == null)
-            {
-                _Sha256 = new ColumnLayout
+            _Sha256 ??= new ColumnLayout
                 {
                     Width = 480,
                     Visibility = Visibility.Hidden
                 };
-            }
             return _Sha256;
         }
         set
@@ -769,97 +766,97 @@ public class CustomTableColumnSettings : NotificationObject
 
     public ColumnLayout ChartDifficulty
     {
-        get { return _ChartDifficulty ?? (_ChartDifficulty = CreateHiddenLayout(80)); }
+        get { return _ChartDifficulty ??= CreateHiddenLayout(80); }
         set { if (_ChartDifficulty != value) { _ChartDifficulty = value; RaisePropertyChanged("ChartDifficulty"); } }
     }
 
     public ColumnLayout ChartMainBpm
     {
-        get { return _ChartMainBpm ?? (_ChartMainBpm = CreateHiddenLayout(40)); }
+        get { return _ChartMainBpm ??= CreateHiddenLayout(40); }
         set { if (_ChartMainBpm != value) { _ChartMainBpm = value; RaisePropertyChanged("ChartMainBpm"); } }
     }
 
     public ColumnLayout ChartMaxBpm
     {
-        get { return _ChartMaxBpm ?? (_ChartMaxBpm = CreateHiddenLayout(40)); }
+        get { return _ChartMaxBpm ??= CreateHiddenLayout(40); }
         set { if (_ChartMaxBpm != value) { _ChartMaxBpm = value; RaisePropertyChanged("ChartMaxBpm"); } }
     }
 
     public ColumnLayout ChartMinBpm
     {
-        get { return _ChartMinBpm ?? (_ChartMinBpm = CreateHiddenLayout(40)); }
+        get { return _ChartMinBpm ??= CreateHiddenLayout(40); }
         set { if (_ChartMinBpm != value) { _ChartMinBpm = value; RaisePropertyChanged("ChartMinBpm"); } }
     }
 
     public ColumnLayout ChartDuration
     {
-        get { return _ChartDuration ?? (_ChartDuration = CreateHiddenLayout(50)); }
+        get { return _ChartDuration ??= CreateHiddenLayout(50); }
         set { if (_ChartDuration != value) { _ChartDuration = value; RaisePropertyChanged("ChartDuration"); } }
     }
 
     public ColumnLayout ChartJudge
     {
-        get { return _ChartJudge ?? (_ChartJudge = CreateHiddenLayout(70)); }
+        get { return _ChartJudge ??= CreateHiddenLayout(70); }
         set { if (_ChartJudge != value) { _ChartJudge = value; RaisePropertyChanged("ChartJudge"); } }
     }
 
     public ColumnLayout ChartJudgePercent
     {
-        get { return _ChartJudgePercent ?? (_ChartJudgePercent = CreateHiddenLayout(60)); }
+        get { return _ChartJudgePercent ??= CreateHiddenLayout(60); }
         set { if (_ChartJudgePercent != value) { _ChartJudgePercent = value; RaisePropertyChanged("ChartJudgePercent"); } }
     }
 
     public ColumnLayout ChartFeature
     {
-        get { return _ChartFeature ?? (_ChartFeature = CreateHiddenLayout(60)); }
+        get { return _ChartFeature ??= CreateHiddenLayout(60); }
         set { if (_ChartFeature != value) { _ChartFeature = value; RaisePropertyChanged("ChartFeature"); } }
     }
 
     public ColumnLayout ChartLongNotes
     {
-        get { return _ChartLongNotes ?? (_ChartLongNotes = CreateHiddenLayout(40)); }
+        get { return _ChartLongNotes ??= CreateHiddenLayout(40); }
         set { if (_ChartLongNotes != value) { _ChartLongNotes = value; RaisePropertyChanged("ChartLongNotes"); } }
     }
 
     public ColumnLayout ChartScratchNotes
     {
-        get { return _ChartScratchNotes ?? (_ChartScratchNotes = CreateHiddenLayout(40)); }
+        get { return _ChartScratchNotes ??= CreateHiddenLayout(40); }
         set { if (_ChartScratchNotes != value) { _ChartScratchNotes = value; RaisePropertyChanged("ChartScratchNotes"); } }
     }
 
     public ColumnLayout ChartTotal
     {
-        get { return _ChartTotal ?? (_ChartTotal = CreateHiddenLayout(40)); }
+        get { return _ChartTotal ??= CreateHiddenLayout(40); }
         set { if (_ChartTotal != value) { _ChartTotal = value; RaisePropertyChanged("ChartTotal"); } }
     }
 
     public ColumnLayout ChartTotalPerNote
     {
-        get { return _ChartTotalPerNote ?? (_ChartTotalPerNote = CreateHiddenLayout(40)); }
+        get { return _ChartTotalPerNote ??= CreateHiddenLayout(40); }
         set { if (_ChartTotalPerNote != value) { _ChartTotalPerNote = value; RaisePropertyChanged("ChartTotalPerNote"); } }
     }
 
     public ColumnLayout ChartDensity
     {
-        get { return _ChartDensity ?? (_ChartDensity = CreateHiddenLayout(40)); }
+        get { return _ChartDensity ??= CreateHiddenLayout(40); }
         set { if (_ChartDensity != value) { _ChartDensity = value; RaisePropertyChanged("ChartDensity"); } }
     }
 
     public ColumnLayout ChartPeakDensity
     {
-        get { return _ChartPeakDensity ?? (_ChartPeakDensity = CreateHiddenLayout(40)); }
+        get { return _ChartPeakDensity ??= CreateHiddenLayout(40); }
         set { if (_ChartPeakDensity != value) { _ChartPeakDensity = value; RaisePropertyChanged("ChartPeakDensity"); } }
     }
 
     public ColumnLayout ChartEndDensity
     {
-        get { return _ChartEndDensity ?? (_ChartEndDensity = CreateHiddenLayout(40)); }
+        get { return _ChartEndDensity ??= CreateHiddenLayout(40); }
         set { if (_ChartEndDensity != value) { _ChartEndDensity = value; RaisePropertyChanged("ChartEndDensity"); } }
     }
 
     public ColumnLayout ChartSoflan
     {
-        get { return _ChartSoflan ?? (_ChartSoflan = CreateHiddenLayout(40)); }
+        get { return _ChartSoflan ??= CreateHiddenLayout(40); }
         set { if (_ChartSoflan != value) { _ChartSoflan = value; RaisePropertyChanged("ChartSoflan"); } }
     }
 
@@ -1183,8 +1180,8 @@ public class CustomTableColumnSettings : NotificationObject
 
     private ColumnLayout[] GetAllColumnLayouts()
     {
-        return new[]
-        {
+        return
+        [
             Status,
             EntryLevel,
             Title,
@@ -1237,7 +1234,7 @@ public class CustomTableColumnSettings : NotificationObject
             ScoreDifficulty,
             Bp,
             CharcterEncoding
-        };
+        ];
     }
 
     private void ApplyInstallAndFullScanDefaults()

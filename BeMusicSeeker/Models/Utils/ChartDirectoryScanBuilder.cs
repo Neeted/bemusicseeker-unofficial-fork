@@ -16,21 +16,21 @@ internal static class ChartDirectoryScanBuilder
 
     internal const string MovieGroupName = "movie";
 
-    internal static readonly string[] ChartExtensions = BMSFile.bmsExtensions.Concat(new[] { ".bmson" }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    internal static readonly string[] ChartExtensions = [.. BMSFile.bmsExtensions.Concat(new[] { ".bmson" }).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal static readonly string[] AudioExtensions = BMSFile.wavExtensions.Concat(new[] { ".flac" }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    internal static readonly string[] AudioExtensions = [.. BMSFile.wavExtensions.Concat(new[] { ".flac" }).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal static readonly string[] ImageExtensions = BMSFile.bgaImageExtensions.Concat(new[] { ".jpeg" }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    internal static readonly string[] ImageExtensions = [.. BMSFile.bgaImageExtensions.Concat(new[] { ".jpeg" }).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal static readonly string[] MovieExtensions = BMSFile.bgaMovieExtensions.Concat(new[] { ".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm" }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    internal static readonly string[] MovieExtensions = [.. BMSFile.bgaMovieExtensions.Concat(new[] { ".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm" }).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    private static readonly HashSet<string> chartExtensionsSet = new HashSet<string>(ChartExtensions, StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> chartExtensionsSet = new(ChartExtensions, StringComparer.OrdinalIgnoreCase);
 
-    private static readonly HashSet<string> audioExtensionsSet = new HashSet<string>(AudioExtensions, StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> audioExtensionsSet = new(AudioExtensions, StringComparer.OrdinalIgnoreCase);
 
-    private static readonly HashSet<string> imageExtensionsSet = new HashSet<string>(ImageExtensions, StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> imageExtensionsSet = new(ImageExtensions, StringComparer.OrdinalIgnoreCase);
 
-    private static readonly HashSet<string> movieExtensionsSet = new HashSet<string>(MovieExtensions, StringComparer.OrdinalIgnoreCase);
+    private static readonly HashSet<string> movieExtensionsSet = new(MovieExtensions, StringComparer.OrdinalIgnoreCase);
 
     internal static BmsScanResult BuildFromRoots(IEnumerable<string> roots)
     {
@@ -45,16 +45,16 @@ internal static class ChartDirectoryScanBuilder
 
     internal static IReadOnlyList<RootFileEnumerationGroup> CreateDefaultEnumerationGroups(bool includeAllFiles = false)
     {
-        List<RootFileEnumerationGroup> groups = new List<RootFileEnumerationGroup>
-        {
+        List<RootFileEnumerationGroup> groups =
+        [
             new RootFileEnumerationGroup(ChartGroupName, ChartExtensions),
             new RootFileEnumerationGroup(AudioGroupName, AudioExtensions),
             new RootFileEnumerationGroup(ImageGroupName, ImageExtensions),
             new RootFileEnumerationGroup(MovieGroupName, MovieExtensions)
-        };
+        ];
         if (includeAllFiles)
         {
-            groups.Add(new RootFileEnumerationGroup(RootFileEnumerationService.AllFilesGroupName, Array.Empty<string>(), includeAllFiles: true));
+            groups.Add(new RootFileEnumerationGroup(RootFileEnumerationService.AllFilesGroupName, [], includeAllFiles: true));
         }
         return groups;
     }
@@ -62,10 +62,10 @@ internal static class ChartDirectoryScanBuilder
     internal static BmsScanResult BuildFromGroupedPaths(RootFileEnumerationResult enumerationResult)
     {
         return BuildFromAbsolutePaths(
-            enumerationResult?.GetPaths(ChartGroupName) ?? Array.Empty<string>(),
-            enumerationResult?.GetPaths(AudioGroupName) ?? Array.Empty<string>(),
-            enumerationResult?.GetPaths(ImageGroupName) ?? Array.Empty<string>(),
-            enumerationResult?.GetPaths(MovieGroupName) ?? Array.Empty<string>());
+            enumerationResult?.GetPaths(ChartGroupName) ?? [],
+            enumerationResult?.GetPaths(AudioGroupName) ?? [],
+            enumerationResult?.GetPaths(ImageGroupName) ?? [],
+            enumerationResult?.GetPaths(MovieGroupName) ?? []);
     }
 
     internal static BmsScanResult BuildFromAbsolutePaths(
@@ -74,13 +74,13 @@ internal static class ChartDirectoryScanBuilder
         IEnumerable<string> imageFilePaths,
         IEnumerable<string> movieFilePaths)
     {
-        BmsScanResult result = new BmsScanResult();
-        HashSet<string> normalizedChartPaths = new HashSet<string>(
-            (chartFilePaths ?? Enumerable.Empty<string>())
-                .Where((string path) => !string.IsNullOrWhiteSpace(path))
+        var result = new BmsScanResult();
+        var normalizedChartPaths = new HashSet<string>(
+            (chartFilePaths ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(Path.GetFullPath),
             StringComparer.OrdinalIgnoreCase);
-        foreach (string chartPath in normalizedChartPaths.OrderBy((string path) => path, StringComparer.OrdinalIgnoreCase))
+        foreach (string chartPath in normalizedChartPaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
             result.ChartFilePaths.Add(chartPath);
             string chartDirectory = Path.GetDirectoryName(chartPath);
@@ -112,10 +112,10 @@ internal static class ChartDirectoryScanBuilder
 
     private static Dictionary<string, HashSet<uint>> InitializeDirectoryHashSets(IEnumerable<string> chartDirectories)
     {
-        Dictionary<string, HashSet<uint>> map = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
-        foreach (string chartDirectory in chartDirectories ?? Enumerable.Empty<string>())
+        var map = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
+        foreach (string chartDirectory in chartDirectories ?? [])
         {
-            map[chartDirectory] = new HashSet<uint>();
+            map[chartDirectory] = [];
         }
         return map;
     }
@@ -127,9 +127,9 @@ internal static class ChartDirectoryScanBuilder
         Dictionary<string, HashSet<uint>> categoryRelativePathHashes,
         Dictionary<string, HashSet<uint>> selfOwnedCategoryRelativePathHashes)
     {
-        HashSet<string> directorySet = new HashSet<string>(chartDirectories ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        foreach (string absolutePath in (absolutePaths ?? Enumerable.Empty<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+        var directorySet = new HashSet<string>(chartDirectories ?? [], StringComparer.OrdinalIgnoreCase);
+        foreach (string absolutePath in (absolutePaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -159,7 +159,7 @@ internal static class ChartDirectoryScanBuilder
 
     private static List<string> FindOwningChartDirectories(ISet<string> chartDirectories, string absolutePath)
     {
-        List<string> owners = new List<string>();
+        List<string> owners = [];
         if (chartDirectories == null || chartDirectories.Count == 0 || string.IsNullOrWhiteSpace(absolutePath))
         {
             return owners;
@@ -181,7 +181,7 @@ internal static class ChartDirectoryScanBuilder
         destination.Clear();
         foreach (KeyValuePair<string, HashSet<uint>> entry in source)
         {
-            destination[entry.Key] = entry.Value.OrderBy((uint hash) => hash).ToArray();
+            destination[entry.Key] = [.. entry.Value.OrderBy(hash => hash)];
         }
     }
 

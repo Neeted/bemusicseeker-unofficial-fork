@@ -14,7 +14,7 @@ internal enum ActiveScoreSource
 
 internal sealed class ScoreTableLoadResult
 {
-    public List<BMSScore> Scores { get; } = new List<BMSScore>();
+    public List<BMSScore> Scores { get; } = [];
 
     public Dictionary<string, BMSScore> BeatorajaScoresBySha256 { get; } = new Dictionary<string, BMSScore>(System.StringComparer.OrdinalIgnoreCase);
 

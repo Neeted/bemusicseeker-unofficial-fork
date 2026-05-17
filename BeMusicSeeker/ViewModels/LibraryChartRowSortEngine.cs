@@ -87,8 +87,8 @@ internal static class LibraryChartRowSortEngine
 
     internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile, out LibraryChartSortMetrics metrics)
     {
-        List<LibraryChartRow> safeSource = source as List<LibraryChartRow> ?? (source ?? Enumerable.Empty<LibraryChartRow>()).ToList();
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<LibraryChartRow> safeSource = source as List<LibraryChartRow> ?? [.. (source ?? [])];
+        var stopwatch = Stopwatch.StartNew();
         string columnName = sortParameters?.ColumnsName;
         ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
         string propertyTypeName = "(null)";
@@ -177,14 +177,14 @@ internal static class LibraryChartRowSortEngine
                 ? new NaturalComparer<string>()
                 : new NaturalComparer<string>(isWhiteSpacePrior: true);
             return direction == ListSortDirection.Ascending
-                ? source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer<string>()).ToList()
-                : source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer<string>()).ToList();
+                ? [.. source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer<string>())]
+                : [.. source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, new NaturalComparer<string>())];
         }
 
         StringComparer comparerFast = StringComparer.OrdinalIgnoreCase;
         return direction == ListSortDirection.Ascending
-            ? source.OrderBy(keySelector, comparerFast).ThenBy(GetTitleKey, comparerFast).ToList()
-            : source.OrderByDescending(keySelector, comparerFast).ThenBy(GetTitleKey, comparerFast).ToList();
+            ? [.. source.OrderBy(keySelector, comparerFast).ThenBy(GetTitleKey, comparerFast)]
+            : [.. source.OrderByDescending(keySelector, comparerFast).ThenBy(GetTitleKey, comparerFast)];
     }
 
     private static List<LibraryChartRow> SortByComparable(IEnumerable<LibraryChartRow> source, Func<LibraryChartRow, IComparable> keySelector, ListSortDirection direction)
@@ -192,16 +192,16 @@ internal static class LibraryChartRowSortEngine
         StringComparer titleComparer = StringComparer.OrdinalIgnoreCase;
         IComparer<IComparable> comparer = Comparer<IComparable>.Create(CompareComparable);
         return direction == ListSortDirection.Ascending
-            ? source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, titleComparer).ToList()
-            : source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, titleComparer).ToList();
+            ? [.. source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, titleComparer)]
+            : [.. source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, titleComparer)];
     }
 
     private static List<LibraryChartRow> SortByLevelKey(IEnumerable<LibraryChartRow> source, ListSortDirection direction)
     {
         StringComparer titleComparer = StringComparer.OrdinalIgnoreCase;
         return direction == ListSortDirection.Ascending
-            ? source.OrderBy(GetLevelKey, Comparer<double?>.Default).ThenBy(GetTitleKey, titleComparer).ToList()
-            : source.OrderByDescending(GetLevelKey, Comparer<double?>.Default).ThenBy(GetTitleKey, titleComparer).ToList();
+            ? [.. source.OrderBy(GetLevelKey, Comparer<double?>.Default).ThenBy(GetTitleKey, titleComparer)]
+            : [.. source.OrderByDescending(GetLevelKey, Comparer<double?>.Default).ThenBy(GetTitleKey, titleComparer)];
     }
 
     private static double? GetLevelKey(LibraryChartRow row)
@@ -254,24 +254,11 @@ internal static class LibraryChartRowSortEngine
         {
             return true;
         }
-        switch (Type.GetTypeCode(type))
+        return Type.GetTypeCode(type) switch
         {
-            case TypeCode.SByte:
-            case TypeCode.Byte:
-            case TypeCode.Int16:
-            case TypeCode.UInt16:
-            case TypeCode.Int32:
-            case TypeCode.UInt32:
-            case TypeCode.Int64:
-            case TypeCode.UInt64:
-            case TypeCode.Single:
-            case TypeCode.Double:
-            case TypeCode.Decimal:
-            case TypeCode.Boolean:
-                return true;
-            default:
-                return false;
-        }
+            TypeCode.SByte or TypeCode.Byte or TypeCode.Int16 or TypeCode.UInt16 or TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or TypeCode.UInt64 or TypeCode.Single or TypeCode.Double or TypeCode.Decimal or TypeCode.Boolean => true,
+            _ => false,
+        };
     }
 
     private static int CompareComparable(IComparable left, IComparable right)

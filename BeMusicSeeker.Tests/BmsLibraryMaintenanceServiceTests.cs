@@ -19,9 +19,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyNeedToBeFixedWarnings_SetsStructuredMissingResourceWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        var info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
             wav_files_defined = 10,
@@ -45,9 +45,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void BuildResourceHealthWarnings_DoesNotMutateSourceWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        var info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
             wav_files_defined = 2,
@@ -67,12 +67,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void LazyMaintenancePlaceholder_IsNotAValidResourceHealthSnapshot()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
         _ = file.maintenanceInfo;
         IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(file);
-        ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { file }, service, version: 1);
+        var snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { file }, service, version: 1);
 
         Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, file.MaintenanceInfoOrigin);
         Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
@@ -84,7 +84,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void PendingBmsonEncodingOnlyMaintenance_IsPlaceholder()
     {
-        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        var song = new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Library\song.bmson",
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -92,7 +92,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         song.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
 
-        PendingChartEntry entry = PendingChartEntry.CreateFromBmsonSong(song);
+        var entry = PendingChartEntry.CreateFromBmsonSong(song);
 
         Assert.IsNotNull(entry);
         Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, entry.MaintenanceInfoOrigin);
@@ -111,13 +111,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
                 new[] { ChartResourceKeyHash.GetLookupHash(@"sound\foo") },
-                Array.Empty<uint>(),
-                Array.Empty<uint>());
+                [],
+                []);
 
             file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
 
@@ -145,13 +145,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
                 new[] { ChartResourceKeyHash.GetLookupHash("foo") },
-                Array.Empty<uint>(),
-                Array.Empty<uint>());
+                [],
+                []);
 
             file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
 
@@ -179,13 +179,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
                 new[] { ChartResourceKeyHash.GetLookupHash("foo") },
-                Array.Empty<uint>(),
-                Array.Empty<uint>());
+                [],
+                []);
 
             file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
 
@@ -215,7 +215,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         File.WriteAllText(Path.Combine(soundDirectoryPath, "foo.wav"), string.Empty);
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
 
             file.SetHealthStatus(forceUpdate: true);
 
@@ -244,7 +244,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         File.WriteAllText(Path.Combine(tempDirectoryPath, "foo.wav"), string.Empty);
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
 
             file.SetHealthStatus(forceUpdate: true);
 
@@ -264,18 +264,18 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void LibraryChartRow_ProjectsResourceHealthWarningsWithoutMutatingSource()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.ResourceWavMissing, "stale resource warning");
-        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        var info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
             bga_files_defined = 4,
             bga_files_existing = 3
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromBmsFile(file);
         row.SetResourceHealthProjectionProvider(_ => new ResourceHealthWarningProjection(1, service.BuildResourceHealthWarnings(file, info), isIgnored: false));
 
         StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_DuplicateChart);
@@ -302,7 +302,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             wav_files_defined = 2,
             wav_files_existing = 2
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromBmsFile(file);
         row.SetResourceHealthProjectionProvider(_ => ResourceHealthWarningProjection.Empty);
 
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -314,7 +314,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ResourceHealthIndexSnapshot_GroupsActiveAndIgnoredWithoutMutatingWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         active.path = @"C:\Library\active.bms";
         active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
@@ -334,7 +334,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             is_files_warning_ignored = true
         }, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 3);
+        var snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 3);
 
         CollectionAssert.AreEqual(new[] { active }, snapshot.ActiveFiles.ToArray());
         CollectionAssert.AreEqual(new[] { ignored }, snapshot.IgnoredFiles.ToArray());
@@ -349,7 +349,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         active.path = @"C:\Library\active.bms";
         active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
@@ -368,7 +368,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_existing = 1,
             is_files_warning_ignored = true
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 1);
+        var snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 1);
 
         active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
         {
@@ -411,14 +411,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyNeedToBeFixedWarnings_ReplacesOnlyResourceHealthWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "install estimate");
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
         file.SetWarning(ChartWarningKind.ResourceWavMissing, "stale wav");
-        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        var info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
             bga_files_defined = 4,
@@ -441,7 +441,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void GetZeroNoteFiles_FiltersOnlyZeroNoteCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(1200);
         zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
@@ -463,7 +463,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void BmsOnlyMaintenanceOperations_SkipBmsonPendingRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         string originalTitle = bmsonRow.Title;
         string originalArtist = bmsonRow.Artist;
@@ -498,9 +498,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void SetFilesWarningIgnored_TogglesOnlyMatchingEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        var info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
             is_files_warning_ignored = false
@@ -528,7 +528,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void GetGarbledFiles_IncludesUnknownEncodingInRegularAndFixedLists()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile unknownFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         unknownFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(unknownFile)
         {
@@ -583,7 +583,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void RecheckZeroNoteWarnings_SkipsMissingFilesAndClearsWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(0);
         zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
@@ -603,7 +603,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyEncoding_ReloadsWhenEncodingMatchesButDecodedMetadataDiffers()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -623,7 +623,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file.SetTitle("stale");
             file.SetArtist("stale");
             file.SetGenre("stale");
-            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            var info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash,
                 encoding = "gb2312",
@@ -657,7 +657,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyEncoding_SkipsSongReloadWhenDecodedMetadataMatchesButUpdatesEncoding()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -675,7 +675,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file.SetTitle(expectedTitle);
             file.SetArtist(expectedArtist);
             file.SetGenre(expectedGenre);
-            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            var info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash,
                 encoding = "unknown",
@@ -706,7 +706,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyEncoding_ReloadsWhenComposedMetadataMatchesButRawMetadataDiffers()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -726,7 +726,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file.SetTitle(expectedTitle + " " + expectedSubtitle);
             file.SetArtist(expectedArtist + " " + expectedSubartist);
             file.SetGenre(expectedGenre);
-            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            var info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash,
                 encoding = "shift_jis",
@@ -760,7 +760,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyEncoding_RaisesEncodingPropertyChangedWhenEncodingOnlyChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -778,14 +778,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file.SetTitle(expectedTitle);
             file.SetArtist(expectedArtist);
             file.SetGenre(expectedGenre);
-            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            var info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash,
                 encoding = "unknown",
                 is_encoding_fixed = false
             };
             file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
-            List<string> propertyNames = new List<string>();
+            List<string> propertyNames = [];
             file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 propertyNames.Add(e.PropertyName);
@@ -810,7 +810,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyEncoding_SkipsEntireUpdateWhenDecodedMetadataAndEncodingMatch()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -828,7 +828,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file.SetTitle(expectedTitle);
             file.SetArtist(expectedArtist);
             file.SetGenre(expectedGenre);
-            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            var info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash,
                 encoding = "gb2312",
@@ -856,7 +856,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_RaisesHealthPropertyChangedWhenHealthChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -867,18 +867,18 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash
             }, suppressPropertyChanged: true, registerEventHandlers: false);
-            List<string> propertyNames = new List<string>();
+            List<string> propertyNames = [];
             file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 propertyNames.Add(e.PropertyName);
             };
 
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -908,7 +908,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_BmsonResourceHealth_UpsertsMaintenanceOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
@@ -919,8 +919,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             new UTF8Encoding(false));
         try
         {
-            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            var file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -944,7 +944,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(true, file.maintenanceInfo.is_stagefile_defined);
             Assert.AreEqual(false, file.maintenanceInfo.is_stagefile_existing);
 
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual(1, songDb.Table<BMSFileMaintenanceInfo>().Count());
                 Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
@@ -963,7 +963,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_BmsonUsesFreshResourceReferencesWithoutReparse()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
@@ -976,10 +976,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             LR2SongDBExtended.bmson_song song = BmsonSongParser.Parse(bmsonFilePath);
             DateTime timestamp = song.updated_at;
-            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(song);
+            var file = PendingChartEntry.CreateFromBmsonSong(song);
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, timestamp);
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1014,7 +1014,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_BmsonFreshReferencesAreStaleWhenTimestampChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
@@ -1025,10 +1025,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
             new UTF8Encoding(false));
         try
         {
-            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
+            var file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, file.BmsonSong.updated_at.AddMinutes(1));
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1059,7 +1059,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_BmsonNonFreshRowReparsesResourceReferences()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
@@ -1071,7 +1071,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(bmsonFilePath);
-            LR2SongDBExtended.bmson_song loadedLikeRow = new LR2SongDBExtended.bmson_song
+            var loadedLikeRow = new LR2SongDBExtended.bmson_song
             {
                 path = parsed.path,
                 folder = parsed.folder,
@@ -1080,8 +1080,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 sha256 = parsed.sha256,
                 updated_at = parsed.updated_at
             };
-            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(loadedLikeRow);
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            var file = PendingChartEntry.CreateFromBmsonSong(loadedLikeRow);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1113,7 +1113,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_BmsonForceUpdateReparsesFreshResourceReferences()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
@@ -1124,8 +1124,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             new UTF8Encoding(false));
         try
         {
-            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            var file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1155,7 +1155,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_MixedBmsAndBmsonResourceHealth_ScansBothButDoesNotCreateBmsonSongRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -1171,9 +1171,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             new UTF8Encoding(false));
         try
         {
-            BMSFile bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            PendingChartEntry bmsonFile = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            var bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var bmsonFile = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1196,10 +1196,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, bmsFile.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, bmsFile.maintenanceInfo.wav_files_existing);
 
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual(2, songDb.Table<BMSFileMaintenanceInfo>().Count());
-                Assert.IsFalse(songDb.Table<LR2SongDB.song>().ToList().Any((LR2SongDB.song song) => song.hash == bmsonFile.hash));
+                Assert.IsFalse(songDb.Table<LR2SongDB.song>().ToList().Any(song => song.hash == bmsonFile.hash));
             }
         }
         finally
@@ -1221,7 +1221,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_UsesMaintenanceHealthDegreeOverride()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService(0);
+        var service = new BmsLibraryMaintenanceService(0);
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -1232,8 +1232,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
-            BMSFile bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            var bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1263,7 +1263,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_NoTargetsReportsSummaryAndSkipsWork()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService(1);
+        var service = new BmsLibraryMaintenanceService(1);
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -1272,10 +1272,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFilePath,
             "#PLAYER 1\r\n#TITLE Bms\r\n#00111:01\r\n",
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
-        List<string> logs = new List<string>();
+        List<string> logs = [];
         try
         {
-            BMSFile bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             bmsFile.maintenanceInfo.wav_files_defined = 0;
             bmsFile.maintenanceInfo.bga_files_defined = 0;
             bmsFile.maintenanceInfo.movie_files_defined = 0;
@@ -1283,7 +1283,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile.maintenanceInfo.is_backbmp_defined = false;
             bmsFile.maintenanceInfo.is_banner_defined = false;
             bmsFile.maintenanceInfo.encoding = "shift_jis";
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1299,8 +1299,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(0, result.CheckedFileCount);
             Assert.AreEqual(0, result.HealthTargetCount);
             Assert.AreEqual(0, result.MaintenanceInfoUpsertCount);
-            Assert.IsTrue(logs.Any((string log) => log.Contains("maintenance_target_summary") && log.Contains("total=0")));
-            Assert.IsTrue(logs.Any((string log) => log.Contains("maintenance_update no_targets")));
+            Assert.IsTrue(logs.Any(log => log.Contains("maintenance_target_summary") && log.Contains("total=0")));
+            Assert.IsTrue(logs.Any(log => log.Contains("maintenance_update no_targets")));
         }
         finally
         {
@@ -1341,26 +1341,26 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
-            BMSFile legacyFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            BMSFile cacheAwareFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            BMSFileMaintenanceInfo legacyInfo = new BMSFileMaintenanceInfo(legacyFile)
+            var legacyFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var cacheAwareFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var legacyInfo = new BMSFileMaintenanceInfo(legacyFile)
             {
                 hash = legacyFile.hash
             };
             legacyFile.SetHealthStatus(forceUpdate: false, memClear: false, legacyInfo);
 
-            DirectoryResourceLookupCache directoryLookupCache = new DirectoryResourceLookupCache();
+            var directoryLookupCache = new DirectoryResourceLookupCache();
             string[] relativeResources =
-            {
+            [
                 "audio\\hit.ogg",
                 "image\\pic.jpg",
                 "movie\\clip.mp4",
                 "stage.jpg",
                 "banner.bmp"
-            };
+            ];
             directoryLookupCache.AddDir(tempDirectoryPath, relativeResources);
-            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(directoryLookupCache);
-            BMSFileMaintenanceInfo cacheInfo = new BMSFileMaintenanceInfo(cacheAwareFile)
+            var lookupContext = new ResourceHealthLookupContext(directoryLookupCache);
+            var cacheInfo = new BMSFileMaintenanceInfo(cacheAwareFile)
             {
                 hash = cacheAwareFile.hash
             };
@@ -1406,9 +1406,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
-            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(null);
-            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            var lookupContext = new ResourceHealthLookupContext(null);
+            var info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash
             };
@@ -1434,7 +1434,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void UpdateMaintenanceInfo_BmsonParseFailure_DoesNotAbortMaintenance()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string invalidBmsonPath = Path.Combine(tempDirectoryPath, "invalid.bmson");
@@ -1448,8 +1448,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             PendingChartEntry invalidRow = CreateBmsonRow(invalidBmsonPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            PendingChartEntry validRow = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(validBmsonPath));
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            var validRow = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(validBmsonPath));
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
@@ -1471,9 +1471,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, validRow.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, validRow.maintenanceInfo.wav_files_existing);
 
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                List<BMSFileMaintenanceInfo> rows = songDb.Table<BMSFileMaintenanceInfo>().ToList();
+                List<BMSFileMaintenanceInfo> rows = [.. songDb.Table<BMSFileMaintenanceInfo>()];
                 Assert.AreEqual(1, rows.Count);
                 Assert.AreEqual(validRow.path, rows[0].path);
             }
@@ -1498,7 +1498,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             TestableBmsFile bms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             bms.path = Path.Combine(tempDirectoryPath, "chart.bms");
             PendingChartEntry bmson = CreateBmsonRow(Path.Combine(tempDirectoryPath, "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = bms.path, hash = bms.hash }, typeof(LR2SongDBExtended.maintenance));
@@ -1509,11 +1509,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             int deleted = new BmsLibraryDbGateway(songDbPath).DeleteMaintenanceRows(new[] { Path.Combine(tempDirectoryPath, "stale.bms") });
 
             Assert.AreEqual(1, deleted);
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual(2, songDb.Table<BMSFileMaintenanceInfo>().Count());
-                Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any((BMSFileMaintenanceInfo info) => info.path == bms.path));
-                Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any((BMSFileMaintenanceInfo info) => info.path == bmson.path));
+                Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any(info => info.path == bms.path));
+                Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any(info => info.path == bmson.path));
             }
         }
         finally
@@ -1532,7 +1532,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     public void ApplyEncoding_ReloadsRequestedEncodingAndMarksFixed(string encoding, string expectedTitle, string expectedArtist)
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -1545,7 +1545,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             file.path = bmsFilePath;
-            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            var info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash,
                 encoding = "unknown",
@@ -1573,14 +1573,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
     private static TestableBmsFile CreateFile(string hash)
     {
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.SetHash(hash);
         return file;
     }
 
     private static PendingChartEntry CreateBmsonRow(string path, string md5)
     {
-        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        var song = new LR2SongDBExtended.bmson_song
         {
             path = path,
             folder = Path.GetDirectoryName(path),
@@ -1594,7 +1594,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
     private static void SetNotes(BMSFile file, int? value)
     {
-        typeof(BMSFile).GetProperty(nameof(BMSFile.notes))!.GetSetMethod(nonPublic: true)!.Invoke(file, new object?[] { value });
+        typeof(BMSFile).GetProperty(nameof(BMSFile.notes))!.GetSetMethod(nonPublic: true)!.Invoke(file, [value]);
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfo(string md5, int notes)

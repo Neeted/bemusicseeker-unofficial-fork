@@ -6,17 +6,17 @@ namespace Ribbit.Media.Audio;
 
 internal static class EncodeTypeExt
 {
-    private static readonly string[] exeFiles = new string[6]
-    {
+    private static readonly string[] exeFiles =
+    [
         string.Empty,
         "lame.exe",
         "neroAacEnc.exe",
         "opusenc.exe",
         "flac.exe",
         "oggenc2.exe"
-    };
+    ];
 
-    private static readonly string[] extensions = new string[6] { ".wav", ".mp3", ".aac", ".opus", ".flac", ".ogg" };
+    private static readonly string[] extensions = [".wav", ".mp3", ".aac", ".opus", ".flac", ".ogg"];
 
     public static string GetEncoderFileName(this EncoderType encodeType)
     {

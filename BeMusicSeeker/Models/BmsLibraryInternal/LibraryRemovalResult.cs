@@ -4,11 +4,11 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class LibraryRemovalResult
 {
-    public List<BMSFile> RemovedFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> RemovedFiles { get; } = [];
 
-    public List<LibraryChartRef> RemovedCharts { get; } = new List<LibraryChartRef>();
+    public List<LibraryChartRef> RemovedCharts { get; } = [];
 
-    public List<LibraryDeleteFailure> Failures { get; } = new List<LibraryDeleteFailure>();
+    public List<LibraryDeleteFailure> Failures { get; } = [];
 
     public int InputChartCount { get; set; }
 

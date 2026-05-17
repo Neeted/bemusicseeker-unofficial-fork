@@ -82,36 +82,38 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentNullException(nameof(values));
         }
-        BMSFile file = new BMSFile();
-        file._hash = NormalizeMd5HashFromDb(GetRawValue(values, 0));
-        file._title = GetRawValue(values, 1);
-        file._subtitle = GetRawValue(values, 2);
-        file._artist = GetRawValue(values, 3);
-        file._subartist = GetRawValue(values, 4);
-        file.genre = GetRawValue(values, 5);
-        file._tag = GetRawValue(values, 6);
-        file._path = GetRawValue(values, 7);
-        file.type = ParseNullableIntFromDb(GetRawValue(values, 8));
-        file.folder = GetRawValue(values, 9);
-        file._stagefile = GetRawValue(values, 10);
-        file._banner = GetRawValue(values, 11);
-        file._backbmp = GetRawValue(values, 12);
-        file.parent = GetRawValue(values, 13);
-        file.level = ParseNullableIntFromDb(GetRawValue(values, 14));
-        file.difficulty = ParseNullableIntFromDb(GetRawValue(values, 15));
-        file.maxbpm = ParseNullableIntFromDb(GetRawValue(values, 16));
-        file.minbpm = ParseNullableIntFromDb(GetRawValue(values, 17));
-        file.mode = ParseNullableIntFromDb(GetRawValue(values, 18));
-        file._judge = ParseNullableIntFromDb(GetRawValue(values, 19));
-        file.longnote = ParseNullableIntFromDb(GetRawValue(values, 20));
-        file.bga = ParseNullableIntFromDb(GetRawValue(values, 21));
-        file.random = ParseNullableIntFromDb(GetRawValue(values, 22));
-        file.date = ParseNullableIntFromDb(GetRawValue(values, 23));
-        file.favorite = ParseNullableIntFromDb(GetRawValue(values, 24));
-        file.txt = ParseNullableIntFromDb(GetRawValue(values, 25));
-        file._karinotes = ParseNullableIntFromDb(GetRawValue(values, 26));
-        file.adddate = ParseNullableIntFromDb(GetRawValue(values, 27));
-        file.exlevel = ParseNullableIntFromDb(GetRawValue(values, 28));
+        var file = new BMSFile
+        {
+            _hash = NormalizeMd5HashFromDb(GetRawValue(values, 0)),
+            _title = GetRawValue(values, 1),
+            _subtitle = GetRawValue(values, 2),
+            _artist = GetRawValue(values, 3),
+            _subartist = GetRawValue(values, 4),
+            genre = GetRawValue(values, 5),
+            _tag = GetRawValue(values, 6),
+            _path = GetRawValue(values, 7),
+            type = ParseNullableIntFromDb(GetRawValue(values, 8)),
+            folder = GetRawValue(values, 9),
+            _stagefile = GetRawValue(values, 10),
+            _banner = GetRawValue(values, 11),
+            _backbmp = GetRawValue(values, 12),
+            parent = GetRawValue(values, 13),
+            level = ParseNullableIntFromDb(GetRawValue(values, 14)),
+            difficulty = ParseNullableIntFromDb(GetRawValue(values, 15)),
+            maxbpm = ParseNullableIntFromDb(GetRawValue(values, 16)),
+            minbpm = ParseNullableIntFromDb(GetRawValue(values, 17)),
+            mode = ParseNullableIntFromDb(GetRawValue(values, 18)),
+            _judge = ParseNullableIntFromDb(GetRawValue(values, 19)),
+            longnote = ParseNullableIntFromDb(GetRawValue(values, 20)),
+            bga = ParseNullableIntFromDb(GetRawValue(values, 21)),
+            random = ParseNullableIntFromDb(GetRawValue(values, 22)),
+            date = ParseNullableIntFromDb(GetRawValue(values, 23)),
+            favorite = ParseNullableIntFromDb(GetRawValue(values, 24)),
+            txt = ParseNullableIntFromDb(GetRawValue(values, 25)),
+            _karinotes = ParseNullableIntFromDb(GetRawValue(values, 26)),
+            adddate = ParseNullableIntFromDb(GetRawValue(values, 27)),
+            exlevel = ParseNullableIntFromDb(GetRawValue(values, 28))
+        };
         return file;
     }
 
@@ -184,7 +186,7 @@ public class BMSFile : LR2SongDB.song
 
     private string _installDestinationArtist;
 
-    private IReadOnlyList<string> _installDestinationSuggestions = Array.Empty<string>();
+    private IReadOnlyList<string> _installDestinationSuggestions = [];
 
     private bool _isInstallDestinationSuggestionPopupOpen;
 
@@ -208,11 +210,11 @@ public class BMSFile : LR2SongDB.song
 
     private LR2SongDBExtended.chart_info _chartInfo;
 
-    private object lockObject = new object();
+    private readonly object lockObject = new();
 
-    private ReaderWriterLockSlim rwlockRefTables = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
+    private readonly ReaderWriterLockSlim rwlockRefTables = new(LockRecursionPolicy.SupportsRecursion);
 
-    private List<BMSTable> refTables = new List<BMSTable>();
+    private readonly List<BMSTable> refTables = [];
 
     private string refTablesSymbolsCache = string.Empty;
 
@@ -236,22 +238,22 @@ public class BMSFile : LR2SongDB.song
 
     private ResourceReferenceHealthCache resourceReferenceHealthCache;
 
-    private ReaderWriterLockSlim rwlock = new ReaderWriterLockSlim();
+    private readonly ReaderWriterLockSlim rwlock = new();
 
-    private object filesCacheLock = new object();
+    private readonly object filesCacheLock = new();
 
     // BMS のチャンネル行は ':' 区切りが一般的だが、LR2/beatoraja では空白だけで
     // コマンドと値を区切る譜面も実質的に受け入れられているため、ゼロノート検出でも
     // ':' または空白列を区切りとして扱う。
     // 通常ノート (11-19/21-29) に加え、RDM 記法の LN チャンネル (51-69 系。互換のため 5Z/6Z まで)
     // も可視ノートとして扱う。データ部は 2 桁 object 列として見て、00 だけの行は無視する。
-    private static Regex visibleObjectChRegex = new Regex("^[\\s\u3000]*#[0-9]{3}(?:[12][1-9A-Z]|[56][1-9A-Z])(?:[\\s\u3000]*:[\\s\u3000]*|[\\s\u3000]+)(?:[\\s\u3000]*00)*[\\s\u3000]*(?!00)[0-9A-Z]{2}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex visibleObjectChRegex = new("^[\\s\u3000]*#[0-9]{3}(?:[12][1-9A-Z]|[56][1-9A-Z])(?:[\\s\u3000]*:[\\s\u3000]*|[\\s\u3000]+)(?:[\\s\u3000]*00)*[\\s\u3000]*(?!00)[0-9A-Z]{2}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static Encoding sjisEnc = Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback());
+    private static readonly Encoding sjisEnc = Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
-    private static Encoding koreanEnc = Encoding.GetEncoding("ks_c_5601-1987", new EncoderExceptionFallback(), new DecoderExceptionFallback());
+    private static readonly Encoding koreanEnc = Encoding.GetEncoding("ks_c_5601-1987", new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
-    private static Encoding utf8Enc = Encoding.GetEncoding("utf-8", new EncoderExceptionFallback(), new DecoderExceptionFallback());
+    private static readonly Encoding utf8Enc = Encoding.GetEncoding("utf-8", new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
     internal enum EncodingDetectionOutcome
     {
@@ -287,27 +289,27 @@ public class BMSFile : LR2SongDB.song
         public string DecodedText { get; }
     }
 
-    public static readonly string[] bmsExtensions = new string[4] { ".bme", ".bms", ".bml", ".pms" };
+    public static readonly string[] bmsExtensions = [".bme", ".bms", ".bml", ".pms"];
 
     public static readonly string wavExtensionBase = ".wav";
 
     public static readonly string bgaImageExtensionBase = ".png";
 
-    public static readonly string[] bgaImageExtensionsExtend = new string[3] { ".bmp", ".jpg", ".jpeg" };
+    public static readonly string[] bgaImageExtensionsExtend = [".bmp", ".jpg", ".jpeg"];
 
-    public static readonly string[] wavExtensionsExtend = new string[3] { ".ogg", ".mp3", ".flac" };
+    public static readonly string[] wavExtensionsExtend = [".ogg", ".mp3", ".flac"];
 
-    public static readonly string[] wavExtensions = new string[1] { wavExtensionBase }.Concat(wavExtensionsExtend).ToArray();
+    public static readonly string[] wavExtensions = [wavExtensionBase, .. wavExtensionsExtend];
 
-    public static readonly string[] bgaImageExtensions = new string[1] { bgaImageExtensionBase }.Concat(bgaImageExtensionsExtend).ToArray();
+    public static readonly string[] bgaImageExtensions = [bgaImageExtensionBase, .. bgaImageExtensionsExtend];
 
-    public static readonly Regex wavExtensionsExtendRegex = new Regex("(\\" + string.Join("|\\", wavExtensionsExtend) + ")$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    public static readonly Regex wavExtensionsExtendRegex = new("(\\" + string.Join("|\\", wavExtensionsExtend) + ")$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public static readonly Regex bgaImageExtensionsExtendRegex = new Regex("(\\" + string.Join("|\\", bgaImageExtensionsExtend) + ")$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    public static readonly Regex bgaImageExtensionsExtendRegex = new("(\\" + string.Join("|\\", bgaImageExtensionsExtend) + ")$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public static readonly string[] bgaMovieExtensions = new string[15] { ".mpg", ".mpeg", ".mp4", ".m4v", ".mp4v", ".avi", ".wmv", ".mov", ".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm" };
+    public static readonly string[] bgaMovieExtensions = [".mpg", ".mpeg", ".mp4", ".m4v", ".mp4v", ".avi", ".wmv", ".mov", ".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm"];
 
-    public static readonly string[] bgaAllExtensions = bgaImageExtensions.Concat(bgaMovieExtensions).ToArray();
+    public static readonly string[] bgaAllExtensions = [.. bgaImageExtensions, .. bgaMovieExtensions];
 
     private static readonly char[] invalidPathCharas = Path.GetInvalidPathChars();
 
@@ -613,7 +615,7 @@ public class BMSFile : LR2SongDB.song
 
     public HashSet<string> BGAfiles { get; set; }
 
-    internal ChartWarningCollection Warnings => _warnings ?? (_warnings = new ChartWarningCollection(this));
+    internal ChartWarningCollection Warnings => _warnings ??= new ChartWarningCollection(this);
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {
@@ -816,11 +818,11 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            return _installDestinationSuggestions ?? Array.Empty<string>();
+            return _installDestinationSuggestions ?? [];
         }
         set
         {
-            IReadOnlyList<string> normalized = value ?? Array.Empty<string>();
+            IReadOnlyList<string> normalized = value ?? [];
             bool hadSuggestions = HasInstallDestinationSuggestions;
             bool hadChoices = HasInstallDestinationSuggestionChoices;
             if (!ReferenceEquals(_installDestinationSuggestions, normalized))
@@ -1126,10 +1128,7 @@ public class BMSFile : LR2SongDB.song
     public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, bool registerEventHandlers = true, MaintenanceInfoOrigin? origin = null)
     {
         MaintenanceInfoOrigin nextOrigin = origin ?? (value == null ? MaintenanceInfoOrigin.Placeholder : MaintenanceInfoOrigin.Calculated);
-        if (value == null)
-        {
-            value = new BMSFileMaintenanceInfo(this);
-        }
+        value ??= new BMSFileMaintenanceInfo(this);
         if (_maintenanceInfo == value)
         {
             maintenanceInfoOrigin = nextOrigin;
@@ -1223,7 +1222,7 @@ public class BMSFile : LR2SongDB.song
         {
             using (new ReaderGuard(rwlockRefTables))
             {
-                return refTables.ToList();
+                return [.. refTables];
             }
         }
     }
@@ -1376,7 +1375,7 @@ public class BMSFile : LR2SongDB.song
                     changed = true;
                 }
             }
-            else if (refTables.RemoveAll((BMSTable table) => !tables.Contains(table)) > 0)
+            else if (refTables.RemoveAll(table => !tables.Contains(table)) > 0)
             {
                 refreshRefTablesDisplayCacheUnsafe();
                 changed = true;
@@ -1468,8 +1467,8 @@ public class BMSFile : LR2SongDB.song
 
     private void refreshRefTablesDisplayCacheUnsafe()
     {
-        refTablesSymbolsCache = string.Join(" ", refTables.Select((BMSTable t) => t.symbol));
-        string text = string.Join(Environment.NewLine, refTables.Select((BMSTable t) => t.name));
+        refTablesSymbolsCache = string.Join(" ", refTables.Select(t => t.symbol));
+        string text = string.Join(Environment.NewLine, refTables.Select(t => t.name));
         refTablesNamesCache = string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
@@ -1524,7 +1523,7 @@ public class BMSFile : LR2SongDB.song
     {
         if (File.Exists(path))
         {
-            mtInfo = mtInfo ?? maintenanceInfo;
+            mtInfo ??= maintenanceInfo;
             mtInfo.encoding = DetectEncodingOfBMSFile(this);
             mtInfo.is_encoding_fixed = false;
         }
@@ -1556,7 +1555,7 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentNullException(nameof(detectionResult));
         }
-        mtInfo = mtInfo ?? maintenanceInfo;
+        mtInfo ??= maintenanceInfo;
         mtInfo.encoding = detectionResult.EncodingName;
         mtInfo.is_encoding_fixed = false;
     }
@@ -1577,7 +1576,7 @@ public class BMSFile : LR2SongDB.song
         {
             return;
         }
-        mtInfo = mtInfo ?? maintenanceInfo;
+        mtInfo ??= maintenanceInfo;
         if (!forceUpdate && mtInfo.IsInformationChecked())
         {
             return;
@@ -1615,15 +1614,15 @@ public class BMSFile : LR2SongDB.song
                     }
                     else
                     {
-                        ILookup<bool, string> lookup = BGAfiles.ToLookup((string f) => bgaMovieExtensions.Any((string e) => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)));
-                        ILookup<bool, string> lookup2 = lookup[false].ToLookup((string f) => !f.Contains('\\'));
-                        ILookup<bool, string> lookup3 = lookup[true].ToLookup((string f) => !f.Contains('\\'));
-                        nonlocalBGAfiles = lookup2[false].ToList();
+                        ILookup<bool, string> lookup = BGAfiles.ToLookup(f => bgaMovieExtensions.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)));
+                        ILookup<bool, string> lookup2 = lookup[false].ToLookup(f => !f.Contains('\\'));
+                        ILookup<bool, string> lookup3 = lookup[true].ToLookup(f => !f.Contains('\\'));
+                        nonlocalBGAfiles = [.. lookup2[false]];
                         localBGAfilesNameHashArray = GetResourceReferenceHashArray(lookup2[true]);
-                        nonlocalBGAfilesMovie = lookup3[false].ToList();
+                        nonlocalBGAfilesMovie = [.. lookup3[false]];
                         localBGAfilesMovieNameHashArray = GetResourceReferenceHashArray(lookup3[true]);
-                        ILookup<bool, string> lookup4 = WAVfiles.ToLookup((string f) => !f.Contains('\\'));
-                        nonlocalWAVfiles = lookup4[false].ToList();
+                        ILookup<bool, string> lookup4 = WAVfiles.ToLookup(f => !f.Contains('\\'));
+                        nonlocalWAVfiles = [.. lookup4[false]];
                         localWAVfilesNameHashArray = GetResourceReferenceHashArray(lookup4[true]);
                     }
                 }
@@ -1640,7 +1639,7 @@ public class BMSFile : LR2SongDB.song
             uint[] localAudioResourceHashes = null;
             uint[] localImageResourceHashes = null;
             uint[] localMovieResourceHashes = null;
-            Func<uint[], List<string>, IEnumerable<string>, ChartResourceKind, int> func = delegate (uint[] localHashSet, List<string> nonlocalFileList, IEnumerable<string> extensions, ChartResourceKind resourceKind)
+            int func(uint[] localHashSet, List<string> nonlocalFileList, IEnumerable<string> extensions, ChartResourceKind resourceKind)
             {
                 int num = 0;
                 if (localHashSet.Length != 0)
@@ -1679,8 +1678,8 @@ public class BMSFile : LR2SongDB.song
                     }
                 }
                 return num;
-            };
-            Func<string, IEnumerable<string>, bool> func2 = delegate (string filename, IEnumerable<string> extensions)
+            }
+            bool func2(string filename, IEnumerable<string> extensions)
             {
                 string text = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(filename);
                 if (!string.IsNullOrWhiteSpace(text))
@@ -1695,7 +1694,7 @@ public class BMSFile : LR2SongDB.song
                     return ExistsWithCompatibleExtensions(dir, text, extensions);
                 }
                 return false;
-            };
+            }
             mtInfo.wav_files_defined = WAVfiles.Count;
             if (mtInfo.wav_files_defined > 0)
             {
@@ -1709,7 +1708,7 @@ public class BMSFile : LR2SongDB.song
             mtInfo.movie_files_defined = localBGAfilesMovieNameHashArray.Length + nonlocalBGAfilesMovie.Count;
             if (mtInfo.movie_files_defined > 0)
             {
-                mtInfo.movie_files_existing = mtInfo.movie_files_defined - func(localBGAfilesMovieNameHashArray, nonlocalBGAfilesMovie, Enumerable.Empty<string>(), ChartResourceKind.Movie);
+                mtInfo.movie_files_existing = mtInfo.movie_files_defined - func(localBGAfilesMovieNameHashArray, nonlocalBGAfilesMovie, [], ChartResourceKind.Movie);
             }
             mtInfo.is_stagefile_defined = !string.IsNullOrWhiteSpace(stagefile);
             if (mtInfo.is_stagefile_defined == true)
@@ -1768,17 +1767,13 @@ public class BMSFile : LR2SongDB.song
             return cachedHashes;
         }
 
-        switch (resourceKind)
+        return resourceKind switch
         {
-            case ChartResourceKind.Audio:
-                return audioResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Audio);
-            case ChartResourceKind.Image:
-                return imageResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Image);
-            case ChartResourceKind.Movie:
-                return movieResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Movie);
-            default:
-                return Array.Empty<uint>();
-        }
+            ChartResourceKind.Audio => audioResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Audio),
+            ChartResourceKind.Image => imageResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Image),
+            ChartResourceKind.Movie => movieResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Movie),
+            _ => [],
+        };
     }
 
     private static uint[] GetCategoryRelativePathHashArray(DirectoryResourceLookupCache.Entry resourceEntry, ChartResourceKind resourceKind)
@@ -1790,7 +1785,7 @@ public class BMSFile : LR2SongDB.song
                 ChartResourceKind.Audio => resourceEntry.AudioRelativePathHashArray,
                 ChartResourceKind.Image => resourceEntry.ImageRelativePathHashArray,
                 ChartResourceKind.Movie => resourceEntry.MovieRelativePathHashArray,
-                _ => Array.Empty<uint>()
+                _ => []
             };
         }
 
@@ -1801,14 +1796,13 @@ public class BMSFile : LR2SongDB.song
     {
         if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
         {
-            return Array.Empty<uint>();
+            return [];
         }
 
-        uint[] hashes = FastDirectoryEnumerator.GetFileNames(directory)
-            .Where((string fileName) => IsResourceFileNameForKind(fileName, resourceKind))
+        uint[] hashes = [.. FastDirectoryEnumerator.GetFileNames(directory)
+            .Where(fileName => IsResourceFileNameForKind(fileName, resourceKind))
             .Select(GetResourceReferenceHash)
-            .Where((uint hash) => hash != 0u)
-            .ToArray();
+            .Where(hash => hash != 0u)];
         Array.Sort(hashes);
         return hashes;
     }
@@ -1823,12 +1817,12 @@ public class BMSFile : LR2SongDB.song
             uint[] localMovieHashes,
             List<string> nonLocalMovieReferences)
         {
-            LocalWavHashes = localWavHashes ?? Array.Empty<uint>();
-            NonLocalWavReferences = nonLocalWavReferences ?? new List<string>();
-            LocalImageHashes = localImageHashes ?? Array.Empty<uint>();
-            NonLocalImageReferences = nonLocalImageReferences ?? new List<string>();
-            LocalMovieHashes = localMovieHashes ?? Array.Empty<uint>();
-            NonLocalMovieReferences = nonLocalMovieReferences ?? new List<string>();
+            LocalWavHashes = localWavHashes ?? [];
+            NonLocalWavReferences = nonLocalWavReferences ?? [];
+            LocalImageHashes = localImageHashes ?? [];
+            NonLocalImageReferences = nonLocalImageReferences ?? [];
+            LocalMovieHashes = localMovieHashes ?? [];
+            NonLocalMovieReferences = nonLocalMovieReferences ?? [];
         }
 
         public uint[] LocalWavHashes { get; }
@@ -1845,19 +1839,19 @@ public class BMSFile : LR2SongDB.song
 
         public static ResourceReferenceHealthCache Create(HashSet<string> wavReferences, HashSet<string> bgaReferences)
         {
-            uint[] localWavHashes = GetNormalizedResourceReferenceHashArray((wavReferences ?? new HashSet<string>()).Where(IsLocalReference));
-            List<string> nonLocalWavReferences = (wavReferences ?? new HashSet<string>()).Where((string reference) => !IsLocalReference(reference)).ToList();
-            ILookup<bool, string> bgaByMovie = (bgaReferences ?? new HashSet<string>())
-                .ToLookup((string reference) => bgaMovieExtensions.Any((string extension) => reference.EndsWith(extension, StringComparison.OrdinalIgnoreCase)));
+            uint[] localWavHashes = GetNormalizedResourceReferenceHashArray((wavReferences ?? []).Where(IsLocalReference));
+            List<string> nonLocalWavReferences = [.. (wavReferences ?? []).Where(reference => !IsLocalReference(reference))];
+            ILookup<bool, string> bgaByMovie = (bgaReferences ?? [])
+                .ToLookup(reference => bgaMovieExtensions.Any(extension => reference.EndsWith(extension, StringComparison.OrdinalIgnoreCase)));
             ILookup<bool, string> imageByLocal = bgaByMovie[false].ToLookup(IsLocalReference);
             ILookup<bool, string> movieByLocal = bgaByMovie[true].ToLookup(IsLocalReference);
             return new ResourceReferenceHealthCache(
                 localWavHashes,
                 nonLocalWavReferences,
                 GetNormalizedResourceReferenceHashArray(imageByLocal[true]),
-                imageByLocal[false].ToList(),
+                [.. imageByLocal[false]],
                 GetNormalizedResourceReferenceHashArray(movieByLocal[true]),
-                movieByLocal[false].ToList());
+                [.. movieByLocal[false]]);
         }
 
         private static bool IsLocalReference(string reference)
@@ -1868,18 +1862,16 @@ public class BMSFile : LR2SongDB.song
 
     private static uint[] GetResourceReferenceHashArray(IEnumerable<string> references)
     {
-        return (references ?? Enumerable.Empty<string>())
+        return [.. (references ?? [])
             .Select(GetResourceReferenceHash)
-            .Where((uint hash) => hash != 0u)
-            .ToArray();
+            .Where(hash => hash != 0u)];
     }
 
     private static uint[] GetNormalizedResourceReferenceHashArray(IEnumerable<string> references)
     {
-        return (references ?? Enumerable.Empty<string>())
+        return [.. (references ?? [])
             .Select(GetNormalizedResourceReferenceHash)
-            .Where((uint hash) => hash != 0u)
-            .ToArray();
+            .Where(hash => hash != 0u)];
     }
 
     private static uint GetResourceReferenceHash(string referencePath)
@@ -1908,9 +1900,9 @@ public class BMSFile : LR2SongDB.song
 
         return resourceKind switch
         {
-            ChartResourceKind.Audio => wavExtensions.Any((string extension) => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
-            ChartResourceKind.Image => bgaImageExtensions.Any((string extension) => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
-            ChartResourceKind.Movie => bgaMovieExtensions.Any((string extension) => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Audio => wavExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Image => bgaImageExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Movie => bgaMovieExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
             _ => false
         };
     }
@@ -1927,7 +1919,7 @@ public class BMSFile : LR2SongDB.song
         int missing = 0;
         foreach (uint requiredHash in requiredHashes)
         {
-            if (Array.BinarySearch(availableHashes ?? Array.Empty<uint>(), requiredHash) < 0)
+            if (Array.BinarySearch(availableHashes ?? [], requiredHash) < 0)
             {
                 missing++;
             }
@@ -1972,7 +1964,7 @@ public class BMSFile : LR2SongDB.song
             string fullPath = Path.GetFullPath(directoryWithSeparator + file);
             string dirname = DirectoryExt.GetDirectoryNameSimple(fullPath) + Path.DirectorySeparatorChar;
             string basename = Path.GetFileNameWithoutExtension(fullPath);
-            return File.Exists(fullPath) || extensions.Any((string ext) => File.Exists(dirname + basename + ext));
+            return File.Exists(fullPath) || extensions.Any(ext => File.Exists(dirname + basename + ext));
         }
         catch
         {
@@ -2062,7 +2054,7 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentNullException(nameof(snapshot));
         }
-        Encoding encoding = Encoding.GetEncoding(codepageName);
+        var encoding = Encoding.GetEncoding(codepageName);
         return CreateBMSFileFromLines(
             ReadSnapshotLines(snapshot, encoding),
             snapshot.Path,
@@ -2072,14 +2064,12 @@ public class BMSFile : LR2SongDB.song
 
     private static IEnumerable<string> ReadSnapshotLines(ChartFileSnapshot snapshot, Encoding encoding)
     {
-        using (MemoryStream stream = new MemoryStream(snapshot.Bytes, writable: false))
-        using (StreamReader reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true))
+        using var stream = new MemoryStream(snapshot.Bytes, writable: false);
+        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
+        string line;
+        while ((line = reader.ReadLine()) != null)
         {
-            string line;
-            while ((line = reader.ReadLine()) != null)
-            {
-                yield return line;
-            }
+            yield return line;
         }
     }
 
@@ -2089,9 +2079,9 @@ public class BMSFile : LR2SongDB.song
         Func<string> md5Provider,
         Func<string> sha256Provider)
     {
-        BMSFile bMSFile = new BMSFile();
-        HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var bMSFile = new BMSFile();
+        var hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool flag = false;
         bool flag2 = false;
         bool flag3 = false;
@@ -2594,8 +2584,8 @@ public class BMSFile : LR2SongDB.song
     public static void SetBMSComponentFilesFromBMSFile(BMSFile bmsFile, string codepageName = "shift_jis")
     {
         IEnumerable<string> enumerable = File.ReadLines(bmsFile.path, Encoding.GetEncoding(codepageName));
-        HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string item in enumerable)
         {
             if (!TryParseDirectiveLine(item, out BmsDirective directive, out int valueStart))
@@ -2621,13 +2611,13 @@ public class BMSFile : LR2SongDB.song
 
     private static string getMD5Hash(string filePath)
     {
-        MD5 mD = MD5.Create();
+        var mD = MD5.Create();
         byte[] array;
-        using (FileStream inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             array = mD.ComputeHash(inputStream);
         }
-        StringBuilder stringBuilder = new StringBuilder();
+        var stringBuilder = new StringBuilder();
         byte[] array2 = array;
         foreach (byte b in array2)
         {
@@ -2638,13 +2628,13 @@ public class BMSFile : LR2SongDB.song
 
     internal static string GetSHA256Hash(string filePath)
     {
-        using SHA256 sHA = SHA256.Create();
+        using var sHA = SHA256.Create();
         byte[] hash;
-        using (FileStream inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             hash = sHA.ComputeHash(inputStream);
         }
-        StringBuilder stringBuilder = new StringBuilder(hash.Length * 2);
+        var stringBuilder = new StringBuilder(hash.Length * 2);
         foreach (byte b in hash)
         {
             stringBuilder.Append(b.ToString("x2"));
@@ -2768,11 +2758,7 @@ public class BMSFile : LR2SongDB.song
             throw new ArgumentNullException(nameof(detectionResult));
         }
         string codepageName = NormalizeReloadEncodingName(detectionResult.EncodingName);
-        string decodedText = detectionResult.DecodedText;
-        if (decodedText == null)
-        {
-            decodedText = DecodeBytes(snapshot.Bytes, Encoding.GetEncoding(codepageName));
-        }
+        string decodedText = detectionResult.DecodedText ?? DecodeBytes(snapshot.Bytes, Encoding.GetEncoding(codepageName));
         ApplyDecodedBmsMetadata(bmsFile, decodedText, codepageName);
     }
 
@@ -2808,7 +2794,7 @@ public class BMSFile : LR2SongDB.song
         string artist = null;
         string subartist = null;
         string genre = null;
-        using (StringReader reader = new StringReader(decodedText ?? string.Empty))
+        using (var reader = new StringReader(decodedText ?? string.Empty))
         {
             string line;
             while ((line = reader.ReadLine()) != null)
@@ -2988,11 +2974,9 @@ public class BMSFile : LR2SongDB.song
 
     private static string DecodeBytes(byte[] bytes, Encoding encoding)
     {
-        using (MemoryStream stream = new MemoryStream(bytes ?? Array.Empty<byte>(), writable: false))
-        using (StreamReader reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true))
-        {
-            return reader.ReadToEnd();
-        }
+        using var stream = new MemoryStream(bytes ?? [], writable: false);
+        using var reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     private static bool ContainsNonBasicLatinNonWhitespace(string text)
@@ -3117,6 +3101,6 @@ public class BMSFile : LR2SongDB.song
 
     public static bool IsZeroNoteBMSFile(string filePath)
     {
-        return !File.ReadLines(filePath, Encoding.GetEncoding("shift_jis")).Any((string line) => visibleObjectChRegex.IsMatch(line));
+        return !File.ReadLines(filePath, Encoding.GetEncoding("shift_jis")).Any(line => visibleObjectChRegex.IsMatch(line));
     }
 }

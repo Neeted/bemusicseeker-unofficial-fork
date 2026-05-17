@@ -6,7 +6,7 @@ internal sealed class PendingPackageMutationDelta
 {
     public bool HasChanges { get; set; }
 
-    public List<ChartPackage> RemainingPackages { get; set; } = new List<ChartPackage>();
+    public List<ChartPackage> RemainingPackages { get; set; } = [];
 
-    public List<string> InstallPathsToDelete { get; set; } = new List<string>();
+    public List<string> InstallPathsToDelete { get; set; } = [];
 }

@@ -34,8 +34,8 @@ public sealed class DirectoryResourceLookupCacheTests
         DirectoryResourceLookupCache.ReverseLookupMutationResult cachedMissMutation = cache.AddDir(
             "C:\\Songs\\C",
             new[] { 99u },
-            Array.Empty<uint>(),
-            Array.Empty<uint>());
+            [],
+            []);
 
         Assert.IsTrue(cachedMissMutation.Changed);
         CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\C" }, cache.GetDirectoriesByAudioRelativeHash(99u).ToArray());
@@ -45,8 +45,8 @@ public sealed class DirectoryResourceLookupCacheTests
         DirectoryResourceLookupCache.ReverseLookupMutationResult fullMutation = cache.AddDir(
             "C:\\Songs\\D",
             new[] { 2u, 100u },
-            Array.Empty<uint>(),
-            Array.Empty<uint>());
+            [],
+            []);
 
         Assert.IsTrue(fullMutation.MaintainedFullReverseLookup);
         Assert.IsFalse(fullMutation.RequiresDeferredWarmup);
@@ -92,9 +92,9 @@ public sealed class DirectoryResourceLookupCacheTests
         uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash(@"sound\bgm1.wav");
         uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(@"image\logo.png");
         uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash(@"bga\movie.mpg");
-        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
-        cache.AddDir(dirA, new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
-        cache.AddDir(dirB, new[] { audioRelativeHash }, Array.Empty<uint>(), new[] { movieRelativeHash });
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(dirA, new[] { audioRelativeHash }, new[] { imageRelativeHash }, []);
+        cache.AddDir(dirB, new[] { audioRelativeHash }, [], new[] { movieRelativeHash });
 
         cache.EnsureAudioRelativeDirectoriesByHashes(new[] { audioRelativeHash });
         cache.EnsureImageRelativeDirectoriesByHashes(new[] { imageRelativeHash });
@@ -116,7 +116,7 @@ public sealed class DirectoryResourceLookupCacheTests
         uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\bgm1.wav");
         uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash("image\\logo.png");
         uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash("bga\\logo.mpg");
-        BmsScanResult scanResult = new BmsScanResult
+        var scanResult = new BmsScanResult
         {
             ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDir },
             AudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
@@ -133,8 +133,8 @@ public sealed class DirectoryResourceLookupCacheTests
             }
         };
 
-        DirectoryResourceLookupCache fromCreate = DirectoryResourceLookupCache.CreateFromScanResult(scanResult);
-        DirectoryResourceLookupCache fromAdd = new DirectoryResourceLookupCache();
+        var fromCreate = DirectoryResourceLookupCache.CreateFromScanResult(scanResult);
+        var fromAdd = new DirectoryResourceLookupCache();
         fromAdd.AddDir(chartDir, scanResult);
 
         AssertEntriesEqual(fromCreate.GetEntryOrNull(chartDir), fromAdd.GetEntryOrNull(chartDir));
@@ -148,9 +148,9 @@ public sealed class DirectoryResourceLookupCacheTests
         uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash(@"sound\bgm1.wav");
         uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(@"image\logo.png");
         uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash(@"bga\movie.mpg");
-        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
-        cache.AddDir(dirA, new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
-        cache.AddDir(dirB, Array.Empty<uint>(), Array.Empty<uint>(), new[] { movieRelativeHash });
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(dirA, new[] { audioRelativeHash }, new[] { imageRelativeHash }, []);
+        cache.AddDir(dirB, [], [], new[] { movieRelativeHash });
 
         cache.EnsureAudioRelativeDirectoriesByHashes(new[] { audioRelativeHash });
         cache.EnsureImageRelativeDirectoriesByHashes(new[] { imageRelativeHash });
@@ -163,17 +163,17 @@ public sealed class DirectoryResourceLookupCacheTests
 
     private static DirectoryResourceLookupCache CreateCache()
     {
-        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+        var cache = new DirectoryResourceLookupCache();
         cache.AddDir(
             "C:\\Songs\\A",
             new uint[2] { 1u, 2u },
-            Array.Empty<uint>(),
-            Array.Empty<uint>());
+            [],
+            []);
         cache.AddDir(
             "C:\\Songs\\B",
             new uint[2] { 2u, 3u },
-            Array.Empty<uint>(),
-            Array.Empty<uint>());
+            [],
+            []);
         return cache;
     }
 

@@ -6,29 +6,29 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class SongTableFileCheckResult
 {
-    public List<string> Pragmas { get; } = new List<string>();
+    public List<string> Pragmas { get; } = [];
 
-    public List<BMSFile> AddedFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> AddedFiles { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+    public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> InlineChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+    public List<LR2SongDBExtended.chart_info> InlineChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> InlineChartInfoAppliedRows { get; } = new List<LR2SongDBExtended.chart_info>();
+    public List<LR2SongDBExtended.chart_info> InlineChartInfoAppliedRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info_parse_failure> InlineChartInfoParseFailureRows { get; } = new List<LR2SongDBExtended.chart_info_parse_failure>();
+    public List<LR2SongDBExtended.chart_info_parse_failure> InlineChartInfoParseFailureRows { get; } = [];
 
-    public List<string> InlineChartInfoParseFailureDeleteMd5s { get; } = new List<string>();
+    public List<string> InlineChartInfoParseFailureDeleteMd5s { get; } = [];
 
-    public List<BMSFile> NextFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> NextFiles { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> NextBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+    public List<LR2SongDBExtended.bmson_song> NextBmsonSongs { get; } = [];
 
-    public List<string> DeletedPaths { get; } = new List<string>();
+    public List<string> DeletedPaths { get; } = [];
 
-    public List<string> DeletedBmsonPaths { get; } = new List<string>();
+    public List<string> DeletedBmsonPaths { get; } = [];
 
-    public List<BMSFile> ClearedInstallDestinations { get; } = new List<BMSFile>();
+    public List<BMSFile> ClearedInstallDestinations { get; } = [];
 
     public DirectoryResourceLookupCache NextDirectoryResourceLookupCache { get; set; }
 

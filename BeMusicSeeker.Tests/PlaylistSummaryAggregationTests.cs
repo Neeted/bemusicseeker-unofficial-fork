@@ -20,14 +20,14 @@ public sealed class PlaylistSummaryAggregationTests
     [TestMethod]
     public void CalculatePlaylistSummaryCounts_CountsActiveHashedRowsWithoutDedup()
     {
-        BMSTableEntry[] entries = new[]
-        {
+        BMSTableEntry[] entries =
+        [
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null),
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null),
             CreateEntry(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
             CreateEntry(null, null),
             CreateEntry("cccccccccccccccccccccccccccccccc", null, isRemoved: true)
-        };
+        ];
 
         MainWindowViewModel.PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
             entries,
@@ -41,12 +41,12 @@ public sealed class PlaylistSummaryAggregationTests
     [TestMethod]
     public void CalculatePlaylistSummaryCounts_DoesNotFallbackToSha256WhenMd5Exists()
     {
-        BMSTableEntry[] entries = new[]
-        {
+        BMSTableEntry[] entries =
+        [
             CreateEntry(
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-        };
+        ];
 
         MainWindowViewModel.PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
             entries,
@@ -60,10 +60,10 @@ public sealed class PlaylistSummaryAggregationTests
     [TestMethod]
     public void CalculatePlaylistSummaryCounts_UsesSha256WhenMd5IsMissing()
     {
-        BMSTableEntry[] entries = new[]
-        {
+        BMSTableEntry[] entries =
+        [
             CreateEntry(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-        };
+        ];
 
         MainWindowViewModel.PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
             entries,
@@ -79,7 +79,7 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             SetLibraryFilesWithoutNotification(library, new[]
             {
                 CreateLibraryFile(@"C:\Songs\bms.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
@@ -109,17 +109,19 @@ public sealed class PlaylistSummaryAggregationTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            library.BMSFiles = new List<BMSFile>
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
-                CreateLibraryFile(@"C:\Songs\old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                BMSFiles =
+                [
+                    CreateLibraryFile(@"C:\Songs\old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                ]
             };
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
 
-            library.BMSFiles = new List<BMSFile>
-            {
+            library.BMSFiles =
+            [
                 CreateLibraryFile(@"C:\Songs\new.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
-            };
+            ];
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();
 
             Assert.IsTrue(second.Version > first.Version);
@@ -170,8 +172,8 @@ public sealed class PlaylistSummaryAggregationTests
     [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_AppliesFilterAndSortWithoutRebuildLogic()
     {
-        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
-        {
+        List<PlaylistSummaryRow> rows =
+        [
             new PlaylistSummaryRow
             {
                 Name = "beta",
@@ -193,7 +195,7 @@ public sealed class PlaylistSummaryAggregationTests
                 TotalCharts = 1,
                 OwnedCharts = 0
             }
-        };
+        ];
 
         MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
@@ -207,14 +209,14 @@ public sealed class PlaylistSummaryAggregationTests
             useLegacySort: false);
 
         Assert.AreEqual(2, result.FilteredCount);
-        CollectionAssert.AreEqual(new[] { "beta", "gamma" }, result.Rows.Select((PlaylistSummaryRow row) => row.Name).ToArray());
+        CollectionAssert.AreEqual(new[] { "beta", "gamma" }, result.Rows.Select(row => row.Name).ToArray());
     }
 
     [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_KeywordFilterSupportsAndAndFieldQueries()
     {
-        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
-        {
+        List<PlaylistSummaryRow> rows =
+        [
             new PlaylistSummaryRow
             {
                 PlaylistId = 10,
@@ -227,7 +229,7 @@ public sealed class PlaylistSummaryAggregationTests
                 Name = "alpha other",
                 Symbol = "B"
             }
-        };
+        ];
 
         MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
@@ -247,15 +249,15 @@ public sealed class PlaylistSummaryAggregationTests
     [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_UnknownFieldDoesNotMatch()
     {
-        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
-        {
+        List<PlaylistSummaryRow> rows =
+        [
             new PlaylistSummaryRow
             {
                 PlaylistId = 10,
                 Name = "alpha pack",
                 Symbol = "A"
             }
-        };
+        ];
 
         MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
@@ -274,8 +276,8 @@ public sealed class PlaylistSummaryAggregationTests
     [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_KeywordFilterSupportsQuoteNegationOrAndRegex()
     {
-        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
-        {
+        List<PlaylistSummaryRow> rows =
+        [
             new PlaylistSummaryRow
             {
                 PlaylistId = 10,
@@ -294,7 +296,7 @@ public sealed class PlaylistSummaryAggregationTests
                 Name = "beta pack",
                 Symbol = "C"
             }
-        };
+        ];
 
         MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
@@ -313,12 +315,12 @@ public sealed class PlaylistSummaryAggregationTests
 
     private static HashSet<string> CreateHashSet(params string[] values)
     {
-        return new HashSet<string>(values ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        return new HashSet<string>(values ?? [], StringComparer.OrdinalIgnoreCase);
     }
 
     private static BMSTableEntry CreateEntry(string? md5, string? sha256, bool isRemoved = false)
     {
-        TestablePlaylistEntry entry = new TestablePlaylistEntry
+        var entry = new TestablePlaylistEntry
         {
             is_removed = isRemoved
         };
@@ -335,7 +337,7 @@ public sealed class PlaylistSummaryAggregationTests
 
     private static BMSFile CreateLibraryFile(string path, string md5, string sha256)
     {
-        TestableBmsFile file = new TestableBmsFile
+        var file = new TestableBmsFile
         {
             path = path
         };
@@ -389,10 +391,10 @@ public sealed class PlaylistSummaryAggregationTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaylistSummaryAggregation_" + System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, System.Array.Empty<byte>());
+        File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();

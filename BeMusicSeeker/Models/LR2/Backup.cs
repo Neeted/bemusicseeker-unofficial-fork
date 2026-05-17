@@ -23,9 +23,9 @@ public class Backup : NotificationObject
         All = 0xF
     }
 
-    private static Regex backupFolderRegex = new Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", RegexOptions.Compiled);
+    private static readonly Regex backupFolderRegex = new("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", RegexOptions.Compiled);
 
-    private static string dateFormat = "yyyy-MM-dd";
+    private static readonly string dateFormat = "yyyy-MM-dd";
 
     public static bool SaveBackups(string dstDir, TimeSpan span, int genNum, IEnumerable<string> _paths)
     {
@@ -45,18 +45,18 @@ public class Backup : NotificationObject
         {
             genNum = 1;
         }
-        List<string> list = _paths.Where((string f) => !string.IsNullOrWhiteSpace(f) && (File.Exists(f) || Directory.Exists(f))).ToList();
+        List<string> list = [.. _paths.Where(f => !string.IsNullOrWhiteSpace(f) && (File.Exists(f) || Directory.Exists(f)))];
         if (list.Count == 0)
         {
             return false;
         }
-        TimeSpan timeSpan = new TimeSpan(Math.Max(1, span.Days), 0, 0, 0);
-        List<DateTime> list2 = (from dp in Directory.GetDirectories(dstDir, "*", System.IO.SearchOption.TopDirectoryOnly)
+        var timeSpan = new TimeSpan(Math.Max(1, span.Days), 0, 0, 0);
+        List<DateTime> list2 = [.. (from dp in Directory.GetDirectories(dstDir, "*", System.IO.SearchOption.TopDirectoryOnly)
                                 select Path.GetFileName(dp) into d
                                 where backupFolderRegex.Match(d).Success
                                 select DateTime.ParseExact(d, dateFormat, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None) into d
                                 orderby d descending
-                                select d).ToList();
+                                select d)];
         DateTime today = DateTime.Today;
         if (list2.Count > 0)
         {
@@ -107,15 +107,15 @@ public class Backup : NotificationObject
         {
             if (songDBPath != null && File.Exists(songDBPath))
             {
-                using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(songDBPath);
+                using var lR2SongDBExtended = new LR2SongDBExtended(songDBPath);
                 lR2SongDBExtended.Execute("VACUUM;");
                 lR2SongDBExtended.Execute("REINDEX;");
             }
             if (scoreDBPaths != null)
             {
-                foreach (string item in scoreDBPaths.Where((string f) => File.Exists(f)))
+                foreach (string item in scoreDBPaths.Where(f => File.Exists(f)))
                 {
-                    using LR2ScoreDBExtended lR2ScoreDBExtended = new LR2ScoreDBExtended(item);
+                    using var lR2ScoreDBExtended = new LR2ScoreDBExtended(item);
                     lR2ScoreDBExtended.Execute("VACUUM;");
                     lR2ScoreDBExtended.Execute("REINDEX;");
                 }

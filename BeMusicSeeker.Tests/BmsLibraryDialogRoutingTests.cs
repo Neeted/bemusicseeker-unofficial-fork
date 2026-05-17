@@ -21,17 +21,17 @@ public sealed class BmsLibraryDialogRoutingTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            RecordingDialogService dialogService = new RecordingDialogService
+            var dialogService = new RecordingDialogService
             {
                 ResultToReturn = MessageBoxResult.No
             };
-            BMSLibrary library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
-            TestableBmsFile pendingFile = new TestableBmsFile
+            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var pendingFile = new TestableBmsFile
             {
                 path = "C:\\Pending\\Pkg\\chart.bms",
                 instl_dst = "C:\\Installed\\Pkg"
             };
-            ChartPackage pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
+            var pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
             {
                 path = "C:\\Pending\\Pkg",
                 delete_parent = false
@@ -53,8 +53,8 @@ public sealed class BmsLibraryDialogRoutingTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            RecordingDialogService dialogService = new RecordingDialogService();
-            BMSLibrary library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
+            var dialogService = new RecordingDialogService();
+            var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Missing_" + Guid.NewGuid().ToString("N"));
 
             library.RenameBMSFolder(missingDirectoryPath, "RenamedFolder");
@@ -67,7 +67,7 @@ public sealed class BmsLibraryDialogRoutingTests
 
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
-        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>((packages ?? Enumerable.Empty<ChartPackage>()).ToList()), Dispatcher.CurrentDispatcher);
+        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>([.. (packages ?? [])]), Dispatcher.CurrentDispatcher);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
@@ -75,7 +75,7 @@ public sealed class BmsLibraryDialogRoutingTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DialogTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, Array.Empty<byte>());
+        File.WriteAllBytes(songDbPath, []);
         try
         {
             testAction(songDbPath);
@@ -91,7 +91,7 @@ public sealed class BmsLibraryDialogRoutingTests
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
     {
-        public List<DialogCall> Calls { get; } = new List<DialogCall>();
+        public List<DialogCall> Calls { get; } = [];
 
         public MessageBoxResult ResultToReturn { get; set; } = MessageBoxResult.OK;
 

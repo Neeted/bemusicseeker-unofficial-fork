@@ -69,7 +69,7 @@ internal sealed class StartupInstallReadinessState
         {
             return string.Empty;
         }
-        List<string> missing = new List<string>();
+        List<string> missing = [];
         if (!CatalogLoaded)
         {
             missing.Add("catalog");

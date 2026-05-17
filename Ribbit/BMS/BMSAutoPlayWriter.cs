@@ -12,18 +12,13 @@ using Un4seen.Bass.AddOn.Tags;
 
 namespace Ribbit.BMS;
 
-public class BMSAutoPlayWriter : BMSAutoPlayer<BassAudioWriter>
+public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms)
 {
     public enum Normalization
     {
         NONE,
         PEAK_LEVEL,
         RMS_VALUE
-    }
-
-    public BMSAutoPlayWriter(BMSFile bms)
-        : base(bms)
-    {
     }
 
     public override void Pause()
@@ -48,7 +43,7 @@ public class BMSAutoPlayWriter : BMSAutoPlayer<BassAudioWriter>
             Stop();
         }
         normalizationAmplifier = System.Math.Max(0f, normalizationAmplifier);
-        TAG_INFO tAG_INFO = new TAG_INFO
+        var tAG_INFO = new TAG_INFO
         {
             artist = ((base.Bms.Artist.Trim() ?? string.Empty) + " " + (base.Bms.Subartist?.Trim() ?? string.Empty)).Trim(),
             title = ((base.Bms.Title.Trim() ?? string.Empty) + " " + (base.Bms.Subtitle?.Trim() ?? string.Empty)).Trim(),
@@ -56,7 +51,7 @@ public class BMSAutoPlayWriter : BMSAutoPlayer<BassAudioWriter>
             duration = base.Duration.TotalSeconds,
             bpm = (base.Bms.Bpm?.ToDecimal().ToString() ?? string.Empty),
             filename = base.Bms.Path,
-            comment = base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", base.Bms.RandomPattern.Select((BMSFile.RandomNumber i) => i.ToString()).ToArray())) : string.Empty)
+            comment = base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())])) : string.Empty)
         };
         if (string.IsNullOrWhiteSpace(filePathWithoutExtension))
         {
@@ -67,22 +62,22 @@ public class BMSAutoPlayWriter : BMSAutoPlayer<BassAudioWriter>
             string input = "[" + tAG_INFO.artist + "] " + tAG_INFO.title;
             filePathWithoutExtension = Path.Combine(filePathWithoutExtension, input.NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide().RemoveInvalidFileNameChars());
         }
-        TimeSpan[] first = (from t in new IEnumerable<TimeSpan>[5]
+        TimeSpan[] first = [.. (from t in new IEnumerable<TimeSpan>[5]
             {
-                BgmNotesQueue.Select((BMSFile.Chart.Note n) => n.AbsoluteTime),
-                from n in VisibleNotes1PQueue.SelectMany((NoteQueue c) => c)
+                BgmNotesQueue.Select(n => n.AbsoluteTime),
+                from n in VisibleNotes1PQueue.SelectMany(c => c)
                     select n.AbsoluteTime,
-                from n in VisibleNotes2PQueue.SelectMany((NoteQueue c) => c)
+                from n in VisibleNotes2PQueue.SelectMany(c => c)
                     select n.AbsoluteTime,
-                from n in LongNotes1PQueue.SelectMany((NoteQueue c) => c)
+                from n in LongNotes1PQueue.SelectMany(c => c)
                     where ((uint)n.Type & 0xFFFFFFF0u) == 80
                     select n.AbsoluteTime,
-                from n in LongNotes2PQueue.SelectMany((NoteQueue c) => c)
+                from n in LongNotes2PQueue.SelectMany(c => c)
                     where ((uint)n.Type & 0xFFFFFFF0u) == 96
                     select n.AbsoluteTime
-            }.SelectMany((IEnumerable<TimeSpan> c) => c)
+            }.SelectMany(c => c)
                             orderby t
-                            select t).SequentialDistinct().ToArray();
+                            select t).SequentialDistinct()];
         float deviceVolume = BassAudioPlayer.DeviceVolume;
         if (normalize != Normalization.NONE)
         {
@@ -131,7 +126,7 @@ public class BMSAutoPlayWriter : BMSAutoPlayer<BassAudioWriter>
             duration = base.Duration.TotalSeconds,
             bpm = base.Bms.Bpm?.ToDecimal().ToString(),
             filename = base.Bms.Path,
-            comment = base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", base.Bms.RandomPattern.Select((BMSFile.RandomNumber i) => i.ToString()).ToArray())) : string.Empty)
+            comment = base.Bms.Md5 + ((base.Bms.RandomPattern.Count > 0) ? (" \n" + string.Join(", ", [.. base.Bms.RandomPattern.Select(i => i.ToString())])) : string.Empty)
         });
         NLogWrapper.DebuggerLogger?.Trace(BassAudioWriter.EncoderCommandLine);
         BassAudioWriter.StartRecording();

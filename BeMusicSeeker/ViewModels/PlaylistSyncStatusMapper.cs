@@ -91,6 +91,6 @@ internal static class PlaylistSyncStatusMapper
 
     private static string JoinNonEmptyLines(params string[] values)
     {
-        return string.Join(Environment.NewLine, Array.FindAll(values ?? Array.Empty<string>(), (string value) => !string.IsNullOrWhiteSpace(value)));
+        return string.Join(Environment.NewLine, Array.FindAll(values ?? [], value => !string.IsNullOrWhiteSpace(value)));
     }
 }

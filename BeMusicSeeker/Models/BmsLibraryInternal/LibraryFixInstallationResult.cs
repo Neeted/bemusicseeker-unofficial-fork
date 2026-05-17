@@ -6,9 +6,9 @@ internal sealed class LibraryFixInstallationResult
 {
     public LibraryMutationDelta MutationDelta { get; } = new LibraryMutationDelta();
 
-    public List<BMSFile> FilesToRemove { get; } = new List<BMSFile>();
+    public List<BMSFile> FilesToRemove { get; } = [];
 
-    public List<BMSFile> MaintenanceTargets { get; } = new List<BMSFile>();
+    public List<BMSFile> MaintenanceTargets { get; } = [];
 
     public int RequestedCount { get; set; }
 

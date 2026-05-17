@@ -18,9 +18,9 @@ public partial class BMSPlaylist
 
     private static readonly AppHttpClient playlistUrlCompletionStellaHttpClient = AppHttpClient.Create(PlaylistUrlCompletionTimeoutMs);
 
-    private static readonly object playlistUrlCompletionSnapshotLock = new object();
+    private static readonly object playlistUrlCompletionSnapshotLock = new();
 
-    private readonly SemaphoreSlim playlistUrlCompletionRefreshSemaphore = new SemaphoreSlim(1, 1);
+    private readonly SemaphoreSlim playlistUrlCompletionRefreshSemaphore = new(1, 1);
 
     private static IReadOnlyDictionary<string, PlaylistUrlCompletionCandidate> playlistUrlCompletionTsvSnapshot = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
 
@@ -65,7 +65,7 @@ public partial class BMSPlaylist
         playlistUrlCompletionLatestReason = normalizedReason;
         long requestedVersion = Interlocked.Increment(ref playlistUrlCompletionRequestedVersion);
         NLogWrapper.FileLogger?.Info("playlist_url_completion schedule version=" + requestedVersion + " reason=" + normalizedReason);
-        Func<Task> work = async delegate
+        async Task work()
         {
             try
             {
@@ -75,7 +75,7 @@ public partial class BMSPlaylist
             {
                 NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_refresh_failed reason=" + normalizedReason);
             }
-        };
+        }
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, "playlist_entries_hydration", work))
         {
             return;
@@ -209,7 +209,7 @@ public partial class BMSPlaylist
         {
             return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(PlaylistUrlCompletionSourceSnapshot.Empty);
         }
-        Uri stellaUri = new Uri(PlaylistUrlCompletionSupport.StellaScoreUploadFullJsonUri, UriKind.Absolute);
+        var stellaUri = new Uri(PlaylistUrlCompletionSupport.StellaScoreUploadFullJsonUri, UriKind.Absolute);
         lock (playlistUrlCompletionSnapshotLock)
         {
             if (playlistUrlCompletionStellaSnapshotFetched)
@@ -280,9 +280,9 @@ public partial class BMSPlaylist
         List<BMSTable> tableSnapshot;
         using (rwlockBMSTables.GetReaderGuard())
         {
-            tableSnapshot = BMSTables.ToList();
+            tableSnapshot = [.. BMSTables];
         }
-        PlaylistUrlCompletionApplyStats aggregateStats = default(PlaylistUrlCompletionApplyStats);
+        PlaylistUrlCompletionApplyStats aggregateStats = default;
         foreach (BMSTable table in tableSnapshot)
         {
             aggregateStats.Add(ApplyPlaylistUrlCompletionToTableCore(table));
@@ -295,9 +295,9 @@ public partial class BMSPlaylist
         List<BMSTable> tableSnapshot;
         using (rwlockBMSTables.GetReaderGuard())
         {
-            tableSnapshot = BMSTables.ToList();
+            tableSnapshot = [.. BMSTables];
         }
-        PlaylistUrlCompletionApplyStats aggregateStats = default(PlaylistUrlCompletionApplyStats);
+        PlaylistUrlCompletionApplyStats aggregateStats = default;
         foreach (BMSTable table in tableSnapshot)
         {
             aggregateStats.Add(ClearPlaylistUrlCompletionFromTable(table));
@@ -309,7 +309,7 @@ public partial class BMSPlaylist
     {
         if (table == null)
         {
-            return default(PlaylistUrlCompletionApplyStats);
+            return default;
         }
         if (!table.ArePlaylistEntriesLoaded)
         {
@@ -330,7 +330,7 @@ public partial class BMSPlaylist
             tsvSnapshot = playlistUrlCompletionTsvSnapshot;
             stellaSnapshot = Settings.Default.EnableStellaFullPlaylistUrlCompletion ? playlistUrlCompletionStellaSnapshot : PlaylistUrlCompletionSourceSnapshot.Empty.Candidates;
         }
-        PlaylistUrlCompletionApplyStats tableStats = new PlaylistUrlCompletionApplyStats
+        var tableStats = new PlaylistUrlCompletionApplyStats
         {
             TableCount = 1
         };
@@ -344,8 +344,7 @@ public partial class BMSPlaylist
                     continue;
                 }
                 tableStats.EntryCount++;
-                PlaylistUrlCompletionCandidate candidate = null;
-                if (!tsvSnapshot.TryGetValue(entry.md5, out candidate))
+                if (!tsvSnapshot.TryGetValue(entry.md5, out PlaylistUrlCompletionCandidate candidate))
                 {
                     stellaSnapshot.TryGetValue(entry.md5, out candidate);
                 }
@@ -375,9 +374,9 @@ public partial class BMSPlaylist
     {
         if (table == null)
         {
-            return default(PlaylistUrlCompletionApplyStats);
+            return default;
         }
-        PlaylistUrlCompletionApplyStats tableStats = new PlaylistUrlCompletionApplyStats
+        var tableStats = new PlaylistUrlCompletionApplyStats
         {
             TableCount = 1
         };
@@ -416,7 +415,7 @@ public partial class BMSPlaylist
         }
         using (rwlockBMSTables.GetReaderGuard())
         {
-            return BMSTables.FirstOrDefault((BMSTable table) => table != null && table.playlist_id == entry.playlist_id);
+            return BMSTables.FirstOrDefault(table => table != null && table.playlist_id == entry.playlist_id);
         }
     }
 

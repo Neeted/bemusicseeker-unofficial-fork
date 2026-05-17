@@ -7,7 +7,7 @@ internal static class StartupMemoryPressureService
 {
     public static StartupMemorySnapshot CaptureSnapshot()
     {
-        using Process process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         return new StartupMemorySnapshot(
             process.PrivateMemorySize64,
             process.WorkingSet64,
@@ -41,27 +41,17 @@ internal static class StartupMemoryPressureService
     }
 }
 
-internal sealed class StartupMemorySnapshot
+internal sealed class StartupMemorySnapshot(long privateBytes, long workingSet, long managedBytes, int gen0Count, int gen1Count, int gen2Count)
 {
-    public StartupMemorySnapshot(long privateBytes, long workingSet, long managedBytes, int gen0Count, int gen1Count, int gen2Count)
-    {
-        PrivateBytes = Math.Max(0L, privateBytes);
-        WorkingSet = Math.Max(0L, workingSet);
-        ManagedBytes = Math.Max(0L, managedBytes);
-        Gen0Count = Math.Max(0, gen0Count);
-        Gen1Count = Math.Max(0, gen1Count);
-        Gen2Count = Math.Max(0, gen2Count);
-    }
+    public long PrivateBytes { get; } = Math.Max(0L, privateBytes);
 
-    public long PrivateBytes { get; }
+    public long WorkingSet { get; } = Math.Max(0L, workingSet);
 
-    public long WorkingSet { get; }
+    public long ManagedBytes { get; } = Math.Max(0L, managedBytes);
 
-    public long ManagedBytes { get; }
+    public int Gen0Count { get; } = Math.Max(0, gen0Count);
 
-    public int Gen0Count { get; }
+    public int Gen1Count { get; } = Math.Max(0, gen1Count);
 
-    public int Gen1Count { get; }
-
-    public int Gen2Count { get; }
+    public int Gen2Count { get; } = Math.Max(0, gen2Count);
 }

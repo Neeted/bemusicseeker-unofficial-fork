@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Models.LR2;
 
 public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 {
-    private LR2Config lr2Config;
+    private readonly LR2Config lr2Config;
 
     private string BMSFilePathPlaying;
 
@@ -26,9 +26,9 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private EventHandler onExitEventHandlerRegstered;
 
-    private EventHandler onExitEventHandlerDefault;
+    private readonly EventHandler onExitEventHandlerDefault;
 
-    private object lockThis = new object();
+    private readonly object lockThis = new();
 
     private int winSizeX;
 
@@ -123,16 +123,8 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     public LR2body(string exePath, LR2Config config)
     {
-        if (config == null)
-        {
-            throw new ArgumentNullException("config", "引数をnullに出来ません");
-        }
-        if (exePath == null)
-        {
-            throw new ArgumentNullException("exePath", "引数をnullに出来ません");
-        }
-        ExePath = exePath;
-        lr2Config = config;
+        ExePath = exePath ?? throw new ArgumentNullException("exePath", "引数をnullに出来ません");
+        lr2Config = config ?? throw new ArgumentNullException("config", "引数をnullに出来ません");
         onExitEventHandlerDefault = LR2bodyExited;
     }
 
@@ -193,7 +185,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             isPausing = false;
             Process[] processesByName = Process.GetProcessesByName("LR2body");
             Process[] processesByName2 = Process.GetProcessesByName("LRHbody");
-            List<Process> list = processesByName.Concat(processesByName2).ToList();
+            List<Process> list = [.. processesByName, .. processesByName2];
             if (list.Count != 0)
             {
                 if (LR2bodyProcess == null)
@@ -211,12 +203,16 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 LR2bodyHandleShowing = IntPtr.Zero;
                 LR2bodyProcess = null;
             }
-            ProcessStartInfo processStartInfo = new ProcessStartInfo(ExePath);
-            processStartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-            processStartInfo.Arguments = "-A -NS \"" + bmsFilePath + "\"";
-            LR2bodyProcess = new Process();
-            LR2bodyProcess.StartInfo = processStartInfo;
-            LR2bodyProcess.EnableRaisingEvents = true;
+            var processStartInfo = new ProcessStartInfo(ExePath)
+            {
+                WindowStyle = ProcessWindowStyle.Hidden,
+                Arguments = "-A -NS \"" + bmsFilePath + "\""
+            };
+            LR2bodyProcess = new Process
+            {
+                StartInfo = processStartInfo,
+                EnableRaisingEvents = true
+            };
             LR2bodyProcess.Exited += onExitEventHandlerDefault;
             if (onExitEventHandler != null)
             {
@@ -520,7 +516,7 @@ public class LR2body : NotificationObject, IBMSPlayer, INotifyPropertyChanged
     {
         if (LR2bodyHandleShowing != IntPtr.Zero)
         {
-            Win32API.WINDOWPLACEMENT lpwndpl = default(Win32API.WINDOWPLACEMENT);
+            Win32API.WINDOWPLACEMENT lpwndpl = default;
             Win32API.GetWindowPlacement(LR2bodyHandleShowing, ref lpwndpl);
             Settings.Default.LR2bodyWindowPlacement = lpwndpl;
             Settings.Default.Save();

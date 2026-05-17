@@ -14,7 +14,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class PlaylistDetailSourceRow
 {
-    private static readonly Regex levelParseRegex = new Regex("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
+    private static readonly Regex levelParseRegex = new("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
     /// <summary>
     /// プレイリストエントリ本体です。
@@ -454,7 +454,7 @@ internal sealed class PlaylistDetailSourceRow
 
     private string BuildSearchText()
     {
-        StringBuilder builder = new StringBuilder(128);
+        var builder = new StringBuilder(128);
         builder.Append(Title);
         builder.Append('@');
         builder.Append(genre);

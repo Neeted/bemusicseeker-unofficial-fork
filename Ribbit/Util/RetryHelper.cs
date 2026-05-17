@@ -62,16 +62,10 @@ public static class RetryHelper
 
     private static void RetryIfErrorCore(Action onAction, Action<Exception> onError, Action onRetry, Func<Exception, bool> retryCondition, uint? retryCount)
     {
-        if (onError == null)
-        {
-            onError = delegate
+        onError ??= delegate
             {
             };
-        }
-        if (retryCondition == null)
-        {
-            retryCondition = (Exception ex2) => true;
-        }
+        retryCondition ??= ex2 => true;
         uint num = 0u;
         while (true)
         {

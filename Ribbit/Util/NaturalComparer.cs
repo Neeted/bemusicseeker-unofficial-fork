@@ -9,7 +9,7 @@ namespace Ribbit.Util;
 /// </summary>
 public class NaturalComparer<T> : Comparer<string>, IDisposable
 {
-    private static readonly Regex SplitRegex = new Regex("([+-]?[0-9]+(\\.[0-9]*)?)", RegexOptions.Compiled);
+    private static readonly Regex SplitRegex = new("([+-]?[0-9]+(\\.[0-9]*)?)", RegexOptions.Compiled);
 
     protected Dictionary<string, string[]> table;
 
@@ -17,13 +17,13 @@ public class NaturalComparer<T> : Comparer<string>, IDisposable
 
     public NaturalComparer(bool isWhiteSpacePrior = false)
     {
-        table = new Dictionary<string, string[]>();
+        table = [];
         this.isWhiteSpacePrior = isWhiteSpacePrior;
     }
 
     public NaturalComparer(bool isWhiteSpacePrior, int initialCapacity)
     {
-        table = ((initialCapacity > 0) ? new Dictionary<string, string[]>(initialCapacity) : new Dictionary<string, string[]>());
+        table = ((initialCapacity > 0) ? new Dictionary<string, string[]>(initialCapacity) : []);
         this.isWhiteSpacePrior = isWhiteSpacePrior;
     }
 
@@ -70,12 +70,12 @@ public class NaturalComparer<T> : Comparer<string>, IDisposable
                 return -1;
             }
         }
-        if (!table.TryGetValue(x, out var value))
+        if (!table.TryGetValue(x, out string[] value))
         {
             value = SplitRegex.Split(x);
             table.Add(x, value);
         }
-        if (!table.TryGetValue(y, out var value2))
+        if (!table.TryGetValue(y, out string[] value2))
         {
             value2 = SplitRegex.Split(y);
             table.Add(y, value2);
@@ -106,11 +106,11 @@ public class NaturalComparer<T> : Comparer<string>, IDisposable
     /// <returns>比較結果。</returns>
     protected static int PartCompare(string left, string right)
     {
-        if (!double.TryParse(left, out var result))
+        if (!double.TryParse(left, out double result))
         {
             return left.CompareTo(right);
         }
-        if (!double.TryParse(right, out var result2))
+        if (!double.TryParse(right, out double result2))
         {
             return left.CompareTo(right);
         }

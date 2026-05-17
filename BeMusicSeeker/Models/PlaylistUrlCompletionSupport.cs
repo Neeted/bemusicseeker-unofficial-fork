@@ -73,10 +73,10 @@ internal static class PlaylistUrlCompletionSupport
     /// <returns>適用用のスナップショット。</returns>
     internal static PlaylistUrlCompletionSourceSnapshot ParseMd5UrlMappingTsv(string content)
     {
-        Dictionary<string, PlaylistUrlCompletionCandidate> candidates = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
         int duplicateCount = 0;
         int ignoredRowCount = 0;
-        using StringReader reader = new StringReader(content ?? string.Empty);
+        using var reader = new StringReader(content ?? string.Empty);
         string line = reader.ReadLine();
         while ((line = reader.ReadLine()) != null)
         {
@@ -122,7 +122,7 @@ internal static class PlaylistUrlCompletionSupport
     /// <returns>URL1/URL2 補完用のスナップショット。</returns>
     internal static PlaylistUrlCompletionSourceSnapshot ParseStellaUploadFullJson(string content)
     {
-        Dictionary<string, PlaylistUrlCompletionCandidate> candidates = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
+        var candidates = new Dictionary<string, PlaylistUrlCompletionCandidate>(StringComparer.OrdinalIgnoreCase);
         int duplicateCount = 0;
         int ignoredRowCount = 0;
         object[] rows = (object[])DynamicJson.Parse(content ?? "[]");

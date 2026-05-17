@@ -13,23 +13,23 @@ public struct Fraction : IComparable, IFormattable
         NegativeInfinity = -1
     }
 
-    public static readonly Fraction NaN = new Fraction(Indeterminates.NaN);
+    public static readonly Fraction NaN = new(Indeterminates.NaN);
 
-    public static readonly Fraction PositiveInfinity = new Fraction(Indeterminates.PositiveInfinity);
+    public static readonly Fraction PositiveInfinity = new(Indeterminates.PositiveInfinity);
 
-    public static readonly Fraction NegativeInfinity = new Fraction(Indeterminates.NegativeInfinity);
+    public static readonly Fraction NegativeInfinity = new(Indeterminates.NegativeInfinity);
 
-    public static readonly Fraction Zero = new Fraction(0L, 1L);
+    public static readonly Fraction Zero = new(0L, 1L);
 
-    public static readonly Fraction Epsilon = new Fraction(1L, long.MaxValue);
+    public static readonly Fraction Epsilon = new(1L, long.MaxValue);
 
     private static readonly double EpsilonDouble = 1.0842021724855044E-19;
 
     private static readonly decimal EpsilonDecimal = 0.0000000000000000001084202172m;
 
-    public static readonly Fraction MaxValue = new Fraction(long.MaxValue, 1L);
+    public static readonly Fraction MaxValue = new(long.MaxValue, 1L);
 
-    public static readonly Fraction MinValue = new Fraction(long.MinValue, 1L);
+    public static readonly Fraction MinValue = new(long.MinValue, 1L);
 
     private long m_Numerator;
 
@@ -37,7 +37,7 @@ public struct Fraction : IComparable, IFormattable
 
     public long Numerator
     {
-        get
+        readonly get
         {
             return m_Numerator;
         }
@@ -49,7 +49,7 @@ public struct Fraction : IComparable, IFormattable
 
     public long Denominator
     {
-        get
+        readonly get
         {
             return m_Denominator;
         }
@@ -105,7 +105,7 @@ public struct Fraction : IComparable, IFormattable
         m_Denominator = 0L;
     }
 
-    public int ToInt32()
+    public readonly int ToInt32()
     {
         if (m_Denominator == 0L)
         {
@@ -119,7 +119,7 @@ public struct Fraction : IComparable, IFormattable
         return (int)num;
     }
 
-    public long ToInt64()
+    public readonly long ToInt64()
     {
         if (m_Denominator == 0L)
         {
@@ -128,7 +128,7 @@ public struct Fraction : IComparable, IFormattable
         return m_Numerator / m_Denominator;
     }
 
-    public double ToDouble()
+    public readonly double ToDouble()
     {
         if (m_Denominator == 1)
         {
@@ -146,7 +146,7 @@ public struct Fraction : IComparable, IFormattable
         return (double)m_Numerator / (double)m_Denominator;
     }
 
-    public decimal ToDecimal()
+    public readonly decimal ToDecimal()
     {
         if (m_Denominator == 1)
         {
@@ -270,7 +270,7 @@ public struct Fraction : IComparable, IFormattable
         return new Fraction(Convert.ToInt64(inValue));
     }
 
-    public bool IsNaN()
+    public readonly bool IsNaN()
     {
         if (m_Denominator == 0L && NormalizeIndeterminate(m_Numerator) == Indeterminates.NaN)
         {
@@ -279,7 +279,7 @@ public struct Fraction : IComparable, IFormattable
         return false;
     }
 
-    public bool IsDefault()
+    public readonly bool IsDefault()
     {
         if (m_Numerator == m_Denominator)
         {
@@ -288,7 +288,7 @@ public struct Fraction : IComparable, IFormattable
         return false;
     }
 
-    public bool IsInfinity()
+    public readonly bool IsInfinity()
     {
         if (m_Denominator == 0L && NormalizeIndeterminate(m_Numerator) != Indeterminates.NaN)
         {
@@ -297,7 +297,7 @@ public struct Fraction : IComparable, IFormattable
         return false;
     }
 
-    public bool IsPositiveInfinity()
+    public readonly bool IsPositiveInfinity()
     {
         if (m_Denominator == 0L && NormalizeIndeterminate(m_Numerator) == Indeterminates.PositiveInfinity)
         {
@@ -306,7 +306,7 @@ public struct Fraction : IComparable, IFormattable
         return false;
     }
 
-    public bool IsNegativeInfinity()
+    public readonly bool IsNegativeInfinity()
     {
         if (m_Denominator == 0L && NormalizeIndeterminate(m_Numerator) == Indeterminates.NegativeInfinity)
         {
@@ -561,13 +561,13 @@ public struct Fraction : IComparable, IFormattable
 
     public override bool Equals(object obj)
     {
-        if (obj == null || !(obj is Fraction))
+        if (obj == null || obj is not Fraction)
         {
             return false;
         }
         try
         {
-            Fraction right = (Fraction)obj;
+            var right = (Fraction)obj;
             return CompareEquality(right, notEqualCheck: false);
         }
         catch
@@ -605,7 +605,7 @@ public struct Fraction : IComparable, IFormattable
         }
         else
         {
-            if (!(obj is string))
+            if (obj is not string)
             {
                 throw new ArgumentException("Must be convertible to Fraction", "obj");
             }
@@ -730,7 +730,7 @@ public struct Fraction : IComparable, IFormattable
         long outN = 1L;
         long outD = 1L;
         bool isOflow = false;
-        Action<long, long, long, long> action = delegate (long fromN, long fromD, long toN, long toD)
+        void action(long fromN, long fromD, long toN, long toD)
         {
             double num13 = (double)toN - target * (double)toD;
             double num14 = ((num13 == 0.0) ? 0.0 : ((target * (double)fromD - (double)fromN) / num13));
@@ -746,7 +746,7 @@ public struct Fraction : IComparable, IFormattable
             }
             outN = fromN + num16 * toN;
             outD = fromD + num16 * toD;
-        };
+        }
         long num6 = num2 + num4;
         long num7 = num3 + num5;
         double num8 = (double)num6 / (double)num7;
@@ -823,7 +823,7 @@ public struct Fraction : IComparable, IFormattable
         long outN = 1L;
         long outD = 1L;
         bool isOflow = false;
-        Action<long, long, long, long> action = delegate (long fromN, long fromD, long toN, long toD)
+        void action(long fromN, long fromD, long toN, long toD)
         {
             decimal num13 = (decimal)toN - target * (decimal)toD;
             decimal num14 = ((num13 == 0m) ? 0m : ((target * (decimal)fromD - (decimal)fromN) / num13));
@@ -839,7 +839,7 @@ public struct Fraction : IComparable, IFormattable
             }
             outN = fromN + num16 * toN;
             outD = fromD + num16 * toD;
-        };
+        }
         long num6 = num2 + num4;
         long num7 = num3 + num5;
         decimal num8 = (decimal)num6 / (decimal)num7;
@@ -918,7 +918,7 @@ public struct Fraction : IComparable, IFormattable
         int num3 = System.Math.Min(num, text.Length);
         long denominator = (long)System.Math.Pow(10.0, num3);
         long num4 = (long)(inValue * System.Math.Pow(10.0, num3));
-        Fraction frac = new Fraction(num4 * sign, denominator);
+        var frac = new Fraction(num4 * sign, denominator);
         ReduceFraction(ref frac);
         return frac;
     }
@@ -937,7 +937,7 @@ public struct Fraction : IComparable, IFormattable
         int num3 = System.Math.Min(num, text.Length);
         long denominator = (long)System.Math.Pow(10.0, num3);
         long num4 = (long)(inValue * (decimal)System.Math.Pow(10.0, num3));
-        Fraction frac = new Fraction(num4 * sign, denominator);
+        var frac = new Fraction(num4 * sign, denominator);
         ReduceFraction(ref frac);
         return frac;
     }
@@ -1081,7 +1081,7 @@ public struct Fraction : IComparable, IFormattable
         try
         {
             long num = (long)(left / right);
-            Fraction fraction = new Fraction(checked(num * right.m_Numerator), right.m_Denominator);
+            var fraction = new Fraction(checked(num * right.m_Numerator), right.m_Denominator);
             return left - fraction;
         }
         catch (Exception innerException)

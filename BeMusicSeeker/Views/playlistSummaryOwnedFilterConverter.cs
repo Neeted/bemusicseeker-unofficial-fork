@@ -10,7 +10,7 @@ internal class playlistSummaryOwnedFilterConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (!(value is MainWindowViewModel.PlaylistSummaryOwnedFilterType playlistSummaryOwnedFilterType))
+        if (value is not MainWindowViewModel.PlaylistSummaryOwnedFilterType playlistSummaryOwnedFilterType)
         {
             return false;
         }
@@ -18,13 +18,13 @@ internal class playlistSummaryOwnedFilterConverter : IValueConverter
         {
             return false;
         }
-        MainWindowViewModel.PlaylistSummaryOwnedFilterType playlistSummaryOwnedFilterType2 = (MainWindowViewModel.PlaylistSummaryOwnedFilterType)Enum.Parse(typeof(MainWindowViewModel.PlaylistSummaryOwnedFilterType), parameter.ToString());
+        var playlistSummaryOwnedFilterType2 = (MainWindowViewModel.PlaylistSummaryOwnedFilterType)Enum.Parse(typeof(MainWindowViewModel.PlaylistSummaryOwnedFilterType), parameter.ToString());
         return playlistSummaryOwnedFilterType == playlistSummaryOwnedFilterType2;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (!(value is bool flag) || !flag || parameter == null)
+        if (value is not bool flag || !flag || parameter == null)
         {
             return Binding.DoNothing;
         }

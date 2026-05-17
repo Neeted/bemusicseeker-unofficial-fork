@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// Calculates installation destinations against snapshots owned by BMSLibrary.
 /// The facade must acquire the required locks before invoking this service.
 /// </summary>
-internal sealed class BmsLibraryInstallEstimationService
+internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot options, int innerWavHealthThreshold)
 {
     internal static int ResolveDefaultCandidateEvaluationDegree()
     {
@@ -286,7 +286,7 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private sealed class CandidateHierarchyInfo
     {
-        private static readonly IReadOnlyList<string> EmptyDescendants = Array.Empty<string>();
+        private static readonly IReadOnlyList<string> EmptyDescendants = [];
 
         public static CandidateHierarchyInfo Empty { get; } = new CandidateHierarchyInfo();
 
@@ -342,22 +342,16 @@ internal sealed class BmsLibraryInstallEstimationService
         }
     }
 
-    private readonly BmsLibraryOptionsSnapshot options;
+    private readonly BmsLibraryOptionsSnapshot options = options ?? throw new ArgumentNullException(nameof(options));
 
-    private readonly int innerWavHealthThreshold;
-
-    public BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot options, int innerWavHealthThreshold)
-    {
-        this.options = options ?? throw new ArgumentNullException(nameof(options));
-        this.innerWavHealthThreshold = innerWavHealthThreshold;
-    }
+    private readonly int innerWavHealthThreshold = innerWavHealthThreshold;
 
     public InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs = null)
     {
-        InstalledChartDirectoryIndexSnapshot result = new InstalledChartDirectoryIndexSnapshot();
-        Dictionary<string, HashSet<string>> md5Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, HashSet<string>> sha256Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile item in installedFiles ?? Enumerable.Empty<BMSFile>())
+        var result = new InstalledChartDirectoryIndexSnapshot();
+        var md5Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var sha256Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile item in installedFiles ?? [])
         {
             if (item == null)
             {
@@ -365,7 +359,7 @@ internal sealed class BmsLibraryInstallEstimationService
             }
             RegisterInstalledDirectory(md5Map, sha256Map, result.KnownChartDirectories, item.hash, item.sha256, item.path);
         }
-        foreach (LR2SongDBExtended.bmson_song item2 in installedBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        foreach (LR2SongDBExtended.bmson_song item2 in installedBmsonSongs ?? [])
         {
             if (item2 == null)
             {
@@ -375,29 +369,29 @@ internal sealed class BmsLibraryInstallEstimationService
         }
         foreach (KeyValuePair<string, HashSet<string>> item3 in md5Map)
         {
-            result.Md5Directories[item3.Key] = item3.Value.OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase).ToList();
+            result.Md5Directories[item3.Key] = [.. item3.Value.OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
         }
         foreach (KeyValuePair<string, HashSet<string>> item4 in sha256Map)
         {
-            result.Sha256Directories[item4.Key] = item4.Value.OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase).ToList();
+            result.Sha256Directories[item4.Key] = [.. item4.Value.OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
         }
         return result;
     }
 
     public InstalledDirectoryLookupResult TryGetInstalledDirectoryByHash(IEnumerable<BMSFile> installedFiles, string hash)
     {
-        InstalledDirectoryLookupResult result = new InstalledDirectoryLookupResult();
+        var result = new InstalledDirectoryLookupResult();
         if (!IsBmsHashAvailable(hash))
         {
             result.Reason = InstalledDirectoryResolveReason.InvalidInput;
             return result;
         }
-        string installDirectory = (installedFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && IsBmsHashAvailable(file.hash) && file.hash.Equals(hash, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(file.path))
-            .Select((BMSFile file) => DirectoryExt.GetDirectoryNameSimple(file.path))
-            .Where((string dir) => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+        string installDirectory = (installedFiles ?? [])
+            .Where(file => file != null && IsBmsHashAvailable(file.hash) && file.hash.Equals(hash, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(file.path))
+            .Select(file => DirectoryExt.GetDirectoryNameSimple(file.path))
+            .Where(dir => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
         if (string.IsNullOrWhiteSpace(installDirectory))
         {
@@ -410,19 +404,19 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        InstalledOnlyPackageResolutionResult result = new InstalledOnlyPackageResolutionResult();
+        var result = new InstalledOnlyPackageResolutionResult();
         if (package == null)
         {
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
             return result;
         }
-        List<BMSFile> packageFiles = (package.ChartFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> packageFiles = [.. (package.ChartFiles ?? []).Where(file => file != null)];
         if (packageFiles.Count == 0 || installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
             return result;
         }
-        HashSet<string> distinctDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var distinctDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile item in packageFiles)
         {
             List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item);
@@ -450,7 +444,7 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, List<BMSFile> missingFiles, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        InstalledDirectoryLookupResult result = new InstalledDirectoryLookupResult();
+        var result = new InstalledDirectoryLookupResult();
         if (package == null || missingFiles == null || missingFiles.Count == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.InvalidInput;
@@ -461,8 +455,8 @@ internal sealed class BmsLibraryInstallEstimationService
             result.Reason = InstalledDirectoryResolveReason.InstalledIndexEmpty;
             return result;
         }
-        Dictionary<string, int> directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile item in package.ChartFiles ?? new List<BMSFile>())
+        var directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile item in package.ChartFiles ?? [])
         {
             List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item);
             if (item == null || directories.Count == 0)
@@ -486,11 +480,10 @@ internal sealed class BmsLibraryInstallEstimationService
             return result;
         }
         int maxMatchCount = directoryScores.Values.Max();
-        List<string> topCandidateDirs = directoryScores
-            .Where((KeyValuePair<string, int> kv) => kv.Value == maxMatchCount)
-            .Select((KeyValuePair<string, int> kv) => kv.Key)
-            .OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> topCandidateDirs = [.. directoryScores
+            .Where(kv => kv.Value == maxMatchCount)
+            .Select(kv => kv.Key)
+            .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
         result.CandidateDirectories.AddRange(topCandidateDirs);
         if (topCandidateDirs.Count == 1)
         {
@@ -531,7 +524,7 @@ internal sealed class BmsLibraryInstallEstimationService
         DirectoryResourceLookupCache.Entry bundledResources,
         DirectoryResourceLookupCache.Entry sourceCandidateResources)
     {
-        SourceBaselineEvaluation result = new SourceBaselineEvaluation();
+        var result = new SourceBaselineEvaluation();
         ChartResourceSnapshot effectiveSnapshot = resourceSnapshot ?? new ChartResourceSnapshot();
         if (effectiveSnapshot.TotalReferenceCount == 0)
         {
@@ -607,7 +600,7 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, IReadOnlyCollection<string> candidateDirectoryOverride)
     {
-        InstallEstimationResult result = new InstallEstimationResult();
+        var result = new InstallEstimationResult();
         int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
         result.CandidateEvaluationDegree = effectiveCandidateEvaluationDegree;
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
@@ -629,7 +622,7 @@ internal sealed class BmsLibraryInstallEstimationService
         ChartResourceSnapshot resourceSnapshot = snapshot.DefinedResources ?? new ChartResourceSnapshot();
         InstallEstimationFinalEvaluationMode evaluationMode = GetFinalEvaluationMode(resourceSnapshot);
         DirectoryResourceLookupCache.Entry bundledResources = useBundledResources ? snapshot.BundledResources : null;
-        EvaluationDiagnostics diagnostics = new EvaluationDiagnostics();
+        var diagnostics = new EvaluationDiagnostics();
         result.TargetResourceCount = resourceSnapshot.TotalReferenceCount;
         result.TargetResourceHashCount = resourceSnapshot.EnumerateAllRelativePathHashes().Count();
         result.TargetPathAwareAudioHashCount = resourceSnapshot.AudioPathAwareReferenceCount;
@@ -689,11 +682,10 @@ internal sealed class BmsLibraryInstallEstimationService
                 isSourceCandidate: true);
             result.SourceBaselinePrimaryHealth = GetPrimaryHealth(resourceSnapshot, sourceBaselineEvaluation);
         }
-        List<string> allCandidateDirs = (candidateDirectoryOverride ?? directoryLookupCache.Keys)
-            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
-            .Where((string dir) => !string.Equals(dir, sourceDir, StringComparison.OrdinalIgnoreCase))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> allCandidateDirs = [.. (candidateDirectoryOverride ?? directoryLookupCache.Keys)
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Where(dir => !string.Equals(dir, sourceDir, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         result.CandidateDirectoryCountBeforeHashFilter = allCandidateDirs.Count;
         if (allCandidateDirs.Count == 0)
         {
@@ -741,10 +733,10 @@ internal sealed class BmsLibraryInstallEstimationService
         CandidateResourceView bundledView = evaluationMode == InstallEstimationFinalEvaluationMode.RelativeStrict
             ? CreateCandidateResourceView(bundledResources)
             : null;
-        Stopwatch evaluationStopwatch = Stopwatch.StartNew();
+        var evaluationStopwatch = Stopwatch.StartNew();
         IEnumerable<string> candidateSource = candidateDirList.AsParallel().WithDegreeOfParallelism(effectiveCandidateEvaluationDegree);
-        List<CandidateEvaluation> candidateInfos = candidateSource
-            .Select((string candidateDir) => EvaluateDirectoryCandidate(
+        List<CandidateEvaluation> candidateInfos = [.. candidateSource
+            .Select(candidateDir => EvaluateDirectoryCandidate(
                 candidateDir,
                 resourceSnapshot,
                 directoryLookupCache,
@@ -752,17 +744,16 @@ internal sealed class BmsLibraryInstallEstimationService
                 bundledView,
                 evaluationMode,
                 diagnostics,
-                isSourceCandidate: false))
-            .ToList();
+                isSourceCandidate: false))];
         evaluationStopwatch.Stop();
         result.EvaluationMs = evaluationStopwatch.ElapsedMilliseconds;
         if (candidateInfos.Count == 0)
         {
             return result;
         }
-        List<CandidateEvaluation> orderedCandidates = candidateInfos.ToList();
+        List<CandidateEvaluation> orderedCandidates = [.. candidateInfos];
         orderedCandidates.Sort(CompareCandidateEvaluations);
-        Stopwatch ancestorShadowStopwatch = Stopwatch.StartNew();
+        var ancestorShadowStopwatch = Stopwatch.StartNew();
         orderedCandidates = SuppressAncestorShadowCandidates(
             orderedCandidates,
             hierarchyInfo,
@@ -793,12 +784,12 @@ internal sealed class BmsLibraryInstallEstimationService
             result.Candidates.Add(candidate);
         }
         CandidateEvaluation selectedCandidateEvaluation = orderedCandidates.First();
-        CandidateEvaluation secondCandidateEvaluation = orderedCandidates.FirstOrDefault((CandidateEvaluation evaluation) => !ReferenceEquals(evaluation, selectedCandidateEvaluation));
+        CandidateEvaluation secondCandidateEvaluation = orderedCandidates.FirstOrDefault(evaluation => !ReferenceEquals(evaluation, selectedCandidateEvaluation));
         int selectedPrimaryHealth = GetPrimaryHealth(resourceSnapshot, selectedCandidateEvaluation);
         result.SelectedCandidatePrimaryHealth = selectedPrimaryHealth;
         bool selectedViable = IsViableDestination(selectedPrimaryHealth);
         bool hasMultipleViableCandidates = selectedViable
-            && orderedCandidates.Skip(1).Any((CandidateEvaluation evaluation) => IsViableDestination(GetPrimaryHealth(resourceSnapshot, evaluation)));
+            && orderedCandidates.Skip(1).Any(evaluation => IsViableDestination(GetPrimaryHealth(resourceSnapshot, evaluation)));
         bool topTwoViableTie = secondCandidateEvaluation != null
             && selectedViable
             && IsViableDestination(GetPrimaryHealth(resourceSnapshot, secondCandidateEvaluation))
@@ -813,14 +804,13 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             result.Candidates[i].IsViableDestination = IsViableDestination(GetPrimaryHealth(resourceSnapshot, orderedCandidates[i]));
         }
-        List<string> viableNonSourceSuggestions = result.Candidates
-            .Where((InstallEstimationCandidate candidate) => candidate != null && candidate.IsViableDestination)
-            .Select((InstallEstimationCandidate candidate) => candidate.DirectoryPath)
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> viableNonSourceSuggestions = [.. result.Candidates
+            .Where(candidate => candidate != null && candidate.IsViableDestination)
+            .Select(candidate => candidate.DirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         result.SuggestedDestinationDirectories.Clear();
-        result.TopCandidateSummary = string.Join(" || ", result.Candidates.Select((InstallEstimationCandidate candidate) => candidate.ToSummary()));
+        result.TopCandidateSummary = string.Join(" || ", result.Candidates.Select(candidate => candidate.ToSummary()));
         result.SelectedCandidateSummary = result.SelectedCandidate?.ToSummary() ?? selectedCandidateEvaluation.ToSummary();
 
         if (!selectedViable)
@@ -928,16 +918,15 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private static List<string> ApplyPathAwareBroadFilter(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache)
     {
-        List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
-            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> candidates = [.. (candidateDirectories ?? [])
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (candidates.Count == 0 || resourceSnapshot == null || directoryLookupCache == null)
         {
             return candidates;
         }
 
-        HashSet<string> filteredDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var filteredDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (resourceSnapshot.AudioRelativePathHashes.Count > 0)
         {
             directoryLookupCache.EnsureAudioRelativeDirectoriesByHashes(resourceSnapshot.AudioRelativePathHashes);
@@ -967,17 +956,14 @@ internal sealed class BmsLibraryInstallEstimationService
             }
         }
 
-        return candidates
-            .Where((string candidateDir) => filteredDirectories.Contains(candidateDir))
-            .ToList();
+        return [.. candidates.Where(candidateDir => filteredDirectories.Contains(candidateDir))];
     }
 
     private List<string> ApplyAudioCandidateGate(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources, InstallEstimationFinalEvaluationMode evaluationMode)
     {
-        List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
-            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> candidates = [.. (candidateDirectories ?? [])
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (candidates.Count == 0 || resourceSnapshot == null || directoryLookupCache == null)
         {
             return candidates;
@@ -992,7 +978,7 @@ internal sealed class BmsLibraryInstallEstimationService
         int requiredMatchedForViableHealth = GetRequiredMatchedForViableAudioHealth(resourceSnapshot.AudioReferenceCount);
         CandidateResourceView bundledView = CreateCandidateResourceView(bundledResources);
 
-        return candidates
+        return [.. candidates
             .Where(delegate (string candidateDir)
             {
                 DirectoryResourceLookupCache.Entry entry = directoryLookupCache.GetEntryOrNull(candidateDir);
@@ -1006,8 +992,7 @@ internal sealed class BmsLibraryInstallEstimationService
                     return false;
                 }
                 return HasRequiredAudioMatchesForViability(resourceSnapshot.AudioReferences, candidateView, bundledView, requiredMatchedForViableHealth);
-            })
-            .ToList();
+            })];
     }
 
     private static bool HasMinimumAudioReferenceMatches(IReadOnlyCollection<ChartResourceSnapshot.ResourceReference> targetAudioReferences, CandidateResourceView candidateView, int requiredAudioMatchCount)
@@ -1106,24 +1091,22 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private static PackageInstallEstimationSnapshot BuildLooseFileSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode)
     {
-        List<BMSFile> targetFiles = (chartFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null)
-            .ToList();
-        if (targetFiles.Count == 0 || targetFiles.Any((BMSFile chartFile) => !string.IsNullOrWhiteSpace(chartFile.instl_dst)))
+        List<BMSFile> targetFiles = [.. (chartFiles ?? []).Where(file => file != null)];
+        if (targetFiles.Count == 0 || targetFiles.Any(chartFile => !string.IsNullOrWhiteSpace(chartFile.instl_dst)))
         {
             return null;
         }
         bool isCorrectionLikeMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection || estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
-            targetFiles = targetFiles.Where((BMSFile file) => !installedHashes.Contains(file.hash)).ToList();
+            targetFiles = [.. targetFiles.Where(file => !installedHashes.Contains(file.hash))];
         }
         return targetFiles.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFiles);
     }
 
     public void CorrectChartInstallationDirectory(IEnumerable<BMSFile> chartFiles, Action<BMSFile> searchInstallDestination)
     {
-        foreach (BMSFile chartFile in (chartFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
+        foreach (BMSFile chartFile in (chartFiles ?? []).Where(file => file != null))
         {
             lock (chartFile)
             {
@@ -1142,12 +1125,12 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public void ClearInstallDestinations(IEnumerable<BMSFile> bmsFiles)
     {
-        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && (!string.IsNullOrWhiteSpace(file.instl_dst) || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist) || (file.InstallDestinationSuggestions?.Count ?? 0) > 0 || file.HasLowConfidenceInstallEstimationWarning())))
+        foreach (BMSFile bmsFile in (bmsFiles ?? []).Where(file => file != null && (!string.IsNullOrWhiteSpace(file.instl_dst) || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist) || (file.InstallDestinationSuggestions?.Count ?? 0) > 0 || file.HasLowConfidenceInstallEstimationWarning())))
         {
             bmsFile.instl_dst = null;
             bmsFile.InstallDestinationTitle = string.Empty;
             bmsFile.InstallDestinationArtist = string.Empty;
-            bmsFile.InstallDestinationSuggestions = Array.Empty<string>();
+            bmsFile.InstallDestinationSuggestions = [];
             bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
         }
@@ -1160,13 +1143,13 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public PendingInstallDestinationSelectionResult ValidateInstallDestination(BMSFile targetFile, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryFile)
     {
-        PendingInstallDestinationSelectionResult result = new PendingInstallDestinationSelectionResult();
+        var result = new PendingInstallDestinationSelectionResult();
         if (targetFile == null)
         {
             return result;
         }
-        ChartPackage package = (pendingPackages ?? Enumerable.Empty<ChartPackage>())
-            .FirstOrDefault((ChartPackage pkg) => pkg != null && pkg.ChartFiles.Any((BMSFile file) => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
+        ChartPackage package = (pendingPackages ?? [])
+            .FirstOrDefault(pkg => pkg != null && pkg.ChartFiles.Any(file => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
         if (package == null)
         {
             if (!allowStandaloneLibraryFile)
@@ -1178,7 +1161,7 @@ internal sealed class BmsLibraryInstallEstimationService
         }
         else
         {
-            result.TargetFiles.AddRange(package.ChartFiles.Where((BMSFile file) => file != null));
+            result.TargetFiles.AddRange(package.ChartFiles.Where(file => file != null));
         }
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
@@ -1203,7 +1186,7 @@ internal sealed class BmsLibraryInstallEstimationService
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirNotFound, installDirectory);
             return result;
         }
-        HashSet<string> knownDirectories = new HashSet<string>((knownChartDirectories ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        var knownDirectories = new HashSet<string>((knownChartDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         if (!knownDirectories.Contains(installDirectory))
         {
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirMustContainBms, installDirectory);
@@ -1218,18 +1201,18 @@ internal sealed class BmsLibraryInstallEstimationService
     {
         if (installedDirectoryIndexSnapshot == null)
         {
-            return new List<string>();
+            return [];
         }
-        HashSet<string> directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (IsBmsHashAvailable(md5) && installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(md5, out List<string> md5Directories) && md5Directories != null)
         {
-            directories.UnionWith(md5Directories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)));
+            directories.UnionWith(md5Directories.Where(dir => !string.IsNullOrWhiteSpace(dir)));
         }
         if (!string.IsNullOrWhiteSpace(sha256) && installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(sha256, out List<string> shaDirectories) && shaDirectories != null)
         {
-            directories.UnionWith(shaDirectories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)));
+            directories.UnionWith(shaDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)));
         }
-        return directories.ToList();
+        return [.. directories];
     }
 
     public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSFile file)
@@ -1241,34 +1224,34 @@ internal sealed class BmsLibraryInstallEstimationService
     {
         if (installedDirectoryIndexSnapshot == null || string.IsNullOrWhiteSpace(lookupHash))
         {
-            return new List<string>();
+            return [];
         }
         if (installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(lookupHash, out List<string> md5Directories) && md5Directories != null)
         {
-            return md5Directories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return [.. md5Directories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         }
         if (installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(lookupHash, out List<string> shaDirectories) && shaDirectories != null)
         {
-            return shaDirectories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return [.. shaDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         }
-        return new List<string>();
+        return [];
     }
 
     public static BMSFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.ChartFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count == 0);
+        return (package?.ChartFiles ?? []).FirstOrDefault(file => file == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count == 0);
     }
 
     public static BMSFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.ChartFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count > 1);
+        return (package?.ChartFiles ?? []).FirstOrDefault(file => file != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count > 1);
     }
 
     public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.ChartFiles ?? new List<BMSFile>())
-            .Where((BMSFile file) => file != null)
-            .SelectMany((BMSFile file) => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file))
+        return (package?.ChartFiles ?? [])
+            .Where(file => file != null)
+            .SelectMany(file => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }
@@ -1304,13 +1287,10 @@ internal sealed class BmsLibraryInstallEstimationService
     private static CandidateEvaluation EvaluateCandidateRelativeStrict(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, CandidateResourceView bundledView, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
     {
         CandidateResourceView candidateView = CreateCandidateResourceView(entry, diagnostics: diagnostics);
-        if (bundledView == null)
-        {
-            bundledView = CandidateResourceView.Empty;
-        }
+        bundledView ??= CandidateResourceView.Empty;
 
         Stopwatch matchStopwatch = diagnostics == null ? null : Stopwatch.StartNew();
-        CandidateEvaluation evaluation = new CandidateEvaluation
+        var evaluation = new CandidateEvaluation
         {
             DirectoryPath = candidateDir,
             IsSourceCandidate = isSourceCandidate,
@@ -1372,7 +1352,7 @@ internal sealed class BmsLibraryInstallEstimationService
         ISet<uint> visualRelativePathHashes = entry.ImageRelativePathHashes;
         ISet<uint> movieRelativePathHashes = entry.MovieRelativePathHashes;
 
-        CandidateResourceView view = new CandidateResourceView
+        var view = new CandidateResourceView
         {
             AudioRelativePathHashes = audioRelativePathHashes,
             VisualRelativePathHashes = visualRelativePathHashes,
@@ -1459,8 +1439,8 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private static int CountUnion(params ISet<uint>[] hashSets)
     {
-        HashSet<uint> union = new HashSet<uint>();
-        foreach (ISet<uint> hashSet in hashSets ?? Array.Empty<ISet<uint>>())
+        HashSet<uint> union = [];
+        foreach (ISet<uint> hashSet in hashSets ?? [])
         {
             if (hashSet == null || hashSet.Count == 0)
             {
@@ -1526,26 +1506,25 @@ internal sealed class BmsLibraryInstallEstimationService
             return;
         }
 
-        List<CandidateEvaluation> frontier = orderedCandidates
-            .TakeWhile((CandidateEvaluation evaluation) => evaluation != null && topCandidate.HasSameRankingMetrics(evaluation))
-            .Take(3)
-            .ToList();
+        List<CandidateEvaluation> frontier = [.. orderedCandidates
+            .TakeWhile(evaluation => evaluation != null && topCandidate.HasSameRankingMetrics(evaluation))
+            .Take(3)];
         if (frontier.Count <= 1)
         {
             return;
         }
 
-        Dictionary<string, InstallEstimationMetadataProfile> metadataProfilesByDirectory = frontier
-            .Select((CandidateEvaluation evaluation) => evaluation.DirectoryPath)
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+        var metadataProfilesByDirectory = frontier
+            .Select(evaluation => evaluation.DirectoryPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
-                (string path) => path,
-                (string path) => metadataProfileResolver(path) ?? InstallEstimationMetadataProfile.Empty,
+                path => path,
+                path => metadataProfileResolver(path) ?? InstallEstimationMetadataProfile.Empty,
                 StringComparer.OrdinalIgnoreCase);
 
-        result.MetadataFrontierSummary = "candidates=" + string.Join(" || ", frontier.Select((CandidateEvaluation evaluation) => evaluation.DirectoryPath ?? string.Empty));
-        frontier.Sort((CandidateEvaluation left, CandidateEvaluation right) => CompareCandidatesByMetadataTieBreak(left, right, targetMetadataProfile, metadataProfilesByDirectory));
+        result.MetadataFrontierSummary = "candidates=" + string.Join(" || ", frontier.Select(evaluation => evaluation.DirectoryPath ?? string.Empty));
+        frontier.Sort((left, right) => CompareCandidatesByMetadataTieBreak(left, right, targetMetadataProfile, metadataProfilesByDirectory));
         for (int i = 0; i < frontier.Count; i++)
         {
             orderedCandidates[i] = frontier[i];
@@ -1584,7 +1563,7 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private static MetadataValidationResult EvaluateSelectedCandidateMetadata(CandidateEvaluation selectedCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
     {
-        MetadataValidationResult result = new MetadataValidationResult();
+        var result = new MetadataValidationResult();
         if (selectedCandidateEvaluation == null || metadataProfileResolver == null || targetMetadataProfile == null || !targetMetadataProfile.HasAnySignal)
         {
             return result;
@@ -1823,17 +1802,16 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private CandidateHierarchyInfo BuildCandidateHierarchyInfo(IEnumerable<string> candidateDirectories)
     {
-        List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
-            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> candidates = [.. (candidateDirectories ?? [])
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (candidates.Count <= 1)
         {
             return CandidateHierarchyInfo.Empty;
         }
 
-        HashSet<string> candidateSet = new HashSet<string>(candidates, StringComparer.OrdinalIgnoreCase);
-        CandidateHierarchyInfo hierarchyInfo = new CandidateHierarchyInfo();
+        var candidateSet = new HashSet<string>(candidates, StringComparer.OrdinalIgnoreCase);
+        var hierarchyInfo = new CandidateHierarchyInfo();
         foreach (string candidateDir in candidates)
         {
             string parentDirectory = GetParentDirectoryPath(candidateDir);
@@ -1843,10 +1821,10 @@ internal sealed class BmsLibraryInstallEstimationService
                 {
                     if (!hierarchyInfo.DescendantsByAncestor.TryGetValue(parentDirectory, out List<string> descendants))
                     {
-                        descendants = new List<string>();
+                        descendants = [];
                         hierarchyInfo.DescendantsByAncestor[parentDirectory] = descendants;
                     }
-                    if (!descendants.Any((string descendantDir) => descendantDir.Equals(candidateDir, StringComparison.OrdinalIgnoreCase)))
+                    if (!descendants.Any(descendantDir => descendantDir.Equals(candidateDir, StringComparison.OrdinalIgnoreCase)))
                     {
                         descendants.Add(candidateDir);
                     }
@@ -1911,15 +1889,15 @@ internal sealed class BmsLibraryInstallEstimationService
         lazySelfOwnedEvaluationCount = 0;
         if (orderedCandidates == null || orderedCandidates.Count <= 1 || snapshot == null || hierarchyInfo == null || !hierarchyInfo.HasHierarchy)
         {
-            return orderedCandidates ?? new List<CandidateEvaluation>();
+            return orderedCandidates ?? [];
         }
 
-        Dictionary<string, CandidateEvaluation> evaluationsByDirectory = orderedCandidates
-            .Where((CandidateEvaluation evaluation) => evaluation != null && !string.IsNullOrWhiteSpace(evaluation.DirectoryPath))
-            .GroupBy((CandidateEvaluation evaluation) => evaluation.DirectoryPath, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary((IGrouping<string, CandidateEvaluation> group) => group.Key, (IGrouping<string, CandidateEvaluation> group) => group.First(), StringComparer.OrdinalIgnoreCase);
-        HashSet<string> suppressedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, int> matchedTotalsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var evaluationsByDirectory = orderedCandidates
+            .Where(evaluation => evaluation != null && !string.IsNullOrWhiteSpace(evaluation.DirectoryPath))
+            .GroupBy(evaluation => evaluation.DirectoryPath, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var suppressedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var matchedTotalsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
         foreach (CandidateEvaluation ancestor in orderedCandidates)
         {
@@ -1936,11 +1914,10 @@ internal sealed class BmsLibraryInstallEstimationService
                 continue;
             }
 
-            List<CandidateEvaluation> viableDescendants = descendantDirectories
-                .Where((string descendantDir) => !string.IsNullOrWhiteSpace(descendantDir) && !suppressedDirectories.Contains(descendantDir))
-                .Select((string descendantDir) => evaluationsByDirectory.TryGetValue(descendantDir, out CandidateEvaluation descendant) ? descendant : null)
-                .Where((CandidateEvaluation descendant) => descendant != null && IsViableDestination(GetPrimaryHealth(snapshot, descendant)))
-                .ToList();
+            List<CandidateEvaluation> viableDescendants = [.. descendantDirectories
+                .Where(descendantDir => !string.IsNullOrWhiteSpace(descendantDir) && !suppressedDirectories.Contains(descendantDir))
+                .Select(descendantDir => evaluationsByDirectory.TryGetValue(descendantDir, out CandidateEvaluation descendant) ? descendant : null)
+                .Where(descendant => descendant != null && IsViableDestination(GetPrimaryHealth(snapshot, descendant)))];
             if (viableDescendants.Count == 0)
             {
                 continue;
@@ -1971,9 +1948,7 @@ internal sealed class BmsLibraryInstallEstimationService
             return orderedCandidates;
         }
 
-        return orderedCandidates
-            .Where((CandidateEvaluation evaluation) => evaluation != null && !suppressedDirectories.Contains(evaluation.DirectoryPath ?? string.Empty))
-            .ToList();
+        return [.. orderedCandidates.Where(evaluation => evaluation != null && !suppressedDirectories.Contains(evaluation.DirectoryPath ?? string.Empty))];
     }
 
     private static bool IsAncestorDirectory(string ancestorPath, string descendantPath)

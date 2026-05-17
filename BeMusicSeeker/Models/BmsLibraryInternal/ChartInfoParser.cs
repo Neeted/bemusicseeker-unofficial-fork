@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal static class ChartInfoParser
 {
-    private static readonly ConcurrentDictionary<long, string> JavaDoubleFormatCache = new ConcurrentDictionary<long, string>();
+    private static readonly ConcurrentDictionary<long, string> JavaDoubleFormatCache = new();
 
     private const int FeatureUndefinedLongNote = 1;
 
@@ -98,9 +98,9 @@ internal static class ChartInfoParser
         {
             throw new ArgumentNullException(nameof(bytes));
         }
-        ParseTimeoutGuard timeoutGuard = ParseTimeoutGuard.Start(timeout);
+        var timeoutGuard = ParseTimeoutGuard.Start(timeout);
         timeoutGuard.ThrowIfTimedOut("parse_start");
-        List<ChartInfoParseDiagnostic> diagnostics = new List<ChartInfoParseDiagnostic>();
+        List<ChartInfoParseDiagnostic> diagnostics = [];
         string chartName = string.IsNullOrWhiteSpace(fileNameOrExtension) ? string.Empty : fileNameOrExtension;
         string extension = Path.GetExtension(chartName);
         if (string.IsNullOrWhiteSpace(extension) && chartName.StartsWith(".", StringComparison.Ordinal))
@@ -148,7 +148,7 @@ internal static class ChartInfoParser
         foreach (int[] selectedRandoms in BuildRandomCandidates(randomMaxes, md5, sha256, chartName))
         {
             timeoutGuard.ThrowIfTimedOut("bms_random_candidate");
-            List<ChartInfoParseDiagnostic> candidateDiagnostics = new List<ChartInfoParseDiagnostic>();
+            List<ChartInfoParseDiagnostic> candidateDiagnostics = [];
             try
             {
                 ChartModel model = ParseBmsCandidate(text, chartName, isPms, candidateDiagnostics, selectedRandoms, timeoutGuard);
@@ -182,7 +182,7 @@ internal static class ChartInfoParser
         model.Sha256 = sha256;
         timeoutGuard.ThrowIfTimedOut("bms_last_time");
         _ = model.GetLastTimeMilliseconds();
-        IList<ChartInfoParseDiagnostic> mutableDiagnostics = diagnostics as IList<ChartInfoParseDiagnostic>;
+        var mutableDiagnostics = diagnostics as IList<ChartInfoParseDiagnostic>;
         if (model.TryGetJavaIntTimeWrap(out long rawTimeMilliseconds, out int wrappedTimeMilliseconds, out double wrappedSection))
         {
             AddDiagnostic(
@@ -196,7 +196,7 @@ internal static class ChartInfoParser
         }
         string chartString = model.ToChartString(timeoutGuard);
         IReadOnlyList<ChartInfoParseDiagnostic> readOnlyDiagnostics = diagnostics as IReadOnlyList<ChartInfoParseDiagnostic>
-            ?? (diagnostics ?? Enumerable.Empty<ChartInfoParseDiagnostic>()).ToList();
+            ?? (diagnostics ?? []).ToList();
         return new ChartInfoParseResult(BuildRow(model, chartString, timeoutGuard), readOnlyDiagnostics, chartString);
     }
 
@@ -208,7 +208,7 @@ internal static class ChartInfoParser
         {
             throw new BmsRecoverableParseException("BMS timeline length is too large.");
         }
-        ChartStatistics statistics = ChartStatistics.Calculate(model, timeoutGuard);
+        var statistics = ChartStatistics.Calculate(model, timeoutGuard);
         return new LR2SongDBExtended.chart_info
         {
             sha256 = model.Sha256,
@@ -245,10 +245,10 @@ internal static class ChartInfoParser
 
     private static ChartModel ParseBmsCandidate(string text, string chartName, bool isPms, IList<ChartInfoParseDiagnostic> diagnostics, IReadOnlyList<int> selectedRandoms, ParseTimeoutGuard timeoutGuard)
     {
-        BmsChartBuilder builder = new BmsChartBuilder(chartName, isPms, diagnostics, timeoutGuard);
-        Stack<int> selectedRandomStack = new Stack<int>();
-        Stack<bool> skipStack = new Stack<bool>();
-        using StringReader reader = new StringReader(text ?? string.Empty);
+        var builder = new BmsChartBuilder(chartName, isPms, diagnostics, timeoutGuard);
+        var selectedRandomStack = new Stack<int>();
+        var skipStack = new Stack<bool>();
+        using var reader = new StringReader(text ?? string.Empty);
         string rawLine;
         int randomIndex = 0;
         int lineIndex = 0;
@@ -397,8 +397,8 @@ internal static class ChartInfoParser
 
     private static List<int> ScanRandomMaxes(string text, ParseTimeoutGuard timeoutGuard)
     {
-        List<int> randomMaxes = new List<int>();
-        using StringReader reader = new StringReader(text ?? string.Empty);
+        List<int> randomMaxes = [];
+        using var reader = new StringReader(text ?? string.Empty);
         string rawLine;
         int lineIndex = 0;
         while ((rawLine = reader.ReadLine()) != null)
@@ -418,12 +418,12 @@ internal static class ChartInfoParser
 
     private static IEnumerable<int[]> BuildRandomCandidates(IReadOnlyList<int> randomMaxes, string md5, string sha256, string chartName)
     {
-        List<int[]> candidates = new List<int[]>();
+        List<int[]> candidates = [];
         AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 1));
         AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 2));
         AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 3));
         AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 4));
-        AddDistinctRandomCandidate(candidates, randomMaxes.Select((int max) => Math.Max(1, max)).ToArray());
+        AddDistinctRandomCandidate(candidates, [.. randomMaxes.Select(max => Math.Max(1, max))]);
         AddDistinctRandomCandidate(candidates, CreateSeededRandomCandidate(randomMaxes, md5, sha256, chartName));
         return candidates;
     }
@@ -444,7 +444,7 @@ internal static class ChartInfoParser
             ? sha256
             : (!string.IsNullOrWhiteSpace(md5) ? md5 : (chartName ?? string.Empty));
         byte[] hash;
-        using (SHA256 sha = SHA256.Create())
+        using (var sha = SHA256.Create())
         {
             hash = sha.ComputeHash(Encoding.UTF8.GetBytes(seed));
         }
@@ -459,10 +459,10 @@ internal static class ChartInfoParser
 
     private static void AddDistinctRandomCandidate(ICollection<int[]> candidates, int[] candidate)
     {
-        string signature = string.Join(",", candidate.Select((int value) => value.ToString(CultureInfo.InvariantCulture)));
+        string signature = string.Join(",", candidate.Select(value => value.ToString(CultureInfo.InvariantCulture)));
         foreach (int[] existing in candidates)
         {
-            string existingSignature = string.Join(",", existing.Select((int value) => value.ToString(CultureInfo.InvariantCulture)));
+            string existingSignature = string.Join(",", existing.Select(value => value.ToString(CultureInfo.InvariantCulture)));
             if (string.Equals(existingSignature, signature, StringComparison.Ordinal))
             {
                 return;
@@ -474,7 +474,7 @@ internal static class ChartInfoParser
     private static ChartModel ParseBmson(string filePath)
     {
         string json = File.ReadAllText(filePath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false));
-        return ParseBmson(json, filePath, new List<ChartInfoParseDiagnostic>(), ParseTimeoutGuard.None);
+        return ParseBmson(json, filePath, [], ParseTimeoutGuard.None);
     }
 
     private static ChartModel ParseBmson(string json, string chartName, IList<ChartInfoParseDiagnostic> diagnostics, ParseTimeoutGuard timeoutGuard)
@@ -484,13 +484,13 @@ internal static class ChartInfoParser
         BmsonDocument document = ParseBmsonDocument(json);
         timeoutGuard.ThrowIfTimedOut("bmson_json_read");
         BmsonInfo info = document?.Info ?? new BmsonInfo();
-        ChartMode resolvedMode = ChartMode.FromBmsonHint(info.ModeHint);
+        var resolvedMode = ChartMode.FromBmsonHint(info.ModeHint);
         if (resolvedMode == null)
         {
             AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMSON_MODE_UNSUPPORTED", "非対応のmode_hintです");
         }
         ChartMode mode = resolvedMode ?? ChartMode.Beat7;
-        ChartModel model = new ChartModel(chartName, mode)
+        var model = new ChartModel(chartName, mode)
         {
             InitialBpm = info.InitBpm,
             Title = info.Title ?? string.Empty,
@@ -521,8 +521,8 @@ internal static class ChartInfoParser
         double defaultTotal = CalculateDefaultTotal(mode, 0);
         model.Total = info.Total > 0 ? info.Total / 100.0 * defaultTotal : defaultTotal;
 
-        SortedList<int, ChartTimeline> timelinesByY = new SortedList<int, ChartTimeline>();
-        ChartTimeline baseTimeline = new ChartTimeline(0.0, 0.0, mode.KeyCount)
+        SortedList<int, ChartTimeline> timelinesByY = [];
+        var baseTimeline = new ChartTimeline(0.0, 0.0, mode.KeyCount)
         {
             Bpm = model.InitialBpm,
             BpmChartText = info.InitBpmText
@@ -530,9 +530,9 @@ internal static class ChartInfoParser
         timelinesByY.Add(0, baseTimeline);
 
         double resolution = info.Resolution > 0 ? info.Resolution * 4.0 : 960.0;
-        BmsonBpmEvent[] bpmEvents = (document?.BpmEvents ?? Array.Empty<BmsonBpmEvent>()).OrderBy((BmsonBpmEvent item) => item.Y).ToArray();
-        BmsonStopEvent[] stopEvents = (document?.StopEvents ?? Array.Empty<BmsonStopEvent>()).OrderBy((BmsonStopEvent item) => item.Y).ToArray();
-        BmsonScrollEvent[] scrollEvents = (document?.ScrollEvents ?? Array.Empty<BmsonScrollEvent>()).OrderBy((BmsonScrollEvent item) => item.Y).ToArray();
+        BmsonBpmEvent[] bpmEvents = [.. (document?.BpmEvents ?? []).OrderBy(item => item.Y)];
+        BmsonStopEvent[] stopEvents = [.. (document?.StopEvents ?? []).OrderBy(item => item.Y)];
+        BmsonScrollEvent[] scrollEvents = [.. (document?.ScrollEvents ?? []).OrderBy(item => item.Y)];
         int bpmPosition = 0;
         int stopPosition = 0;
         int scrollPosition = 0;
@@ -583,7 +583,7 @@ internal static class ChartInfoParser
             }
         }
         int lineIndex = 0;
-        foreach (BmsonBarLine line in document?.Lines ?? Array.Empty<BmsonBarLine>())
+        foreach (BmsonBarLine line in document?.Lines ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++lineIndex, "bmson_bar_lines");
             GetBmsonTimeline(timelinesByY, line.Y, resolution, mode).HasSectionLine = true;
@@ -591,34 +591,34 @@ internal static class ChartInfoParser
 
         int[] keyAssign = mode.GetBmsonKeyAssign();
         List<ChartNote>[] longNotesByLane = CreateLaneLists(mode.KeyCount);
-        Dictionary<string, ChartNote> pendingLongNoteEnds = new Dictionary<string, ChartNote>(StringComparer.Ordinal);
+        var pendingLongNoteEnds = new Dictionary<string, ChartNote>(StringComparer.Ordinal);
         int soundId = 0;
-        foreach (BmsonSoundChannel channel in document?.SoundChannels ?? Array.Empty<BmsonSoundChannel>())
+        foreach (BmsonSoundChannel channel in document?.SoundChannels ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(soundId + 1, "bmson_sound_channels");
             AddBmsonSoundChannel(timelinesByY, resolution, mode, keyAssign, longNotesByLane, pendingLongNoteEnds, channel, soundId, model.LnMode, timeoutGuard);
             soundId++;
         }
         int hiddenChannelIndex = 0;
-        foreach (BmsonMineChannel channel in document?.KeyChannels ?? Array.Empty<BmsonMineChannel>())
+        foreach (BmsonMineChannel channel in document?.KeyChannels ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++hiddenChannelIndex, "bmson_hidden_channels");
             AddBmsonHiddenChannel(timelinesByY, resolution, mode, keyAssign, channel, timeoutGuard);
         }
         int mineChannelIndex = 0;
-        foreach (BmsonMineChannel channel in document?.MineChannels ?? Array.Empty<BmsonMineChannel>())
+        foreach (BmsonMineChannel channel in document?.MineChannels ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++mineChannelIndex, "bmson_mine_channels");
             AddBmsonMineChannel(timelinesByY, resolution, mode, keyAssign, longNotesByLane, channel, timeoutGuard);
         }
         int bgaIndex = 0;
-        foreach (BmsonBgaNote note in document?.Bga?.BgaEvents ?? Array.Empty<BmsonBgaNote>())
+        foreach (BmsonBgaNote note in document?.Bga?.BgaEvents ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++bgaIndex, "bmson_bga_events");
             GetBmsonTimeline(timelinesByY, note.Y, resolution, mode).HasBga = true;
         }
 
-        model.SetTimelines(timelinesByY.Values.ToList());
+        model.SetTimelines([.. timelinesByY.Values]);
         int totalNotes = model.GetTotalNotes();
         model.Difficulty = InferBeatorajaDifficulty(info.Title, ComposeBmsonSubtitle(info.Subtitle, info.ChartName), totalNotes);
         defaultTotal = CalculateDefaultTotal(mode, totalNotes);
@@ -695,13 +695,13 @@ internal static class ChartInfoParser
 
     private static void AddBmsonSoundChannel(SortedList<int, ChartTimeline> timelinesByY, double resolution, ChartMode mode, int[] keyAssign, List<ChartNote>[] longNotesByLane, IDictionary<string, ChartNote> pendingLongNoteEnds, BmsonSoundChannel channel, int soundId, int modelLnMode, ParseTimeoutGuard timeoutGuard)
     {
-        BmsonSoundNote[] notes = (channel?.Notes ?? Array.Empty<BmsonSoundNote>()).OrderBy((BmsonSoundNote item) => item.Y).ToArray();
+        BmsonSoundNote[] notes = [.. (channel?.Notes ?? []).OrderBy(item => item.Y)];
         long startMicroseconds = 0L;
         for (int noteIndex = 0; noteIndex < notes.Length; noteIndex++)
         {
             timeoutGuard.ThrowIfTimedOutEvery(noteIndex + 1, "bmson_sound_notes");
             BmsonSoundNote note = notes[noteIndex];
-            BmsonSoundNote next = notes.Skip(noteIndex + 1).FirstOrDefault((BmsonSoundNote item) => item.Y > note.Y);
+            BmsonSoundNote next = notes.Skip(noteIndex + 1).FirstOrDefault(item => item.Y > note.Y);
             if (!note.Continue)
             {
                 startMicroseconds = 0L;
@@ -738,7 +738,7 @@ internal static class ChartInfoParser
                     ChartTimeline endTimeline = GetBmsonTimeline(timelinesByY, note.Y + note.Length, resolution, mode);
                     if (!HasAnyNoteInRange(timelinesByY, lane, note.Y, note.Y + note.Length, timeoutGuard) && timeline.Notes[lane] == null)
                     {
-                        ChartNote start = ChartNote.CreateLong(soundId, note.Type > 0 && note.Type <= 3 ? note.Type : modelLnMode, audioStartMicroseconds, durationMicroseconds);
+                        var start = ChartNote.CreateLong(soundId, note.Type > 0 && note.Type <= 3 ? note.Type : modelLnMode, audioStartMicroseconds, durationMicroseconds);
                         string pendingEndKey = MakeBmsonLongNoteEndKey(note.X, note.Y + note.Length);
                         ChartNote end = pendingLongNoteEnds.TryGetValue(pendingEndKey, out ChartNote pendingEnd)
                             ? pendingEnd
@@ -774,7 +774,7 @@ internal static class ChartInfoParser
 
     private static ChartNote FindLongNoteEnd(IEnumerable<ChartNote> longNotes, double endSection)
     {
-        foreach (ChartNote longNote in longNotes ?? Enumerable.Empty<ChartNote>())
+        foreach (ChartNote longNote in longNotes ?? [])
         {
             if (longNote.Pair != null && Math.Abs(longNote.Pair.Section - endSection) <= double.Epsilon)
             {
@@ -787,7 +787,7 @@ internal static class ChartInfoParser
     private static void AddBmsonHiddenChannel(SortedList<int, ChartTimeline> timelinesByY, double resolution, ChartMode mode, int[] keyAssign, BmsonMineChannel channel, ParseTimeoutGuard timeoutGuard)
     {
         int noteIndex = 0;
-        foreach (BmsonMineNote note in channel?.Notes ?? Array.Empty<BmsonMineNote>())
+        foreach (BmsonMineNote note in channel?.Notes ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++noteIndex, "bmson_hidden_notes");
             int lane = note.X > 0 && note.X <= keyAssign.Length ? keyAssign[note.X - 1] : -1;
@@ -801,7 +801,7 @@ internal static class ChartInfoParser
     private static void AddBmsonMineChannel(SortedList<int, ChartTimeline> timelinesByY, double resolution, ChartMode mode, int[] keyAssign, List<ChartNote>[] longNotesByLane, BmsonMineChannel channel, ParseTimeoutGuard timeoutGuard)
     {
         int noteIndex = 0;
-        foreach (BmsonMineNote note in channel?.Notes ?? Array.Empty<BmsonMineNote>())
+        foreach (BmsonMineNote note in channel?.Notes ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++noteIndex, "bmson_mine_notes");
             int lane = note.X > 0 && note.X <= keyAssign.Length ? keyAssign[note.X - 1] : -1;
@@ -835,7 +835,7 @@ internal static class ChartInfoParser
         double preciseTime = previous.PreciseTimeMicroseconds
             + previous.StopMicroseconds
             + 240000.0 * 1000.0 * ((y - previousY) / resolution) / previous.Bpm;
-        ChartTimeline timeline = new ChartTimeline(section, preciseTime, mode.KeyCount)
+        var timeline = new ChartTimeline(section, preciseTime, mode.KeyCount)
         {
             Bpm = previous.Bpm
         };
@@ -889,12 +889,12 @@ internal static class ChartInfoParser
 
     private static string DecodeBms(byte[] bytes, string encodingName)
     {
-        return ResolveBmsEncoding(encodingName).GetString(bytes ?? Array.Empty<byte>());
+        return ResolveBmsEncoding(encodingName).GetString(bytes ?? []);
     }
 
     private static string DecodeBmson(byte[] bytes)
     {
-        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false).GetString(bytes ?? Array.Empty<byte>());
+        return new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false).GetString(bytes ?? []);
     }
 
     private static bool MatchesReserveWord(string line, string word)
@@ -914,7 +914,7 @@ internal static class ChartInfoParser
     private static string GetCommandArgument(string line)
     {
         string trimmed = line.Trim();
-        int whitespace = trimmed.IndexOfAny(new[] { ' ', '\t' });
+        int whitespace = trimmed.IndexOfAny([' ', '\t']);
         return whitespace >= 0 ? trimmed.Substring(whitespace + 1).Trim() : string.Empty;
     }
 
@@ -1067,7 +1067,7 @@ internal static class ChartInfoParser
     private static string ComputeHash(string filePath, HashAlgorithm algorithm)
     {
         using (algorithm)
-        using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             byte[] hash = algorithm.ComputeHash(stream);
             return ToHex(hash);
@@ -1078,14 +1078,14 @@ internal static class ChartInfoParser
     {
         using (algorithm)
         {
-            byte[] hash = algorithm.ComputeHash(bytes ?? Array.Empty<byte>());
+            byte[] hash = algorithm.ComputeHash(bytes ?? []);
             return ToHex(hash);
         }
     }
 
     private static string ComputeSha256Text(string value)
     {
-        using SHA256 algorithm = SHA256.Create();
+        using var algorithm = SHA256.Create();
         return ToHex(algorithm.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty)));
     }
 
@@ -1108,7 +1108,7 @@ internal static class ChartInfoParser
 
     private static string ToHex(byte[] hash)
     {
-        StringBuilder builder = new StringBuilder(hash.Length * 2);
+        var builder = new StringBuilder(hash.Length * 2);
         foreach (byte value in hash)
         {
             builder.Append(value.ToString("x2", CultureInfo.InvariantCulture));
@@ -1137,16 +1137,13 @@ internal static class ChartInfoParser
 
     private static int NormalizeJudgeRank(int judgeRank, JudgeRankType type, ChartMode mode)
     {
-        int[] table = mode == ChartMode.Popn9 ? new[] { 33, 50, 70, 100, 133 } : new[] { 25, 50, 75, 100, 125 };
-        switch (type)
+        int[] table = mode == ChartMode.Popn9 ? [33, 50, 70, 100, 133] : [25, 50, 75, 100, 125];
+        return type switch
         {
-            case JudgeRankType.BmsRank:
-                return judgeRank >= 0 && judgeRank < 5 ? table[judgeRank] : table[2];
-            case JudgeRankType.BmsDefExRank:
-                return judgeRank > 0 ? judgeRank * table[2] / 100 : table[2];
-            default:
-                return judgeRank > 0 ? judgeRank : 100;
-        }
+            JudgeRankType.BmsRank => judgeRank >= 0 && judgeRank < 5 ? table[judgeRank] : table[2],
+            JudgeRankType.BmsDefExRank => judgeRank > 0 ? judgeRank * table[2] / 100 : table[2],
+            _ => judgeRank > 0 ? judgeRank : 100,
+        };
     }
 
     private static BmsonDocument ParseBmsonDocument(string json)
@@ -1156,27 +1153,27 @@ internal static class ChartInfoParser
 
     private static List<ChartNote>[] CreateLaneLists(int laneCount)
     {
-        List<ChartNote>[] result = new List<ChartNote>[laneCount];
+        var result = new List<ChartNote>[laneCount];
         for (int i = 0; i < result.Length; i++)
         {
-            result[i] = new List<ChartNote>();
+            result[i] = [];
         }
         return result;
     }
 
     private static bool IsInsideLongNote(IEnumerable<ChartNote> longNotes, double section)
     {
-        return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => note.Section < section && section <= (note.Pair?.Section ?? note.Section));
+        return (longNotes ?? []).Any(note => note.Section < section && section <= (note.Pair?.Section ?? note.Section));
     }
 
     private static bool IsInsideBmsLongNote(IEnumerable<ChartNote> longNotes, double section)
     {
-        return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => note.Section <= section && section <= (note.Pair?.Section ?? note.Section));
+        return (longNotes ?? []).Any(note => note.Section <= section && section <= (note.Pair?.Section ?? note.Section));
     }
 
     private static bool HasNoteInsideLongNote(IEnumerable<ChartNote> longNotes, double startSection, double endSection)
     {
-        return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => startSection < (note.Pair?.Section ?? note.Section) && note.Section < endSection);
+        return (longNotes ?? []).Any(note => startSection < (note.Pair?.Section ?? note.Section) && note.Section < endSection);
     }
 
     private static bool HasAnyNoteInRange(SortedList<int, ChartTimeline> timelinesByY, int lane, int startY, int endY, ParseTimeoutGuard timeoutGuard)
@@ -1269,7 +1266,7 @@ internal static class ChartInfoParser
     {
         private const int CheckIntervalMask = 1023;
 
-        public static readonly ParseTimeoutGuard None = new ParseTimeoutGuard(false, 0L, 0L);
+        public static readonly ParseTimeoutGuard None = new(false, 0L, 0L);
 
         private readonly bool enabled;
 
@@ -1313,36 +1310,22 @@ internal static class ChartInfoParser
         }
     }
 
-    internal sealed class ChartInfoParseResult
+    internal sealed class ChartInfoParseResult(LR2SongDBExtended.chart_info row, IReadOnlyList<ChartInfoParser.ChartInfoParseDiagnostic> diagnostics, string chartString)
     {
-        public ChartInfoParseResult(LR2SongDBExtended.chart_info row, IReadOnlyList<ChartInfoParseDiagnostic> diagnostics, string chartString)
-        {
-            Row = row;
-            Diagnostics = diagnostics ?? Array.Empty<ChartInfoParseDiagnostic>();
-            ChartString = chartString ?? string.Empty;
-        }
+        public LR2SongDBExtended.chart_info Row { get; } = row;
 
-        public LR2SongDBExtended.chart_info Row { get; }
+        public IReadOnlyList<ChartInfoParseDiagnostic> Diagnostics { get; } = diagnostics ?? [];
 
-        public IReadOnlyList<ChartInfoParseDiagnostic> Diagnostics { get; }
-
-        public string ChartString { get; }
+        public string ChartString { get; } = chartString ?? string.Empty;
     }
 
-    internal sealed class ChartInfoParseDiagnostic
+    internal sealed class ChartInfoParseDiagnostic(ChartInfoParser.ChartInfoParseDiagnosticSeverity severity, string code, string message)
     {
-        public ChartInfoParseDiagnostic(ChartInfoParseDiagnosticSeverity severity, string code, string message)
-        {
-            Severity = severity;
-            Code = code ?? string.Empty;
-            Message = message ?? string.Empty;
-        }
+        public ChartInfoParseDiagnosticSeverity Severity { get; } = severity;
 
-        public ChartInfoParseDiagnosticSeverity Severity { get; }
+        public string Code { get; } = code ?? string.Empty;
 
-        public string Code { get; }
-
-        public string Message { get; }
+        public string Message { get; } = message ?? string.Empty;
     }
 
     internal enum ChartInfoParseDiagnosticSeverity
@@ -1376,7 +1359,7 @@ internal static class ChartInfoParser
         BmsonJudgeRank
     }
 
-    private sealed class BmsChartBuilder
+    private sealed class BmsChartBuilder(string filePath, bool isPms, IList<ChartInfoParser.ChartInfoParseDiagnostic> diagnostics, ChartInfoParser.ParseTimeoutGuard timeoutGuard)
     {
         private const int LaneAutoplay = 1;
 
@@ -1410,21 +1393,21 @@ internal static class ChartInfoParser
 
         private const int P2MineKeyBase = 505;
 
-        private readonly string filePath;
+        private readonly string filePath = filePath;
 
-        private readonly bool isPms;
+        private readonly bool isPms = isPms;
 
-        private readonly IList<ChartInfoParseDiagnostic> diagnostics;
+        private readonly IList<ChartInfoParseDiagnostic> diagnostics = diagnostics;
 
-        private readonly ParseTimeoutGuard timeoutGuard;
+        private readonly ParseTimeoutGuard timeoutGuard = timeoutGuard ?? ParseTimeoutGuard.None;
 
-        private readonly List<BmsChannelLine> channelLines = new List<BmsChannelLine>();
+        private readonly List<BmsChannelLine> channelLines = [];
 
-        private readonly Dictionary<int, double> bpmTable = new Dictionary<int, double>();
+        private readonly Dictionary<int, double> bpmTable = [];
 
-        private readonly Dictionary<int, double> stopTable = new Dictionary<int, double>();
+        private readonly Dictionary<int, double> stopTable = [];
 
-        private readonly Dictionary<int, double> scrollTable = new Dictionary<int, double>();
+        private readonly Dictionary<int, double> scrollTable = [];
 
         private int order;
 
@@ -1433,14 +1416,6 @@ internal static class ChartInfoParser
         private int maxLinePairs;
 
         private long totalDataPairs;
-
-        public BmsChartBuilder(string filePath, bool isPms, IList<ChartInfoParseDiagnostic> diagnostics, ParseTimeoutGuard timeoutGuard)
-        {
-            this.filePath = filePath;
-            this.isPms = isPms;
-            this.diagnostics = diagnostics;
-            this.timeoutGuard = timeoutGuard ?? ParseTimeoutGuard.None;
-        }
 
         public int Base { get; private set; } = 36;
 
@@ -1682,7 +1657,7 @@ internal static class ChartInfoParser
         {
             timeoutGuard.ThrowIfTimedOut("bms_build_start");
             ChartMode mode = DetectMode();
-            ChartModel model = new ChartModel(filePath, mode)
+            var model = new ChartModel(filePath, mode)
             {
                 InitialBpm = InitialBpm,
                 Title = Title,
@@ -1698,13 +1673,13 @@ internal static class ChartInfoParser
             };
             double[] sectionStarts = BuildSectionStarts(out double[] sectionRates);
             BmsTimelineStore timelines = CreateTimelineStore();
-            ChartTimeline baseTimeline = new ChartTimeline(0.0, 0.0, mode.KeyCount)
+            var baseTimeline = new ChartTimeline(0.0, 0.0, mode.KeyCount)
             {
                 Bpm = model.InitialBpm
             };
             timelines.Add(0.0, baseTimeline);
             List<ChartNote>[] longNotesByLane = CreateLaneLists(mode.KeyCount);
-            ChartNote[] pendingLongStarts = new ChartNote[mode.KeyCount];
+            var pendingLongStarts = new ChartNote[mode.KeyCount];
             List<BmsChannelLine>[] sectionLineBuckets = BuildSectionLineBuckets();
             for (int section = 0; section <= maxSection; section++)
             {
@@ -1736,7 +1711,7 @@ internal static class ChartInfoParser
                 AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Error, "BMS_INITIAL_BPM_INVALID", "#BPMが定義されていないか無効です");
                 throw new BmsRecoverableParseException("BMS initial BPM is not defined or invalid.");
             }
-            model.SetTimelines(timelines.ValuesInOrder().ToList());
+            model.SetTimelines([.. timelines.ValuesInOrder()]);
             int totalNotes = model.GetTotalNotes(timeoutGuard);
             if (!model.DifficultyDefined)
             {
@@ -1758,13 +1733,13 @@ internal static class ChartInfoParser
 
         private List<BmsChannelLine>[] BuildSectionLineBuckets()
         {
-            List<BmsChannelLine>[] buckets = new List<BmsChannelLine>[Math.Max(1, maxSection + 1)];
+            var buckets = new List<BmsChannelLine>[Math.Max(1, maxSection + 1)];
             foreach (BmsChannelLine line in channelLines)
             {
                 List<BmsChannelLine> bucket = buckets[line.Section];
                 if (bucket == null)
                 {
-                    bucket = new List<BmsChannelLine>();
+                    bucket = [];
                     buckets[line.Section] = bucket;
                 }
                 bucket.Add(line);
@@ -1810,9 +1785,9 @@ internal static class ChartInfoParser
 
         private double[] BuildSectionStarts(out double[] rates)
         {
-            rates = Enumerable.Repeat(1.0, Math.Max(1, maxSection + 1)).ToArray();
+            rates = [.. Enumerable.Repeat(1.0, Math.Max(1, maxSection + 1))];
             int rateLineIndex = 0;
-            foreach (BmsChannelLine line in channelLines.Where((BmsChannelLine item) => item.Channel == SectionRate))
+            foreach (BmsChannelLine line in channelLines.Where(item => item.Channel == SectionRate))
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++rateLineIndex, "bms_section_rates");
                 if (TryParseJavaDouble(line.Data, out double rate))
@@ -1835,7 +1810,7 @@ internal static class ChartInfoParser
             {
                 return;
             }
-            List<BmsTimelineEvent> events = new List<BmsTimelineEvent>();
+            List<BmsTimelineEvent> events = [];
             int eventLineIndex = 0;
             int eventSequence = 0;
             foreach (BmsChannelLine line in sectionLines)
@@ -1979,8 +1954,8 @@ internal static class ChartInfoParser
                     }
                     if (previousNote.Kind == ChartNoteKind.Normal)
                     {
-                        ChartNote start = ChartNote.CreateLong(previousNote.Wav, LnMode);
-                        ChartNote end = ChartNote.CreateLong(-2, LnMode);
+                        var start = ChartNote.CreateLong(previousNote.Wav, LnMode);
+                        var end = ChartNote.CreateLong(-2, LnMode);
                         previous.SetNote(lane, start);
                         timeline.SetNote(lane, end);
                         start.PairWith(end);
@@ -1988,7 +1963,7 @@ internal static class ChartInfoParser
                     }
                     else if (previousNote.Kind == ChartNoteKind.Long && previousNote.Pair == null)
                     {
-                        ChartNote end = ChartNote.CreateLong(-2, previousNote.LongType);
+                        var end = ChartNote.CreateLong(-2, previousNote.LongType);
                         timeline.SetNote(lane, end);
                         previousNote.PairWith(end);
                         longNotesByLane[lane].Add(previousNote);
@@ -2008,7 +1983,7 @@ internal static class ChartInfoParser
                 ChartNote pending = pendingLongStarts[lane];
                 if (pending == null)
                 {
-                    ChartNote ignored = ChartNote.CreateLong(data, LnMode);
+                    var ignored = ChartNote.CreateLong(data, LnMode);
                     ignored.Section = double.MinValue;
                     pendingLongStarts[lane] = ignored;
                 }
@@ -2035,7 +2010,7 @@ internal static class ChartInfoParser
                 {
                     timeline.HasBackground = true;
                 }
-                ChartNote note = ChartNote.CreateLong(data, LnMode);
+                var note = ChartNote.CreateLong(data, LnMode);
                 timeline.SetNote(lane, note);
                 pendingLongStarts[lane] = note;
                 return;
@@ -2064,7 +2039,7 @@ internal static class ChartInfoParser
             {
                 return;
             }
-            ChartNote end = ChartNote.CreateLong(data == start.Wav ? -2 : data, start.LongType);
+            var end = ChartNote.CreateLong(data == start.Wav ? -2 : data, start.LongType);
             timeline.SetNote(lane, end);
             start.PairWith(end);
             longNotesByLane[lane].Add(start);
@@ -2083,7 +2058,7 @@ internal static class ChartInfoParser
                 throw new BmsRecoverableParseException("BMS timeline BPM is not defined before a future timeline.");
             }
             double preciseTime = previous.PreciseTimeMicroseconds + previous.StopMicroseconds + 240000.0 * 1000.0 * (section - previousSection) / previous.Bpm;
-            ChartTimeline timeline = new ChartTimeline(section, preciseTime, mode.KeyCount)
+            var timeline = new ChartTimeline(section, preciseTime, mode.KeyCount)
             {
                 Bpm = previous.Bpm,
                 Scroll = previous.Scroll
@@ -2227,7 +2202,7 @@ internal static class ChartInfoParser
 
     private sealed class SortedListTimelineStore : BmsTimelineStore
     {
-        private readonly SortedList<double, ChartTimeline> timelines = new SortedList<double, ChartTimeline>();
+        private readonly SortedList<double, ChartTimeline> timelines = [];
 
         public override int Count => timelines.Count;
 
@@ -2279,7 +2254,7 @@ internal static class ChartInfoParser
 
     private sealed class TreapTimelineStore : BmsTimelineStore
     {
-        private readonly Dictionary<double, ChartTimeline> lookup = new Dictionary<double, ChartTimeline>();
+        private readonly Dictionary<double, ChartTimeline> lookup = [];
 
         private Node root;
 
@@ -2339,7 +2314,7 @@ internal static class ChartInfoParser
 
         public override IEnumerable<ChartTimeline> ValuesInOrder()
         {
-            Stack<Node> stack = new Stack<Node>();
+            var stack = new Stack<Node>();
             Node current = root;
             while (current != null || stack.Count > 0)
             {
@@ -2356,7 +2331,7 @@ internal static class ChartInfoParser
 
         public override IEnumerable<ChartTimeline> DescendingBefore(double section)
         {
-            Stack<Node> stack = new Stack<Node>();
+            var stack = new Stack<Node>();
             Node current = root;
             while (current != null)
             {
@@ -2425,20 +2400,13 @@ internal static class ChartInfoParser
             return right;
         }
 
-        private sealed class Node
+        private sealed class Node(double key, ChartInfoParser.ChartTimeline value)
         {
-            public Node(double key, ChartTimeline value)
-            {
-                Key = key;
-                Value = value;
-                Priority = HashPriority(key);
-            }
+            public double Key { get; } = key;
 
-            public double Key { get; }
+            public ChartTimeline Value { get; } = value;
 
-            public ChartTimeline Value { get; }
-
-            public uint Priority { get; }
+            public uint Priority { get; } = HashPriority(key);
 
             public Node Left { get; set; }
 
@@ -2546,40 +2514,32 @@ internal static class ChartInfoParser
         }
     }
 
-    private sealed class BmsChannelLine
+    private sealed class BmsChannelLine(int section, int channel, string data, int order)
     {
-        public BmsChannelLine(int section, int channel, string data, int order)
-        {
-            Section = section;
-            Channel = channel;
-            Data = data;
-            Order = order;
-        }
+        public int Section { get; } = section;
 
-        public int Section { get; }
+        public int Channel { get; } = channel;
 
-        public int Channel { get; }
+        public string Data { get; } = data;
 
-        public string Data { get; }
-
-        public int Order { get; }
+        public int Order { get; } = order;
     }
 
     private sealed class ChartMode
     {
-        public static readonly ChartMode Beat5 = new ChartMode(5, 6, new[] { 5 }, new[] { 0, 1, 2, 3, 4, 5, -1, -1, -1, 6, 7, 8, 9, 10, 11, -1, -1, -1 }, null);
+        public static readonly ChartMode Beat5 = new(5, 6, [5], [0, 1, 2, 3, 4, 5, -1, -1, -1, 6, 7, 8, 9, 10, 11, -1, -1, -1], null);
 
-        public static readonly ChartMode Beat7 = new ChartMode(7, 8, new[] { 7 }, new[] { 0, 1, 2, 3, 4, 7, -1, 5, 6, 8, 9, 10, 11, 12, 15, -1, 13, 14 }, null);
+        public static readonly ChartMode Beat7 = new(7, 8, [7], [0, 1, 2, 3, 4, 7, -1, 5, 6, 8, 9, 10, 11, 12, 15, -1, 13, 14], null);
 
-        public static readonly ChartMode Beat10 = new ChartMode(10, 12, new[] { 5, 11 }, new[] { 0, 1, 2, 3, 4, 5, -1, -1, -1, 6, 7, 8, 9, 10, 11, -1, -1, -1 }, null);
+        public static readonly ChartMode Beat10 = new(10, 12, [5, 11], [0, 1, 2, 3, 4, 5, -1, -1, -1, 6, 7, 8, 9, 10, 11, -1, -1, -1], null);
 
-        public static readonly ChartMode Beat14 = new ChartMode(14, 16, new[] { 7, 15 }, new[] { 0, 1, 2, 3, 4, 7, -1, 5, 6, 8, 9, 10, 11, 12, 15, -1, 13, 14 }, null);
+        public static readonly ChartMode Beat14 = new(14, 16, [7, 15], [0, 1, 2, 3, 4, 7, -1, 5, 6, 8, 9, 10, 11, 12, 15, -1, 13, 14], null);
 
-        public static readonly ChartMode Popn9 = new ChartMode(9, 9, Array.Empty<int>(), new[] { 0, 1, 2, 3, 4, -1, -1, -1, -1, -1, 5, 6, 7, 8, -1, -1, -1, -1 }, null);
+        public static readonly ChartMode Popn9 = new(9, 9, [], [0, 1, 2, 3, 4, -1, -1, -1, -1, -1, 5, 6, 7, 8, -1, -1, -1, -1], null);
 
-        public static readonly ChartMode Keyboard24 = new ChartMode(25, 26, new[] { 24, 25 }, null, null);
+        public static readonly ChartMode Keyboard24 = new(25, 26, [24, 25], null, null);
 
-        public static readonly ChartMode Keyboard24Double = new ChartMode(50, 52, new[] { 24, 25, 50, 51 }, null, null);
+        public static readonly ChartMode Keyboard24Double = new(50, 52, [24, 25, 50, 51], null, null);
 
         private readonly int[] scratchKeys;
 
@@ -2593,7 +2553,7 @@ internal static class ChartInfoParser
         {
             DisplayMode = displayMode;
             KeyCount = keyCount;
-            this.scratchKeys = scratchKeys ?? Array.Empty<int>();
+            this.scratchKeys = scratchKeys ?? [];
             scratchKeyMap = new bool[Math.Max(0, keyCount)];
             foreach (int scratchKey in this.scratchKeys)
             {
@@ -2612,26 +2572,17 @@ internal static class ChartInfoParser
 
         public static ChartMode FromBmsonHint(string modeHint)
         {
-            switch ((modeHint ?? string.Empty).Trim().ToLowerInvariant())
+            return (modeHint ?? string.Empty).Trim().ToLowerInvariant() switch
             {
-                case "beat-5k":
-                    return Beat5;
-                case "beat-7k":
-                    return Beat7;
-                case "beat-10k":
-                    return Beat10;
-                case "beat-14k":
-                    return Beat14;
-                case "popn-5k":
-                case "popn-9k":
-                    return Popn9;
-                case "keyboard-24k":
-                    return Keyboard24;
-                case "keyboard-24k-double":
-                    return Keyboard24Double;
-                default:
-                    return null;
-            }
+                "beat-5k" => Beat5,
+                "beat-7k" => Beat7,
+                "beat-10k" => Beat10,
+                "beat-14k" => Beat14,
+                "popn-5k" or "popn-9k" => Popn9,
+                "keyboard-24k" => Keyboard24,
+                "keyboard-24k-double" => Keyboard24Double,
+                _ => null,
+            };
         }
 
         public bool IsScratchKey(int lane)
@@ -2641,7 +2592,7 @@ internal static class ChartInfoParser
 
         public int[] GetBmsChannelAssign()
         {
-            return bmsChannelAssign ?? Enumerable.Range(0, KeyCount).Concat(Enumerable.Repeat(-1, Math.Max(0, 18 - KeyCount))).Take(18).ToArray();
+            return bmsChannelAssign ?? [.. Enumerable.Range(0, KeyCount).Concat(Enumerable.Repeat(-1, Math.Max(0, 18 - KeyCount))).Take(18)];
         }
 
         public int[] GetBmsonKeyAssign()
@@ -2652,29 +2603,23 @@ internal static class ChartInfoParser
             }
             if (ReferenceEquals(this, Beat5))
             {
-                return new[] { 0, 1, 2, 3, 4, -1, -1, 5 };
+                return [0, 1, 2, 3, 4, -1, -1, 5];
             }
             if (ReferenceEquals(this, Beat10))
             {
-                return new[] { 0, 1, 2, 3, 4, -1, -1, 5, 6, 7, 8, 9, 10, -1, -1, 11 };
+                return [0, 1, 2, 3, 4, -1, -1, 5, 6, 7, 8, 9, 10, -1, -1, 11];
             }
-            return Enumerable.Range(0, KeyCount).ToArray();
+            return [.. Enumerable.Range(0, KeyCount)];
         }
     }
 
-    private sealed class ChartModel
+    private sealed class ChartModel(string path, ChartInfoParser.ChartMode mode)
     {
-        private List<ChartTimeline> timelines = new List<ChartTimeline>();
+        private List<ChartTimeline> timelines = [];
 
-        public ChartModel(string path, ChartMode mode)
-        {
-            Path = path;
-            Mode = mode;
-        }
+        public string Path { get; } = path;
 
-        public string Path { get; }
-
-        public ChartMode Mode { get; }
+        public ChartMode Mode { get; } = mode;
 
         public string Md5 { get; set; }
 
@@ -2708,12 +2653,12 @@ internal static class ChartInfoParser
 
         public void SetTimelines(List<ChartTimeline> value)
         {
-            timelines = (value ?? new List<ChartTimeline>()).OrderBy((ChartTimeline timeline) => timeline.TimeMicroseconds).ToList();
+            timelines = [.. (value ?? []).OrderBy(timeline => timeline.TimeMicroseconds)];
         }
 
         public int GetTotalNotes()
         {
-            return Timelines.Sum((ChartTimeline timeline) => timeline.GetTotalNotes(LntypeLongNote));
+            return Timelines.Sum(timeline => timeline.GetTotalNotes(LntypeLongNote));
         }
 
         public int GetTotalNotes(ParseTimeoutGuard timeoutGuard)
@@ -2804,7 +2749,7 @@ internal static class ChartInfoParser
                 {
                     feature |= FeatureScroll;
                 }
-                foreach (ChartNote note in timeline.Notes.Where((ChartNote item) => item != null))
+                foreach (ChartNote note in timeline.Notes.Where(item => item != null))
                 {
                     if (note.Kind == ChartNoteKind.Mine)
                     {
@@ -2840,7 +2785,7 @@ internal static class ChartInfoParser
 
         public string ToChartString(ParseTimeoutGuard timeoutGuard)
         {
-            StringBuilder builder = new StringBuilder();
+            var builder = new StringBuilder();
             builder.Append("JUDGERANK:").Append(JudgeRank).Append('\n');
             builder.Append("TOTAL:").Append(FormatDouble(Total)).Append('\n');
             if (LnMode != 0)
@@ -2852,7 +2797,7 @@ internal static class ChartInfoParser
             foreach (ChartTimeline timeline in Timelines)
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++timelineIndex, "chart_string");
-                StringBuilder line = new StringBuilder();
+                var line = new StringBuilder();
                 bool shouldWrite = false;
                 line.Append(timeline.TimeMilliseconds).Append(':');
                 if (!currentBpm.HasValue || Math.Abs(currentBpm.Value - timeline.Bpm) > double.Epsilon)
@@ -2917,21 +2862,13 @@ internal static class ChartInfoParser
         }
     }
 
-    private sealed class ChartTimeline
+    private sealed class ChartTimeline(double section, double preciseTimeMicroseconds, int laneCount)
     {
-        public ChartTimeline(double section, double preciseTimeMicroseconds, int laneCount)
-        {
-            Section = section;
-            PreciseTimeMicroseconds = preciseTimeMicroseconds;
-            TimeMicroseconds = ToCheckedMicroseconds(preciseTimeMicroseconds, "BMS timeline time is out of range.");
-            Notes = new ChartNote[laneCount];
-        }
+        public double Section { get; } = section;
 
-        public double Section { get; }
+        public double PreciseTimeMicroseconds { get; } = preciseTimeMicroseconds;
 
-        public double PreciseTimeMicroseconds { get; }
-
-        public long TimeMicroseconds { get; }
+        public long TimeMicroseconds { get; } = ToCheckedMicroseconds(preciseTimeMicroseconds, "BMS timeline time is out of range.");
 
         public long TimeMillisecondsLong => TimeMicroseconds / 1000L;
 
@@ -2955,7 +2892,7 @@ internal static class ChartInfoParser
 
         public bool HasBga { get; set; }
 
-        public ChartNote[] Notes { get; }
+        public ChartNote[] Notes { get; } = new ChartNote[laneCount];
 
         public void SetNote(int lane, ChartNote note)
         {
@@ -2998,7 +2935,7 @@ internal static class ChartInfoParser
 
         public bool HasPlayableOrResourceEvent()
         {
-            return HasHiddenNote || HasBackground || HasBga || Notes.Any((ChartNote note) => note != null);
+            return HasHiddenNote || HasBackground || HasBga || Notes.Any(note => note != null);
         }
 
         public string GetBpmChartText()
@@ -3131,7 +3068,7 @@ internal static class ChartInfoParser
 
         public static ChartStatistics Calculate(ChartModel model, ParseTimeoutGuard timeoutGuard)
         {
-            ChartStatistics result = new ChartStatistics();
+            var result = new ChartStatistics();
             int laneCount = model.Mode.KeyCount;
             int[][] laneNotes = new int[laneCount][];
             for (int lane = 0; lane < laneCount; lane++)
@@ -3307,11 +3244,11 @@ internal static class ChartInfoParser
 
         private static void CalculateSpeed(ChartModel model, ChartStatistics result, ParseTimeoutGuard timeoutGuard)
         {
-            List<double[]> speedList = new List<double[]>();
-            Dictionary<double, int> bpmNoteCounts = new Dictionary<double, int>();
-            List<double> bpmInsertionOrder = new List<double>();
+            List<double[]> speedList = [];
+            Dictionary<double, int> bpmNoteCounts = [];
+            List<double> bpmInsertionOrder = [];
             double currentSpeed = model.InitialBpm;
-            speedList.Add(new[] { currentSpeed, 0.0 });
+            speedList.Add([currentSpeed, 0.0]);
             int speedChangeCount = 0;
             int timelineIndex = 0;
             foreach (ChartTimeline timeline in model.Timelines)
@@ -3328,7 +3265,7 @@ internal static class ChartInfoParser
                     if (Math.Abs(currentSpeed) > double.Epsilon)
                     {
                         currentSpeed = 0.0;
-                        speedList.Add(new[] { currentSpeed, (double)timeline.TimeMilliseconds });
+                        speedList.Add([currentSpeed, (double)timeline.TimeMilliseconds]);
                         speedChangeCount++;
                     }
                 }
@@ -3338,17 +3275,17 @@ internal static class ChartInfoParser
                     if (Math.Abs(currentSpeed - timelineSpeed) > double.Epsilon)
                     {
                         currentSpeed = timelineSpeed;
-                        speedList.Add(new[] { currentSpeed, (double)timeline.TimeMilliseconds });
+                        speedList.Add([currentSpeed, (double)timeline.TimeMilliseconds]);
                         speedChangeCount++;
                     }
                 }
             }
             if (model.Timelines.Count > 0 && Math.Abs(speedList[speedList.Count - 1][1] - model.Timelines[model.Timelines.Count - 1].TimeMilliseconds) > double.Epsilon)
             {
-                speedList.Add(new[] { currentSpeed, (double)model.Timelines[model.Timelines.Count - 1].TimeMilliseconds });
+                speedList.Add([currentSpeed, (double)model.Timelines[model.Timelines.Count - 1].TimeMilliseconds]);
             }
             result.MainBpm = SelectMainBpmInJavaHashMapOrder(bpmNoteCounts, bpmInsertionOrder);
-            result.SpeedChange = string.Join(",", speedList.SelectMany((double[] values) => values).Select(FormatDouble));
+            result.SpeedChange = string.Join(",", speedList.SelectMany(values => values).Select(FormatDouble));
             result.SpeedChangeCount = speedChangeCount;
         }
 
@@ -3368,7 +3305,7 @@ internal static class ChartInfoParser
             double result = 0.0;
             int maxCount = 0;
             foreach (double bpm in insertionOrder
-                .Select((double bpm, int index) => new { Bpm = bpm, Index = index, Bucket = JavaHashMapBucket(bpm, capacity) })
+                .Select((bpm, index) => new { Bpm = bpm, Index = index, Bucket = JavaHashMapBucket(bpm, capacity) })
                 .OrderBy((item) => item.Bucket)
                 .ThenBy((item) => item.Index)
                 .Select((item) => item.Bpm))
@@ -3393,7 +3330,7 @@ internal static class ChartInfoParser
 
         private static string EncodeDistribution(DistributionBuckets values, ParseTimeoutGuard timeoutGuard)
         {
-            StringBuilder builder = new StringBuilder(values.BucketCount * 14 + 1);
+            var builder = new StringBuilder(values.BucketCount * 14 + 1);
             builder.Append('#');
             for (int second = 0; second < values.BucketCount; second++)
             {
@@ -3412,7 +3349,7 @@ internal static class ChartInfoParser
 
         private static string EncodeLaneNotes(int[][] values)
         {
-            return string.Join(",", values.SelectMany((int[] lane) => lane).Select((int value) => value.ToString(CultureInfo.InvariantCulture)));
+            return string.Join(",", values.SelectMany(lane => lane).Select(value => value.ToString(CultureInfo.InvariantCulture)));
         }
     }
 

@@ -86,7 +86,7 @@ internal sealed class ChartInfoBackfillResult
     /// <summary>
     /// 解析に失敗した譜面パスです。
     /// </summary>
-    public List<string> FailedPaths { get; } = new List<string>();
+    public List<string> FailedPaths { get; } = [];
 
     /// <summary>
     /// 解析に要した時間です。

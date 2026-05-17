@@ -26,7 +26,7 @@ public static class CommandLineSwitches
 
     private static (NormalLogLevel Level, string InvalidValue) ParseLogLevel()
     {
-        string[] source = args.Where((string x) => x.StartsWith("--log-level=", StringComparison.OrdinalIgnoreCase)).ToArray();
+        string[] source = [.. args.Where(x => x.StartsWith("--log-level=", StringComparison.OrdinalIgnoreCase))];
         if (source.Length == 0)
         {
             return (NormalLogLevel.Warn, null);

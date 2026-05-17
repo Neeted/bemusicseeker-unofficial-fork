@@ -11,10 +11,10 @@ internal sealed class ChartPackageDiscoveryResult
     /// <summary>
     /// 探索で見つかった chart package 一覧です。
     /// </summary>
-    public List<ChartPackage> Packages { get; } = new List<ChartPackage>();
+    public List<ChartPackage> Packages { get; } = [];
 
     /// <summary>
     /// フォルダ走査由来で split file-package が生成されたソースディレクトリ一覧です。
     /// </summary>
-    public List<string> RegroupEligibleSourceDirectories { get; } = new List<string>();
+    public List<string> RegroupEligibleSourceDirectories { get; } = [];
 }

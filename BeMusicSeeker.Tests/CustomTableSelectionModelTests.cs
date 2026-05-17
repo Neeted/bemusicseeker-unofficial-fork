@@ -159,7 +159,7 @@ public sealed class CustomTableSelectionModelTests
 
     private static CustomTableSelectionModel CreateModel(int itemCount)
     {
-        CustomTableSelectionModel model = new CustomTableSelectionModel();
+        var model = new CustomTableSelectionModel();
         model.SetItemCount(itemCount);
         return model;
     }

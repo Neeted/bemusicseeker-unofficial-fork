@@ -21,7 +21,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
 
     private BMSAutoPlayer _player;
 
-    private readonly object _sharedObjectLock = new object();
+    private readonly object _sharedObjectLock = new();
 
     private readonly Action _playbackThreadAction;
 
@@ -371,7 +371,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
             double num = 0.2;
             double value = 5.0;
             int num2 = 5;
-            TimeSpan timeSpan = TimeSpan.FromSeconds(0.0 - num);
+            var timeSpan = TimeSpan.FromSeconds(0.0 - num);
             while (true)
             {
                 lock (_sharedObjectLock)
@@ -530,7 +530,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
         }
         lock (_sharedObjectLock)
         {
-            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(Settings.Default.PlayerDevice) ? default(BassAudioPlayer.DeviceDescriptor) : new BassAudioPlayer.DeviceDescriptor(Settings.Default.PlayerDeviceName, Settings.Default.PlayerDevice));
+            BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(Settings.Default.PlayerDevice) ? default : new BassAudioPlayer.DeviceDescriptor(Settings.Default.PlayerDeviceName, Settings.Default.PlayerDevice));
             BassAudioPlayer.Frequency = Settings.Default.PlayerSampleRate;
             BassAudioPlayer.Format = Settings.Default.PlayerFormat;
             BassAudioPlayer.DeviceVolume = (float)Math.Min(100, Math.Max(0, Settings.Default.uBMplayVolume)) / 100f;
@@ -552,7 +552,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
             MusicDuration = TimeSpan.MinValue;
             BmsDuration = TimeSpan.MinValue;
             _player?.Stop();
-            BMSAutoPlayer bMSAutoPlayer = new BMSAutoPlayer(new Ribbit.BMS.BMSFile(bmsFilePath));
+            var bMSAutoPlayer = new BMSAutoPlayer(new Ribbit.BMS.BMSFile(bmsFilePath));
             bMSAutoPlayer.LoadResources();
             _player?.Dispose();
             _player = bMSAutoPlayer;
@@ -582,10 +582,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
                 throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);
             }
             _onExitEvent = onExitEventHandler;
-            if (_infloopTask == null)
-            {
-                _infloopTask = Task.Run(_playbackThreadAction).Logging("PlayStart");
-            }
+            _infloopTask ??= Task.Run(_playbackThreadAction).Logging("PlayStart");
         }
         try
         {

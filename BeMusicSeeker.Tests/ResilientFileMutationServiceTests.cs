@@ -12,11 +12,11 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ResilientFileMutationServiceTests
 {
-    private static readonly FileMutationOptions targetOnlyFileMutationOptions = new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly);
+    private static readonly FileMutationOptions targetOnlyFileMutationOptions = new(ReadOnlyNormalizationScope.TargetOnly);
 
-    private static readonly FileMutationOptions recursiveDirectoryTreeFileMutationOptions = new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree);
+    private static readonly FileMutationOptions recursiveDirectoryTreeFileMutationOptions = new(ReadOnlyNormalizationScope.RecursiveDirectoryTree);
 
-    private readonly ResilientFileMutationService resilientFileMutationService = new ResilientFileMutationService();
+    private readonly ResilientFileMutationService resilientFileMutationService = new();
 
     /// <summary>
     /// ReadOnly ファイルでも直接削除できることを検証します。
@@ -110,7 +110,7 @@ public sealed class ResilientFileMutationServiceTests
             string filePath = Path.Combine(tempDirectoryPath, "readonly-timestamp.txt");
             File.WriteAllText(filePath, "timestamp");
             SetReadOnly(filePath);
-            DateTime expectedLastWriteTime = new DateTime(2025, 12, 1, 10, 20, 30);
+            var expectedLastWriteTime = new DateTime(2025, 12, 1, 10, 20, 30);
 
             resilientFileMutationService.SetTimestamps(filePath, isDirectory: false, creationTime: null, lastWriteTime: expectedLastWriteTime, targetOnlyFileMutationOptions);
 
@@ -130,17 +130,15 @@ public sealed class ResilientFileMutationServiceTests
             string filePath = Path.Combine(tempDirectoryPath, "locked-file.txt");
             File.WriteAllText(filePath, "locked");
 
-            using (FileStream lockedFileStream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-            {
-                FileMutationException fileMutationException = Assert.ThrowsException<FileMutationException>(() =>
-                    resilientFileMutationService.DeleteFileDirect(filePath, targetOnlyFileMutationOptions));
+            using var lockedFileStream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            FileMutationException fileMutationException = Assert.ThrowsException<FileMutationException>(() =>
+                resilientFileMutationService.DeleteFileDirect(filePath, targetOnlyFileMutationOptions));
 
-                Assert.AreEqual(FileMutationKind.DeleteFileDirect, fileMutationException.Kind);
-                Assert.AreEqual(filePath, fileMutationException.PrimaryPath);
-                Assert.IsTrue(fileMutationException.AttemptCount >= 1);
-                Assert.IsTrue(fileMutationException.WasRetried);
-                Assert.IsInstanceOfType(fileMutationException.RootCause, typeof(Exception));
-            }
+            Assert.AreEqual(FileMutationKind.DeleteFileDirect, fileMutationException.Kind);
+            Assert.AreEqual(filePath, fileMutationException.PrimaryPath);
+            Assert.IsTrue(fileMutationException.AttemptCount >= 1);
+            Assert.IsTrue(fileMutationException.WasRetried);
+            Assert.IsInstanceOfType(fileMutationException.RootCause, typeof(Exception));
         });
     }
 

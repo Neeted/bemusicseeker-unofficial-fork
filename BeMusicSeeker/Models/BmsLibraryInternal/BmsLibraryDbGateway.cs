@@ -17,31 +17,26 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// chart_info backfill 中に補完した MD5/SHA-256 対応です。
 /// BMSFile へ SHA-256 を反映する前に DB へ保存できるよう、所有オブジェクトとは分離しています。
 /// </summary>
-internal sealed class ChartDigestBackfillEntry
+/// <remarks>
+/// 保存する digest 対応を作成します。
+/// </remarks>
+/// <param name="md5">LR2 song.hash と対応する MD5。</param>
+/// <param name="sha256">譜面ファイル全体の SHA-256。</param>
+internal sealed class ChartDigestBackfillEntry(string md5, string sha256)
 {
-    /// <summary>
-    /// 保存する digest 対応を作成します。
-    /// </summary>
-    /// <param name="md5">LR2 song.hash と対応する MD5。</param>
-    /// <param name="sha256">譜面ファイル全体の SHA-256。</param>
-    public ChartDigestBackfillEntry(string md5, string sha256)
-    {
-        Md5 = md5 ?? string.Empty;
-        Sha256 = sha256 ?? string.Empty;
-    }
 
     /// <summary>
     /// LR2 song.hash と対応する MD5 です。
     /// </summary>
-    public string Md5 { get; }
+    public string Md5 { get; } = md5 ?? string.Empty;
 
     /// <summary>
     /// 譜面ファイル全体の SHA-256 です。
     /// </summary>
-    public string Sha256 { get; }
+    public string Sha256 { get; } = sha256 ?? string.Empty;
 }
 
-internal sealed class BmsLibraryDbGateway
+internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath = null)
 {
     private const int ChartInfoLookupChunkSize = 500;
 
@@ -80,15 +75,9 @@ internal sealed class BmsLibraryDbGateway
 
     internal const int ChartInfoMetadataBundleFormatVersion = 1;
 
-    public string SongDbPath { get; }
+    public string SongDbPath { get; } = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
 
-    public string ScoreDbPath { get; }
-
-    public BmsLibraryDbGateway(string songDbPath, string scoreDbPath = null)
-    {
-        SongDbPath = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
-        ScoreDbPath = scoreDbPath;
-    }
+    public string ScoreDbPath { get; } = scoreDbPath;
 
     public LR2SongDBExtended OpenSongDb()
     {
@@ -140,7 +129,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void DeleteInstallRows(IEnumerable<string> installPaths)
     {
-        List<string> paths = (installPaths ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        List<string> paths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase)];
         if (paths.Count == 0)
         {
             return;
@@ -156,7 +145,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void UpsertInstallRows(IEnumerable<ChartPackage> packages)
     {
-        List<ChartPackage> items = (packages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage package) => package != null && !string.IsNullOrWhiteSpace(package.path)).ToList();
+        List<ChartPackage> items = [.. (packages ?? []).Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))];
         if (items.Count == 0)
         {
             return;
@@ -169,7 +158,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void UpsertSongs(IEnumerable<BMSFile> bmsFiles)
     {
-        List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> files = [.. (bmsFiles ?? []).Where(file => file != null)];
         if (files.Count == 0)
         {
             return;
@@ -233,7 +222,7 @@ internal sealed class BmsLibraryDbGateway
         }
         UpsertChartInfoBackfillChunk(
             songDb,
-            Enumerable.Empty<ChartDigestBackfillEntry>(),
+            [],
             chunk.ChartInfoRows,
             chunk.ParseFailureRows,
             chunk.ParseFailureDeleteMd5s);
@@ -241,7 +230,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void DeleteSongsAndMaintenance(IEnumerable<BMSFile> bmsFiles)
     {
-        List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path)).ToList();
+        List<BMSFile> files = [.. (bmsFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))];
         if (files.Count == 0)
         {
             return;
@@ -254,15 +243,13 @@ internal sealed class BmsLibraryDbGateway
                 songDb.Delete<LR2SongDB.song>(file.path);
                 songDb.Delete<LR2SongDBExtended.maintenance>(file.path);
             }
-            DeleteChartDigestsIfOrphaned(songDb, files.Select((BMSFile file) => file.hash));
+            DeleteChartDigestsIfOrphaned(songDb, files.Select(file => file.hash));
         });
     }
 
     public void DeleteBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
-        List<LR2SongDBExtended.bmson_song> entries = (songs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .ToList();
+        List<LR2SongDBExtended.bmson_song> entries = [.. (songs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         if (entries.Count == 0)
         {
             return;
@@ -283,9 +270,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void UpsertMaintenanceInfos(IEnumerable<BMSFileMaintenanceInfo> maintenanceInfos)
     {
-        List<BMSFileMaintenanceInfo> entries = (maintenanceInfos ?? Enumerable.Empty<BMSFileMaintenanceInfo>())
-            .Where((BMSFileMaintenanceInfo info) => info != null && !string.IsNullOrWhiteSpace(info.path))
-            .ToList();
+        List<BMSFileMaintenanceInfo> entries = [.. (maintenanceInfos ?? []).Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
         if (entries.Count == 0)
         {
             return;
@@ -301,11 +286,10 @@ internal sealed class BmsLibraryDbGateway
 
     public int DeleteMaintenanceRows(IEnumerable<string> paths)
     {
-        List<string> entries = (paths ?? Enumerable.Empty<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
-            .Select((string path) => path.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> entries = [.. (paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (entries.Count == 0)
         {
             return 0;
@@ -323,7 +307,7 @@ internal sealed class BmsLibraryDbGateway
 
     public ScoreTableLoadResult LoadScoresAndPlayerId()
     {
-        ScoreTableLoadResult result = new ScoreTableLoadResult();
+        var result = new ScoreTableLoadResult();
         if (string.IsNullOrWhiteSpace(ScoreDbPath))
         {
             return result;
@@ -339,42 +323,42 @@ internal sealed class BmsLibraryDbGateway
     public List<ChartPackage> LoadInstallPackages()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
-        return songDb.Table<ChartPackage>().ToList();
+        return [.. songDb.Table<ChartPackage>()];
     }
 
     public PlaylistEntriesHydrationLoadResult LoadStartupPlaylistEntries()
     {
-        PlaylistEntriesHydrationLoadResult result = new PlaylistEntriesHydrationLoadResult();
+        var result = new PlaylistEntriesHydrationLoadResult();
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         result.ReadOnly = songDb.IsReadOnlyConnection;
         result.DbLockWaitMs = songDb.ProcessLockWaitMs;
         string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.playlist_id);
+        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.playlist_id);
         string sql =
             "SELECT "
-            + string.Join(", ", new[]
-            {
+            + string.Join(", ",
+            [
                 playlistIdColumn,
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.md5),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.sha256),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.level),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.title),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.artist),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.folder),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.lr2_bmsid),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.url),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.url_diff),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.name_diff),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.org_md5),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.adddate),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.comment),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.memo),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.is_removed)
-            })
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.md5),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.sha256),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.level),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.title),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.artist),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.folder),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.lr2_bmsid),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.url),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.url_diff),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.name_diff),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.org_md5),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.adddate),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.comment),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.memo),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.is_removed)
+            ])
             + " FROM " + tableName
             + " WHERE " + playlistIdColumn + " IS NOT NULL;";
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        LR2SongDBExtended.SQLiteCommandExtended command = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(sql);
+        var stopwatch = Stopwatch.StartNew();
+        var command = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(sql);
         command.ForEachRawValueAsString(delegate (string[] values)
         {
             if (values == null || values.Length < 16 || !TryParseNullableInt(values[0], out int playlistId))
@@ -612,7 +596,7 @@ internal sealed class BmsLibraryDbGateway
         {
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
-        Dictionary<string, string> dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartDigestQueryRow item in songDb.Query<ChartDigestQueryRow>("SELECT md5, sha256 FROM " + tableName + " WHERE md5 IS NOT NULL AND TRIM(md5) <> '' AND sha256 IS NOT NULL AND TRIM(sha256) <> '';"))
         {
             if (item != null && !string.IsNullOrWhiteSpace(item.md5) && !string.IsNullOrWhiteSpace(item.sha256))
@@ -631,7 +615,7 @@ internal sealed class BmsLibraryDbGateway
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         EnsureChartInfoSchema(songDb);
-        Dictionary<string, LR2SongDBExtended.chart_info> dictionary = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var dictionary = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDBExtended.chart_info item in songDb.Table<LR2SongDBExtended.chart_info>())
         {
             if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
@@ -644,11 +628,11 @@ internal sealed class BmsLibraryDbGateway
 
     public ChartInfoHydrationLoadResult LoadChartInfoHydrationData(TimeSpan parseTimeout)
     {
-        ChartInfoHydrationLoadResult result = new ChartInfoHydrationLoadResult();
+        var result = new ChartInfoHydrationLoadResult();
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         result.ReadOnly = songDb.IsReadOnlyConnection;
         result.DbLockWaitMs = songDb.ProcessLockWaitMs;
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         foreach (LR2SongDBExtended.chart_info item in songDb.Table<LR2SongDBExtended.chart_info>())
         {
             result.ChartInfoRows++;
@@ -680,7 +664,7 @@ internal sealed class BmsLibraryDbGateway
     public Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosBySha256(IEnumerable<string> sha256s)
     {
         List<string> keys = NormalizeChartInfoLookupKeys(sha256s);
-        Dictionary<string, LR2SongDBExtended.chart_info> result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
         if (keys.Count == 0)
         {
             return result;
@@ -729,7 +713,7 @@ internal sealed class BmsLibraryDbGateway
     public Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosByMd5(IEnumerable<string> md5s)
     {
         List<string> keys = NormalizeChartInfoLookupKeys(md5s);
-        Dictionary<string, LR2SongDBExtended.chart_info> result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
         if (keys.Count == 0)
         {
             return result;
@@ -755,7 +739,7 @@ internal sealed class BmsLibraryDbGateway
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         EnsureChartInfoSchema(songDb);
-        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>())
         {
             if (IsCurrentChartInfoParseFailure(row, parseTimeout))
@@ -772,12 +756,12 @@ internal sealed class BmsLibraryDbGateway
         EnsureBmsonSchema(songDb);
         EnsureChartInfoSchema(songDb);
 
-        ChartInfoBackfillCandidateSummary summary = new ChartInfoBackfillCandidateSummary();
+        var summary = new ChartInfoBackfillCandidateSummary();
         string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
         string bmsonTable = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
         Dictionary<string, string> digestByMd5 = LoadChartDigestMapForCandidateSummary(songDb);
-        HashSet<string> anyChartInfoSha256 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> currentChartInfoSha256 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var anyChartInfoSha256 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentChartInfoSha256 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartInfoSummaryRow row in songDb.Query<ChartInfoSummaryRow>("SELECT sha256, parser_version FROM chart_info WHERE sha256 IS NOT NULL AND TRIM(sha256) <> '';"))
         {
             string sha256 = NormalizeLookupKey(row.sha256);
@@ -791,7 +775,7 @@ internal sealed class BmsLibraryDbGateway
                 currentChartInfoSha256.Add(sha256);
             }
         }
-        HashSet<string> currentParseFailureMd5 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentParseFailureMd5 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartInfoParseFailureSummaryRow row in songDb.Query<ChartInfoParseFailureSummaryRow>("SELECT md5, parser_version, failure_kind, parse_timeout_ms FROM chart_info_parse_failure WHERE md5 IS NOT NULL AND TRIM(md5) <> '';"))
         {
             string md5 = NormalizeLookupKey(row.md5);
@@ -866,9 +850,9 @@ internal sealed class BmsLibraryDbGateway
         using LR2SongDBExtended songDb = OpenSongDb();
         if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName()))
         {
-            return new List<LR2SongDBExtended.bmson_song>();
+            return [];
         }
-        return songDb.Table<LR2SongDBExtended.bmson_song>().ToList();
+        return [.. songDb.Table<LR2SongDBExtended.bmson_song>()];
     }
 
     /// <summary>
@@ -877,9 +861,7 @@ internal sealed class BmsLibraryDbGateway
     /// <param name="rows">保存する譜面解析メタデータ。</param>
     public void UpsertChartInfos(IEnumerable<LR2SongDBExtended.chart_info> rows)
     {
-        List<LR2SongDBExtended.chart_info> sourceRows = (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
-            .Where((LR2SongDBExtended.chart_info row) => row != null && !string.IsNullOrWhiteSpace(row.sha256))
-            .ToList();
+        List<LR2SongDBExtended.chart_info> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
         if (sourceRows.Count == 0)
         {
             return;
@@ -930,8 +912,8 @@ internal sealed class BmsLibraryDbGateway
             throw new ArgumentNullException(nameof(bundleSha256));
         }
         bundleSha256 = bundleSha256.Trim().ToLowerInvariant();
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        ChartInfoMetadataBundleImportResult result = new ChartInfoMetadataBundleImportResult
+        var stopwatch = Stopwatch.StartNew();
+        var result = new ChartInfoMetadataBundleImportResult
         {
             BundleSha256 = bundleSha256
         };
@@ -1042,12 +1024,8 @@ internal sealed class BmsLibraryDbGateway
         IEnumerable<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows = null,
         IEnumerable<string> parseFailureDeleteMd5s = null)
     {
-        List<ChartDigestBackfillEntry> sourceDigestEntries = (digestEntries ?? Enumerable.Empty<ChartDigestBackfillEntry>())
-            .Where((ChartDigestBackfillEntry entry) => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))
-            .ToList();
-        List<LR2SongDBExtended.chart_info> sourceRows = (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
-            .Where((LR2SongDBExtended.chart_info row) => row != null && !string.IsNullOrWhiteSpace(row.sha256))
-            .ToList();
+        List<ChartDigestBackfillEntry> sourceDigestEntries = [.. (digestEntries ?? []).Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))];
+        List<LR2SongDBExtended.chart_info> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
         List<LR2SongDBExtended.chart_info_parse_failure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
         List<string> sourceParseFailureDeleteMd5s = NormalizeChartInfoLookupKeys(parseFailureDeleteMd5s);
         if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0 && sourceParseFailureRows.Count == 0 && sourceParseFailureDeleteMd5s.Count == 0)
@@ -1071,12 +1049,8 @@ internal sealed class BmsLibraryDbGateway
         {
             throw new ArgumentNullException(nameof(songDb));
         }
-        List<ChartDigestBackfillEntry> sourceDigestEntries = (digestEntries ?? Enumerable.Empty<ChartDigestBackfillEntry>())
-            .Where((ChartDigestBackfillEntry entry) => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))
-            .ToList();
-        List<LR2SongDBExtended.chart_info> sourceRows = (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
-            .Where((LR2SongDBExtended.chart_info row) => row != null && !string.IsNullOrWhiteSpace(row.sha256))
-            .ToList();
+        List<ChartDigestBackfillEntry> sourceDigestEntries = [.. (digestEntries ?? []).Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))];
+        List<LR2SongDBExtended.chart_info> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
         List<LR2SongDBExtended.chart_info_parse_failure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
         List<string> sourceParseFailureDeleteMd5s = NormalizeChartInfoLookupKeys(parseFailureDeleteMd5s);
         if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0 && sourceParseFailureRows.Count == 0 && sourceParseFailureDeleteMd5s.Count == 0)
@@ -1154,9 +1128,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void UpsertChartDigests(IEnumerable<BMSFile> files)
     {
-        List<BMSFile> sourceFiles = (files ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.sha256))
-            .ToList();
+        List<BMSFile> sourceFiles = [.. (files ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.sha256))];
         if (sourceFiles.Count == 0)
         {
             return;
@@ -1173,9 +1145,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void UpsertBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
-        List<LR2SongDBExtended.bmson_song> sourceSongs = (songs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .ToList();
+        List<LR2SongDBExtended.bmson_song> sourceSongs = [.. (songs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         if (sourceSongs.Count == 0)
         {
             return;
@@ -1239,7 +1209,7 @@ internal sealed class BmsLibraryDbGateway
             {
                 LR2SongDB.folder folder = songDb.Table<LR2SongDB.folder>()
                     .ToList()
-                    .FirstOrDefault((LR2SongDB.folder item) => item.path.Equals(oldFolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                    .FirstOrDefault(item => item.path.Equals(oldFolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
                 if (folder == null)
                 {
                     return;
@@ -1251,7 +1221,7 @@ internal sealed class BmsLibraryDbGateway
                 if (folder.parent != "e2977170")
                 {
                     string directoryName = Path.GetDirectoryName(newFolderPath.TrimEnd(Path.DirectorySeparatorChar));
-                    Encoding encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+                    var encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
                     folder.parent = LR2CRC32.Compute(encoding.GetBytes(directoryName + "\\\0")).ToString("x");
                 }
                 songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
@@ -1292,7 +1262,7 @@ internal sealed class BmsLibraryDbGateway
 
     public IrScoreRowsLoadResult LoadIrScoreRowsWithMetrics()
     {
-        IrScoreRowsLoadResult result = new IrScoreRowsLoadResult();
+        var result = new IrScoreRowsLoadResult();
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         result.ReadOnly = songDb.IsReadOnlyConnection;
         result.DbLockWaitMs = songDb.ProcessLockWaitMs;
@@ -1309,7 +1279,7 @@ internal sealed class BmsLibraryDbGateway
     {
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         dbLockWaitMs = songDb.ProcessLockWaitMs;
-        return songDb.Table<LR2SongDBExtended.ir_score_refresh_metadata>().FirstOrDefault((LR2SongDBExtended.ir_score_refresh_metadata row) => row.lr2id == lr2Id);
+        return songDb.Table<LR2SongDBExtended.ir_score_refresh_metadata>().FirstOrDefault(row => row.lr2id == lr2Id);
     }
 
     public void UpsertIrScoreRefreshMetadata(int lr2Id, string scoreDigestSha256)
@@ -1326,13 +1296,13 @@ internal sealed class BmsLibraryDbGateway
 
     public IrDataLoadResult LoadIrDataWithMetrics(int lr2Id)
     {
-        IrDataLoadResult result = new IrDataLoadResult();
+        var result = new IrDataLoadResult();
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         result.ReadOnly = songDb.IsReadOnlyConnection;
         result.DbLockWaitMs = songDb.ProcessLockWaitMs;
         string tableName = SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName();
-        string lr2IdColumn = SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data row) => row.lr2id);
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        string lr2IdColumn = SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(row => row.lr2id);
+        var stopwatch = Stopwatch.StartNew();
         result.Rows.AddRange(songDb.Query<LR2IRData>("SELECT * FROM " + tableName + " WHERE " + lr2IdColumn + " = ?;", lr2Id));
         stopwatch.Stop();
         result.DbReadMs = stopwatch.ElapsedMilliseconds;
@@ -1351,7 +1321,7 @@ internal sealed class BmsLibraryDbGateway
         {
             foreach (LR2IRData entry in entries)
             {
-                songDb.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.hash) + " = '" + entry.hash + "' AND " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id) + " = " + entry.lr2id + ";");
+                songDb.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(e => e.hash) + " = '" + entry.hash + "' AND " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(e => e.lr2id) + " = " + entry.lr2id + ";");
                 songDb.InsertOrReplace(entry, typeof(LR2SongDBExtended.ir_data));
             }
         });
@@ -1359,9 +1329,7 @@ internal sealed class BmsLibraryDbGateway
 
     public bool TryBulkInsertIrDataForEmptyLr2Id(int lr2Id, IEnumerable<LR2IRData> irData)
     {
-        List<LR2IRData> entries = DeduplicateIrData(irData)
-            .Where((LR2IRData entry) => entry.lr2id == lr2Id)
-            .ToList();
+        List<LR2IRData> entries = [.. DeduplicateIrData(irData).Where(entry => entry.lr2id == lr2Id)];
         if (entries.Count == 0)
         {
             return true;
@@ -1370,7 +1338,7 @@ internal sealed class BmsLibraryDbGateway
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             string tableName = SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName();
-            string lr2IdColumn = SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data row) => row.lr2id);
+            string lr2IdColumn = SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(row => row.lr2id);
             long existingRows = songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM " + tableName + " WHERE " + lr2IdColumn + " = " + lr2Id + ";");
             if (existingRows != 0)
             {
@@ -1384,8 +1352,8 @@ internal sealed class BmsLibraryDbGateway
 
     private static List<LR2IRData> DeduplicateIrData(IEnumerable<LR2IRData> irData)
     {
-        Dictionary<string, LR2IRData> deduplicated = new Dictionary<string, LR2IRData>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2IRData entry in irData ?? Enumerable.Empty<LR2IRData>())
+        var deduplicated = new Dictionary<string, LR2IRData>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2IRData entry in irData ?? [])
         {
             if (entry == null || string.IsNullOrWhiteSpace(entry.hash))
             {
@@ -1393,12 +1361,12 @@ internal sealed class BmsLibraryDbGateway
             }
             deduplicated[entry.hash + "\u001f" + entry.lr2id] = entry;
         }
-        return deduplicated.Values.ToList();
+        return [.. deduplicated.Values];
     }
 
     public void ReplaceIrScoreTable(IEnumerable<LR2IRScore> scoreTable)
     {
-        List<LR2IRScore> entries = (scoreTable ?? Enumerable.Empty<LR2IRScore>()).Where((LR2IRScore score) => score != null).ToList();
+        List<LR2IRScore> entries = [.. (scoreTable ?? []).Where(score => score != null)];
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             songDb.DropTable<LR2SongDBExtended.ir_score>();
@@ -1407,18 +1375,18 @@ internal sealed class BmsLibraryDbGateway
             {
                 songDb.InsertAll(entries, typeof(LR2SongDBExtended.ir_score));
             }
-            songDb.CreateIndex("ir_score_idx_unsent", SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName(), new string[9]
-            {
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.hash),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.clear),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.combo),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.pg),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.gr),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.gd),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.bd),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.pr),
-                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.minbp)
-            });
+            songDb.CreateIndex("ir_score_idx_unsent", SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName(),
+            [
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.hash),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.clear),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.combo),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pg),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.gr),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.gd),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.bd),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pr),
+                SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.minbp)
+            ]);
         });
     }
 
@@ -1448,9 +1416,9 @@ internal sealed class BmsLibraryDbGateway
 
         string bmsonSongTableName = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
         songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-        EnsureIndex(songDb, "bmson_song_idx_md5", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.md5));
-        EnsureIndex(songDb, "bmson_song_idx_sha256", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.sha256));
-        EnsureIndex(songDb, "bmson_song_idx_folder", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.folder));
+        EnsureIndex(songDb, "bmson_song_idx_md5", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.md5));
+        EnsureIndex(songDb, "bmson_song_idx_sha256", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.sha256));
+        EnsureIndex(songDb, "bmson_song_idx_folder", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.folder));
     }
 
     internal static void EnsureSongLookupIndexes(LR2SongDBExtended songDb)
@@ -1461,9 +1429,9 @@ internal sealed class BmsLibraryDbGateway
         }
         string tableName = SQLiteTable<LR2SongDB.song>.GetTableName();
         songDb.CreateTable<LR2SongDB.song>();
-        EnsureIndex(songDb, "hashidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash));
-        EnsureIndex(songDb, "parentidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.parent));
-        EnsureIndex(songDb, "song_idx_folder", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.folder));
+        EnsureIndex(songDb, "hashidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash));
+        EnsureIndex(songDb, "parentidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.parent));
+        EnsureIndex(songDb, "song_idx_folder", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder));
     }
 
     internal static void EnsureIrDataSchema(LR2SongDBExtended songDb)
@@ -1474,15 +1442,14 @@ internal sealed class BmsLibraryDbGateway
         }
         string tableName = SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName();
         songDb.CreateTable<LR2SongDBExtended.ir_data>();
-        songDb.CreateIndex("ir_data_idx", tableName, new string[1] { SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id) });
+        songDb.CreateIndex("ir_data_idx", tableName, [SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(e => e.lr2id)]);
         songDb.CreateIndex(
             "ir_data_idx_lr2id_hash",
             tableName,
-            new[]
-            {
-                SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id),
-                SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.hash)
-            });
+            [
+                SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(e => e.lr2id),
+                SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(e => e.hash)
+            ]);
     }
 
     /// <summary>
@@ -1502,24 +1469,24 @@ internal sealed class BmsLibraryDbGateway
             songDb.DropTable<LR2SongDBExtended.chart_info>();
         }
         songDb.CreateTable<LR2SongDBExtended.chart_info>();
-        EnsureIndex(songDb, "chart_info_idx_md5", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName((LR2SongDBExtended.chart_info row) => row.md5));
-        EnsureIndex(songDb, "chart_info_idx_charthash", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName((LR2SongDBExtended.chart_info row) => row.charthash));
-        EnsureIndex(songDb, "chart_info_idx_parser_version", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName((LR2SongDBExtended.chart_info row) => row.parser_version));
+        EnsureIndex(songDb, "chart_info_idx_md5", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.md5));
+        EnsureIndex(songDb, "chart_info_idx_charthash", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.charthash));
+        EnsureIndex(songDb, "chart_info_idx_parser_version", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName(row => row.parser_version));
         string failureTableName = SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetTableName();
         if (TableExists(songDb, failureTableName) && !IsChartInfoParseFailureTableCompatible(songDb))
         {
             songDb.DropTable<LR2SongDBExtended.chart_info_parse_failure>();
         }
         songDb.CreateTable<LR2SongDBExtended.chart_info_parse_failure>();
-        EnsureIndex(songDb, "chart_info_parse_failure_idx_sha256", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName((LR2SongDBExtended.chart_info_parse_failure row) => row.sha256));
-        EnsureIndex(songDb, "chart_info_parse_failure_idx_parser_version", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName((LR2SongDBExtended.chart_info_parse_failure row) => row.parser_version));
+        EnsureIndex(songDb, "chart_info_parse_failure_idx_sha256", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName(row => row.sha256));
+        EnsureIndex(songDb, "chart_info_parse_failure_idx_parser_version", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName(row => row.parser_version));
         string importHistoryTableName = SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName();
         if (TableExists(songDb, importHistoryTableName) && !IsChartInfoImportHistoryTableCompatible(songDb))
         {
             songDb.DropTable<LR2SongDBExtended.chart_info_import_history>();
         }
         songDb.CreateTable<LR2SongDBExtended.chart_info_import_history>();
-        EnsureIndex(songDb, "chart_info_import_history_idx_bundle_sha256", importHistoryTableName, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName((LR2SongDBExtended.chart_info_import_history row) => row.bundle_sha256));
+        EnsureIndex(songDb, "chart_info_import_history_idx_bundle_sha256", importHistoryTableName, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName(row => row.bundle_sha256));
         SetCurrentAppSchemaVersion(songDb);
     }
 
@@ -1533,7 +1500,7 @@ internal sealed class BmsLibraryDbGateway
         {
             return;
         }
-        LR2SongDBExtended.chart_digest_map row = new LR2SongDBExtended.chart_digest_map
+        var row = new LR2SongDBExtended.chart_digest_map
         {
             md5 = file.hash,
             sha256 = file.sha256
@@ -1596,7 +1563,7 @@ internal sealed class BmsLibraryDbGateway
         }
         long count = songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash)
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
             + " = " + BMSPlaylist.SqlQuoteForTest(md5) + ";");
         if (count <= 0)
         {
@@ -1606,7 +1573,7 @@ internal sealed class BmsLibraryDbGateway
 
     internal static void DeleteChartDigestsIfOrphaned(LR2SongDBExtended songDb, IEnumerable<string> md5s, string preservedMd5 = null)
     {
-        foreach (string md5 in (md5s ?? Enumerable.Empty<string>()).Where((string item) => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase))
+        foreach (string md5 in (md5s ?? []).Where(item => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase))
         {
             DeleteChartDigestIfOrphaned(songDb, md5, preservedMd5);
         }
@@ -1643,9 +1610,9 @@ internal sealed class BmsLibraryDbGateway
             return null;
         }
         return songDb.ExecuteScalar<string>(
-            "SELECT " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash)
+            "SELECT " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
             + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.path)
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
             + " = " + BMSPlaylist.SqlQuoteForTest(path)
             + " LIMIT 1;");
     }
@@ -1665,18 +1632,18 @@ internal sealed class BmsLibraryDbGateway
         PrepareTempLookupTable(songDb, TempDeletedBmsHashTable, "md5");
         songDb.Execute(
             "INSERT OR IGNORE INTO temp." + TempDeletedBmsHashTable + " (md5) "
-            + "SELECT DISTINCT s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash)
+            + "SELECT DISTINCT s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
             + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName() + " s "
-            + "INNER JOIN temp." + TempDeletedBmsPathTable + " d ON d.path = s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.path)
-            + " WHERE s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash) + " IS NOT NULL "
-            + "AND TRIM(s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash) + ") <> '';");
+            + "INNER JOIN temp." + TempDeletedBmsPathTable + " d ON d.path = s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
+            + " WHERE s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " IS NOT NULL "
+            + "AND TRIM(s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + ") <> '';");
         songDb.Execute(
             "DELETE FROM " + SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName((LR2SongDBExtended.maintenance row) => row.path)
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path)
             + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
         songDb.Execute(
             "DELETE FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.path)
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
             + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
         DeleteChartDigestsIfOrphanedFromTemp(songDb, TempDeletedBmsHashTable);
         ClearTempLookupTable(songDb, TempDeletedBmsHashTable);
@@ -1697,21 +1664,20 @@ internal sealed class BmsLibraryDbGateway
         }
         songDb.Execute(
             "DELETE FROM " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.path)
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.path)
             + " IN (SELECT path FROM temp." + TempDeletedBmsonPathTable + ");");
         songDb.Execute(
             "DELETE FROM " + SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName((LR2SongDBExtended.maintenance row) => row.path)
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path)
             + " IN (SELECT path FROM temp." + TempDeletedBmsonPathTable + ");");
         ClearTempLookupTable(songDb, TempDeletedBmsonPathTable);
     }
 
     private static List<string> BuildExactLookupKeys(IEnumerable<string> source)
     {
-        return (source ?? Enumerable.Empty<string>())
-            .Where((string item) => !string.IsNullOrWhiteSpace(item))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        return [.. (source ?? [])
+            .Where(item => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal)];
     }
 
     private static void PrepareTempLookupTable(LR2SongDBExtended songDb, string tableName, string columnName)
@@ -1733,13 +1699,13 @@ internal sealed class BmsLibraryDbGateway
         }
         songDb.Execute(
             "DELETE FROM " + SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName((LR2SongDBExtended.chart_digest_map row) => row.md5)
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName(row => row.md5)
             + " IN ("
             + "SELECT h.md5 FROM temp." + tempHashTableName + " h "
             + "WHERE h.md5 IS NOT NULL AND TRIM(h.md5) <> '' "
             + "AND NOT EXISTS ("
             + "SELECT 1 FROM " + SQLiteTable<LR2SongDB.song>.GetTableName() + " s "
-            + "WHERE s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash) + " = h.md5"
+            + "WHERE s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " = h.md5"
             + ")"
             + ");");
     }
@@ -1768,9 +1734,9 @@ internal sealed class BmsLibraryDbGateway
         }
         long count = songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.name)
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName(row => row.name)
             + " = " + BMSPlaylist.SqlQuoteForTest(AppSchemaVersionName)
-            + " AND " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.version)
+            + " AND " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName(row => row.version)
             + " >= " + CurrentAppSchemaVersion + ";");
         return count > 0;
     }
@@ -1794,7 +1760,7 @@ internal sealed class BmsLibraryDbGateway
     {
         return songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName((LR2SongDBExtended.chart_info_import_history row) => row.import_key)
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName(row => row.import_key)
             + " = ?;",
             importKey) > 0L;
     }
@@ -1815,7 +1781,7 @@ internal sealed class BmsLibraryDbGateway
                 "chart_info_count",
                 "chart_digest_count"
             });
-        RequireAttachedTableColumns(songDb, "bundle", "chart_info", ChartInfoColumnList.Split(new[] { ", " }, StringSplitOptions.None));
+        RequireAttachedTableColumns(songDb, "bundle", "chart_info", ChartInfoColumnList.Split([", "], StringSplitOptions.None));
         RequireAttachedTableColumns(songDb, "bundle", "chart_digest_map", new[] { "md5", "sha256" });
         ChartInfoMetadataBundleManifest manifest = songDb.Query<ChartInfoMetadataBundleManifest>(
             "SELECT bundle_id, format_version, generated_at, chart_info_schema_version, chart_info_parser_version, chart_info_count, chart_digest_count "
@@ -1937,7 +1903,7 @@ internal sealed class BmsLibraryDbGateway
             throw new InvalidDataException("Attached chart_info metadata bundle does not contain required table: " + tableName);
         }
         HashSet<string> columns = GetTableColumns(songDb, schemaName, tableName);
-        foreach (string column in requiredColumns ?? Enumerable.Empty<string>())
+        foreach (string column in requiredColumns ?? [])
         {
             if (!columns.Contains(column))
             {
@@ -1951,13 +1917,13 @@ internal sealed class BmsLibraryDbGateway
         string pragmaPrefix = string.IsNullOrWhiteSpace(schemaName) ? string.Empty : schemaName + ".";
         return new HashSet<string>(
             songDb.Query<TableInfoRow>("PRAGMA " + pragmaPrefix + "table_info('" + tableName.Replace("'", "''") + "');")
-                .Select((TableInfoRow row) => row.name),
+                .Select(row => row.name),
             StringComparer.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, string> LoadReusableChartDigestMap(LR2SongDBExtended songDb)
     {
-        Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
         if (!TableExists(songDb, tableName))
         {
@@ -1984,11 +1950,10 @@ internal sealed class BmsLibraryDbGateway
 
     private static List<string> NormalizeChartInfoLookupKeys(IEnumerable<string> values)
     {
-        return (values ?? Enumerable.Empty<string>())
-            .Where((string value) => !string.IsNullOrWhiteSpace(value))
-            .Select((string value) => value.Trim())
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return [.. (values ?? [])
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static string NormalizeLookupKey(string value)
@@ -1998,7 +1963,7 @@ internal sealed class BmsLibraryDbGateway
 
     private static Dictionary<string, string> LoadChartDigestMapForCandidateSummary(LR2SongDBExtended songDb)
     {
-        Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
         if (!TableExists(songDb, tableName))
         {
@@ -2065,7 +2030,7 @@ internal sealed class BmsLibraryDbGateway
         string tableName = SQLiteTable<LR2SongDBExtended.chart_info>.GetTableName();
         for (int offset = 0; offset < keys.Count; offset += ChartInfoLookupChunkSize)
         {
-            List<string> chunk = keys.Skip(offset).Take(ChartInfoLookupChunkSize).ToList();
+            List<string> chunk = [.. keys.Skip(offset).Take(ChartInfoLookupChunkSize)];
             if (chunk.Count == 0)
             {
                 continue;
@@ -2076,7 +2041,7 @@ internal sealed class BmsLibraryDbGateway
             {
                 sql += " ORDER BY sha256 COLLATE NOCASE ASC";
             }
-            foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(sql, chunk.Cast<object>().ToArray()))
+            foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(sql, [.. chunk.Cast<object>()]))
             {
                 yield return row;
             }
@@ -2085,9 +2050,7 @@ internal sealed class BmsLibraryDbGateway
 
     private static List<LR2SongDBExtended.chart_info_parse_failure> NormalizeChartInfoParseFailureRows(IEnumerable<LR2SongDBExtended.chart_info_parse_failure> rows)
     {
-        return (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info_parse_failure>())
-            .Where((LR2SongDBExtended.chart_info_parse_failure row) => row != null && !string.IsNullOrWhiteSpace(row.md5))
-            .ToList();
+        return [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.md5))];
     }
 
     private static int SafeExecuteScalarInt(LR2SongDBExtended songDb, string sql)
@@ -2167,11 +2130,11 @@ internal sealed class BmsLibraryDbGateway
             : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (SongDigestSourceRow row in songDb.Query<SongDigestSourceRow>(
                      "SELECT DISTINCT "
-                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.hash) + " AS md5, "
-                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.path) + " AS path "
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.hash) + " AS md5, "
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.path) + " AS path "
                      + "FROM " + songTableName + " WHERE "
-                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.hash) + " IS NOT NULL AND TRIM("
-                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.hash) + ") <> '';"))
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.hash) + " IS NOT NULL AND TRIM("
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName(song => song.hash) + ") <> '';"))
         {
             string md5 = row.md5;
             string path = row.path;
@@ -2194,12 +2157,12 @@ internal sealed class BmsLibraryDbGateway
         {
             return false;
         }
-        HashSet<string> columns = new HashSet<string>(
+        var columns = new HashSet<string>(
             songDb.Query<TableInfoRow>("PRAGMA table_info('" + tableName.Replace("'", "''") + "');")
-                .Select((TableInfoRow row) => row.name),
+                .Select(row => row.name),
             StringComparer.OrdinalIgnoreCase);
         string[] requiredColumns =
-        {
+        [
             "sha256",
             "md5",
             "charthash",
@@ -2229,8 +2192,8 @@ internal sealed class BmsLibraryDbGateway
             "lanenotes",
             "parser_version",
             "updated_at"
-        };
-        return requiredColumns.All((string columnName) => columns.Contains(columnName));
+        ];
+        return requiredColumns.All(columnName => columns.Contains(columnName));
     }
 
     private static bool IsChartInfoParseFailureTableCompatible(LR2SongDBExtended songDb)
@@ -2240,12 +2203,12 @@ internal sealed class BmsLibraryDbGateway
         {
             return false;
         }
-        HashSet<string> columns = new HashSet<string>(
+        var columns = new HashSet<string>(
             songDb.Query<TableInfoRow>("PRAGMA table_info('" + tableName.Replace("'", "''") + "');")
-                .Select((TableInfoRow row) => row.name),
+                .Select(row => row.name),
             StringComparer.OrdinalIgnoreCase);
         string[] requiredColumns =
-        {
+        [
             "md5",
             "sha256",
             "path",
@@ -2255,8 +2218,8 @@ internal sealed class BmsLibraryDbGateway
             "message",
             "parse_timeout_ms",
             "updated_at"
-        };
-        return requiredColumns.All((string columnName) => columns.Contains(columnName));
+        ];
+        return requiredColumns.All(columnName => columns.Contains(columnName));
     }
 
     private static bool IsChartInfoImportHistoryTableCompatible(LR2SongDBExtended songDb)
@@ -2266,12 +2229,12 @@ internal sealed class BmsLibraryDbGateway
         {
             return false;
         }
-        HashSet<string> columns = new HashSet<string>(
+        var columns = new HashSet<string>(
             songDb.Query<TableInfoRow>("PRAGMA table_info('" + tableName.Replace("'", "''") + "');")
-                .Select((TableInfoRow row) => row.name),
+                .Select(row => row.name),
             StringComparer.OrdinalIgnoreCase);
         string[] requiredColumns =
-        {
+        [
             "import_key",
             "bundle_id",
             "bundle_sha256",
@@ -2280,8 +2243,8 @@ internal sealed class BmsLibraryDbGateway
             "chart_digest_imported_count",
             "failure_cleared_count",
             "imported_at"
-        };
-        return requiredColumns.All((string columnName) => columns.Contains(columnName));
+        ];
+        return requiredColumns.All(columnName => columns.Contains(columnName));
     }
 
     private static void RebuildChartDigestMap(LR2SongDBExtended songDb, IDictionary<string, string> digests)
@@ -2292,7 +2255,7 @@ internal sealed class BmsLibraryDbGateway
             songDb.DropTable<LR2SongDBExtended.chart_digest_map>();
         }
         songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-        foreach (KeyValuePair<string, string> item in (digests ?? new Dictionary<string, string>()).Where((KeyValuePair<string, string> item) => !string.IsNullOrWhiteSpace(item.Key) && !string.IsNullOrWhiteSpace(item.Value)))
+        foreach (KeyValuePair<string, string> item in (digests ?? new Dictionary<string, string>()).Where(item => !string.IsNullOrWhiteSpace(item.Key) && !string.IsNullOrWhiteSpace(item.Value)))
         {
             songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
             {

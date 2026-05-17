@@ -13,7 +13,7 @@ public class WindowSettings
     {
         if (s is Window)
         {
-            Window obj = s as Window;
+            var obj = s as Window;
             HideCloseButton(obj);
             obj.Loaded -= OnWindowLoaded;
         }
@@ -39,7 +39,7 @@ public class WindowSettings
 
     private static void OnHideCloseButtonPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (!(d is Window window))
+        if (d is not Window window)
         {
             return;
         }

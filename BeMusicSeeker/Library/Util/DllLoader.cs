@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Library.Util;
 
 public static class DllLoader
 {
-    public static ConcurrentDictionary<string, Assembly> assemCache = new ConcurrentDictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+    public static ConcurrentDictionary<string, Assembly> assemCache = new(StringComparer.OrdinalIgnoreCase);
 
     public static IEnumerable<Type> GetTypes(string assemblyPath)
     {
@@ -18,8 +18,7 @@ public static class DllLoader
         {
             throw new FileNotFoundException("File not found: path", assemblyPath);
         }
-        Assembly value = null;
-        if (!assemCache.TryGetValue(assemblyPath, out value))
+        if (!assemCache.TryGetValue(assemblyPath, out Assembly value))
         {
             value = (assemCache[fullPath] = Assembly.LoadFile(fullPath));
         }

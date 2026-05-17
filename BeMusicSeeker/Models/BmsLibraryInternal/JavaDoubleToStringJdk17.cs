@@ -23,18 +23,18 @@ internal static class JavaDoubleToStringJdk17
     private const ulong ExpOne = 0x3ff0000000000000UL;
 
     private static readonly int[] InsignificantDigitsNumber =
-    {
+    [
         0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 3,
         4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7,
         8, 8, 8, 9, 9, 9, 9, 10, 10, 10, 11, 11, 11,
         12, 12, 12, 12, 13, 13, 13, 14, 14, 14,
         15, 15, 15, 15, 16, 16, 16, 17, 17, 17,
         18, 18, 18, 19
-    };
+    ];
 
     // Approximately ceil(log2(5^i)), as in JDK 17 FloatingDecimal.
     private static readonly int[] N5Bits =
-    {
+    [
         0,
         3,
         5,
@@ -62,10 +62,10 @@ internal static class JavaDoubleToStringJdk17
         56,
         59,
         61
-    };
+    ];
 
     private static readonly int[] Small5Pow =
-    {
+    [
         1,
         5,
         25,
@@ -80,10 +80,10 @@ internal static class JavaDoubleToStringJdk17
         48828125,
         244140625,
         1220703125
-    };
+    ];
 
     private static readonly long[] Long5Pow =
-    {
+    [
         1L,
         5L,
         25L,
@@ -111,7 +111,7 @@ internal static class JavaDoubleToStringJdk17
         59604644775390625L,
         298023223876953125L,
         1490116119384765625L
-    };
+    ];
 
     // Enough for binary64 output conversion. JDK's FDBigInteger cache uses 340.
     private static readonly BigInteger[] Big5Pow = BuildBig5Pow(350);
@@ -160,8 +160,7 @@ internal static class JavaDoubleToStringJdk17
         binExp -= ExpBias;
 
         char[] digits = GetDigitsBuffer();
-        int decExponent;
-        int nDigits = Dtoa(binExp, fractBits, nSignificantBits, true, digits, out decExponent);
+        int nDigits = Dtoa(binExp, fractBits, nSignificantBits, true, digits, out int decExponent);
 
         char[] buffer = GetFormatBuffer();
         int len = FormatJava(isNegative, digits, nDigits, decExponent, buffer);
@@ -452,8 +451,7 @@ internal static class JavaDoubleToStringJdk17
         BigInteger tenSVal = Pow52(s5 + 1, s2 + 1);
 
         int nDigit = 0;
-        BigInteger remainder;
-        BigInteger qBI = BigInteger.DivRem(bVal, sVal, out remainder);
+        var qBI = BigInteger.DivRem(bVal, sVal, out BigInteger remainder);
         int q = (int)qBI;
         bVal = remainder * 10;
 

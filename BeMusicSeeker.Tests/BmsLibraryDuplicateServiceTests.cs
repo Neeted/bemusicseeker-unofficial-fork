@@ -19,14 +19,14 @@ public sealed class BmsLibraryDuplicateServiceTests
     public void Analyze_GroupsDirectoriesConnectedByDuplicateHashes()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryDuplicateService service = new BmsLibraryDuplicateService();
-        List<BMSFile> files = new List<BMSFile>
-        {
+        var service = new BmsLibraryDuplicateService();
+        List<BMSFile> files =
+        [
             CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms")),
             CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirB", "a.bms")),
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirB", "b.bms")),
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirC", "b.bms"))
-        };
+        ];
 
         DuplicateAnalysisResult result = service.Analyze(service.BuildSnapshot(files, null));
 
@@ -39,7 +39,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     public void ApplyDuplicateWarnings_SetsStructuredWarningWithoutDuplicates()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryDuplicateService service = new BmsLibraryDuplicateService();
+        var service = new BmsLibraryDuplicateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
 
         service.ApplyDuplicateWarnings(new[] { file }, Resources.Warning_DuplicateBmsFile);
@@ -54,7 +54,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     public void ClearDuplicateState_RemovesStructuredDuplicateWarningsOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryDuplicateService service = new BmsLibraryDuplicateService();
+        var service = new BmsLibraryDuplicateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
@@ -70,15 +70,15 @@ public sealed class BmsLibraryDuplicateServiceTests
     public void Analyze_BuildSnapshotIncludesBmsonAndUsesPrimaryLookupHash()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryDuplicateService service = new BmsLibraryDuplicateService();
-        List<BMSFile> bmsFiles = new List<BMSFile>
-        {
+        var service = new BmsLibraryDuplicateService();
+        List<BMSFile> bmsFiles =
+        [
             CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
             CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Path.Combine("C:\\BMS", "DirB", "b.bms"), "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"),
             CreateFile(null, Path.Combine("C:\\BMS", "DirE", "e.bms"), "9999999999999999999999999999999999999999999999999999999999999999")
-        };
-        List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>
-        {
+        ];
+        List<LR2SongDBExtended.bmson_song> bmsonSongs =
+        [
             new LR2SongDBExtended.bmson_song
             {
                 path = Path.Combine("C:\\BMS", "DirC", "c.bmson"),
@@ -99,15 +99,15 @@ public sealed class BmsLibraryDuplicateServiceTests
                 md5 = "ffffffffffffffffffffffffffffffff",
                 sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
             }
-        };
+        ];
 
         DuplicateAnalysisResult result = service.Analyze(service.BuildSnapshot(bmsFiles, bmsonSongs));
 
         Assert.AreEqual(2, result.DuplicateGroups.Count);
-        Assert.IsTrue(result.DuplicateGroups.Any((DuplicateGroup group) => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
-        Assert.IsTrue(result.DuplicateGroups.Any((DuplicateGroup group) => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirD") && group.Folders.Contains("C:\\BMS\\DirE")));
-        Assert.IsTrue(result.DuplicateGroups.SelectMany((DuplicateGroup group) => group.Files).Any((BMSFile file) => PendingChartEntry.IsBmsonChartFile(file)));
-        Assert.IsFalse(result.DuplicateGroups.Any((DuplicateGroup group) => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirF")));
+        Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
+        Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirD") && group.Folders.Contains("C:\\BMS\\DirE")));
+        Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.Files).Any(file => PendingChartEntry.IsBmsonChartFile(file)));
+        Assert.IsFalse(result.DuplicateGroups.Any(group => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirF")));
         Assert.AreEqual(4, result.DuplicateFiles.Count);
     }
 
@@ -116,25 +116,26 @@ public sealed class BmsLibraryDuplicateServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            library.DuplicateChartGroups = new List<DuplicateGroup>
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
-                new DuplicateGroup(
-                    new List<BMSFile>
-                    {
-                        CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms")
-                    },
-                    new List<string> { @"C:\BMS\DirA" })
-            };
+                DuplicateChartGroups =
+                [
+                    new DuplicateGroup(
+                        [
+                            CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms")
+                        ],
+                        [@"C:\BMS\DirA"])
+                ],
 
-            library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>
-            {
-                new LR2SongDBExtended.bmson_song
-                {
-                    path = @"C:\BMS\DirA\chart.bmson",
-                    folder = @"C:\BMS\DirA",
-                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                }
+                BmsonSongs =
+                [
+                    new LR2SongDBExtended.bmson_song
+                    {
+                        path = @"C:\BMS\DirA\chart.bmson",
+                        folder = @"C:\BMS\DirA",
+                        md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                ]
             };
 
             Assert.IsNull(library.DuplicateChartGroups);
@@ -146,26 +147,28 @@ public sealed class BmsLibraryDuplicateServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            library.BMSFiles = new List<BMSFile>
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
-                CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"))
-            };
-            library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>
-            {
-                new LR2SongDBExtended.bmson_song
-                {
-                    path = Path.Combine("C:\\BMS", "DirB", "b.bmson"),
-                    folder = Path.Combine("C:\\BMS", "DirB"),
-                    title = "duplicate",
-                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                }
+                BMSFiles =
+                [
+                    CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"))
+                ],
+                BmsonSongs =
+                [
+                    new LR2SongDBExtended.bmson_song
+                    {
+                        path = Path.Combine("C:\\BMS", "DirB", "b.bmson"),
+                        folder = Path.Combine("C:\\BMS", "DirB"),
+                        title = "duplicate",
+                        md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    }
+                ]
             };
 
             library.SearchDuplicateChartGroups();
             Assert.AreEqual(1, library.DuplicateChartGroups.Count);
 
-            library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>();
+            library.BmsonSongs = [];
             Assert.IsNull(library.DuplicateChartGroups);
 
             library.SearchDuplicateChartGroups();
@@ -184,24 +187,22 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var song = new LR2SongDBExtended.bmson_song
                 {
                     path = chartPath,
                     folder = tempRootPath,
                     title = "duplicate",
                     md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 };
-                library.BmsonSongs = new List<LR2SongDBExtended.bmson_song> { song };
+                library.BmsonSongs = [song];
 
                 library.RemoveChartFiles(new[] { PendingChartEntry.CreateFromBmsonSong(song) }, sendToRecycleBin: false);
 
                 Assert.IsFalse(File.Exists(chartPath));
                 Assert.AreEqual(0, library.BmsonSongs.Count);
-                using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
-                {
-                    Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(chartPath));
-                }
+                using var songDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(chartPath));
             }
             finally
             {
@@ -224,17 +225,19 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
                 {
-                    new LR2SongDBExtended.bmson_song
-                    {
-                        path = chartPath,
-                        folder = tempRootPath,
-                        title = "bmson",
-                        md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        sha256 = new string('b', 64)
-                    }
+                    BmsonSongs =
+                    [
+                        new LR2SongDBExtended.bmson_song
+                        {
+                            path = chartPath,
+                            folder = tempRootPath,
+                            title = "bmson",
+                            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            sha256 = new string('b', 64)
+                        }
+                    ]
                 };
 
                 bool resolved = library.TryGetInstalledDirectoryByHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", out string installDir);
@@ -266,16 +269,16 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(srcChartPath, "{}");
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                LR2SongDBExtended.bmson_song sourceSong = new LR2SongDBExtended.bmson_song
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var sourceSong = new LR2SongDBExtended.bmson_song
                 {
                     path = srcChartPath,
                     folder = srcDir,
                     title = "merge target",
                     md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 };
-                library.BmsonSongs = new List<LR2SongDBExtended.bmson_song> { sourceSong };
-                using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+                library.BmsonSongs = [sourceSong];
+                using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
                 }
@@ -289,7 +292,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreEqual(1, library.BmsonSongs.Count);
                 Assert.AreEqual(dstChartPath, library.BmsonSongs[0].path);
                 Assert.AreEqual(dstDir, library.BmsonSongs[0].folder);
-                using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+                using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(srcChartPath));
                     Assert.IsNotNull(songDb.Find<LR2SongDBExtended.bmson_song>(dstChartPath));
@@ -322,23 +325,23 @@ public sealed class BmsLibraryDuplicateServiceTests
             string duplicateHash = BmsonSongParser.Parse(srcChartPath).md5;
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                LR2SongDBExtended.bmson_song sourceSong = new LR2SongDBExtended.bmson_song
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var sourceSong = new LR2SongDBExtended.bmson_song
                 {
                     path = srcChartPath,
                     folder = srcDir,
                     title = "src duplicate",
                     md5 = duplicateHash
                 };
-                LR2SongDBExtended.bmson_song destinationSong = new LR2SongDBExtended.bmson_song
+                var destinationSong = new LR2SongDBExtended.bmson_song
                 {
                     path = dstChartPath,
                     folder = dstDir,
                     title = "dst duplicate",
                     md5 = duplicateHash
                 };
-                library.BmsonSongs = new List<LR2SongDBExtended.bmson_song> { sourceSong, destinationSong };
-                using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+                library.BmsonSongs = [sourceSong, destinationSong];
+                using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
                     songDb.InsertOrReplace(destinationSong, typeof(LR2SongDBExtended.bmson_song));
@@ -350,7 +353,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(File.Exists(dstChartPath));
                 Assert.AreEqual(1, library.BmsonSongs.Count);
                 Assert.AreEqual(dstChartPath, library.BmsonSongs[0].path);
-                using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+                using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(srcChartPath));
                     Assert.IsNotNull(songDb.Find<LR2SongDBExtended.bmson_song>(dstChartPath));
@@ -368,7 +371,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
     private static TestableBmsFile CreateFile(string? hash, string path, string? sha256 = null)
     {
-        TestableBmsFile file = new TestableBmsFile
+        var file = new TestableBmsFile
         {
             path = path
         };
@@ -382,10 +385,10 @@ public sealed class BmsLibraryDuplicateServiceTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateTests_" + System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, System.Array.Empty<byte>());
+        File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();

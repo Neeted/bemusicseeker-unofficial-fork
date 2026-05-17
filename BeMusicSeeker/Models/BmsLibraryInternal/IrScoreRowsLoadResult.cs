@@ -4,7 +4,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class IrScoreRowsLoadResult
 {
-    public List<LR2IRScore> Rows { get; } = new List<LR2IRScore>();
+    public List<LR2IRScore> Rows { get; } = [];
 
     public bool ReadOnly { get; set; }
 

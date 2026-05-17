@@ -60,7 +60,7 @@ internal static class ThemedMessageBox
 
     private static Window CreateDialog(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult initialResult, Action<MessageBoxResult> setResult)
     {
-        Window dialog = new Window
+        var dialog = new Window
         {
             Title = caption ?? string.Empty,
             Width = 460,
@@ -79,7 +79,7 @@ internal static class ThemedMessageBox
         dialog.SetResourceReference(Control.BackgroundProperty, "App.DialogBackgroundBrush");
         dialog.SetResourceReference(Control.ForegroundProperty, "App.TextBrush");
 
-        Border root = new Border
+        var root = new Border
         {
             Padding = new Thickness(14),
             BorderThickness = new Thickness(1),
@@ -87,13 +87,13 @@ internal static class ThemedMessageBox
         root.SetResourceReference(Border.BackgroundProperty, "App.DialogBackgroundBrush");
         root.SetResourceReference(Border.BorderBrushProperty, "App.DialogBorderBrush");
 
-        Grid layout = new Grid();
+        var layout = new Grid();
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        TextBlock iconBlock = new TextBlock
+        var iconBlock = new TextBlock
         {
             Text = GetIconText(icon),
             FontSize = 22,
@@ -108,7 +108,7 @@ internal static class ThemedMessageBox
         Grid.SetColumn(iconBlock, 0);
         layout.Children.Add(iconBlock);
 
-        TextBlock message = new TextBlock
+        var message = new TextBlock
         {
             Text = messageBoxText ?? string.Empty,
             TextWrapping = TextWrapping.Wrap,
@@ -119,7 +119,7 @@ internal static class ThemedMessageBox
         Grid.SetColumn(message, 1);
         layout.Children.Add(message);
 
-        StackPanel buttons = new StackPanel
+        var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right,
@@ -128,9 +128,9 @@ internal static class ThemedMessageBox
         Grid.SetColumnSpan(buttons, 2);
         layout.Children.Add(buttons);
 
-        foreach (var pair in GetButtons(button))
+        foreach (KeyValuePair<MessageBoxResult, string> pair in GetButtons(button))
         {
-            Button dialogButton = new Button
+            var dialogButton = new Button
             {
                 Content = pair.Value,
                 MinWidth = 72,
@@ -160,21 +160,21 @@ internal static class ThemedMessageBox
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.OK, "OK"),
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Cancel, "Cancel"),
             },
-            MessageBoxButton.YesNo => new[]
-            {
+            MessageBoxButton.YesNo =>
+            [
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Yes, "Yes"),
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.No, "No"),
-            },
-            MessageBoxButton.YesNoCancel => new[]
-            {
+            ],
+            MessageBoxButton.YesNoCancel =>
+            [
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Yes, "Yes"),
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.No, "No"),
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.Cancel, "Cancel"),
-            },
-            _ => new[]
-            {
+            ],
+            _ =>
+            [
                 new KeyValuePair<MessageBoxResult, string>(MessageBoxResult.OK, "OK"),
-            },
+            ],
         };
     }
 

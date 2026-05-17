@@ -215,22 +215,22 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// プレイリストを保存する LR2 Song DB のパスを保持します。
     /// </summary>
-    private string lr2SongDBPath;
+    private readonly string lr2SongDBPath;
 
     /// <summary>
     /// 推奨表更新時に参照する LR2 Score DB のパスを保持します。
     /// </summary>
-    private string lr2ScoreDBPath;
+    private readonly string lr2ScoreDBPath;
 
     /// <summary>
     /// LR2 設定を取得するための遅延評価デリゲートです。
     /// </summary>
-    private Func<LR2Config> lr2config;
+    private readonly Func<LR2Config> lr2config;
 
     /// <summary>
     /// ローカルスコア一覧を取得するための遅延評価デリゲートです。
     /// </summary>
-    private Func<List<BMSScore>> bmsScores;
+    private readonly Func<List<BMSScore>> bmsScores;
 
     /// <summary>
     /// 初期化処理の連携用に一時保持するセマフォです。
@@ -240,33 +240,33 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 全件初期化工程全体を直列化するための書き込みロックです。
     /// </summary>
-    private ReaderWriterLockSlimWrapper rwlockBMSTablesInitializeAll = new ReaderWriterLockSlimWrapper();
+    private readonly ReaderWriterLockSlimWrapper rwlockBMSTablesInitializeAll = new();
 
     /// <summary>
     /// 最小限のプレイリスト初期化工程を保護する書き込みロックです。
     /// </summary>
-    private ReaderWriterLockSlimWrapper rwlockBMSTablesInitializeMin = new ReaderWriterLockSlimWrapper();
+    private readonly ReaderWriterLockSlimWrapper rwlockBMSTablesInitializeMin = new();
 
     /// <summary>
     /// プレイリスト一覧そのものへの更新を保護する書き込みロックです。
     /// </summary>
-    private ReaderWriterLockSlimWrapper rwlockBMSTables = new ReaderWriterLockSlimWrapper();
+    private readonly ReaderWriterLockSlimWrapper rwlockBMSTables = new();
 
-    private readonly SemaphoreSlim playlistEntriesHydrationSemaphore = new SemaphoreSlim(1, 1);
+    private readonly SemaphoreSlim playlistEntriesHydrationSemaphore = new(1, 1);
 
     private int playlistEntriesHydrationQueued;
 
-    private readonly object playlistEntriesHydrationRequestLock = new object();
+    private readonly object playlistEntriesHydrationRequestLock = new();
 
     private bool playlistEntriesHydrationPendingRunExternalSync;
 
-    private readonly List<Action<PlaylistTableUpdateContext>> playlistEntriesHydrationPendingUpdateCallbacks = new List<Action<PlaylistTableUpdateContext>>();
+    private readonly List<Action<PlaylistTableUpdateContext>> playlistEntriesHydrationPendingUpdateCallbacks = [];
 
-    private readonly List<Action> playlistEntriesHydrationPendingCompletionActions = new List<Action>();
+    private readonly List<Action> playlistEntriesHydrationPendingCompletionActions = [];
 
-    private readonly object beatorajaBmtExportQueueLock = new object();
+    private readonly object beatorajaBmtExportQueueLock = new();
 
-    private readonly HashSet<int> pendingBeatorajaBmtExportPlaylistIds = new HashSet<int>();
+    private readonly HashSet<int> pendingBeatorajaBmtExportPlaylistIds = [];
 
     private int beatorajaBmtExportQueued;
 
@@ -275,52 +275,52 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 全件初期化ロックの状態変化を監視するリスナーです。
     /// </summary>
-    private PropertyChangedEventListener listenerForRwlockBMSTablesInitializedAll;
+    private readonly PropertyChangedEventListener listenerForRwlockBMSTablesInitializedAll;
 
     /// <summary>
     /// 最小初期化ロックの状態変化を監視するリスナーです。
     /// </summary>
-    private PropertyChangedEventListener listenerForRwlockBMSTablesInitializedMin;
+    private readonly PropertyChangedEventListener listenerForRwlockBMSTablesInitializedMin;
 
     /// <summary>
     /// プレイリスト一覧ロックの状態変化を監視するリスナーです。
     /// </summary>
-    private PropertyChangedEventListener listenerForRwlockBMSTables;
+    private readonly PropertyChangedEventListener listenerForRwlockBMSTables;
 
     /// <summary>
     /// UI バインディングに公開するプレイリスト一覧を保持します。
     /// </summary>
-    private DispatcherCollection<BMSTable> _BMSTables = new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher);
+    private DispatcherCollection<BMSTable> _BMSTables = new(DispatcherHelper.UIDispatcher);
 
     /// <summary>
     /// 発狂難易度推定 JSON の取得先 URI です。
     /// </summary>
-    private static Uri estimationJsonUri = new Uri("http://walkure.net/hakkyou/data/bms.json", UriKind.Absolute);
+    private static readonly Uri estimationJsonUri = new("http://walkure.net/hakkyou/data/bms.json", UriKind.Absolute);
 
     /// <summary>
     /// おすすめ表 JSON API のベース URL です。
     /// </summary>
-    private static string recommendJsonUriStr = "http://walkure.net/hakkyou/recommended_json.cgi?id=";
+    private static readonly string recommendJsonUriStr = "http://walkure.net/hakkyou/recommended_json.cgi?id=";
 
     /// <summary>
     /// おすすめ表へクリア状況を送信する更新 API の URI です。
     /// </summary>
-    private static Uri walkureUpdateUri = new Uri("http://walkure.net/hakkyou/mle.cgi", UriKind.Absolute);
+    private static readonly Uri walkureUpdateUri = new("http://walkure.net/hakkyou/mle.cgi", UriKind.Absolute);
 
     /// <summary>
     /// 発狂表アーカイブの取得先 URI です。
     /// </summary>
-    private static Uri insaneUri = new Uri("https://darksabun.club/table/archive/insane1/");
+    private static readonly Uri insaneUri = new("https://darksabun.club/table/archive/insane1/");
 
     /// <summary>
     /// Overjoy 表アーカイブの取得先 URI です。
     /// </summary>
-    private static Uri overjoyUri = new Uri("https://darksabun.club/table/archive/old-overjoy/");
+    private static readonly Uri overjoyUri = new("https://darksabun.club/table/archive/old-overjoy/");
 
     /// <summary>
     /// 発狂表キャッシュの遅延初期化を直列化するためのロックです。
     /// </summary>
-    private object insaneTableLock = new object();
+    private readonly object insaneTableLock = new();
 
     /// <summary>
     /// 読み込み済みの発狂表キャッシュです。
@@ -330,7 +330,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// Overjoy 表キャッシュの遅延初期化を直列化するためのロックです。
     /// </summary>
-    private object overjoyTableLock = new object();
+    private readonly object overjoyTableLock = new();
 
     /// <summary>
     /// 読み込み済みの Overjoy 表キャッシュです。
@@ -340,7 +340,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 段位課題曲に対応する疑似 BMS ID 変換表です。
     /// </summary>
-    private static readonly Dictionary<int, string> insaneGrade = new Dictionary<int, string>
+    private static readonly Dictionary<int, string> insaneGrade = new()
     {
         { 4934, "0000000000200000000000000000519096a1536917e1f7f12a85d3dd7eb64932c65d0badebb7738e350022a59a1f0637c5605fc262eb9023b82c14d14cc837f8c46a81cb184f5a804c119930d6eba748" },
         { 4935, "00000000002000000000000000005190e6af04686aeaf0a0fa2698cb0b0111ad5dc1e3e22e4fc735f010e35f2ae77480093a8d66b89944db9e42aa2321b4f63739d0732ef7fee9ad0c8b044ccbe8a396" },
@@ -371,7 +371,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 推定表キャッシュの遅延初期化を直列化するためのロックです。
     /// </summary>
-    private object estimationTableLock = new object();
+    private readonly object estimationTableLock = new();
 
     /// <summary>
     /// EASY 推定表エントリのキャッシュです。
@@ -407,7 +407,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 推定表 JSON の数値キーを DynamicJson で扱いやすい形式へ変換するための正規表現です。
     /// </summary>
-    private Regex workAroundRegex = new Regex("\"(?<id>\\d+)\":{", RegexOptions.Compiled);
+    private readonly Regex workAroundRegex = new("\"(?<id>\\d+)\":{", RegexOptions.Compiled);
 
     /// <summary>
     /// プレイリスト同期処理が実行中かどうかを表します。
@@ -557,7 +557,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 if (BMSTables != null)
                 {
-                    return BMSTables.Any((BMSTable t) => t.ReaderWriterLock.LockingWriteCount != 0 || t.ReaderWriterLock.WaitingWriteCount > 0);
+                    return BMSTables.Any(t => t.ReaderWriterLock.LockingWriteCount != 0 || t.ReaderWriterLock.WaitingWriteCount > 0);
                 }
             }
             return true;
@@ -750,8 +750,8 @@ public partial class BMSPlaylist : NotificationObject
         }
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
-        lr2config = ((getLR2Config != null) ? getLR2Config : ((Func<LR2Config>)(() => (LR2Config)null)));
-        bmsScores = ((getBMSScores != null) ? getBMSScores : ((Func<List<BMSScore>>)(() => (List<BMSScore>)null)));
+        lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
+        bmsScores = (getBMSScores ?? (Func<List<BMSScore>>)(() => (List<BMSScore>)null));
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -783,7 +783,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentException(string.Format(Resources.Error_LR2SongDBNotFound, songDbPath), nameof(songDbPath));
         }
-        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(songDbPath);
+        using var lR2SongDBExtended = new LR2SongDBExtended(songDbPath);
         EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
     }
 
@@ -806,7 +806,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="queueBeatorajaBmtExportAfterHydration">playlist entries hydration 後に beatoraja `.bmt` 全体投影出力を予約するかどうか。</param>
     public void Initialize(bool reloadExtPlaylist = true, Action<PlaylistTableUpdateContext> updateCallbackAction = null, SemaphoreSlim semaphore = null, bool queueBeatorajaBmtExportAfterHydration = true)
     {
-        Stopwatch stopwatchInitialize = Stopwatch.StartNew();
+        var stopwatchInitialize = Stopwatch.StartNew();
         long updateTablesMs = 0L;
         long lr2configSyncMs = 0L;
         if (semaphore != null)
@@ -831,16 +831,13 @@ public partial class BMSPlaylist : NotificationObject
                     }
                 }
             }
-            if (initSemaphore != null)
-            {
-                initSemaphore.Release();
-            }
+            initSemaphore?.Release();
             updateTablesMs = 0L;
-            Stopwatch stopwatchLr2configSync = Stopwatch.StartNew();
+            var stopwatchLr2configSync = Stopwatch.StartNew();
             SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-            QueueDeferredPlaylistEntriesHydration("Initialize", reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), updateCallbackAction }, CreateBeatorajaBmtProjectionCompletionActions(queueBeatorajaBmtExportAfterHydration, "Initialize"));
+            QueueDeferredPlaylistEntriesHydration("Initialize", reloadExtPlaylist, [CreateCustomFolderOutputUpdateCallback(), updateCallbackAction], CreateBeatorajaBmtProjectionCompletionActions(queueBeatorajaBmtExportAfterHydration, "Initialize"));
         }
         stopwatchInitialize.Stop();
         LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
@@ -855,7 +852,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="queueBeatorajaBmtExportAfterHydration">playlist entries hydration 後に beatoraja `.bmt` 全体投影出力を予約するかどうか。</param>
     public void ReloadTables(Action<PlaylistTableUpdateContext> updateCallbackAction = null, bool queueBeatorajaBmtExportAfterHydration = true)
     {
-        Stopwatch stopwatchReloadTables = Stopwatch.StartNew();
+        var stopwatchReloadTables = Stopwatch.StartNew();
         long lr2configSyncMs = 0L;
         using (rwlockBMSTablesInitializeAll.GetWriterGuard())
         {
@@ -875,11 +872,11 @@ public partial class BMSPlaylist : NotificationObject
                 + " readOnly=true"
                 + " dbLockWaitMs=0"
                 + " entriesDeferred=true");
-            Stopwatch stopwatchLr2configSync = Stopwatch.StartNew();
+            var stopwatchLr2configSync = Stopwatch.StartNew();
             SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-            QueueDeferredPlaylistEntriesHydration("ReloadTables", runExternalSyncAfterHydration: false, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), updateCallbackAction }, CreateBeatorajaBmtProjectionCompletionActions(queueBeatorajaBmtExportAfterHydration, "ReloadTables"));
+            QueueDeferredPlaylistEntriesHydration("ReloadTables", runExternalSyncAfterHydration: false, [CreateCustomFolderOutputUpdateCallback(), updateCallbackAction], CreateBeatorajaBmtProjectionCompletionActions(queueBeatorajaBmtExportAfterHydration, "ReloadTables"));
         }
         stopwatchReloadTables.Stop();
         LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
@@ -888,13 +885,13 @@ public partial class BMSPlaylist : NotificationObject
 
     private List<BMSTable> LoadPlaylistHeadersFromDatabase(out long loadTablesMs)
     {
-        Stopwatch stopwatchLoadTables = Stopwatch.StartNew();
+        var stopwatchLoadTables = Stopwatch.StartNew();
         List<BMSTable> list;
         using (LR2SongDBExtended lR2SongDBExtended = new BmsLibraryDbGateway(lr2SongDBPath).OpenSongDbReadOnly())
         {
-            list = (from t in lR2SongDBExtended.Table<BMSTable>()
+            list = [.. (from t in lR2SongDBExtended.Table<BMSTable>()
                     orderby t.name
-                    select t).ToList();
+                    select t)];
             AttachPersistedCourses(lR2SongDBExtended, list);
         }
         stopwatchLoadTables.Stop();
@@ -908,16 +905,16 @@ public partial class BMSPlaylist : NotificationObject
 
     private static void AttachPersistedCourses(LR2SongDBExtended db, IEnumerable<BMSTable> tables)
     {
-        List<BMSTable> tableList = tables?.Where((BMSTable table) => table != null && table.playlist_id.HasValue).ToList() ?? new List<BMSTable>();
+        List<BMSTable> tableList = tables?.Where(table => table != null && table.playlist_id.HasValue).ToList() ?? [];
         if (tableList.Count == 0)
         {
             return;
         }
-        Dictionary<int, List<LR2SongDBExtended.playlist_course>> coursesByPlaylistId = db.Table<LR2SongDBExtended.playlist_course>()
+        var coursesByPlaylistId = db.Table<LR2SongDBExtended.playlist_course>()
             .ToList()
-            .Where((LR2SongDBExtended.playlist_course course) => course.playlist_id.HasValue)
-            .GroupBy((LR2SongDBExtended.playlist_course course) => course.playlist_id.Value)
-            .ToDictionary((IGrouping<int, LR2SongDBExtended.playlist_course> group) => group.Key, (IGrouping<int, LR2SongDBExtended.playlist_course> group) => group.OrderBy((LR2SongDBExtended.playlist_course course) => course.course_order).ToList());
+            .Where(course => course.playlist_id.HasValue)
+            .GroupBy(course => course.playlist_id.Value)
+            .ToDictionary(group => group.Key, group => group.OrderBy(course => course.course_order).ToList());
         foreach (BMSTable table in tableList)
         {
             if (coursesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<LR2SongDBExtended.playlist_course> courses))
@@ -929,7 +926,7 @@ public partial class BMSPlaylist : NotificationObject
 
     private Action<PlaylistTableUpdateContext> CreateCustomFolderOutputUpdateCallback()
     {
-        object folderoutLock = new object();
+        object folderoutLock = new();
         return delegate (PlaylistTableUpdateContext updateContext)
         {
             BMSTable bMSTable = updateContext?.NewTable;
@@ -969,7 +966,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return null;
         }
-        return new List<Action> { () => QueueBeatorajaBmtExportAll(reason) };
+        return [() => QueueBeatorajaBmtExportAll(reason)];
     }
 
     private bool IsBeatorajaBmtOutputEnabled()
@@ -981,7 +978,7 @@ public partial class BMSPlaylist : NotificationObject
     {
         string outputPath = GetBeatorajaBmtTablePath();
         bool enabled = IsBeatorajaBmtOutputEnabled();
-        Func<Task> work = async delegate
+        async Task work()
         {
             await Task.Yield();
             if (!string.IsNullOrWhiteSpace(cleanupTablePath) && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase)))
@@ -997,9 +994,9 @@ public partial class BMSPlaylist : NotificationObject
             List<BMSTable> tablesSnapshot;
             using (rwlockBMSTables.GetReaderGuard())
             {
-                tablesSnapshot = BMSTables?.Where((BMSTable table) => table != null).ToList() ?? new List<BMSTable>();
+                tablesSnapshot = BMSTables?.Where(table => table != null).ToList() ?? [];
             }
-            List<Tuple<string, JObject>> tableDataSet = new List<Tuple<string, JObject>>();
+            List<Tuple<string, JObject>> tableDataSet = [];
             foreach (BMSTable table in tablesSnapshot)
             {
                 JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason);
@@ -1010,7 +1007,7 @@ public partial class BMSPlaylist : NotificationObject
             }
             BmtTableExportService.ExportResult exportResult = BmtTableExportService.ExportTableDataSet(outputPath, tableDataSet, cleanupStaleManagedFiles: true);
             SyncBeatorajaManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
-        };
+        }
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export_all", reason ?? "queue", null, work))
         {
             return;
@@ -1042,7 +1039,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        Func<Task> work = async delegate
+        async Task work()
         {
             await Task.Yield();
             try
@@ -1062,7 +1059,7 @@ public partial class BMSPlaylist : NotificationObject
                     ScheduleBeatorajaBmtExportQueue(reason ?? "reschedule");
                 }
             }
-        };
+        }
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("beatoraja_bmt_export", reason ?? "queue", null, work))
         {
             return;
@@ -1081,7 +1078,7 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     return;
                 }
-                playlistIds = pendingBeatorajaBmtExportPlaylistIds.ToList();
+                playlistIds = [.. pendingBeatorajaBmtExportPlaylistIds];
                 pendingBeatorajaBmtExportPlaylistIds.Clear();
             }
             foreach (int playlistId in playlistIds)
@@ -1089,7 +1086,7 @@ public partial class BMSPlaylist : NotificationObject
                 BMSTable table;
                 using (rwlockBMSTables.GetReaderGuard())
                 {
-                    table = BMSTables?.FirstOrDefault((BMSTable candidate) => candidate != null && candidate.playlist_id == playlistId);
+                    table = BMSTables?.FirstOrDefault(candidate => candidate != null && candidate.playlist_id == playlistId);
                 }
                 string tablePath = GetBeatorajaBmtTablePath();
                 List<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
@@ -1128,16 +1125,14 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        List<string> previousUrls = (previousManagedTables ?? Enumerable.Empty<BmtTableExportService.ManagedTableUrlEntry>())
-            .Select((BmtTableExportService.ManagedTableUrlEntry entry) => entry?.Url)
-            .Where((string url) => !string.IsNullOrWhiteSpace(url))
-            .ToList();
-        List<string> currentUrls = Settings.Default.RegisterBeatorajaBmtUrls ? (currentManagedTables ?? Enumerable.Empty<BmtTableExportService.ManagedTableUrlEntry>())
+        List<string> previousUrls = [.. (previousManagedTables ?? [])
+            .Select(entry => entry?.Url)
+            .Where(url => !string.IsNullOrWhiteSpace(url))];
+        List<string> currentUrls = Settings.Default.RegisterBeatorajaBmtUrls ? [.. (currentManagedTables ?? Enumerable.Empty<BmtTableExportService.ManagedTableUrlEntry>())
             .Where((BmtTableExportService.ManagedTableUrlEntry entry) => entry != null && !string.IsNullOrWhiteSpace(entry.Url))
             .OrderBy((BmtTableExportService.ManagedTableUrlEntry entry) => entry.Name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy((BmtTableExportService.ManagedTableUrlEntry entry) => entry.PlaylistIdentity ?? string.Empty, StringComparer.Ordinal)
-            .Select((BmtTableExportService.ManagedTableUrlEntry entry) => entry.Url)
-            .ToList() : new List<string>();
+            .Select((BmtTableExportService.ManagedTableUrlEntry entry) => entry.Url)] : [];
         try
         {
             BeatorajaConfigService.SyncTableUrls(Settings.Default.BeatorajaRootPath, currentUrls, previousUrls);
@@ -1193,11 +1188,11 @@ public partial class BMSPlaylist : NotificationObject
             playlistEntriesHydrationPendingRunExternalSync = playlistEntriesHydrationPendingRunExternalSync || runExternalSyncAfterHydration;
             if (updateCallbackActions != null)
             {
-                playlistEntriesHydrationPendingUpdateCallbacks.AddRange(updateCallbackActions.Where((Action<PlaylistTableUpdateContext> action) => action != null));
+                playlistEntriesHydrationPendingUpdateCallbacks.AddRange(updateCallbackActions.Where(action => action != null));
             }
             if (completionActions != null)
             {
-                playlistEntriesHydrationPendingCompletionActions.AddRange(completionActions.Where((Action action) => action != null));
+                playlistEntriesHydrationPendingCompletionActions.AddRange(completionActions.Where(action => action != null));
             }
         }
         if (Interlocked.Exchange(ref playlistEntriesHydrationQueued, 1) != 0)
@@ -1205,7 +1200,7 @@ public partial class BMSPlaylist : NotificationObject
             LogPlaylistPerformance("playlist_entries_hydration coalesced reason=" + (reason ?? string.Empty) + " version=" + version);
             return;
         }
-        Func<Task> work = async delegate
+        async Task work()
         {
             try
             {
@@ -1216,15 +1211,15 @@ public partial class BMSPlaylist : NotificationObject
                 lock (playlistEntriesHydrationRequestLock)
                 {
                     mergedRunExternalSync = playlistEntriesHydrationPendingRunExternalSync;
-                    mergedUpdateCallbacks = playlistEntriesHydrationPendingUpdateCallbacks.ToList();
-                    mergedCompletionActions = playlistEntriesHydrationPendingCompletionActions.ToList();
+                    mergedUpdateCallbacks = [.. playlistEntriesHydrationPendingUpdateCallbacks];
+                    mergedCompletionActions = [.. playlistEntriesHydrationPendingCompletionActions];
                     playlistEntriesHydrationPendingRunExternalSync = false;
                     playlistEntriesHydrationPendingUpdateCallbacks.Clear();
                     playlistEntriesHydrationPendingCompletionActions.Clear();
                 }
                 if (mergedRunExternalSync || mergedUpdateCallbacks.Count > 0)
                 {
-                    Stopwatch stopwatchUpdateTables = Stopwatch.StartNew();
+                    var stopwatchUpdateTables = Stopwatch.StartNew();
                     UpdateBMSTables(mergedRunExternalSync, mergedUpdateCallbacks);
                     stopwatchUpdateTables.Stop();
                     LogPlaylistPerformance("playlist_entries_hydration post_update_tables reason=" + (reason ?? string.Empty) + " reloadExtPlaylist=" + mergedRunExternalSync.ToString().ToLowerInvariant() + " callbackCount=" + mergedUpdateCallbacks.Count + " elapsedMs=" + stopwatchUpdateTables.ElapsedMilliseconds);
@@ -1256,7 +1251,7 @@ public partial class BMSPlaylist : NotificationObject
                     QueueDeferredPlaylistEntriesHydration(reason ?? "reschedule");
                 }
             }
-        };
+        }
         if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("playlist_entries_hydration", reason ?? "queue", null, work))
         {
             return;
@@ -1269,9 +1264,9 @@ public partial class BMSPlaylist : NotificationObject
         List<BMSTable> tablesSnapshot;
         using (rwlockBMSTables.GetReaderGuard())
         {
-            tablesSnapshot = BMSTables.Where((BMSTable table) => table != null).ToList();
+            tablesSnapshot = [.. BMSTables.Where(table => table != null)];
         }
-        if (tablesSnapshot.Count > 0 && tablesSnapshot.All((BMSTable table) => table.ArePlaylistEntriesLoaded))
+        if (tablesSnapshot.Count > 0 && tablesSnapshot.All(table => table.ArePlaylistEntriesLoaded))
         {
             return;
         }
@@ -1280,19 +1275,19 @@ public partial class BMSPlaylist : NotificationObject
         {
             using (rwlockBMSTables.GetReaderGuard())
             {
-                tablesSnapshot = BMSTables.Where((BMSTable table) => table != null).ToList();
+                tablesSnapshot = [.. BMSTables.Where(table => table != null)];
             }
-            if (tablesSnapshot.Count > 0 && tablesSnapshot.All((BMSTable table) => table.ArePlaylistEntriesLoaded))
+            if (tablesSnapshot.Count > 0 && tablesSnapshot.All(table => table.ArePlaylistEntriesLoaded))
             {
                 return;
             }
             PlaylistEntriesHydrationRunning = true;
-            Stopwatch stopwatchTotal = Stopwatch.StartNew();
-            BmsLibraryDbGateway dbGateway = new BmsLibraryDbGateway(lr2SongDBPath);
+            var stopwatchTotal = Stopwatch.StartNew();
+            var dbGateway = new BmsLibraryDbGateway(lr2SongDBPath);
             PlaylistEntriesHydrationLoadResult loadResult = dbGateway.LoadStartupPlaylistEntries();
             List<BMSTableEntry> source = loadResult.Entries;
-            Stopwatch stopwatchGroup = Stopwatch.StartNew();
-            Dictionary<int, List<BMSTableEntry>> entriesByPlaylistId = new Dictionary<int, List<BMSTableEntry>>();
+            var stopwatchGroup = Stopwatch.StartNew();
+            Dictionary<int, List<BMSTableEntry>> entriesByPlaylistId = [];
             foreach (BMSTableEntry entryItem in source)
             {
                 if (!entryItem.playlist_id.HasValue)
@@ -1302,19 +1297,19 @@ public partial class BMSPlaylist : NotificationObject
                 int key = entryItem.playlist_id.Value;
                 if (!entriesByPlaylistId.TryGetValue(key, out List<BMSTableEntry> value))
                 {
-                    value = new List<BMSTableEntry>();
+                    value = [];
                     entriesByPlaylistId[key] = value;
                 }
                 value.Add(entryItem);
             }
             stopwatchGroup.Stop();
-            int removedEntryCount = source.Count((BMSTableEntry entry) => entry != null && entry.is_removed);
+            int removedEntryCount = source.Count(entry => entry != null && entry.is_removed);
             int activeEntryCount = source.Count - removedEntryCount;
-            Stopwatch stopwatchAssign = Stopwatch.StartNew();
+            var stopwatchAssign = Stopwatch.StartNew();
             int assignedTableCount = 0;
             using (rwlockBMSTables.GetWriterGuard())
             {
-                foreach (BMSTable table in BMSTables.Where((BMSTable table) => table != null).ToList())
+                foreach (BMSTable table in BMSTables.Where(table => table != null).ToList())
                 {
                     if (table.ArePlaylistEntriesLoaded)
                     {
@@ -1331,7 +1326,7 @@ public partial class BMSPlaylist : NotificationObject
                     {
                         using (table.ReaderWriterLock.GetWriterGuard())
                         {
-                            table.entries = new List<BMSTableEntry>();
+                            table.entries = [];
                         }
                     }
                     assignedTableCount++;
@@ -1361,7 +1356,7 @@ public partial class BMSPlaylist : NotificationObject
             bool allTablesLoaded;
             using (rwlockBMSTables.GetReaderGuard())
             {
-                allTablesLoaded = BMSTables.Where((BMSTable table) => table != null).All((BMSTable table) => table.ArePlaylistEntriesLoaded);
+                allTablesLoaded = BMSTables.Where(table => table != null).All(table => table.ArePlaylistEntriesLoaded);
             }
             if (allTablesLoaded)
             {
@@ -1375,7 +1370,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             using (rwlockBMSTables.GetReaderGuard())
             {
-                foreach (BMSTable table in BMSTables.Where((BMSTable table) => table != null && !table.ArePlaylistEntriesLoaded))
+                foreach (BMSTable table in BMSTables.Where(table => table != null && !table.ArePlaylistEntriesLoaded))
                 {
                     table.MarkEntriesLoadFailed(ex.Message);
                 }
@@ -1404,16 +1399,16 @@ public partial class BMSPlaylist : NotificationObject
             }
             table.MarkEntriesLoading();
         }
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
-            List<BMSTableEntry> entries = LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: false).ToList();
+            List<BMSTableEntry> entries = [.. LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: false)];
             using (table.ReaderWriterLock.GetWriterGuard())
             {
                 table.entries = entries;
             }
             stopwatch.Stop();
-            int removedEntryCount = entries.Count((BMSTableEntry entry) => entry != null && entry.is_removed);
+            int removedEntryCount = entries.Count(entry => entry != null && entry.is_removed);
             LogPlaylistPerformance("playlist_entries_load_table done reason=" + (reason ?? string.Empty)
                 + " playlistId=" + (table.playlist_id.HasValue ? table.playlist_id.Value.ToString(CultureInfo.InvariantCulture) : "(null)")
                 + " name=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\""
@@ -1475,18 +1470,18 @@ public partial class BMSPlaylist : NotificationObject
     private static void EnsurePlaylistCourseIndexes(LR2SongDBExtended db)
     {
         string tableName = SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName();
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_course_idx_id", new string[1]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id)
-        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_course_idx_id",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.playlist_id)
+        ]);
         long count = db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + sqlQuote("playlist_course_idx_uniq") + ";");
         if (count == 0)
         {
-            db.CreateIndex("playlist_course_idx_uniq", tableName, new string[2]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.course_order)
-            }, unique: true);
+            db.CreateIndex("playlist_course_idx_uniq", tableName,
+            [
+                SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.playlist_id),
+                SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.course_order)
+            ], unique: true);
         }
     }
 
@@ -1500,58 +1495,58 @@ public partial class BMSPlaylist : NotificationObject
             {
                 db.Execute("DROP INDEX IF EXISTS 'playlist_entry_idx_uniq';");
             }
-            db.CreateIndex("playlist_entry_idx_uniq", tableName, new string[7]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.sha256),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.lr2_bmsid),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            }, unique: true);
+            db.CreateIndex("playlist_entry_idx_uniq", tableName,
+            [
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.sha256),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.lr2_bmsid),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+            ], unique: true);
         }
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_id", new string[2]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-        });
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_folder", new string[3]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-        });
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_title", new string[3]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-        });
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_md5", new string[3]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-        });
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_sha256", new string[3]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.sha256),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-        });
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_level", new string[3]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.level),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-        });
-        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_adddate", new string[3]
-        {
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.adddate),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_id",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+        ]);
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_folder",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+        ]);
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_title",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+        ]);
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_md5",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+        ]);
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_sha256",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.sha256),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+        ]);
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_level",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.level),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+        ]);
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_adddate",
+        [
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.adddate),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
+        ]);
     }
 
     private static void EnsurePlaylistEntryIndex(LR2SongDBExtended db, string tableName, string indexName, string[] columnNames)
@@ -1581,7 +1576,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentException(Resources.Error_SchemeMustBeBemusic, "pageUri");
         }
-        BMSTable bMSTable = new BMSTable
+        var bMSTable = new BMSTable
         {
             Page_url = pageUri
         };
@@ -1598,11 +1593,11 @@ public partial class BMSPlaylist : NotificationObject
                 throw new ArgumentException(Resources.Error_UnsupportedURI, pageUri.ToString());
             }
             string input = Uri.UnescapeDataString(pageUri.Query);
-            Regex regex = new Regex("id=(\\d+)");
-            Regex regex2 = new Regex("mode=([^&]+)");
-            Regex regex3 = new Regex("filter=([^&]+)");
-            Regex regex4 = new Regex("name=([^&]+)");
-            Regex regex5 = new Regex("base=([^&]+)");
+            var regex = new Regex("id=(\\d+)");
+            var regex2 = new Regex("mode=([^&]+)");
+            var regex3 = new Regex("filter=([^&]+)");
+            var regex4 = new Regex("name=([^&]+)");
+            var regex5 = new Regex("base=([^&]+)");
             Match match = regex.Match(input);
             Match match2 = regex2.Match(input);
             Match match3 = regex3.Match(input);
@@ -1674,16 +1669,8 @@ public partial class BMSPlaylist : NotificationObject
         string input = playlistHttpClient.GetString(estimationJsonUri);
         input = workAroundRegex.Replace(input, "\"key${id}\":{");
         dynamic data_json = DynamicJson.Parse(input);
-        BMSTable insane = insaneTable;
-        if (insane == null)
-        {
-            throw new InvalidOperationException("Load insane table failed");
-        }
-        BMSTable bMSTable = overjoyTable;
-        if (bMSTable == null)
-        {
-            throw new InvalidOperationException("Load overjoy table failed");
-        }
+        BMSTable insane = insaneTable ?? throw new InvalidOperationException("Load insane table failed");
+        BMSTable bMSTable = overjoyTable ?? throw new InvalidOperationException("Load overjoy table failed");
         var inner = (from e in ((IEnumerable<string>)data_json.GetDynamicMemberNames()).Select(delegate (string item)
             {
                 try
@@ -1718,7 +1705,7 @@ public partial class BMSPlaylist : NotificationObject
                 estimation = w.DefaultIfEmpty()
             };
         }).ToList();
-        _easyEntries = source.SelectMany(grp => grp.estimation, (grp, a) =>
+        _easyEntries = [.. source.SelectMany(grp => grp.estimation, (grp, a) =>
         {
             BMSTableEntry bMSTableEntry = grp.entry.Duplicate();
             if (a != null)
@@ -1730,8 +1717,8 @@ public partial class BMSPlaylist : NotificationObject
                 bMSTableEntry.level = null;
             }
             return bMSTableEntry;
-        }).ToList();
-        _normalEntries = source.SelectMany(grp => grp.estimation, (grp, a) =>
+        })];
+        _normalEntries = [.. source.SelectMany(grp => grp.estimation, (grp, a) =>
         {
             BMSTableEntry bMSTableEntry = grp.entry.Duplicate();
             if (a != null)
@@ -1743,8 +1730,8 @@ public partial class BMSPlaylist : NotificationObject
                 bMSTableEntry.level = null;
             }
             return bMSTableEntry;
-        }).ToList();
-        _hardEntries = source.SelectMany(grp => grp.estimation, (grp, a) =>
+        })];
+        _hardEntries = [.. source.SelectMany(grp => grp.estimation, (grp, a) =>
         {
             BMSTableEntry bMSTableEntry = grp.entry.Duplicate();
             if (a != null)
@@ -1756,8 +1743,8 @@ public partial class BMSPlaylist : NotificationObject
                 bMSTableEntry.level = null;
             }
             return bMSTableEntry;
-        }).ToList();
-        _fcEntries = source.SelectMany(grp => grp.estimation, (grp, a) =>
+        })];
+        _fcEntries = [.. source.SelectMany(grp => grp.estimation, (grp, a) =>
         {
             BMSTableEntry bMSTableEntry = grp.entry.Duplicate();
             if (a != null)
@@ -1769,7 +1756,7 @@ public partial class BMSPlaylist : NotificationObject
                 bMSTableEntry.level = null;
             }
             return bMSTableEntry;
-        }).ToList();
+        })];
     }
 
     /// <summary>
@@ -1887,7 +1874,7 @@ public partial class BMSPlaylist : NotificationObject
                 DispatcherMessageBox.Show(string.Format(Resources.Warn_RecommendUpdateFailed, ex2.Message), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             }
         }
-        Uri address = new Uri(recommendJsonUriStr + lr2id, UriKind.Absolute);
+        var address = new Uri(recommendJsonUriStr + lr2id, UriKind.Absolute);
         dynamic val = DynamicJson.Parse(playlistHttpClient.GetString(address));
         if ((string)val.status != "success")
         {
@@ -1897,21 +1884,13 @@ public partial class BMSPlaylist : NotificationObject
         double num = (double)val.hoshi;
         DateTime dateTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds((int)val.last_modified).ToLocalTime();
         name = ((string)val.name).Replace('〜', '～');
-        BMSTable insane = insaneTable;
-        if (insane == null)
-        {
-            throw new InvalidOperationException("Load insane table failed");
-        }
-        BMSTable bMSTable = overjoyTable;
-        if (bMSTable == null)
-        {
-            throw new InvalidOperationException("Load overjoy table failed");
-        }
+        BMSTable insane = insaneTable ?? throw new InvalidOperationException("Load insane table failed");
+        BMSTable bMSTable = overjoyTable ?? throw new InvalidOperationException("Load overjoy table failed");
         IEnumerable<BMSTableEntry> inner = from e in insane.entries.Concat(bMSTable.entries)
                                            where !string.IsNullOrWhiteSpace(e.md5) && !string.IsNullOrWhiteSpace(e.lr2_bmsid)
                                            group e by e.md5 into e
-                                           select e.FirstOrDefault((BMSTableEntry f) => f.parent == insane) ?? e.First();
-        List<BMSTableEntry> entries = (from e in ((object[])val.recommended).Select(delegate (dynamic item)
+                                           select e.FirstOrDefault(f => f.parent == insane) ?? e.First();
+        List<BMSTableEntry> entries = [.. (from e in ((object[])val.recommended).Select(delegate (dynamic item)
             {
                 try
                 {
@@ -1935,14 +1914,14 @@ public partial class BMSPlaylist : NotificationObject
                                        bMSTableEntry.folder = r.new_lamp.ToUpperInvariant();
                                        bMSTableEntry.level = r.percent;
                                        return bMSTableEntry;
-                                   }).ToList();
+                                   })];
         table.folder_sort_key = LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL;
         table.folder_sort_ascending = false;
         table.is_external_sync = true;
         table.entries = entries;
         table.last_update = DateTime.Parse(dateTime.ToString());
         table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.LevelFolder | LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder | LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder | LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder | LR2SongDBExtended.playlist.CustomFolderType.OtherFolder;
-        table.Folder_order = new List<string> { "EASY", "NORMAL", "HARD", "FC" };
+        table.Folder_order = ["EASY", "NORMAL", "HARD", "FC"];
         string name2 = (table.org_name = string.Format(Resources.RecommendFormat, displayName ?? name, num.ToString("F2")));
         table.name = name2;
         name2 = (table.org_symbol = "R★");
@@ -1984,11 +1963,7 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
         BMSTable obj = insaneTable ?? throw new InvalidOperationException("Load insane table failed");
-        BMSTable bMSTable = overjoyTable;
-        if (bMSTable == null)
-        {
-            throw new InvalidOperationException("Load overjoy table failed");
-        }
+        BMSTable bMSTable = overjoyTable ?? throw new InvalidOperationException("Load overjoy table failed");
         var enumerable = from e in obj.entries.Concat(bMSTable.entries)
                          where !string.IsNullOrWhiteSpace(e.md5) && !string.IsNullOrWhiteSpace(e.lr2_bmsid)
                          group e by e.md5 into g
@@ -1997,19 +1972,9 @@ public partial class BMSPlaylist : NotificationObject
                              md5 = g.Key,
                              bmsid = g.First().lr2_bmsid
                          };
-        if (initSemaphore != null)
-        {
-            initSemaphore.Wait();
-        }
-        if (initSemaphore != null)
-        {
-            initSemaphore.Release();
-        }
-        List<BMSScore> list = bmsScores();
-        if (list == null)
-        {
-            throw new InvalidOperationException(Resources.Error_LocalScoreDataNotFetched);
-        }
+        initSemaphore?.Wait();
+        initSemaphore?.Release();
+        List<BMSScore> list = bmsScores() ?? throw new InvalidOperationException(Resources.Error_LocalScoreDataNotFetched);
         int thresh = filter switch
         {
             "hard" => 4,
@@ -2021,7 +1986,7 @@ public partial class BMSPlaylist : NotificationObject
                         join s in list on t.md5 equals s.hash
                         select new
                         {
-                            bmsid = t.bmsid,
+                            t.bmsid,
                             lamp = ClearTypeStorageConverter.ToLr2Value(s.clear),
                             rank = (int)s.rank
                         } into s
@@ -2039,17 +2004,17 @@ public partial class BMSPlaylist : NotificationObject
                           select s).ToList();
         if (baseline == "failed")
         {
-            lampsBMS = enumerable.Select(t =>
+            lampsBMS = [.. enumerable.Select(t =>
             {
                 var anon = lampsBMS.FirstOrDefault(m => m.bmsid == t.bmsid);
                 return new
                 {
-                    bmsid = t.bmsid,
+                    t.bmsid,
                     lamp = (anon?.lamp ?? 1),
                     rank = (anon?.rank ?? 0)
                 };
-            }).ToList();
-            lampsGrade = insaneGrade.Select(delegate (KeyValuePair<int, string> t)
+            })];
+            lampsGrade = [.. insaneGrade.Select(delegate (KeyValuePair<int, string> t)
             {
                 var anon = lampsGrade.FirstOrDefault(h => h.bmsid == (t.Key + 100000000).ToString());
                 return new
@@ -2058,7 +2023,7 @@ public partial class BMSPlaylist : NotificationObject
                     lamp = (anon?.lamp ?? 1),
                     rank = (anon?.rank ?? 0)
                 };
-            }).ToList();
+            })];
         }
         IEnumerable<string> values = from e in lampsBMS.Concat(lampsGrade)
                                      select e.bmsid + "-" + e.lamp;
@@ -2083,9 +2048,9 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>その他系フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsOtherFolder(BMSTable bmsTable)
     {
-        SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.playcount);
-        SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.playcount);
-        Dictionary<string, LR2SongDBExtended.playlist.CustomFolderSortType> source = new Dictionary<string, LR2SongDBExtended.playlist.CustomFolderSortType>
+        SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.playcount);
+        SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.playcount);
+        var source = new Dictionary<string, LR2SongDBExtended.playlist.CustomFolderSortType>
         {
             {
                 "MY BEST",
@@ -2096,23 +2061,23 @@ public partial class BMSPlaylist : NotificationObject
                 LR2SongDBExtended.playlist.CustomFolderSortType.ADDDATE
             }
         };
-        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
+        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
-        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        List<string> list = source.Select((KeyValuePair<string, LR2SongDBExtended.playlist.CustomFolderSortType> f) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "ORDER BY " + makeCustomFolderCmdSort(f.Value, asc: false, bmsTable.playlist_id), bmsTable.name, f.Key, 40)).ToList();
+        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        List<string> list = [.. source.Select(f => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "ORDER BY " + makeCustomFolderCmdSort(f.Value, asc: false, bmsTable.playlist_id), bmsTable.name, f.Key, 40))];
         if (Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
             string tableName = SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName();
-            string columnName = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.hash);
-            string columnName2 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.clear);
-            string columnName3 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.combo);
-            string columnName4 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.pg);
-            string columnName5 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.gr);
-            string columnName6 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.gd);
-            string columnName7 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.bd);
-            string columnName8 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.pr);
-            string columnName9 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.minbp);
+            string columnName = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.hash);
+            string columnName2 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.clear);
+            string columnName3 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.combo);
+            string columnName4 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pg);
+            string columnName5 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.gr);
+            string columnName6 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.gd);
+            string columnName7 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.bd);
+            string columnName8 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pr);
+            string columnName9 = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.minbp);
             string customFolderText = getCustomFolderText("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0) AND NOT EXISTS (SELECT " + columnName + " FROM " + tableName + " WHERE song.hash = " + tableName + "." + columnName + " AND score.clear = " + tableName + "." + columnName2 + " AND maxcombo = " + columnName3 + " AND perfect = " + columnName4 + " AND great = " + columnName5 + " AND good = " + columnName6 + " AND bad = " + columnName7 + " AND poor = " + columnName8 + " AND score.minbp = " + tableName + "." + columnName9 + ") AND score.clear IS NOT NULL ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "UNSENT SONGS");
             list.Add(customFolderText);
         }
@@ -2128,40 +2093,37 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>カテゴリ全体フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsCategoryAllFolder(BMSTable bmsTable)
     {
-        string columnName = SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song e) => e.longnote);
-        string columnName2 = SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song e) => e.judge);
-        List<string[]> list = new List<string[]>();
-        list.Add(new string[2]
-        {
-            "ALL LONG NOTES",
-            columnName + " = 1"
-        });
-        list.Add(new string[2]
-        {
-            "ALL VERY HARD JUDGES",
-            columnName2 + " = " + 0
-        });
-        list.Add(new string[2]
-        {
-            "ALL HARD JUDGES",
-            columnName2 + " = " + 1
-        });
-        list.Add(new string[2]
-        {
-            "ALL NORMAL JUDGES",
-            columnName2 + " = " + 2
-        });
-        list.Add(new string[2]
-        {
-            "ALL EASY JUDGES",
-            columnName2 + " >= " + 3
-        });
+        string columnName = SQLiteTable<LR2SongDB.song>.GetColumnName(e => e.longnote);
+        string columnName2 = SQLiteTable<LR2SongDB.song>.GetColumnName(e => e.judge);
+        List<string[]> list =
+        [
+            [
+                "ALL LONG NOTES",
+                columnName + " = 1"
+            ],
+            [
+                "ALL VERY HARD JUDGES",
+                columnName2 + " = " + 0
+            ],
+            [
+                "ALL HARD JUDGES",
+                columnName2 + " = " + 1
+            ],
+            [
+                "ALL NORMAL JUDGES",
+                columnName2 + " = " + 2
+            ],
+            [
+                "ALL EASY JUDGES",
+                columnName2 + " >= " + 3
+            ],
+        ];
         List<string[]> source = list;
-        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
+        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
-        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        return source.Select((string[] a) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + a[1] + ")", bmsTable.name, a[0])).ToList();
+        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        return [.. source.Select(a => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + a[1] + ")", bmsTable.name, a[0]))];
     }
 
     /// <summary>
@@ -2171,59 +2133,52 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>DJ LEVEL 別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsDJLevelFolder(BMSTable bmsTable)
     {
-        string columnName = SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.rank);
-        List<string[]> list = new List<string[]>();
-        list.Add(new string[2]
-        {
-            "DJ LEVEL AAA",
-            columnName + " = " + 8
-        });
-        list.Add(new string[2]
-        {
-            "DJ LEVEL AA",
-            columnName + " = " + 7
-        });
-        list.Add(new string[2]
-        {
-            "DJ LEVEL A",
-            columnName + " = " + 6
-        });
-        list.Add(new string[2]
-        {
-            "DJ LEVEL B",
-            columnName + " = " + 5
-        });
-        list.Add(new string[2]
-        {
-            "DJ LEVEL C",
-            columnName + " = " + 4
-        });
-        list.Add(new string[2]
-        {
-            "DJ LEVEL D",
-            columnName + " = " + 3
-        });
-        list.Add(new string[2]
-        {
-            "DJ LEVEL E",
-            columnName + " = " + 2
-        });
-        list.Add(new string[2]
-        {
-            "DJ LEVEL F",
-            columnName + " = " + 1
-        });
-        list.Add(new string[2]
-        {
-            "NO SCORE",
-            columnName + " = " + 0 + " OR " + columnName + " IS NULL "
-        });
+        string columnName = SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.rank);
+        List<string[]> list =
+        [
+            [
+                "DJ LEVEL AAA",
+                columnName + " = " + 8
+            ],
+            [
+                "DJ LEVEL AA",
+                columnName + " = " + 7
+            ],
+            [
+                "DJ LEVEL A",
+                columnName + " = " + 6
+            ],
+            [
+                "DJ LEVEL B",
+                columnName + " = " + 5
+            ],
+            [
+                "DJ LEVEL C",
+                columnName + " = " + 4
+            ],
+            [
+                "DJ LEVEL D",
+                columnName + " = " + 3
+            ],
+            [
+                "DJ LEVEL E",
+                columnName + " = " + 2
+            ],
+            [
+                "DJ LEVEL F",
+                columnName + " = " + 1
+            ],
+            [
+                "NO SCORE",
+                columnName + " = " + 0 + " OR " + columnName + " IS NULL "
+            ],
+        ];
         List<string[]> source = list;
-        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
+        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
-        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        return source.Select((string[] r) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + r[1] + ") ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.SCORE, asc: false), bmsTable.name, r[0])).ToList();
+        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        return [.. source.Select(r => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + r[1] + ") ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.SCORE, asc: false), bmsTable.name, r[0]))];
     }
 
     /// <summary>
@@ -2233,56 +2188,50 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>クリアランプ別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsClearFolder(BMSTable bmsTable)
     {
-        string columnName = SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.clear);
-        string columnName2 = SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.rank);
-        string columnName3 = SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.op_history);
-        List<string[]> list = new List<string[]>();
-        list.Add(new string[2]
-        {
-            "PERFECT ATTACK CLEAR",
-            columnName + " = " + 5 + " AND " + columnName3 + " & 16 != 0"
-        });
-        list.Add(new string[2]
-        {
-            "FULL COMBO CLEAR",
-            columnName + " = " + 5
-        });
-        list.Add(new string[2]
-        {
-            "HARD CLEAR",
-            columnName + " = " + 4
-        });
-        list.Add(new string[2]
-        {
-            "CLEAR",
-            columnName + " = " + 3
-        });
-        list.Add(new string[2]
-        {
-            "EASY CLEAR",
-            columnName + " = " + 2 + " AND " + columnName2 + " != " + 0
-        });
-        list.Add(new string[2]
-        {
-            "ASSIST CLEAR",
-            columnName + " >= " + 2 + " AND " + columnName2 + " = " + 0
-        });
-        list.Add(new string[2]
-        {
-            "FAILED",
-            columnName + " = " + 1
-        });
-        list.Add(new string[2]
-        {
-            "NO PLAY",
-            columnName + " IS NULL"
-        });
+        string columnName = SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.clear);
+        string columnName2 = SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.rank);
+        string columnName3 = SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.op_history);
+        List<string[]> list =
+        [
+            [
+                "PERFECT ATTACK CLEAR",
+                columnName + " = " + 5 + " AND " + columnName3 + " & 16 != 0"
+            ],
+            [
+                "FULL COMBO CLEAR",
+                columnName + " = " + 5
+            ],
+            [
+                "HARD CLEAR",
+                columnName + " = " + 4
+            ],
+            [
+                "CLEAR",
+                columnName + " = " + 3
+            ],
+            [
+                "EASY CLEAR",
+                columnName + " = " + 2 + " AND " + columnName2 + " != " + 0
+            ],
+            [
+                "ASSIST CLEAR",
+                columnName + " >= " + 2 + " AND " + columnName2 + " = " + 0
+            ],
+            [
+                "FAILED",
+                columnName + " = " + 1
+            ],
+            [
+                "NO PLAY",
+                columnName + " IS NULL"
+            ],
+        ];
         List<string[]> source = list;
-        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
+        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
-        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        return source.Select((string[] c) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + c[1] + ") ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.MISS, asc: true), bmsTable.name, c[0])).ToList();
+        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        return [.. source.Select(c => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + c[1] + ") ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.MISS, asc: true), bmsTable.name, c[0]))];
     }
 
     /// <summary>
@@ -2292,7 +2241,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>アルファベット別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsAlphabetFolder(BMSTable bmsTable)
     {
-        Dictionary<string, char[]> dict = new Dictionary<string, char[]>
+        var dict = new Dictionary<string, char[]>
         {
             {
                 "A.B.C.D.",
@@ -2320,15 +2269,15 @@ public partial class BMSPlaylist : NotificationObject
             }
         };
         string title = "OTHERS";
-        char[] array = new char[2] { 'A', '[' };
-        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
+        char[] array = ['A', '['];
+        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
-        string columnNameTitle = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title);
-        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        List<string> list = (from t in dict.Keys
+        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string columnNameTitle = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title);
+        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        List<string> list = [.. (from t in dict.Keys
                              orderby t
-                             select getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND UPPER(" + columnNameTitle + ") BETWEEN " + sqlQuote(dict[t][0].ToString()) + " AND " + sqlQuote(dict[t][1].ToString()) + " AND UPPER(" + columnNameTitle + ") != " + sqlQuote(dict[t][1].ToString()) + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, t)).ToList();
+                             select getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND UPPER(" + columnNameTitle + ") BETWEEN " + sqlQuote(dict[t][0].ToString()) + " AND " + sqlQuote(dict[t][1].ToString()) + " AND UPPER(" + columnNameTitle + ") != " + sqlQuote(dict[t][1].ToString()) + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, t))];
         string command = ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")) " : " ") + "AND (UPPER(" + columnNameTitle + ") NOT BETWEEN " + sqlQuote(array[0].ToString()) + " AND " + sqlQuote(array[1].ToString()) + " OR UPPER(" + columnNameTitle + ") = " + sqlQuote(array[1].ToString()) + ")" + ((bmsTable.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ") " : " ") + "ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true);
         list.Add(getCustomFolderText(command, bmsTable.name, title));
         return list;
@@ -2341,22 +2290,22 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>レベル別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsLevelFolder(BMSTable bmsTable)
     {
-        List<int> source = (from e in (from e in bmsTable.entries
+        List<int> source = [.. (from e in (from e in bmsTable.entries
                                        where e.level.HasValue
                                        select (int)Math.Floor(e.level.Value)).Distinct()
                             orderby e
-                            select e).ToList();
-        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
+                            select e)];
+        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
-        string columnNameLevel = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.level);
-        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        List<string> list = source.Select(delegate (int l)
+        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string columnNameLevel = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.level);
+        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        List<string> list = [.. source.Select(delegate (int l)
         {
             string text = "CASE WHEN " + columnNameLevel + " >= 0 OR CAST(" + columnNameLevel + " AS INTEGER) = " + columnNameLevel + " THEN CAST(" + columnNameLevel + " AS INTEGER) ELSE CAST(" + columnNameLevel + " - 1.0 AS INTEGER) END";
             return getCustomFolderText("song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + text + " = " + l + " AND " + columnNameIsRemoved + " = 0)ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, asc: true, bmsTable.playlist_id) + "," + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true), bmsTable.name, "LEVEL " + l);
-        }).ToList();
-        if (bmsTable.entries.Any((BMSTableEntry e) => !e.level.HasValue))
+        })];
+        if (bmsTable.entries.Any(e => !e.level.HasValue))
         {
             string command = "song.hash in (SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameLevel + " IS NULL AND " + columnNameIsRemoved + " = 0)ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL, asc: true, bmsTable.playlist_id) + "," + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.TITLE, asc: true);
             list.Add(getCustomFolderText(command, bmsTable.name, "LEVEL ???"));
@@ -2375,11 +2324,11 @@ public partial class BMSPlaylist : NotificationObject
         LR2SongDBExtended.playlist.CustomFolderSortType sortType = bmsTable.folder_sort_key;
         bool sortDirAsc = bmsTable.folder_sort_ascending;
         string tblNameEntry = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
-        string columnNameFolder = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder);
-        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
-        return folder_list.Select((string f) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash   in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameFolder + " = " + sqlQuote(f) + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + ((sortType == LR2SongDBExtended.playlist.CustomFolderSortType.NONE) ? string.Empty : (" ORDER BY " + makeCustomFolderCmdSort(sortType, sortDirAsc, bmsTable.playlist_id, f))), bmsTable.name, string.IsNullOrWhiteSpace(f) ? bmsTable.name : f)).ToList();
+        string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
+        string columnNameFolder = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder);
+        string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        string columnNameMD5 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
+        return [.. folder_list.Select(f => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash   in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameFolder + " = " + sqlQuote(f) + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + ((sortType == LR2SongDBExtended.playlist.CustomFolderSortType.NONE) ? string.Empty : (" ORDER BY " + makeCustomFolderCmdSort(sortType, sortDirAsc, bmsTable.playlist_id, f))), bmsTable.name, string.IsNullOrWhiteSpace(f) ? bmsTable.name : f))];
     }
 
     /// <summary>
@@ -2399,8 +2348,8 @@ public partial class BMSPlaylist : NotificationObject
         }
         string text = (asc ? "ASC" : "DESC");
         string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string columnName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed);
-        string columnName2 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5);
+        string columnName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
+        string columnName2 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5);
         switch (ftype)
         {
             case LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL:
@@ -2410,12 +2359,12 @@ public partial class BMSPlaylist : NotificationObject
                     {
                         throw new ArgumentNullException("playlist_id");
                     }
-                    string columnName3 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id);
+                    string columnName3 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
                     if (string.IsNullOrWhiteSpace(folder))
                     {
                         return "(SELECT " + ftype.ToColumnName() + " FROM " + tableName + " WHERE " + columnName2 + " = song.hash AND " + columnName3 + " = " + playlist_id + " AND " + columnName + " = 0) " + text;
                     }
-                    string columnName4 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder);
+                    string columnName4 = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder);
                     return "(SELECT " + ftype.ToColumnName() + " FROM " + tableName + " WHERE " + columnName2 + " = song.hash AND " + columnName3 + " = " + playlist_id + " AND " + columnName4 + " = " + sqlQuote(folder) + " AND " + columnName + " = 0) " + text;
                 }
             case LR2SongDBExtended.playlist.CustomFolderSortType.SCORE:
@@ -2439,7 +2388,7 @@ public partial class BMSPlaylist : NotificationObject
     {
         using (rwlockBMSTables.GetReaderGuard())
         {
-            foreach (BMSTable item in BMSTables.Where((BMSTable t) => !t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
+            foreach (BMSTable item in BMSTables.Where(t => !t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
             {
                 EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectory");
                 using (item.ReaderWriterLock.GetWriterGuard())
@@ -2460,7 +2409,7 @@ public partial class BMSPlaylist : NotificationObject
     {
         using (rwlockBMSTables.GetReaderGuard())
         {
-            foreach (BMSTable item in BMSTables.Where((BMSTable t) => t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
+            foreach (BMSTable item in BMSTables.Where(t => t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
             {
                 EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectoryRoot");
                 using (item.ReaderWriterLock.GetWriterGuard())
@@ -2558,16 +2507,16 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="outputDir">出力先ディレクトリ。</param>
     private void createCustomFolder(BMSTable bmsTable, string outputDir)
     {
-        List<string> list = new List<string>();
+        List<string> list = [];
         foreach (Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>> item in new List<Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>>
         {
-            new Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, makeCustomFolderTextsUserFolder),
-            new Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, makeCustomFolderTextsLevelFolder),
-            new Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, makeCustomFolderTextsAlphabetFolder),
-            new Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, makeCustomFolderTextsClearFolder),
-            new Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, makeCustomFolderTextsDJLevelFolder),
-            new Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, makeCustomFolderTextsCategoryAllFolder),
-            new Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<string>>>(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, makeCustomFolderTextsOtherFolder)
+            new(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, makeCustomFolderTextsUserFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, makeCustomFolderTextsLevelFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, makeCustomFolderTextsAlphabetFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, makeCustomFolderTextsClearFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, makeCustomFolderTextsDJLevelFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, makeCustomFolderTextsCategoryAllFolder),
+            new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, makeCustomFolderTextsOtherFolder)
         })
         {
             if ((item.Item1 & bmsTable.ignore_folder_output) == 0)
@@ -2575,7 +2524,7 @@ public partial class BMSPlaylist : NotificationObject
                 list.AddRange(item.Item2(bmsTable));
             }
         }
-        list = list.ToList();
+        list = [.. list];
         if (list.Count() == 0)
         {
             try
@@ -2665,7 +2614,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, targetDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
-        LR2SongDBExtended lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+        var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
         try
         {
             lr2Song.BeginTransaction();
@@ -2675,9 +2624,9 @@ public partial class BMSPlaylist : NotificationObject
          {
              lr2Song.Delete<LR2SongDB.folder>(p);
          });
-            List<LR2SongDB.folder> source = (from f in lr2Song.Table<LR2SongDB.folder>().ToList()
+            List<LR2SongDB.folder> source = [.. (from f in lr2Song.Table<LR2SongDB.folder>().ToList()
                                              where string.Equals(f.path, targetDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                             select f).ToList();
+                                             select f)];
             if (source.Count() > 0)
             {
                 LR2SongDB.folder folder = source.First();
@@ -2712,7 +2661,7 @@ public partial class BMSPlaylist : NotificationObject
         return RegistrateExternalTableAsync(pageUri).GetAwaiter().GetResult();
     }
 
-    internal async Task<BMSTable> RegistrateExternalTableAsync(Uri pageUri, CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<BMSTable> RegistrateExternalTableAsync(Uri pageUri, CancellationToken cancellationToken = default)
     {
         if (!pageUri.IsAbsoluteUri)
         {
@@ -2723,11 +2672,11 @@ public partial class BMSPlaylist : NotificationObject
         {
             using (rwlockBMSTables.GetWriterGuard())
             {
-                if (bMSTable.last_update == default(DateTime))
+                if (bMSTable.last_update == default)
                 {
                     bMSTable.last_update = DateTime.Now;
                 }
-                if (BMSTables.Select((BMSTable t) => t.name).Contains(bMSTable.name))
+                if (BMSTables.Select(t => t.name).Contains(bMSTable.name))
                 {
                     throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bMSTable.name);
                 }
@@ -2767,22 +2716,22 @@ public partial class BMSPlaylist : NotificationObject
         return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, syncResultCallback, null).GetAwaiter().GetResult();
     }
 
-    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, CancellationToken cancellationToken = default)
     {
         IsPlaylistUpdating = true;
         try
         {
-            Stopwatch stopwatchUpdateTablesTotal = Stopwatch.StartNew();
+            var stopwatchUpdateTablesTotal = Stopwatch.StartNew();
             List<BMSTable> tableSnapshot;
             using (rwlockBMSTables.GetReaderGuard())
             {
-                tableSnapshot = BMSTables.ToList();
+                tableSnapshot = [.. BMSTables];
             }
-            List<BMSTable> reloadTargets = tableSnapshot.Where(delegate (BMSTable table)
+            List<BMSTable> reloadTargets = [.. tableSnapshot.Where(delegate (BMSTable table)
             {
                 Uri uri2 = table?.Page_url ?? table?.Header_url;
                 return reloadExtPlaylist && table != null && table.is_external_sync && uri2 != null && uri2.IsAbsoluteUri;
-            }).ToList();
+            })];
             List<PlaylistReloadTargetResult> results = await ReloadPlaylistTargetsAsync(
                 reloadTargets,
                 updateCallbackActions,
@@ -2792,8 +2741,8 @@ public partial class BMSPlaylist : NotificationObject
                 cancellationToken).ConfigureAwait(false);
             if (updateCallbackActions != null)
             {
-                HashSet<BMSTable> reloadedTables = new HashSet<BMSTable>(results.Select((PlaylistReloadTargetResult result) => result.SourceTable).Where((BMSTable table) => table != null));
-                foreach (BMSTable table in tableSnapshot.Where((BMSTable table) => table != null && !reloadedTables.Contains(table)))
+                var reloadedTables = new HashSet<BMSTable>(results.Select(result => result.SourceTable).Where(table => table != null));
+                foreach (BMSTable table in tableSnapshot.Where(table => table != null && !reloadedTables.Contains(table)))
                 {
                     InvokePlaylistUpdateCallbacks(new PlaylistTableUpdateContext
                     {
@@ -2806,7 +2755,7 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
             stopwatchUpdateTablesTotal.Stop();
-            List<BMSTable> updatedTables = results.Where((PlaylistReloadTargetResult result) => result.Succeeded && result.Updated && result.ResultTable != null).Select((PlaylistReloadTargetResult result) => result.ResultTable).ToList();
+            List<BMSTable> updatedTables = [.. results.Where(result => result.Succeeded && result.Updated && result.ResultTable != null).Select(result => result.ResultTable)];
             LogPlaylistPerformance("playlist_update table_count=" + tableSnapshot.Count + " target_count=" + reloadTargets.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
             return updatedTables;
         }
@@ -2816,20 +2765,19 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(IEnumerable<BMSTable> targets, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "ReloadPlaylistTargetsAsync", CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(IEnumerable<BMSTable> targets, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "ReloadPlaylistTargetsAsync", CancellationToken cancellationToken = default)
     {
-        List<BMSTable> targetSnapshot = (targets ?? Enumerable.Empty<BMSTable>())
-            .Where((BMSTable table) => table != null)
+        List<BMSTable> targetSnapshot = [.. (targets ?? [])
+            .Where(table => table != null)
             .Distinct()
             .Where(delegate (BMSTable table)
             {
                 Uri uri = table.Page_url ?? table.Header_url;
                 return uri != null && uri.IsAbsoluteUri;
-            })
-            .ToList();
+            })];
         int completedTableCount = 0;
-        List<PlaylistReloadTargetResult> results = new List<PlaylistReloadTargetResult>();
-        object resultLock = new object();
+        List<PlaylistReloadTargetResult> results = [];
+        object resultLock = new();
         progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
         {
             IsActive = targetSnapshot.Count > 0,
@@ -2838,8 +2786,8 @@ public partial class BMSPlaylist : NotificationObject
             CurrentTableName = string.Empty,
             CurrentUri = null
         });
-        using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-        await Task.WhenAll(targetSnapshot.Select(async delegate (BMSTable table)
+        using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
+        await Task.WhenAll([.. targetSnapshot.Select(async delegate (BMSTable table)
         {
             await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
             Uri uri = table.Page_url ?? table.Header_url;
@@ -2873,7 +2821,7 @@ public partial class BMSPlaylist : NotificationObject
                 });
                 semaphoreSlim.Release();
             }
-        }).ToArray()).ConfigureAwait(false);
+        })]).ConfigureAwait(false);
         progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
         {
             IsActive = false,
@@ -2903,20 +2851,20 @@ public partial class BMSPlaylist : NotificationObject
             EnsurePlaylistEntriesLoaded(table, reason);
             using (table.ReaderWriterLock.GetWriterGuard())
             {
-                oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
+                oldEntriesSnapshot = table.entries?.ToList() ?? [];
                 IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
                 newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out persistenceDecision, logLastUpdateDecision: true);
                 updated = persistenceDecision.UpdatesLastUpdate;
                 if (persistenceDecision.NeedsEntryPersistence)
                 {
-                    newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
+                    newEntriesSnapshot = newTable.entries?.ToList() ?? [];
                 }
                 else
                 {
                     newEntriesSnapshot = oldEntriesSnapshot;
                     if (persistenceDecision.NeedsHeaderPersistence)
                     {
-                        newTable.entries = oldEntriesSnapshot.ToList();
+                        newTable.entries = [.. oldEntriesSnapshot];
                     }
                     if (!persistenceDecision.NeedsStatePersistence)
                     {
@@ -2947,7 +2895,7 @@ public partial class BMSPlaylist : NotificationObject
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_reload_target_failed reason=" + FormatTextForLog(reason) + " table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
             syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, ex));
         }
-        PlaylistTableUpdateContext updateContext = new PlaylistTableUpdateContext
+        var updateContext = new PlaylistTableUpdateContext
         {
             NewTable = newTable,
             Updated = updated,
@@ -2975,7 +2923,7 @@ public partial class BMSPlaylist : NotificationObject
         }
         try
         {
-            foreach (Action<PlaylistTableUpdateContext> item in updateCallbackActions.Where((Action<PlaylistTableUpdateContext> action) => action != null))
+            foreach (Action<PlaylistTableUpdateContext> item in updateCallbackActions.Where(action => action != null))
             {
                 item(updateContext);
             }
@@ -3047,7 +2995,7 @@ public partial class BMSPlaylist : NotificationObject
         return ResetBMSTableAsync(bmsTable, pageUri).GetAwaiter().GetResult();
     }
 
-    internal async Task<BMSTable> ResetBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<BMSTable> ResetBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default)
     {
         if (bmsTable == null)
         {
@@ -3096,7 +3044,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>追加された新規プレイリスト。</returns>
     public BMSTable CreateBMSTable()
     {
-        BMSTable bMSTable = new BMSTable
+        var bMSTable = new BMSTable
         {
             last_update = DateTime.Now
         };
@@ -3308,7 +3256,7 @@ public partial class BMSPlaylist : NotificationObject
         return LoadExternalTableAsync(pageUri, baseTable).GetAwaiter().GetResult();
     }
 
-    internal async Task<BMSTable> LoadExternalTableAsync(Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<BMSTable> LoadExternalTableAsync(Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default)
     {
         if (pageUri == null || !pageUri.IsAbsoluteUri)
         {
@@ -3382,11 +3330,11 @@ public partial class BMSPlaylist : NotificationObject
         {
             return false;
         }
-        StringBuilder stringBuilder = new StringBuilder();
+        var stringBuilder = new StringBuilder();
         try
         {
             XDocument xDocument;
-            using (SgmlReader reader = new SgmlReader
+            using (var reader = new SgmlReader
             {
                 Href = pageUri.AbsoluteUri,
                 InputStream = new StringReader(input),
@@ -3445,10 +3393,10 @@ public partial class BMSPlaylist : NotificationObject
         }
         BMSTable reloadedTable = reloadBMSTable(oldTable, pageUri);
         EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingState");
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out bool _, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)), out bool _, logLastUpdateDecision);
     }
 
-    private async Task<BMSTable> MergeReloadedBMSTableWithExistingStateAsync(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false, CancellationToken cancellationToken = default(CancellationToken))
+    private async Task<BMSTable> MergeReloadedBMSTableWithExistingStateAsync(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false, CancellationToken cancellationToken = default)
     {
         if (pageUri == null)
         {
@@ -3456,7 +3404,7 @@ public partial class BMSPlaylist : NotificationObject
         }
         BMSTable reloadedTable = await reloadBMSTableAsync(oldTable, pageUri, cancellationToken).ConfigureAwait(false);
         EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingStateAsync");
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out bool _, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)), out bool _, logLastUpdateDecision);
     }
 
     /// <summary>
@@ -3469,7 +3417,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentNullException"><paramref name="oldTable"/> または <paramref name="reloadedTable"/> が <see langword="null"/> の場合。</exception>
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, bool logLastUpdateDecision = false)
     {
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out bool _, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)), out bool _, logLastUpdateDecision);
     }
 
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, bool logLastUpdateDecision = false)
@@ -3502,8 +3450,8 @@ public partial class BMSPlaylist : NotificationObject
         }
 
         BMSTable newTable = reloadedTable;
-        List<ComparablePlaylistEntryRow> list = persistedActiveRows?.Where((ComparablePlaylistEntryRow row) => row != null).ToList();
-        IReadOnlyList<ComparablePlaylistEntryRow> normalizedPersistedRows = (list != null) ? list : (IReadOnlyList<ComparablePlaylistEntryRow>)Array.Empty<ComparablePlaylistEntryRow>();
+        var list = persistedActiveRows?.Where(row => row != null).ToList();
+        IReadOnlyList<ComparablePlaylistEntryRow> normalizedPersistedRows = list ?? (IReadOnlyList<ComparablePlaylistEntryRow>)[];
         IReadOnlyList<ComparablePlaylistEntryRow> normalizedReloadedRows = BuildComparablePlaylistEntryRows(newTable.entries);
         PlaylistContentDiffResult playlistContentDiffResult = AnalyzePlaylistContentDiff(normalizedPersistedRows, normalizedReloadedRows);
         PlaylistHashChangeResult hashChangeResult = AnalyzePlaylistHashChanges(oldTable, newTable);
@@ -3518,11 +3466,11 @@ public partial class BMSPlaylist : NotificationObject
         hasContentChanges = persistenceDecision.UpdatesLastUpdate;
         hasStateToPersist = persistenceDecision.NeedsStatePersistence;
 
-        Dictionary<string, List<BMSTableEntry>> newEntriesByMd5 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.md5, StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, List<BMSTableEntry>> newEntriesBySha256 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.sha256, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<BMSTableEntry>> newEntriesByMd5 = BuildEntryLookup(newTable.entries, entry => entry.md5, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<BMSTableEntry>> newEntriesBySha256 = BuildEntryLookup(newTable.entries, entry => entry.sha256, StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<BMSTableEntry>> newEntriesByComparableRow = BuildComparableEntryLookup(newTable.entries);
 
-        List<BMSTableEntry> matchedOldEntries = oldTable.entries.Where(delegate (BMSTableEntry oe)
+        List<BMSTableEntry> matchedOldEntries = [.. oldTable.entries.Where(delegate (BMSTableEntry oe)
         {
             BMSTableEntry matchedNew = ResolveReloadedEntryMatch(oe, newEntriesByMd5, newEntriesBySha256, newEntriesByComparableRow);
             if (matchedNew == null)
@@ -3533,7 +3481,7 @@ public partial class BMSPlaylist : NotificationObject
             matchedNew.adddate = oe.adddate;
             matchedNew.is_removed = false;
             return true;
-        }).ToList();
+        })];
 
         DateTime oldLastUpdate = oldTable.last_update;
         DateTime reloadedLastUpdate = newTable.last_update;
@@ -3543,19 +3491,19 @@ public partial class BMSPlaylist : NotificationObject
         }
         else if (persistenceDecision.UpdatesLastUpdate)
         {
-            newTable.last_update = ((reloadedLastUpdate != default(DateTime)) ? reloadedLastUpdate : DateTime.Now);
+            newTable.last_update = ((reloadedLastUpdate != default) ? reloadedLastUpdate : DateTime.Now);
         }
         else
         {
-            newTable.last_update = ((reloadedLastUpdate != default(DateTime)) ? reloadedLastUpdate : oldTable.last_update);
+            newTable.last_update = ((reloadedLastUpdate != default) ? reloadedLastUpdate : oldTable.last_update);
         }
 
-        List<BMSTableEntry> removedEntries = oldTable.entries.Except(matchedOldEntries).ToList();
+        List<BMSTableEntry> removedEntries = [.. oldTable.entries.Except(matchedOldEntries)];
         foreach (BMSTableEntry item in removedEntries)
         {
             item.is_removed = true;
         }
-        newTable.entries = newTable.entries.Concat(removedEntries).ToList();
+        newTable.entries = [.. newTable.entries, .. removedEntries];
         bool lastUpdateChanged = newTable.last_update != oldLastUpdate;
         if (logLastUpdateDecision)
         {
@@ -3570,7 +3518,7 @@ public partial class BMSPlaylist : NotificationObject
 
     private static PlaylistHashChangeResult AnalyzePlaylistHashChanges(BMSTable oldTable, BMSTable newTable)
     {
-        PlaylistHashChangeResult result = new PlaylistHashChangeResult();
+        var result = new PlaylistHashChangeResult();
         if (oldTable == null || newTable == null)
         {
             return result;
@@ -3610,16 +3558,12 @@ public partial class BMSPlaylist : NotificationObject
         {
             string text = keySelector(entry);
             return !string.IsNullOrWhiteSpace(text);
-        }).GroupBy((BMSTableEntry entry) => keySelector(entry), comparer).ToDictionary((IGrouping<string, BMSTableEntry> group) => group.Key, (IGrouping<string, BMSTableEntry> group) => group.ToList(), comparer);
+        }).GroupBy(entry => keySelector(entry), comparer).ToDictionary(group => group.Key, group => group.ToList(), comparer);
     }
 
     private static BMSTableEntry ResolveReloadedEntryMatch(BMSTableEntry oldEntry, Dictionary<string, List<BMSTableEntry>> entriesByMd5, Dictionary<string, List<BMSTableEntry>> entriesBySha256, Dictionary<string, List<BMSTableEntry>> entriesByComparableRow)
     {
-        List<BMSTableEntry> list = GetEntryMatchCandidates(oldEntry.md5, entriesByMd5);
-        if (list == null)
-        {
-            list = GetEntryMatchCandidates(oldEntry.sha256, entriesBySha256);
-        }
+        List<BMSTableEntry> list = GetEntryMatchCandidates(oldEntry.md5, entriesByMd5) ?? GetEntryMatchCandidates(oldEntry.sha256, entriesBySha256);
         if (list == null)
         {
             ComparablePlaylistEntryRow comparableRow = CreateComparablePlaylistEntryRow(oldEntry);
@@ -3640,15 +3584,15 @@ public partial class BMSPlaylist : NotificationObject
     {
         if (!playlistId.HasValue)
         {
-            return Array.Empty<BMSTableEntry>();
+            return [];
         }
-        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
         using (BMSTableEntry.BeginBulkLoadParseSuppression())
         {
-            string sql = "SELECT * FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.playlist_id) + " = ?";
+            string sql = "SELECT * FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.playlist_id) + " = ?";
             if (activeOnly)
             {
-                sql += " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.is_removed) + " = 0";
+                sql += " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.is_removed) + " = 0";
             }
             sql += ";";
             return lR2SongDBExtended.Query<BMSTableEntry>(sql, playlistId.Value);
@@ -3657,8 +3601,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private static Dictionary<string, List<BMSTableEntry>> BuildComparableEntryLookup(IEnumerable<BMSTableEntry> entries)
     {
-        Dictionary<string, List<BMSTableEntry>> dictionary = new Dictionary<string, List<BMSTableEntry>>(StringComparer.Ordinal);
-        foreach (BMSTableEntry entry in entries ?? Enumerable.Empty<BMSTableEntry>())
+        var dictionary = new Dictionary<string, List<BMSTableEntry>>(StringComparer.Ordinal);
+        foreach (BMSTableEntry entry in entries ?? [])
         {
             ComparablePlaylistEntryRow comparableRow = CreateComparablePlaylistEntryRow(entry);
             if (comparableRow == null)
@@ -3667,7 +3611,7 @@ public partial class BMSPlaylist : NotificationObject
             }
             if (!dictionary.TryGetValue(comparableRow.Fingerprint, out List<BMSTableEntry> value))
             {
-                value = new List<BMSTableEntry>();
+                value = [];
                 dictionary[comparableRow.Fingerprint] = value;
             }
             value.Add(entry);
@@ -3679,9 +3623,9 @@ public partial class BMSPlaylist : NotificationObject
     {
         if (entries == null)
         {
-            return Array.Empty<ComparablePlaylistEntryRow>();
+            return [];
         }
-        return entries.Select(CreateComparablePlaylistEntryRow).Where((ComparablePlaylistEntryRow row) => row != null).ToList();
+        return entries.Select(CreateComparablePlaylistEntryRow).Where(row => row != null).ToList();
     }
 
     internal static ComparablePlaylistEntryRow CreateComparablePlaylistEntryRow(BMSTableEntry entry)
@@ -3690,7 +3634,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return null;
         }
-        ComparablePlaylistEntryRow comparableRow = new ComparablePlaylistEntryRow
+        var comparableRow = new ComparablePlaylistEntryRow
         {
             Md5 = NormalizeHash(entry.md5),
             Sha256 = NormalizeHash(entry.sha256),
@@ -3727,14 +3671,14 @@ public partial class BMSPlaylist : NotificationObject
     {
         Dictionary<string, int> dictionary = BuildComparableRowFingerprintCounts(persistedRows);
         Dictionary<string, int> dictionary2 = BuildComparableRowFingerprintCounts(reloadedRows);
-        PlaylistContentDiffResult playlistContentDiffResult = new PlaylistContentDiffResult
+        var playlistContentDiffResult = new PlaylistContentDiffResult
         {
-            PersistedOnlySamples = Array.Empty<string>(),
-            ReloadedOnlySamples = Array.Empty<string>()
+            PersistedOnlySamples = [],
+            ReloadedOnlySamples = []
         };
         List<string> list = null;
         List<string> list2 = null;
-        foreach (string item in dictionary.Keys.Union(dictionary2.Keys, StringComparer.Ordinal).OrderBy((string key) => key, StringComparer.Ordinal))
+        foreach (string item in dictionary.Keys.Union(dictionary2.Keys, StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal))
         {
             dictionary.TryGetValue(item, out int value);
             dictionary2.TryGetValue(item, out int value2);
@@ -3746,20 +3690,20 @@ public partial class BMSPlaylist : NotificationObject
             {
                 int num = value - value2;
                 playlistContentDiffResult.PersistedOnlyCount += num;
-                list = list ?? new List<string>(PlaylistDiffSampleLogCount);
+                list ??= new List<string>(PlaylistDiffSampleLogCount);
                 AppendDiffSamples(list, item, num);
             }
             else
             {
                 int num2 = value2 - value;
                 playlistContentDiffResult.ReloadedOnlyCount += num2;
-                list2 = list2 ?? new List<string>(PlaylistDiffSampleLogCount);
+                list2 ??= new List<string>(PlaylistDiffSampleLogCount);
                 AppendDiffSamples(list2, item, num2);
             }
         }
         playlistContentDiffResult.HasChanges = playlistContentDiffResult.PersistedOnlyCount > 0 || playlistContentDiffResult.ReloadedOnlyCount > 0;
-        playlistContentDiffResult.PersistedOnlySamples = (IReadOnlyList<string>)(list != null ? list : (IReadOnlyList<string>)Array.Empty<string>());
-        playlistContentDiffResult.ReloadedOnlySamples = (IReadOnlyList<string>)(list2 != null ? list2 : (IReadOnlyList<string>)Array.Empty<string>());
+        playlistContentDiffResult.PersistedOnlySamples = (IReadOnlyList<string>)(list ?? (IReadOnlyList<string>)[]);
+        playlistContentDiffResult.ReloadedOnlySamples = (IReadOnlyList<string>)(list2 ?? (IReadOnlyList<string>)[]);
         return playlistContentDiffResult;
     }
 
@@ -3770,12 +3714,12 @@ public partial class BMSPlaylist : NotificationObject
 
     private static Dictionary<string, int> BuildComparableRowFingerprintCounts(IEnumerable<ComparablePlaylistEntryRow> rows)
     {
-        Dictionary<string, int> dictionary = new Dictionary<string, int>(StringComparer.Ordinal);
+        var dictionary = new Dictionary<string, int>(StringComparer.Ordinal);
         if (rows == null)
         {
             return dictionary;
         }
-        foreach (ComparablePlaylistEntryRow row in rows.Where((ComparablePlaylistEntryRow row) => row != null))
+        foreach (ComparablePlaylistEntryRow row in rows.Where(row => row != null))
         {
             if (dictionary.TryGetValue(row.Fingerprint, out int value))
             {
@@ -3818,7 +3762,7 @@ public partial class BMSPlaylist : NotificationObject
 
     private static string JoinDiffSamplesForLog(IEnumerable<string> samples)
     {
-        IEnumerable<string> enumerable = samples ?? (IEnumerable<string>)Array.Empty<string>();
+        IEnumerable<string> enumerable = samples ?? (IEnumerable<string>)[];
         return string.Join(", ", enumerable.Select(EscapeFingerprintForLog));
     }
 
@@ -3857,7 +3801,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             value = value.Substring(0, num);
         }
-        StringBuilder stringBuilder = new StringBuilder(value.Length);
+        var stringBuilder = new StringBuilder(value.Length);
         foreach (char c in value)
         {
             if (char.IsControl(c) && c != '\r' && c != '\n' && c != '\t')
@@ -3880,7 +3824,7 @@ public partial class BMSPlaylist : NotificationObject
 
     private static string BuildComparablePlaylistEntryFingerprint(ComparablePlaylistEntryRow row)
     {
-        StringBuilder stringBuilder = new StringBuilder();
+        var stringBuilder = new StringBuilder();
         AppendComparableFingerprintPart(stringBuilder, row.Md5);
         AppendComparableFingerprintPart(stringBuilder, row.Sha256);
         AppendComparableFingerprintPart(stringBuilder, row.Level);
@@ -3906,7 +3850,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return null;
         }
-        lookup.TryGetValue(key, out var value);
+        lookup.TryGetValue(key, out List<BMSTableEntry> value);
         if (value == null || value.Count == 0)
         {
             return null;
@@ -3924,7 +3868,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return candidates[0];
         }
-        return candidates.OrderBy((BMSTableEntry ne) => Math.Abs((ne.level ?? 0.0) - (oldEntry.level ?? 0.0))).First();
+        return candidates.OrderBy(ne => Math.Abs((ne.level ?? 0.0) - (oldEntry.level ?? 0.0))).First();
     }
 
     /// <summary>
@@ -3947,7 +3891,7 @@ public partial class BMSPlaylist : NotificationObject
         }
         List<string> oldFolderList = oldTable.folder_list;
         List<string> newFolderList = newTable.folder_list;
-        return newTable.entries.Count != matchedOldEntryCount || matchedOldEntryCount != oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed).Count() || oldFolderList.Except(newFolderList).Any() || newFolderList.Except(oldFolderList).Any();
+        return newTable.entries.Count != matchedOldEntryCount || matchedOldEntryCount != oldTable.entries.Where(entry => !entry.is_removed).Count() || oldFolderList.Except(newFolderList).Any() || newFolderList.Except(oldFolderList).Any();
     }
 
     /// <summary>
@@ -3965,7 +3909,7 @@ public partial class BMSPlaylist : NotificationObject
         return LoadExternalTable(pageUri, bmsTable);
     }
 
-    private async Task<BMSTable> reloadBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default(CancellationToken))
+    private async Task<BMSTable> reloadBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default)
     {
         if (pageUri == null)
         {
@@ -3991,12 +3935,12 @@ public partial class BMSPlaylist : NotificationObject
     {
         try
         {
-            List<BMSTable> tableList = bmsTables?.Where((BMSTable table) => table != null).ToList() ?? new List<BMSTable>();
+            List<BMSTable> tableList = bmsTables?.Where(table => table != null).ToList() ?? [];
             foreach (BMSTable table in tableList)
             {
                 EnsurePlaylistEntriesLoaded(table, "CommitBMSTable");
             }
-            LR2SongDBExtended lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+            var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
             try
             {
                 lr2Song.BeginTransaction();
@@ -4004,7 +3948,7 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
                     ReplacePersistedCourses(lr2Song, bmsTable);
-                    lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                    lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
                     bmsTable.entries.ForEach(delegate (BMSTableEntry e)
                     {
                         e?.NormalizeForPlaylistPersistence();
@@ -4045,9 +3989,9 @@ public partial class BMSPlaylist : NotificationObject
         entry.NormalizeForPlaylistPersistence();
         try
         {
-            using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+            using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
-            lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + entry.playlist_id + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5) + BuildNullableSqlEquality(entry.md5, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.sha256) + BuildNullableSqlEquality(entry.sha256, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder) + " = " + sqlQuote(entry.folder) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.lr2_bmsid) + BuildNullableSqlEquality(entry.lr2_bmsid, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title) + BuildNullableSqlEquality(entry.title) + ";");
+            lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + entry.playlist_id + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.md5) + BuildNullableSqlEquality(entry.md5, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.sha256) + BuildNullableSqlEquality(entry.sha256, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.folder) + " = " + sqlQuote(entry.folder) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.lr2_bmsid) + BuildNullableSqlEquality(entry.lr2_bmsid, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.title) + BuildNullableSqlEquality(entry.title) + ";");
             lR2SongDBExtended.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             lR2SongDBExtended.Commit();
         }
@@ -4078,15 +4022,15 @@ public partial class BMSPlaylist : NotificationObject
     {
         try
         {
-            using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+            using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
             foreach (BMSTable bmsTable in bmsTables)
             {
                 if (bmsTable.playlist_id.HasValue)
                 {
                     lR2SongDBExtended.Delete<LR2SongDBExtended.playlist>(bmsTable.playlist_id);
-                    lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
-                    lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                    lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                    lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
                 }
             }
             lR2SongDBExtended.Commit();
@@ -4105,7 +4049,7 @@ public partial class BMSPlaylist : NotificationObject
     {
         try
         {
-            using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+            using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
             lR2SongDBExtended.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
             ReplacePersistedCourses(lR2SongDBExtended, bmsTable);
@@ -4124,16 +4068,16 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
         string tableName = SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName();
-        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName((LR2SongDBExtended.playlist_course e) => e.playlist_id);
+        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.playlist_id);
         db.Execute("DELETE FROM " + tableName + " WHERE " + playlistIdColumn + " = " + bmsTable.playlist_id + ";");
         int order = 0;
-        foreach (LR2SongDBExtended.playlist_course course in bmsTable.Courses ?? Array.Empty<LR2SongDBExtended.playlist_course>())
+        foreach (LR2SongDBExtended.playlist_course course in bmsTable.Courses ?? [])
         {
             if (string.IsNullOrWhiteSpace(course?.course_json))
             {
                 continue;
             }
-            LR2SongDBExtended.playlist_course row = new LR2SongDBExtended.playlist_course
+            var row = new LR2SongDBExtended.playlist_course
             {
                 playlist_id = bmsTable.playlist_id,
                 course_order = order++,
@@ -4149,7 +4093,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>バックアップ用の SQL ダンプ文字列。</returns>
     public string GetPlaylistDump()
     {
-        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
         string separator = "\v" + Environment.NewLine;
         string playlistDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist>()
                                                      select c.Replace(separator, Environment.NewLine));
@@ -4157,7 +4101,7 @@ public partial class BMSPlaylist : NotificationObject
                                                    select c.Replace(separator, Environment.NewLine));
         string entryDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist_entry>()
                                                   select c.Replace(separator, Environment.NewLine));
-        return string.Join(separator, new string[3] { playlistDump, courseDump, entryDump });
+        return string.Join(separator, [playlistDump, courseDump, entryDump]);
     }
 
     /// <summary>
@@ -4166,7 +4110,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="sql">復元する SQL ダンプ文字列。</param>
     public void LoadPlaylistDump(string sql)
     {
-        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
         using (new StringReader(sql))
         {
             string savepoint = lR2SongDBExtended.SaveTransactionPoint();
@@ -4176,12 +4120,12 @@ public partial class BMSPlaylist : NotificationObject
                 lR2SongDBExtended.DropTable<LR2SongDBExtended.playlist_course>();
                 lR2SongDBExtended.DropTable<LR2SongDBExtended.playlist_entry>();
                 EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
-                string[] source = sql.Split(new string[1] { "\v" + Environment.NewLine }, StringSplitOptions.None);
+                string[] source = sql.Split(["\v" + Environment.NewLine], StringSplitOptions.None);
                 if (source.Count() <= 1)
                 {
                     throw new InvalidDataException(Resources.Error_InvalidBackupData);
                 }
-                foreach (string item in source.Where((string s) => !string.IsNullOrWhiteSpace(s)))
+                foreach (string item in source.Where(s => !string.IsNullOrWhiteSpace(s)))
                 {
                     lR2SongDBExtended.Execute(item);
                 }
@@ -4226,7 +4170,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentException(Resources.Error_ParseFailed, "tableinfoUri");
         }
-        return source.Select((dynamic e) => new BMSTableSimple(e)).ToList();
+        return [.. source.Select((dynamic e) => new BMSTableSimple(e))];
     }
 
     private static string BuildNullableSqlEquality(string value, bool blankAsNull = false)

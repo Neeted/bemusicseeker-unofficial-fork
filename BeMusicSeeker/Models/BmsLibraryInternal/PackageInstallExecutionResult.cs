@@ -4,11 +4,11 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PackageInstallExecutionResult
 {
-    public List<BMSFile> AddedFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> AddedFiles { get; } = [];
 
-    public List<ChartPackage> FailedPackages { get; } = new List<ChartPackage>();
+    public List<ChartPackage> FailedPackages { get; } = [];
 
-    public List<ChartPackage> InstalledPackagesToRegister { get; } = new List<ChartPackage>();
+    public List<ChartPackage> InstalledPackagesToRegister { get; } = [];
 
     public long MoveMs { get; set; }
 

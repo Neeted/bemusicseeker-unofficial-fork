@@ -5,14 +5,14 @@ namespace Ribbit.BMS;
 
 public static class BMSBase16
 {
-    internal static readonly char[] B16E = new char[16]
-    {
+    internal static readonly char[] B16E =
+    [
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
         'A', 'B', 'C', 'D', 'E', 'F'
-    };
+    ];
 
-    internal static readonly int[] B16D = new int[256]
-    {
+    internal static readonly int[] B16D =
+    [
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -39,7 +39,7 @@ public static class BMSBase16
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1
-    };
+    ];
 
     public const int MaxValue = 255;
 
@@ -49,11 +49,11 @@ public static class BMSBase16
         {
             throw new ArgumentOutOfRangeException("value", "Argument should be 0 <= value < " + 255);
         }
-        return new string(new char[2]
-        {
+        return new string(
+        [
             B16E[value / 16],
             B16E[value % 16]
-        });
+        ]);
     }
 
     public static int ToInt(string s)

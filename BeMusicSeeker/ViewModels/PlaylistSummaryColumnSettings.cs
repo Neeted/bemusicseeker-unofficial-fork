@@ -65,29 +65,29 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         }
     }
 
-    private ColumnLayout _PlaylistId = new ColumnLayout();
+    private ColumnLayout _PlaylistId = new();
 
-    private ColumnLayout _Name = new ColumnLayout();
+    private ColumnLayout _Name = new();
 
-    private ColumnLayout _Symbol = new ColumnLayout();
+    private ColumnLayout _Symbol = new();
 
-    private ColumnLayout _LastUpdate = new ColumnLayout();
+    private ColumnLayout _LastUpdate = new();
 
-    private ColumnLayout _TotalCharts = new ColumnLayout();
+    private ColumnLayout _TotalCharts = new();
 
-    private ColumnLayout _OwnedCharts = new ColumnLayout();
+    private ColumnLayout _OwnedCharts = new();
 
-    private ColumnLayout _MissingCharts = new ColumnLayout();
+    private ColumnLayout _MissingCharts = new();
 
-    private ColumnLayout _OwnedRatio = new ColumnLayout();
+    private ColumnLayout _OwnedRatio = new();
 
-    private ColumnLayout _Link = new ColumnLayout();
+    private ColumnLayout _Link = new();
 
-    private ColumnLayout _IsExternalSync = new ColumnLayout();
+    private ColumnLayout _IsExternalSync = new();
 
-    private ColumnLayout _Status = new ColumnLayout();
+    private ColumnLayout _Status = new();
 
-    private ColumnLayout _IsRootFolder = new ColumnLayout();
+    private ColumnLayout _IsRootFolder = new();
 
     public ColumnLayout PlaylistId
     {

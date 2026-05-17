@@ -64,7 +64,7 @@ public sealed class BmsFileListenerLifecycleTests
     public void RemoveRefTable_UpdatesReferenceDisplay()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSTable table = new BMSTable
+        var table = new BMSTable
         {
             name = "Before",
             symbol = "A"
@@ -100,7 +100,7 @@ public sealed class BmsFileListenerLifecycleTests
     public void RefreshRefTablesDisplayCache_UpdatesAfterTableRename()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSTable table = new BMSTable
+        var table = new BMSTable
         {
             name = "Before",
             symbol = "A"
@@ -142,10 +142,7 @@ public sealed class BmsFileListenerLifecycleTests
     [TestMethod]
     public void ReleaseTransientListeners_AllowsFileToBeCollectedWhileRootsRemainAlive()
     {
-        BMSTable table;
-        BMSScore score;
-        BMSFileMaintenanceInfo info;
-        WeakReference weakReference = CreateWeakReferenceAfterRelease(out table, out score, out info);
+        WeakReference weakReference = CreateWeakReferenceAfterRelease(out BMSTable table, out BMSScore score, out BMSFileMaintenanceInfo info);
 
         ForceGc();
 
@@ -158,7 +155,7 @@ public sealed class BmsFileListenerLifecycleTests
     [TestMethod]
     public void AddRefTable_DoesNotKeepFileAliveWhileTableRemainsAlive()
     {
-        BMSTable table = new BMSTable
+        var table = new BMSTable
         {
             name = "Table",
             symbol = "T"
@@ -188,7 +185,7 @@ public sealed class BmsFileListenerLifecycleTests
         file.ReleaseTransientListeners(clearRefTables: true);
 
         Assert.AreEqual(0, file.RefTables.Count);
-        WeakReference weakReference = new WeakReference(file);
+        var weakReference = new WeakReference(file);
         file = null;
         return weakReference;
     }
@@ -197,7 +194,7 @@ public sealed class BmsFileListenerLifecycleTests
     {
         TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file.AddRefTable(table);
-        WeakReference weakReference = new WeakReference(file);
+        var weakReference = new WeakReference(file);
         file = null;
         return weakReference;
     }
@@ -211,7 +208,7 @@ public sealed class BmsFileListenerLifecycleTests
 
     private static TestableBmsFile CreateFile(string hash)
     {
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.SetHash(hash);
         file.path = @"C:\Library\chart.bms";
         return file;

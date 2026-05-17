@@ -29,7 +29,7 @@ public static class WPFUtil
         try
         {
             DependencyObject parent = VisualTreeHelper.GetParent(d);
-            if (parent == null || !(parent is T result))
+            if (parent == null || parent is not T result)
             {
                 T val = FindVisualParent<T>(parent);
                 if (val != null)
@@ -42,18 +42,16 @@ public static class WPFUtil
         }
         catch
         {
-            if (d is FrameworkElement)
+            if (d is FrameworkElement frameworkElement)
             {
-                FrameworkElement frameworkElement = (FrameworkElement)d;
                 if (frameworkElement.Parent is T)
                 {
                     return frameworkElement.Parent as T;
                 }
                 return FindVisualParent<T>(frameworkElement.Parent);
             }
-            if (d is FrameworkContentElement)
+            if (d is FrameworkContentElement frameworkContentElement)
             {
-                FrameworkContentElement frameworkContentElement = (FrameworkContentElement)d;
                 if (frameworkContentElement.Parent is T)
                 {
                     return frameworkContentElement.Parent as T;
@@ -83,7 +81,7 @@ public static class WPFUtil
             }
             else
             {
-                if (!(dependencyObject is FrameworkContentElement))
+                if (dependencyObject is not FrameworkContentElement)
                 {
                     break;
                 }
@@ -108,7 +106,7 @@ public static class WPFUtil
             for (int i = 0; i <= VisualTreeHelper.GetChildrenCount(d) - 1; i++)
             {
                 DependencyObject child = VisualTreeHelper.GetChild(d, i);
-                if (child == null || !(child is T result))
+                if (child == null || child is not T result)
                 {
                     T val = FindVisualChild<T>(child);
                     if (val != null)
@@ -149,7 +147,7 @@ public static class WPFUtil
                     }
                     else
                     {
-                        if (!(child is FrameworkContentElement))
+                        if (child is not FrameworkContentElement)
                         {
                             return null;
                         }
@@ -238,7 +236,7 @@ public static class WPFUtil
                     }
                     else
                     {
-                        if (!(child is FrameworkContentElement))
+                        if (child is not FrameworkContentElement)
                         {
                             return false;
                         }
@@ -286,7 +284,7 @@ public static class WPFUtil
                     }
                     else
                     {
-                        if (!(child is FrameworkContentElement))
+                        if (child is not FrameworkContentElement)
                         {
                             return false;
                         }
@@ -319,7 +317,7 @@ public static class WPFUtil
 
     public static Point GetMousePosition(Visual visual)
     {
-        GetCursorPos(out var pt);
+        GetCursorPos(out POINT pt);
         ScreenToClient(((HwndSource)PresentationSource.FromVisual(visual)).Handle, ref pt);
         return new Point(pt.X, pt.Y);
     }
@@ -330,12 +328,9 @@ public static class WPFUtil
         int childrenCount = VisualTreeHelper.GetChildrenCount(parent);
         for (int i = 0; i < childrenCount; i++)
         {
-            Visual visual = (Visual)VisualTreeHelper.GetChild(parent, i);
+            var visual = (Visual)VisualTreeHelper.GetChild(parent, i);
             val = visual as T;
-            if (val == null)
-            {
-                val = GetVisualChild<T>(visual);
-            }
+            val ??= GetVisualChild<T>(visual);
             if (val != null)
             {
                 break;
@@ -348,11 +343,11 @@ public static class WPFUtil
     {
         T val = null;
         int childrenCount = VisualTreeHelper.GetChildrenCount(parent);
-        List<T> list = new List<T>();
-        List<Visual> list2 = new List<Visual>();
+        List<T> list = [];
+        List<Visual> list2 = [];
         for (int i = 0; i < childrenCount; i++)
         {
-            Visual visual = (Visual)VisualTreeHelper.GetChild(parent, i);
+            var visual = (Visual)VisualTreeHelper.GetChild(parent, i);
             val = visual as T;
             if (val == null)
             {
@@ -369,7 +364,7 @@ public static class WPFUtil
         }
         if (list2.Count > 0)
         {
-            return list2.SelectMany((Visual parent2) => GetVisualChildren<T>(parent2)).ToList();
+            return [.. list2.SelectMany(parent2 => GetVisualChildren<T>(parent2))];
         }
         return list;
     }

@@ -14,7 +14,7 @@ internal static class BmsonJsonParser
             return new BmsonDocument();
         }
 
-        JsonSerializerSettings settings = new JsonSerializerSettings
+        var settings = new JsonSerializerSettings
         {
             Converters = { new BmsonIntJsonConverter(), new BmsonDoubleJsonConverter() },
             MissingMemberHandling = MissingMemberHandling.Ignore
@@ -28,13 +28,13 @@ internal static class BmsonJsonParser
     private static BmsonDocument Normalize(BmsonDocument document)
     {
         document.Info ??= new BmsonInfo();
-        document.Lines ??= Array.Empty<BmsonBarLine>();
-        document.BpmEvents ??= Array.Empty<BmsonBpmEvent>();
-        document.StopEvents ??= Array.Empty<BmsonStopEvent>();
-        document.ScrollEvents ??= Array.Empty<BmsonScrollEvent>();
-        document.SoundChannels ??= Array.Empty<BmsonSoundChannel>();
-        document.KeyChannels ??= Array.Empty<BmsonMineChannel>();
-        document.MineChannels ??= Array.Empty<BmsonMineChannel>();
+        document.Lines ??= [];
+        document.BpmEvents ??= [];
+        document.StopEvents ??= [];
+        document.ScrollEvents ??= [];
+        document.SoundChannels ??= [];
+        document.KeyChannels ??= [];
+        document.MineChannels ??= [];
         document.Bga ??= new BmsonBga();
 
         document.Info.Normalize();
@@ -120,7 +120,7 @@ internal static class BmsonJsonParser
 
     private static List<string> ExtractArrayObjectPropertyTexts(string arrayJson, string propertyName)
     {
-        List<string> result = new List<string>();
+        List<string> result = [];
         if (string.IsNullOrEmpty(arrayJson))
         {
             return result;
@@ -184,7 +184,7 @@ internal static class BmsonJsonParser
 
     private static List<string> ExtractArrayItems(string arrayJson)
     {
-        List<string> result = new List<string>();
+        List<string> result = [];
         if (string.IsNullOrEmpty(arrayJson))
         {
             return result;
@@ -554,25 +554,25 @@ internal sealed class BmsonDocument
     public BmsonInfo Info { get; set; } = new BmsonInfo();
 
     [JsonProperty("lines")]
-    public BmsonBarLine[] Lines { get; set; } = Array.Empty<BmsonBarLine>();
+    public BmsonBarLine[] Lines { get; set; } = [];
 
     [JsonProperty("bpm_events")]
-    public BmsonBpmEvent[] BpmEvents { get; set; } = Array.Empty<BmsonBpmEvent>();
+    public BmsonBpmEvent[] BpmEvents { get; set; } = [];
 
     [JsonProperty("stop_events")]
-    public BmsonStopEvent[] StopEvents { get; set; } = Array.Empty<BmsonStopEvent>();
+    public BmsonStopEvent[] StopEvents { get; set; } = [];
 
     [JsonProperty("scroll_events")]
-    public BmsonScrollEvent[] ScrollEvents { get; set; } = Array.Empty<BmsonScrollEvent>();
+    public BmsonScrollEvent[] ScrollEvents { get; set; } = [];
 
     [JsonProperty("sound_channels")]
-    public BmsonSoundChannel[] SoundChannels { get; set; } = Array.Empty<BmsonSoundChannel>();
+    public BmsonSoundChannel[] SoundChannels { get; set; } = [];
 
     [JsonProperty("key_channels")]
-    public BmsonMineChannel[] KeyChannels { get; set; } = Array.Empty<BmsonMineChannel>();
+    public BmsonMineChannel[] KeyChannels { get; set; } = [];
 
     [JsonProperty("mine_channels")]
-    public BmsonMineChannel[] MineChannels { get; set; } = Array.Empty<BmsonMineChannel>();
+    public BmsonMineChannel[] MineChannels { get; set; } = [];
 
     [JsonProperty("bga")]
     public BmsonBga Bga { get; set; } = new BmsonBga();
@@ -593,7 +593,7 @@ internal sealed class BmsonInfo
     public string Artist { get; set; } = string.Empty;
 
     [JsonProperty("subartists")]
-    public string[] Subartists { get; set; } = Array.Empty<string>();
+    public string[] Subartists { get; set; } = [];
 
     [JsonProperty("mode_hint")]
     public string ModeHint { get; set; } = "beat-7k";
@@ -640,7 +640,7 @@ internal sealed class BmsonInfo
         Subtitle ??= string.Empty;
         Genre ??= string.Empty;
         Artist ??= string.Empty;
-        Subartists ??= Array.Empty<string>();
+        Subartists ??= [];
         ModeHint ??= "beat-7k";
         ChartName ??= string.Empty;
         BackImage ??= string.Empty;
@@ -660,12 +660,12 @@ internal sealed class BmsonSoundChannel
     public string Name { get; set; } = string.Empty;
 
     [JsonProperty("notes")]
-    public BmsonSoundNote[] Notes { get; set; } = Array.Empty<BmsonSoundNote>();
+    public BmsonSoundNote[] Notes { get; set; } = [];
 
     public void Normalize()
     {
         Name ??= string.Empty;
-        Notes ??= Array.Empty<BmsonSoundNote>();
+        Notes ??= [];
     }
 }
 
@@ -696,12 +696,12 @@ internal sealed class BmsonMineChannel
     public string Name { get; set; } = string.Empty;
 
     [JsonProperty("notes")]
-    public BmsonMineNote[] Notes { get; set; } = Array.Empty<BmsonMineNote>();
+    public BmsonMineNote[] Notes { get; set; } = [];
 
     public void Normalize()
     {
         Name ??= string.Empty;
-        Notes ??= Array.Empty<BmsonMineNote>();
+        Notes ??= [];
     }
 }
 
@@ -756,23 +756,23 @@ internal sealed class BmsonBarLine
 internal sealed class BmsonBga
 {
     [JsonProperty("bga_header")]
-    public BmsonBgaHeader[] BgaHeader { get; set; } = Array.Empty<BmsonBgaHeader>();
+    public BmsonBgaHeader[] BgaHeader { get; set; } = [];
 
     [JsonProperty("bga_events")]
-    public BmsonBgaNote[] BgaEvents { get; set; } = Array.Empty<BmsonBgaNote>();
+    public BmsonBgaNote[] BgaEvents { get; set; } = [];
 
     [JsonProperty("layer_events")]
-    public BmsonBgaNote[] LayerEvents { get; set; } = Array.Empty<BmsonBgaNote>();
+    public BmsonBgaNote[] LayerEvents { get; set; } = [];
 
     [JsonProperty("poor_events")]
-    public BmsonBgaNote[] PoorEvents { get; set; } = Array.Empty<BmsonBgaNote>();
+    public BmsonBgaNote[] PoorEvents { get; set; } = [];
 
     public void Normalize()
     {
-        BgaHeader ??= Array.Empty<BmsonBgaHeader>();
-        BgaEvents ??= Array.Empty<BmsonBgaNote>();
-        LayerEvents ??= Array.Empty<BmsonBgaNote>();
-        PoorEvents ??= Array.Empty<BmsonBgaNote>();
+        BgaHeader ??= [];
+        BgaEvents ??= [];
+        LayerEvents ??= [];
+        PoorEvents ??= [];
     }
 }
 

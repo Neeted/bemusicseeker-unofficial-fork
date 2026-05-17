@@ -31,8 +31,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "#PLAYER 1");
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                TestableBmsFile file = new TestableBmsFile
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var file = new TestableBmsFile
                 {
                     path = chartPath
                 };
@@ -95,8 +95,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "#PLAYER 1");
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                TestableBmsFile file = new TestableBmsFile
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var file = new TestableBmsFile
                 {
                     path = chartPath
                 };
@@ -139,14 +139,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var song = new LR2SongDBExtended.bmson_song
                 {
                     path = chartPath,
                     folder = sourceDirectoryPath,
                     title = "Chart"
                 };
-                PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(song);
+                var row = PendingChartEntry.CreateFromBmsonSong(song);
                 int bmsFilesChangedCount = 0;
                 int bmsonSongsChangedCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -197,14 +197,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(chartPath, "{}");
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var song = new LR2SongDBExtended.bmson_song
                 {
                     path = chartPath,
                     folder = sourceRootPath,
                     title = "Chart"
                 };
-                PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(song);
+                var row = PendingChartEntry.CreateFromBmsonSong(song);
                 int bmsFilesChangedCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
@@ -246,8 +246,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
             try
             {
-                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var file = BMSFile.CreateBMSFileFromFile(chartPath);
                 file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
                 {
                     hash = file.hash,
@@ -304,12 +304,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            TestableBmsFile file = new TestableBmsFile
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var file = new TestableBmsFile
             {
                 path = @"C:\Library\chart.bms"
             };
-            BMSTable table = new BMSTable
+            var table = new BMSTable
             {
                 name = "Before",
                 symbol = "A"
@@ -361,8 +361,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            TestableBmsFile file = new TestableBmsFile
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var file = new TestableBmsFile
             {
                 path = @"C:\Library\chart.bms"
             };
@@ -409,10 +409,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderRenameRefresh_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, Array.Empty<byte>());
+        File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
@@ -439,12 +439,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private static BMSTable CreateTable(string name, string symbol, string hash)
     {
-        BMSTable bMSTable = new BMSTable
+        var bMSTable = new BMSTable
         {
             name = name,
             symbol = symbol
         };
-        TestableBmsFile testableBmsFile = new TestableBmsFile();
+        var testableBmsFile = new TestableBmsFile();
         testableBmsFile.SetHash(hash);
         testableBmsFile.path = @"C:\Library\chart.bms";
         bMSTable.entries.Add(new BMSTableEntry(testableBmsFile)

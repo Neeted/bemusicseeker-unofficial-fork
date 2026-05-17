@@ -6,7 +6,7 @@ internal sealed class PlaylistEntriesHydrationLoadResult
 {
     public string Projection { get; set; } = "startup_entries";
 
-    public List<BMSTableEntry> Entries { get; } = new List<BMSTableEntry>();
+    public List<BMSTableEntry> Entries { get; } = [];
 
     public int RowCount => Entries.Count;
 

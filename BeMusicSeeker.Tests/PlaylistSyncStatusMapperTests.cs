@@ -28,7 +28,7 @@ public sealed class PlaylistSyncStatusMapperTests
     [TestMethod]
     public void Create_SuccessUpdated_ReturnsUpdatedStatus()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateSuccess(null, null, new Uri("https://example.com/table.html"), updated: true);
+        var result = PlaylistSyncAttemptResult.CreateSuccess(null, null, new Uri("https://example.com/table.html"), updated: true);
 
         PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
 
@@ -41,7 +41,7 @@ public sealed class PlaylistSyncStatusMapperTests
     [TestMethod]
     public void Create_FailureHeaderParse_ReturnsWarningStatus()
     {
-        PlaylistSyncAttemptResult result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new ArgumentException("header", "_header_json"));
+        var result = PlaylistSyncAttemptResult.CreateFailure(null, new Uri("https://example.com/header.json"), new ArgumentException("header", "_header_json"));
 
         PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
 

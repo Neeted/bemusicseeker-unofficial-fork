@@ -7,36 +7,30 @@ namespace BeMusicSeeker.Views;
 
 internal class addStringToEndConverter : IValueConverter
 {
-    private readonly struct ParsedParameter
+    private readonly struct ParsedParameter(string suffix, string emptyResult)
     {
-        public readonly string Suffix;
+        public readonly string Suffix = suffix;
 
-        public readonly string EmptyResult;
-
-        public ParsedParameter(string suffix, string emptyResult)
-        {
-            Suffix = suffix;
-            EmptyResult = emptyResult;
-        }
+        public readonly string EmptyResult = emptyResult;
     }
 
-    private static readonly Dictionary<string, ParsedParameter> parameterCache = new Dictionary<string, ParsedParameter>(StringComparer.Ordinal);
+    private static readonly Dictionary<string, ParsedParameter> parameterCache = new(StringComparer.Ordinal);
 
-    private static readonly object parameterCacheLock = new object();
+    private static readonly object parameterCacheLock = new();
 
     private static ParsedParameter ParseParameter(object parameter)
     {
-        if (!(parameter is string text))
+        if (parameter is not string text)
         {
             return new ParsedParameter(string.Empty, string.Empty);
         }
         lock (parameterCacheLock)
         {
-            if (!parameterCache.TryGetValue(text, out var value))
+            if (!parameterCache.TryGetValue(text, out ParsedParameter value))
             {
                 string suffix = string.Empty;
                 string emptyResult = string.Empty;
-                string[] array = text.Split(new char[1] { '|' }, 2, StringSplitOptions.None);
+                string[] array = text.Split(['|'], 2, StringSplitOptions.None);
                 if (array.Length > 0)
                 {
                     suffix = array[0];

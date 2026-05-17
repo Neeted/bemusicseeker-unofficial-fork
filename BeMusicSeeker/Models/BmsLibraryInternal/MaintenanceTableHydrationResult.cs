@@ -4,7 +4,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class MaintenanceTableHydrationResult
 {
-    public List<string> Pragmas { get; } = new List<string>();
+    public List<string> Pragmas { get; } = [];
 
     public Dictionary<string, BMSFileMaintenanceInfo> MaintenanceMap { get; } = new Dictionary<string, BMSFileMaintenanceInfo>(System.StringComparer.OrdinalIgnoreCase);
 
@@ -50,7 +50,7 @@ internal sealed class MaintenanceTableHydrationResult
 
     public int CleanupDeletedCount { get; set; }
 
-    public List<string> StaleMaintenancePaths { get; } = new List<string>();
+    public List<string> StaleMaintenancePaths { get; } = [];
 
     public long TotalMs { get; set; }
 }

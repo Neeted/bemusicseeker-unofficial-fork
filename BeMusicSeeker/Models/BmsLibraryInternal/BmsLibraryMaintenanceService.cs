@@ -40,14 +40,14 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static IEnumerable<BMSFile> EnumerateBmsChartFiles(IEnumerable<BMSFile> bmsFiles)
     {
-        return (bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && PendingChartEntry.IsBmsChartFile(file));
+        return (bmsFiles ?? [])
+            .Where(file => file != null && PendingChartEntry.IsBmsChartFile(file));
     }
 
     private static IEnumerable<BMSFile> EnumerateResourceHealthChartFiles(IEnumerable<BMSFile> bmsFiles)
     {
-        return (bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && (PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)));
+        return (bmsFiles ?? [])
+            .Where(file => file != null && (PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)));
     }
 
     public bool ApplyNeedToBeFixedWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
@@ -61,15 +61,15 @@ internal sealed class BmsLibraryMaintenanceService
     {
         if (bmsFile == null || (!PendingChartEntry.IsBmsChartFile(bmsFile) && !PendingChartEntry.IsBmsonChartFile(bmsFile)))
         {
-            return Array.Empty<ChartWarning>();
+            return [];
         }
         _ = strictCheck;
         maintenanceInfo ??= bmsFile.HasValidMaintenanceInfoSnapshot ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null;
         if (maintenanceInfo == null)
         {
-            return Array.Empty<ChartWarning>();
+            return [];
         }
-        List<ChartWarning> warnings = new List<ChartWarning>();
+        List<ChartWarning> warnings = [];
         AppendHealthWarning(warnings, maintenanceInfo.GetWAVHealth(), maintenanceInfo.wav_files_defined, maintenanceInfo.wav_files_existing, ChartWarningKind.ResourceWavMissing, Resources.Warning_WavFilesNotFound);
         AppendHealthWarning(warnings, maintenanceInfo.GetBGAHealth(), maintenanceInfo.bga_files_defined, maintenanceInfo.bga_files_existing, ChartWarningKind.ResourceBgaMissing, Resources.Warning_BgaFilesNotFound);
         AppendHealthWarning(warnings, maintenanceInfo.GetMovieHealth(), maintenanceInfo.movie_files_defined, maintenanceInfo.movie_files_existing, ChartWarningKind.ResourceMovieMissing, Resources.Warning_MovieFilesNotFound);
@@ -81,28 +81,27 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFile> GetGarbledFiles(IEnumerable<BMSFile> bmsFiles, bool isInFixedList)
     {
-        return EnumerateBmsChartFiles(bmsFiles)
-            .Where((BMSFile file) =>
+        return [.. EnumerateBmsChartFiles(bmsFiles)
+            .Where(file =>
             {
                 BMSFileMaintenanceInfo info = file?.HasValidMaintenanceInfoSnapshot == true ? file.TryGetMaintenanceInfoWithoutCreating() : null;
                 return !string.IsNullOrWhiteSpace(info?.encoding)
                     && isInFixedList == info.is_encoding_fixed
                     && !info.encoding.StartsWith("shift_jis");
-            })
-            .ToList();
+            })];
     }
 
     public List<BMSFile> GetZeroNoteFiles(IEnumerable<BMSFile> bmsFiles)
     {
-        return EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => file.ChartInfo?.notes == 0).ToList();
+        return [.. EnumerateBmsChartFiles(bmsFiles).Where(file => file.ChartInfo?.notes == 0)];
     }
 
     public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<BMSFile> bmsFiles, bool unset)
     {
-        List<BMSFileMaintenanceInfo> changes = (from f in EnumerateResourceHealthChartFiles(bmsFiles)
+        List<BMSFileMaintenanceInfo> changes = [.. (from f in EnumerateResourceHealthChartFiles(bmsFiles)
                                                 let m = f?.maintenanceInfo
                                                 where m != null && m.is_files_warning_ignored == unset
-                                                select m).ToList();
+                                                select m)];
         foreach (BMSFileMaintenanceInfo item in changes)
         {
             item.is_files_warning_ignored = !unset;
@@ -112,12 +111,12 @@ internal sealed class BmsLibraryMaintenanceService
 
     public MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<BMSFile> bmsFiles, string encoding)
     {
-        MaintenanceEncodingUpdateResult result = new MaintenanceEncodingUpdateResult();
-        List<BMSFile> files = EnumerateBmsChartFiles(bmsFiles).ToList();
-        HashSet<BMSFile> reloadedFiles = new HashSet<BMSFile>();
+        var result = new MaintenanceEncodingUpdateResult();
+        List<BMSFile> files = [.. EnumerateBmsChartFiles(bmsFiles)];
+        HashSet<BMSFile> reloadedFiles = [];
         if (!string.IsNullOrWhiteSpace(encoding))
         {
-            foreach (BMSFile file in files.Where((BMSFile f) => File.Exists(f.path)))
+            foreach (BMSFile file in files.Where(f => File.Exists(f.path)))
             {
                 if (!ShouldReloadMetadata(file, encoding))
                 {
@@ -128,7 +127,7 @@ internal sealed class BmsLibraryMaintenanceService
                 reloadedFiles.Add(file);
             }
         }
-        List<BMSFileMaintenanceInfo> maintenanceChanges = files.Select(delegate (BMSFile file)
+        List<BMSFileMaintenanceInfo> maintenanceChanges = [.. files.Select(delegate (BMSFile file)
         {
             BMSFileMaintenanceInfo info = file.maintenanceInfo;
             if (info == null)
@@ -159,7 +158,7 @@ internal sealed class BmsLibraryMaintenanceService
                 return info;
             }
             return null;
-        }).Where((BMSFileMaintenanceInfo info) => info != null).ToList();
+        }).Where(info => info != null)];
         result.MaintenanceInfosToUpsert.AddRange(maintenanceChanges);
         return result;
     }
@@ -170,7 +169,7 @@ internal sealed class BmsLibraryMaintenanceService
         {
             return false;
         }
-        BMSFile reloadedFile = BMSFile.CreateBMSFileFromFile(currentFile.path, encoding);
+        var reloadedFile = BMSFile.CreateBMSFileFromFile(currentFile.path, encoding);
         return !string.Equals(currentFile.title ?? string.Empty, reloadedFile.title ?? string.Empty, StringComparison.Ordinal)
             || !string.Equals(currentFile.subtitle ?? string.Empty, reloadedFile.subtitle ?? string.Empty, StringComparison.Ordinal)
             || !string.Equals(currentFile.artist ?? string.Empty, reloadedFile.artist ?? string.Empty, StringComparison.Ordinal)
@@ -180,10 +179,10 @@ internal sealed class BmsLibraryMaintenanceService
 
     public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<BMSFile> allFiles, Action<Exception, string> logWarn = null)
     {
-        List<BMSFile> files = EnumerateBmsChartFiles(allFiles).ToList();
-        List<BMSFile> zeroNoteFiles = files.Where((BMSFile f) => f.ChartInfo?.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
-        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.ChartInfo?.notes != 0 && f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch)).ToList();
-        ZeroNoteRecheckResult result = new ZeroNoteRecheckResult
+        List<BMSFile> files = [.. EnumerateBmsChartFiles(allFiles)];
+        List<BMSFile> zeroNoteFiles = [.. files.Where(f => f.ChartInfo?.notes == 0 && !string.IsNullOrWhiteSpace(f.path))];
+        List<BMSFile> staleMismatchFiles = [.. files.Where(f => f.ChartInfo?.notes != 0 && f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch))];
+        var result = new ZeroNoteRecheckResult
         {
             Total = zeroNoteFiles.Count
         };
@@ -247,9 +246,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFile> DetectModeChanges(IEnumerable<BMSFile> bmsFiles, bool forceUpdate)
     {
-        List<BMSFile> targets = EnumerateBmsChartFiles(bmsFiles)
-            .Where((BMSFile file) => (forceUpdate || !file.mode.HasValue) && File.Exists(file.path))
-            .ToList();
+        List<BMSFile> targets = [.. EnumerateBmsChartFiles(bmsFiles).Where(file => (forceUpdate || !file.mode.HasValue) && File.Exists(file.path))];
         foreach (BMSFile target in targets)
         {
             target.SetMode();
@@ -267,14 +264,14 @@ internal sealed class BmsLibraryMaintenanceService
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        MaintenanceWorkflowResult result = new MaintenanceWorkflowResult();
+        var result = new MaintenanceWorkflowResult();
         if (bmsFiles == null || dbGateway == null)
         {
             return result;
         }
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<BMSFile> sourceFiles = EnumerateResourceHealthChartFiles(bmsFiles).ToList();
-        List<BMSFile> targets = new List<BMSFile>();
+        var stopwatch = Stopwatch.StartNew();
+        List<BMSFile> sourceFiles = [.. EnumerateResourceHealthChartFiles(bmsFiles)];
+        List<BMSFile> targets = [];
         foreach (BMSFile file in sourceFiles)
         {
             bool isBms = PendingChartEntry.IsBmsChartFile(file);
@@ -357,14 +354,14 @@ internal sealed class BmsLibraryMaintenanceService
                 break;
             }
             sectionIndex++;
-            Stopwatch sectionStopwatch = Stopwatch.StartNew();
-            object reloadedLock = new object();
-            List<BMSFile> reloadedFiles = new List<BMSFile>();
-            object bmsonReparseLock = new object();
+            var sectionStopwatch = Stopwatch.StartNew();
+            object reloadedLock = new();
+            List<BMSFile> reloadedFiles = [];
+            object bmsonReparseLock = new();
             int bmsonReparsedInSection = 0;
             int bmsonReparseFailedInSection = 0;
             int bmsonResourceReferencesReusedInSection = 0;
-            List<BMSFile> filesInSection = section.Where((BMSFile file) => file != null).ToList();
+            List<BMSFile> filesInSection = [.. section.Where(file => file != null)];
             progressReporter?.Invoke(new MaintenanceWorkflowProgress
             {
                 TotalCount = targets.Count,
@@ -413,7 +410,7 @@ internal sealed class BmsLibraryMaintenanceService
                             }
                         }
                     }
-                    MaintenanceSnapshot beforeSnapshot = MaintenanceSnapshot.FromFile(file);
+                    var beforeSnapshot = MaintenanceSnapshot.FromFile(file);
                     int retryCount = 0;
                     while (true)
                     {
@@ -468,7 +465,7 @@ internal sealed class BmsLibraryMaintenanceService
                             reloadedFiles.Add(file);
                         }
                     }
-                    MaintenanceSnapshot afterSnapshot = MaintenanceSnapshot.FromFile(file);
+                    var afterSnapshot = MaintenanceSnapshot.FromFile(file);
                     bool encodingChanged = !string.Equals(beforeSnapshot.Encoding, afterSnapshot.Encoding, StringComparison.Ordinal);
                     bool healthChanged = beforeSnapshot.WAVHealth != afterSnapshot.WAVHealth
                         || beforeSnapshot.BGAHealth != afterSnapshot.BGAHealth
@@ -481,7 +478,7 @@ internal sealed class BmsLibraryMaintenanceService
                         file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
                     }
                 });
-                List<BMSFileMaintenanceInfo> maintenanceInfos = filesInSection.Where((BMSFile file) => file.maintenanceInfo.IsInformationChecked()).Select((BMSFile file) => file.maintenanceInfo).ToList();
+                List<BMSFileMaintenanceInfo> maintenanceInfos = [.. filesInSection.Where(file => file.maintenanceInfo.IsInformationChecked()).Select(file => file.maintenanceInfo)];
                 if (maintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
                 {
                     dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)

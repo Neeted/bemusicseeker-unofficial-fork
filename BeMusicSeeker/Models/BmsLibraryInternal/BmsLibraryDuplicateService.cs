@@ -10,19 +10,21 @@ internal sealed class BmsLibraryDuplicateService
 {
     public List<DuplicateChartRow> BuildSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        List<DuplicateChartRow> rows = new List<DuplicateChartRow>();
-        rows.AddRange((bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Select(DuplicateChartRow.CreateFromBmsFile)
-            .Where((DuplicateChartRow row) => row != null));
-        rows.AddRange((bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Select(DuplicateChartRow.CreateFromBmsonSong)
-            .Where((DuplicateChartRow row) => row != null));
+        List<DuplicateChartRow> rows =
+        [
+            .. (bmsFiles ?? [])
+                .Select(DuplicateChartRow.CreateFromBmsFile)
+                .Where(row => row != null),
+            .. (bmsonSongs ?? [])
+                .Select(DuplicateChartRow.CreateFromBmsonSong)
+                .Where(row => row != null),
+        ];
         return rows;
     }
 
     public void ClearDuplicateState(IEnumerable<BMSFile> files)
     {
-        foreach (BMSFile file in files ?? Enumerable.Empty<BMSFile>())
+        foreach (BMSFile file in files ?? [])
         {
             if (file == null)
             {
@@ -34,7 +36,7 @@ internal sealed class BmsLibraryDuplicateService
 
     public void ApplyDuplicateWarnings(IEnumerable<BMSFile> files, string duplicateWarningMessage)
     {
-        foreach (BMSFile file in files ?? Enumerable.Empty<BMSFile>())
+        foreach (BMSFile file in files ?? [])
         {
             if (file == null)
             {
@@ -47,14 +49,11 @@ internal sealed class BmsLibraryDuplicateService
 
     public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot)
     {
-        DuplicateAnalysisResult result = new DuplicateAnalysisResult();
-        List<DuplicateChartRow> snapshotRows = (snapshot ?? Enumerable.Empty<DuplicateChartRow>())
-            .Where((DuplicateChartRow row) => row != null && row.DisplayRow != null && !string.IsNullOrWhiteSpace(row.LookupHash))
-            .ToList();
-        List<IGrouping<string, DuplicateChartRow>> duplicateHashGroups = snapshotRows
-            .GroupBy((DuplicateChartRow row) => row.LookupHash, StringComparer.OrdinalIgnoreCase)
-            .Where((IGrouping<string, DuplicateChartRow> group) => group.Count() > 1)
-            .ToList();
+        var result = new DuplicateAnalysisResult();
+        List<DuplicateChartRow> snapshotRows = [.. (snapshot ?? []).Where(row => row != null && row.DisplayRow != null && !string.IsNullOrWhiteSpace(row.LookupHash))];
+        List<IGrouping<string, DuplicateChartRow>> duplicateHashGroups = [.. snapshotRows
+            .GroupBy(row => row.LookupHash, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)];
         foreach (IGrouping<string, DuplicateChartRow> duplicateHashGroup in duplicateHashGroups)
         {
             foreach (DuplicateChartRow item in duplicateHashGroup)
@@ -63,12 +62,12 @@ internal sealed class BmsLibraryDuplicateService
             }
         }
 
-        Dictionary<string, int> dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        List<string> idToDir = new List<string>();
-        List<List<int>> groupIndices = new List<List<int>>();
+        var dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        List<string> idToDir = [];
+        List<List<int>> groupIndices = [];
         foreach (IGrouping<string, DuplicateChartRow> duplicateHashGroup2 in duplicateHashGroups)
         {
-            List<int> currentGroup = new List<int>();
+            List<int> currentGroup = [];
             foreach (DuplicateChartRow duplicateRow in duplicateHashGroup2)
             {
                 string dir = duplicateRow.DirectoryPath;
@@ -90,7 +89,7 @@ internal sealed class BmsLibraryDuplicateService
             }
         }
 
-        int[] parent = Enumerable.Range(0, idToDir.Count).ToArray();
+        int[] parent = [.. Enumerable.Range(0, idToDir.Count)];
         foreach (List<int> group in groupIndices)
         {
             if (group.Count <= 1)
@@ -109,7 +108,7 @@ internal sealed class BmsLibraryDuplicateService
             }
         }
 
-        Dictionary<int, HashSet<string>> rootViewToDirs = new Dictionary<int, HashSet<string>>();
+        Dictionary<int, HashSet<string>> rootViewToDirs = [];
         for (int i = 0; i < idToDir.Count; i++)
         {
             int root = FindRoot(parent, i);
@@ -121,13 +120,13 @@ internal sealed class BmsLibraryDuplicateService
             set.Add(idToDir[i]);
         }
 
-        Dictionary<string, List<BMSFile>> filesByDir = new Dictionary<string, List<BMSFile>>(StringComparer.OrdinalIgnoreCase);
+        var filesByDir = new Dictionary<string, List<BMSFile>>(StringComparer.OrdinalIgnoreCase);
         foreach (DuplicateChartRow row in snapshotRows)
         {
             string dir = row.DirectoryPath;
             if (!filesByDir.TryGetValue(dir, out List<BMSFile> list))
             {
-                list = new List<BMSFile>();
+                list = [];
                 filesByDir[dir] = list;
             }
             list.Add(row.DisplayRow);
@@ -135,7 +134,7 @@ internal sealed class BmsLibraryDuplicateService
 
         foreach (HashSet<string> dirs in rootViewToDirs.Values)
         {
-            List<BMSFile> groupFiles = new List<BMSFile>();
+            List<BMSFile> groupFiles = [];
             foreach (string directoryPath in dirs)
             {
                 if (filesByDir.TryGetValue(directoryPath, out List<BMSFile> list))
@@ -145,7 +144,7 @@ internal sealed class BmsLibraryDuplicateService
             }
             if (groupFiles.Count > 0)
             {
-                result.DuplicateGroups.Add(new DuplicateGroup(groupFiles, dirs.ToList()));
+                result.DuplicateGroups.Add(new DuplicateGroup(groupFiles, [.. dirs]));
             }
         }
         result.DuplicateGroups.Sort((x, y) => string.Compare(x.Header, y.Header, StringComparison.Ordinal));

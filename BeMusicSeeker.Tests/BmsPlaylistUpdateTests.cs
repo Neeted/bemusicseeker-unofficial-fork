@@ -23,18 +23,20 @@ public sealed class BmsPlaylistUpdateTests
     public void UpdateBmsTablesInternal_CallbackFailureDoesNotAbortUpdate()
     {
         string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-        BMSPlaylist playlist = new BMSPlaylist(songDbPath);
-        playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher);
+        var playlist = new BMSPlaylist(songDbPath)
+        {
+            BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
+        };
         bool callbackInvoked = false;
 
-        List<BMSTable> updated = playlist.UpdateBMSTablesInternal(reloadExtPlaylist: false, updateCallbackActions: new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
-        {
+        List<BMSTable> updated = playlist.UpdateBMSTablesInternal(reloadExtPlaylist: false, updateCallbackActions:
+        [
             delegate
             {
                 callbackInvoked = true;
                 throw new InvalidOperationException("callback failure");
             }
-        }, syncResultCallback: null);
+        ], syncResultCallback: null);
 
         Assert.IsTrue(callbackInvoked);
         Assert.AreEqual(0, updated.Count);
@@ -45,18 +47,20 @@ public sealed class BmsPlaylistUpdateTests
     public async Task UpdateBmsTablesInternalAsync_CallbackFailureDoesNotAbortUpdate()
     {
         string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-        BMSPlaylist playlist = new BMSPlaylist(songDbPath);
-        playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher);
+        var playlist = new BMSPlaylist(songDbPath)
+        {
+            BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
+        };
         bool callbackInvoked = false;
 
-        List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions: new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
-        {
+        List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
+        [
             delegate
             {
                 callbackInvoked = true;
                 throw new InvalidOperationException("callback failure");
             }
-        }, syncResultCallback: null);
+        ], syncResultCallback: null);
 
         Assert.IsTrue(callbackInvoked);
         Assert.AreEqual(0, updated.Count);
@@ -79,19 +83,19 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
 
-            List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
-            {
+            List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions:
+            [
                 delegate(BMSPlaylist.PlaylistTableUpdateContext context)
                 {
                     callbackContext = context;
                 }
-            }, syncResultCallback: null);
+            ], syncResultCallback: null);
 
             Assert.IsNotNull(callbackContext);
             BMSPlaylist.PlaylistTableUpdateContext actualCallbackContext = callbackContext!;
@@ -132,15 +136,15 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             table.playlist_id = 900001;
             table.header_sha256 = null;
             table.data_sha256 = null;
-            DateTime existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
+            var existingLastUpdate = new DateTime(2024, 6, 1, 10, 20, 30);
             table.last_update = existingLastUpdate;
-            using (LR2SongDBExtended db = new LR2SongDBExtended(songDbPath))
+            using (var db = new LR2SongDBExtended(songDbPath))
             {
                 db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 foreach (BMSTableEntry entry in table.entries)
@@ -152,13 +156,13 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table }, new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
-            {
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table },
+            [
                 delegate(BMSPlaylist.PlaylistTableUpdateContext context)
                 {
                     callbackContext = context;
                 }
-            }, reason: "test_hash_initialization");
+            ], reason: "test_hash_initialization");
 
             Assert.AreEqual(1, results.Count);
             Assert.IsFalse(results[0].Updated);
@@ -167,9 +171,9 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual(existingLastUpdate, results[0].ResultTable.last_update);
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.header_sha256));
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.data_sha256));
-            Assert.AreEqual(2, results[0].ResultTable.entries.Count((BMSTableEntry entry) => !entry.is_removed));
-            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
-            LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single((LR2SongDBExtended.playlist row) => row.playlist_id == 900001);
+            Assert.AreEqual(2, results[0].ResultTable.entries.Count(entry => !entry.is_removed));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 900001);
             Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.header_sha256));
             Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.data_sha256));
             Assert.AreEqual(existingLastUpdate, persisted.last_update);
@@ -201,19 +205,19 @@ public sealed class BmsPlaylistUpdateTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Progress Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
 
-            List<PlaylistSyncProgressSnapshot> snapshots = new List<PlaylistSyncProgressSnapshot>();
+            List<PlaylistSyncProgressSnapshot> snapshots = [];
 
             List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResultCallback: null, progressCallback: snapshots.Add);
 
             Assert.IsNotNull(updated);
             Assert.IsTrue(snapshots.Count >= 3);
-            Assert.IsTrue(snapshots.Any((PlaylistSyncProgressSnapshot s) => s.IsActive && s.TotalTableCount == 1 && s.CompletedTableCount == 0));
-            Assert.IsTrue(snapshots.Any((PlaylistSyncProgressSnapshot s) => s.IsActive && s.TotalTableCount == 1 && s.CompletedTableCount == 1 && string.Equals(s.CurrentTableName, "ProgressTable", StringComparison.Ordinal)));
+            Assert.IsTrue(snapshots.Any(s => s.IsActive && s.TotalTableCount == 1 && s.CompletedTableCount == 0));
+            Assert.IsTrue(snapshots.Any(s => s.IsActive && s.TotalTableCount == 1 && s.CompletedTableCount == 1 && string.Equals(s.CurrentTableName, "ProgressTable", StringComparison.Ordinal)));
             PlaylistSyncProgressSnapshot playlistSyncProgressSnapshot = snapshots.Last();
             Assert.IsFalse(playlistSyncProgressSnapshot.IsActive);
             Assert.AreEqual(1, playlistSyncProgressSnapshot.TotalTableCount);
@@ -248,10 +252,10 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
             BMSTable externalTable = await playlist.LoadExternalTableAsync(new Uri(externalHeaderPath));
             externalTable.EnableExternalSync();
-            BMSTable manualTable = new BMSTable
+            var manualTable = new BMSTable
             {
                 name = "ManualTarget",
                 symbol = "M",
@@ -259,7 +263,7 @@ public sealed class BmsPlaylistUpdateTests
             };
             manualTable.DisableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { externalTable, manualTable }), Dispatcher.CurrentDispatcher);
-            List<PlaylistSyncAttemptResult> syncResults = new List<PlaylistSyncAttemptResult>();
+            List<PlaylistSyncAttemptResult> syncResults = [];
 
             await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResults.Add);
 
@@ -294,7 +298,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9001;
             table.DisableExternalSync();
@@ -309,7 +313,7 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsFalse(results[0].ResultTable.is_external_sync);
             using (results[0].ResultTable.ReaderWriterLock.GetReaderGuard())
             {
-                Assert.AreEqual(2, results[0].ResultTable.entries.Count((BMSTableEntry entry) => !entry.is_removed));
+                Assert.AreEqual(2, results[0].ResultTable.entries.Count(entry => !entry.is_removed));
             }
         }
         finally
@@ -331,20 +335,20 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
-            BMSTable table = new BMSTable
+            var playlist = new BMSPlaylist(songDbPath);
+            var table = new BMSTable
             {
                 name = "NoUri",
                 symbol = "N"
             };
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
-            List<PlaylistSyncProgressSnapshot> snapshots = new List<PlaylistSyncProgressSnapshot>();
+            List<PlaylistSyncProgressSnapshot> snapshots = [];
 
             List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table }, progressCallback: snapshots.Add, reason: "test_skip_no_uri");
 
             Assert.AreEqual(0, results.Count);
             Assert.IsTrue(snapshots.Count >= 2);
-            Assert.IsTrue(snapshots.All((PlaylistSyncProgressSnapshot snapshot) => snapshot.TotalTableCount == 0));
+            Assert.IsTrue(snapshots.All(snapshot => snapshot.TotalTableCount == 0));
         }
         finally
         {
@@ -374,25 +378,25 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
             BMSTable goodTable = await playlist.LoadExternalTableAsync(new Uri(goodHeaderPath));
-            BMSTable badTable = new BMSTable
+            var badTable = new BMSTable
             {
                 name = "BadTarget",
                 symbol = "B",
                 Header_url = new Uri(badHeaderPath)
             };
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { goodTable, badTable }), Dispatcher.CurrentDispatcher);
-            List<PlaylistSyncAttemptResult> syncResults = new List<PlaylistSyncAttemptResult>();
+            List<PlaylistSyncAttemptResult> syncResults = [];
 
             List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { goodTable, badTable }, syncResultCallback: syncResults.Add, reason: "test_partial_failure");
 
             Assert.AreEqual(2, results.Count);
             Assert.AreEqual(2, syncResults.Count);
-            Assert.IsTrue(results.Any((BMSPlaylist.PlaylistReloadTargetResult result) => result.SourceTable == goodTable && result.Succeeded));
-            Assert.IsTrue(results.Any((BMSPlaylist.PlaylistReloadTargetResult result) => result.SourceTable == badTable && !result.Succeeded));
-            Assert.IsTrue(syncResults.Any((PlaylistSyncAttemptResult result) => result.SourceTable == goodTable && result.Succeeded));
-            Assert.IsTrue(syncResults.Any((PlaylistSyncAttemptResult result) => result.SourceTable == badTable && !result.Succeeded));
+            Assert.IsTrue(results.Any(result => result.SourceTable == goodTable && result.Succeeded));
+            Assert.IsTrue(results.Any(result => result.SourceTable == badTable && !result.Succeeded));
+            Assert.IsTrue(syncResults.Any(result => result.SourceTable == goodTable && result.Succeeded));
+            Assert.IsTrue(syncResults.Any(result => result.SourceTable == badTable && !result.Succeeded));
         }
         finally
         {
@@ -417,34 +421,36 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (LR2SongDBExtended _ = new LR2SongDBExtended(songDbPath))
+            using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
             BMSPlaylist.EnsureSchema(songDbPath);
-            BMSTable persistedTable = new BMSTable
+            var persistedTable = new BMSTable
             {
                 playlist_id = 7001,
                 name = "ReloadedTable",
                 symbol = "R",
                 Output_dir = "ReloadedTable"
             };
-            using (LR2SongDBExtended db = new LR2SongDBExtended(songDbPath))
+            using (var db = new LR2SongDBExtended(songDbPath))
             {
                 db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
             }
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(
-                new ObservableCollection<BMSTable>(new[]
-                {
-                    new BMSTable
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[]
                     {
-                        playlist_id = 1,
-                        name = "OldTable",
-                        symbol = "O",
-                        Output_dir = "OldTable"
-                    }
-                }),
-                Dispatcher.CurrentDispatcher);
+                        new BMSTable
+                        {
+                            playlist_id = 1,
+                            name = "OldTable",
+                            symbol = "O",
+                            Output_dir = "OldTable"
+                        }
+                    }),
+                    Dispatcher.CurrentDispatcher)
+            };
             bool hydrationQueued = false;
             playlist.StartupBackgroundTaskScheduler = delegate
             {
@@ -483,31 +489,31 @@ public sealed class BmsPlaylistUpdateTests
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            BMSTable table = new BMSTable
+            var table = new BMSTable
             {
                 playlist_id = 7101,
                 name = "BeforeName",
                 symbol = "BN",
                 Output_dir = "BeforeName"
             };
-            using (LR2SongDBExtended db = new LR2SongDBExtended(songDbPath))
+            using (var db = new LR2SongDBExtended(songDbPath))
             {
                 db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, folder) VALUES (7101, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Song', '1');");
             }
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(
-                new ObservableCollection<BMSTable>(new[] { table }),
-                Dispatcher.CurrentDispatcher);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
 
             table.name = "AfterName";
             playlist.CommitBMSTableHeaderToDB(table);
 
-            using (LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath))
-            {
-                Assert.AreEqual("AfterName", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 7101;"));
-                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = 7101;"));
-            }
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual("AfterName", verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 7101;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = 7101;"));
         }
         finally
         {
@@ -528,7 +534,7 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.Execute("CREATE TABLE playlist_entry (playlist_id INTEGER NULL, md5 TEXT NULL, sha256 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
                 songDb.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, is_removed) VALUES (?, ?, ?, ?);", 10, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "active", 0);
@@ -540,9 +546,9 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.AreEqual("startup_entries", result.Projection);
             Assert.AreEqual(2, result.RowCount);
-            Assert.IsTrue(result.Entries.Any((BMSTableEntry entry) => entry.title == "active" && !entry.is_removed));
-            Assert.IsTrue(result.Entries.Any((BMSTableEntry entry) => entry.title == "removed" && entry.is_removed));
-            Assert.IsFalse(result.Entries.Any((BMSTableEntry entry) => entry.title == "orphan"));
+            Assert.IsTrue(result.Entries.Any(entry => entry.title == "active" && !entry.is_removed));
+            Assert.IsTrue(result.Entries.Any(entry => entry.title == "removed" && entry.is_removed));
+            Assert.IsFalse(result.Entries.Any(entry => entry.title == "orphan"));
             Assert.IsTrue(result.DbReadMs >= 0);
             Assert.IsTrue(result.MaterializeMs >= 0);
             Assert.IsTrue(result.ReadOnly);
@@ -559,7 +565,7 @@ public sealed class BmsPlaylistUpdateTests
 
     private static byte[] CreateUtf8BomBytes(string text)
     {
-        return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text)).ToArray();
+        return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
     }
 
     private static string CreateTempSongDbPath(string tempDirectory)

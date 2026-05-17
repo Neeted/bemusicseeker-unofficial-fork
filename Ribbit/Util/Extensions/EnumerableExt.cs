@@ -6,14 +6,9 @@ namespace Ribbit.Util.Extensions;
 
 public static class EnumerableExt
 {
-    private class CompareSelector<T, TKey> : IEqualityComparer<T>
+    private class CompareSelector<T, TKey>(Func<T, TKey> selector) : IEqualityComparer<T>
     {
-        private Func<T, TKey> selector;
-
-        public CompareSelector(Func<T, TKey> selector)
-        {
-            this.selector = selector;
-        }
+        private readonly Func<T, TKey> selector = selector;
 
         public bool Equals(T x, T y)
         {
@@ -63,7 +58,7 @@ public static class EnumerableExt
         {
             throw new ArgumentOutOfRangeException("length");
         }
-        List<T> list = new List<T>(length);
+        var list = new List<T>(length);
         foreach (T item in source)
         {
             list.Add(item);
@@ -86,7 +81,7 @@ public static class EnumerableExt
         if (num > 1)
         {
             double avg = values.Average();
-            result = System.Math.Sqrt(values.Sum((double d) => (d - avg) * (d - avg)) / (double)(num - 1));
+            result = System.Math.Sqrt(values.Sum(d => (d - avg) * (d - avg)) / (double)(num - 1));
         }
         return result;
     }
@@ -184,7 +179,7 @@ public static class EnumerableExt
     {
         if (nullToEmpty && source == null)
         {
-            return Enumerable.Empty<T>();
+            return [];
         }
         if (source == null)
         {

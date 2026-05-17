@@ -12,7 +12,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal static class GridRowResolver
 {
-    private static readonly Regex Sha256HashRegex = new Regex("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex Sha256HashRegex = new("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
     /// playlist 詳細表示用 row かどうかを返します。
@@ -304,7 +304,7 @@ internal static class GridRowResolver
         {
             return null;
         }
-        PendingChartEntry pending = file as PendingChartEntry;
+        var pending = file as PendingChartEntry;
         if (pending?.IsBmsonChart == true && pending.BmsonSong != null)
         {
             LR2SongDBExtended.bmson_song song = pending.BmsonSong;

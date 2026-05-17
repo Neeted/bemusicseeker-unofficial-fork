@@ -5,20 +5,13 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models;
 
-public class SimpleDirectoryStructure
+public class SimpleDirectoryStructure(string dirName = null)
 {
-    public string DirName { get; private set; }
+    public string DirName { get; private set; } = dirName;
 
-    public HashSet<SimpleDirectoryStructure> DirList { get; private set; }
+    public HashSet<SimpleDirectoryStructure> DirList { get; private set; } = [];
 
-    public HashSet<string> FileList { get; private set; }
-
-    public SimpleDirectoryStructure(string dirName = null)
-    {
-        DirName = dirName;
-        DirList = new HashSet<SimpleDirectoryStructure>();
-        FileList = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-    }
+    public HashSet<string> FileList { get; private set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public SimpleDirectoryStructure(List<string> paths, string dirName = null)
         : this(dirName)
@@ -48,14 +41,14 @@ public class SimpleDirectoryStructure
             }
             else
             {
-                DirList.Add(new SimpleDirectoryStructure(item.ToList(), item.Key));
+                DirList.Add(new SimpleDirectoryStructure([.. item], item.Key));
             }
         }
     }
 
     public IEnumerable<string> GetAllFiles()
     {
-        return DirList.SelectMany((SimpleDirectoryStructure d) => d.GetAllFiles()).Concat(FileList);
+        return DirList.SelectMany(d => d.GetAllFiles()).Concat(FileList);
     }
 
     public override bool Equals(object a)

@@ -4,16 +4,11 @@ using System.Text.RegularExpressions;
 
 namespace BeMusicSeeker.Tests;
 
-public class LegacyNaturalComparer<T> : Comparer<string>, IDisposable
+public class LegacyNaturalComparer<T>(bool isWhiteSpacePrior = false) : Comparer<string>, IDisposable
 {
-    protected Dictionary<string, string[]> table = new Dictionary<string, string[]>();
+    protected Dictionary<string, string[]> table = [];
 
-    protected bool isWhiteSpacePrior;
-
-    public LegacyNaturalComparer(bool isWhiteSpacePrior = false)
-    {
-        this.isWhiteSpacePrior = isWhiteSpacePrior;
-    }
+    protected bool isWhiteSpacePrior = isWhiteSpacePrior;
 
     public void Dispose()
     {
@@ -48,12 +43,12 @@ public class LegacyNaturalComparer<T> : Comparer<string>, IDisposable
                 return -1;
             }
         }
-        if (!table.TryGetValue(x, out var value))
+        if (!table.TryGetValue(x, out string[]? value))
         {
             value = Regex.Split(x, "([+-]?[0-9]+(\\.[0-9]*)?)");
             table.Add(x, value);
         }
-        if (!table.TryGetValue(y, out var value2))
+        if (!table.TryGetValue(y, out string[]? value2))
         {
             value2 = Regex.Split(y, "([+-]?[0-9]+(\\.[0-9]*)?)");
             table.Add(y, value2);
@@ -78,11 +73,11 @@ public class LegacyNaturalComparer<T> : Comparer<string>, IDisposable
 
     protected static int PartCompare(string left, string right)
     {
-        if (!double.TryParse(left, out var result))
+        if (!double.TryParse(left, out double result))
         {
             return left.CompareTo(right);
         }
-        if (!double.TryParse(right, out var result2))
+        if (!double.TryParse(right, out double result2))
         {
             return left.CompareTo(right);
         }

@@ -8,14 +8,10 @@ using Ribbit.Util;
 
 namespace Ribbit.BMS;
 
-public class BMSAutoPlayer : BMSAutoPlayer<BassAudioPlayer>
+public class BMSAutoPlayer(BMSFile bms) : BMSAutoPlayer<BassAudioPlayer>(bms)
 {
-    public BMSAutoPlayer(BMSFile bms)
-        : base(bms)
-    {
-    }
 }
-public class BMSAutoPlayer<TBassAudioPlayer> : BMSPlayer<TBassAudioPlayer, NullImageLoader> where TBassAudioPlayer : BassAudioPlayer
+public class BMSAutoPlayer<TBassAudioPlayer>(BMSFile bms) : BMSPlayer<TBassAudioPlayer, NullImageLoader>(bms) where TBassAudioPlayer : BassAudioPlayer
 {
     public override float PlaybackRate
     {
@@ -34,11 +30,6 @@ public class BMSAutoPlayer<TBassAudioPlayer> : BMSPlayer<TBassAudioPlayer, NullI
         }
     }
 
-    public BMSAutoPlayer(BMSFile bms)
-        : base(bms)
-    {
-    }
-
     public override void LoadResources()
     {
         LoadResources(onMemory: true, asParallel: true);
@@ -47,7 +38,7 @@ public class BMSAutoPlayer<TBassAudioPlayer> : BMSPlayer<TBassAudioPlayer, NullI
     public void LoadResources(bool onMemory, bool asParallel)
     {
         string pPath = Path.GetDirectoryName(base.Bms.Path);
-        Func<string, TBassAudioPlayer> selector = delegate (string w)
+        TBassAudioPlayer selector(string w)
         {
             if (string.IsNullOrWhiteSpace(w))
             {
@@ -88,13 +79,13 @@ public class BMSAutoPlayer<TBassAudioPlayer> : BMSPlayer<TBassAudioPlayer, NullI
                 }
             }
             return (TBassAudioPlayer)null;
-        };
+        }
         base.AudioPlayers = (asParallel ? base.Bms.WavArray.AsParallel().Select(selector).ToList()
             .AsReadOnly() : base.Bms.WavArray.Select(selector).ToList().AsReadOnly());
         durationProvider = () => base.MusicDuration;
-        base.MusicDuration = base.Bms.Measures.SelectMany((BMSFile.Chart m) => new ReadOnlyCollection<Func<IList<BMSFile.Chart.Note>>>[5] { m.GetPropertiesAllBgmNotes, m.GetPropertiesAll1PVisNotes, m.GetPropertiesAll2PVisNotes, m.GetPropertiesAll1PLngNotes, m.GetPropertiesAll2PLngNotes }.SelectMany((ReadOnlyCollection<Func<IList<BMSFile.Chart.Note>>> ps) => ps).SelectMany((Func<IList<BMSFile.Chart.Note>> p) => from n in p()
+        base.MusicDuration = base.Bms.Measures.SelectMany(m => new ReadOnlyCollection<Func<IList<BMSFile.Chart.Note>>>[5] { m.GetPropertiesAllBgmNotes, m.GetPropertiesAll1PVisNotes, m.GetPropertiesAll2PVisNotes, m.GetPropertiesAll1PLngNotes, m.GetPropertiesAll2PLngNotes }.SelectMany(ps => ps).SelectMany(p => from n in p()
                                                                                                                                                                                                                                                                                                                                                                                                                               where n != null
-                                                                                                                                                                                                                                                                                                                                                                                                                              select n)).Max((BMSFile.Chart.Note n) => n.AbsoluteTime + (base.AudioPlayers[n.Index]?.Duration ?? TimeSpan.Zero));
+                                                                                                                                                                                                                                                                                                                                                                                                                              select n)).Max(n => n.AbsoluteTime + (base.AudioPlayers[n.Index]?.Duration ?? TimeSpan.Zero));
         base.BgaDuration = TimeSpan.Zero;
     }
 }

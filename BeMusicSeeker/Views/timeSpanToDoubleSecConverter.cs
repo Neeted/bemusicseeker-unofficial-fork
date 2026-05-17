@@ -8,7 +8,7 @@ internal class timeSpanToDoubleSecConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (!(value is TimeSpan timeSpan))
+        if (value is not TimeSpan timeSpan)
         {
             return Binding.DoNothing;
         }
@@ -17,7 +17,7 @@ internal class timeSpanToDoubleSecConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (!(value is double))
+        if (value is not double)
         {
             return Binding.DoNothing;
         }

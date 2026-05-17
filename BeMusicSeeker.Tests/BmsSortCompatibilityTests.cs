@@ -51,12 +51,12 @@ public sealed class BmsSortCompatibilityTests
         CultureInfo previousCurrentUICulture = CultureInfo.CurrentUICulture;
         try
         {
-            CultureInfo stableCulture = CultureInfo.GetCultureInfo("ja-JP");
+            var stableCulture = CultureInfo.GetCultureInfo("ja-JP");
             CultureInfo.CurrentCulture = stableCulture;
             CultureInfo.CurrentUICulture = stableCulture;
 
-            List<(string columnName, ListSortDirection direction)> sortCases = new List<(string, ListSortDirection)>
-            {
+            List<(string columnName, ListSortDirection direction)> sortCases =
+            [
                 (nameof(LibraryChartRow.Title), ListSortDirection.Ascending),
                 (nameof(LibraryChartRow.Title), ListSortDirection.Descending),
                 (nameof(LibraryChartRow.Artist), ListSortDirection.Ascending),
@@ -65,11 +65,11 @@ public sealed class BmsSortCompatibilityTests
                 (nameof(LibraryChartRow.Level), ListSortDirection.Ascending),
                 (nameof(LibraryChartRow.mode), ListSortDirection.Ascending),
                 (nameof(LibraryChartRow.genre), ListSortDirection.Descending)
-            };
+            ];
 
             foreach ((string columnName, ListSortDirection direction) in sortCases)
             {
-                MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+                var sortParameters = new MainWindowViewModel.cSortParameters
                 {
                     ColumnsName = columnName,
                     Direction = direction
@@ -112,8 +112,8 @@ public sealed class BmsSortCompatibilityTests
         List<LibraryChartRow> sourceRows = LoadLibraryRowsFromSongDb(testSongDbFullPath, SampleSongCount);
         Assert.IsTrue(sourceRows.Count > 0, "No song rows loaded from test song.db.");
 
-        List<(string columnName, ListSortDirection direction)> sortCases = new List<(string, ListSortDirection)>
-        {
+        List<(string columnName, ListSortDirection direction)> sortCases =
+        [
             (nameof(LibraryChartRow.Level), ListSortDirection.Descending),
             (nameof(LibraryChartRow.path), ListSortDirection.Ascending),
             (nameof(LibraryChartRow.totalnotes), ListSortDirection.Descending),
@@ -121,11 +121,11 @@ public sealed class BmsSortCompatibilityTests
             (nameof(LibraryChartRow.rate), ListSortDirection.Descending),
             (nameof(LibraryChartRow.scoreDifficulty), ListSortDirection.Descending),
             (nameof(LibraryChartRow.rankingLastupdate), ListSortDirection.Descending)
-        };
+        ];
 
         foreach ((string columnName, ListSortDirection direction) in sortCases)
         {
-            MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+            var sortParameters = new MainWindowViewModel.cSortParameters
             {
                 ColumnsName = columnName,
                 Direction = direction
@@ -137,16 +137,16 @@ public sealed class BmsSortCompatibilityTests
                 _ = LibraryChartRowSortEngine.SortForMainView(sourceRows, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out _);
             }
 
-            List<long> legacyMs = new List<long>(PerfMeasureCount);
-            List<long> optimizedMs = new List<long>(PerfMeasureCount);
+            var legacyMs = new List<long>(PerfMeasureCount);
+            var optimizedMs = new List<long>(PerfMeasureCount);
             for (int i = 0; i < PerfMeasureCount; i++)
             {
-                Stopwatch swLegacy = Stopwatch.StartNew();
+                var swLegacy = Stopwatch.StartNew();
                 _ = SortByLegacyImplementation(sourceRows, sortParameters);
                 swLegacy.Stop();
                 legacyMs.Add(swLegacy.ElapsedMilliseconds);
 
-                Stopwatch swOptimized = Stopwatch.StartNew();
+                var swOptimized = Stopwatch.StartNew();
                 _ = LibraryChartRowSortEngine.SortForMainView(sourceRows, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
                 swOptimized.Stop();
                 optimizedMs.Add(swOptimized.ElapsedMilliseconds);
@@ -170,15 +170,15 @@ public sealed class BmsSortCompatibilityTests
     {
         LibraryChartRow regularLevel12 = CreateLibraryChartRow("z_regular_12.bms", "Regular12", level: 12);
         LibraryChartRow regularLevel3 = CreateLibraryChartRow("m_regular_3.bms", "Regular3", level: 3);
-        List<LibraryChartRow> source = new List<LibraryChartRow> { regularLevel12, regularLevel3 };
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        List<LibraryChartRow> source = [regularLevel12, regularLevel3];
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Level),
             Direction = ListSortDirection.Ascending
         };
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
-        string[] sortedPaths = sorted.Select((LibraryChartRow row) => row.path).ToArray();
+        string[] sortedPaths = [.. sorted.Select(row => row.path)];
 
         CollectionAssert.AreEqual(
             new[] { "m_regular_3.bms", "z_regular_12.bms" },
@@ -197,7 +197,7 @@ public sealed class BmsSortCompatibilityTests
         LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
 
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Folder),
             Direction = ListSortDirection.Ascending
@@ -205,7 +205,7 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(new[] { folder10, folder2 }, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
 
-        CollectionAssert.AreEqual(new[] { "z.bms", "a.bms" }, sorted.Select((LibraryChartRow row) => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "z.bms", "a.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
     }
 
@@ -219,7 +219,7 @@ public sealed class BmsSortCompatibilityTests
         LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
 
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Folder),
             Direction = ListSortDirection.Ascending
@@ -227,7 +227,7 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(new[] { folder10, folder2 }, sortParameters, isPlaylistDetailView: true, useLegacySortForDataGrid: false, out string sortProfile);
 
-        CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select((LibraryChartRow row) => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
     }
 
@@ -241,7 +241,7 @@ public sealed class BmsSortCompatibilityTests
         LibraryChartRow row1 = CreateLibraryChartRow("b.bms", "bbb", level: 1);
         LibraryChartRow row2 = CreateLibraryChartRow("a.bms", "AAA", level: 1);
 
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Title),
             Direction = ListSortDirection.Ascending
@@ -249,7 +249,7 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(new[] { row1, row2 }, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
 
-        CollectionAssert.AreEqual(new[] { "a.bms", "b.bms" }, sorted.Select((LibraryChartRow row) => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "a.bms", "b.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
     }
 
@@ -259,7 +259,7 @@ public sealed class BmsSortCompatibilityTests
     {
         LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
         LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Title),
             Direction = ListSortDirection.Ascending
@@ -268,8 +268,8 @@ public sealed class BmsSortCompatibilityTests
         List<LibraryChartRow> legacySorted = LibraryChartRowSortEngine.SortForMainView(new[] { title10, title2 }, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string legacyProfile);
         List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView(new[] { title10, title2 }, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string fastProfile);
 
-        CollectionAssert.AreEqual(new[] { "a_item2.bms", "z_item10.bms" }, legacySorted.Select((LibraryChartRow row) => row.path).ToArray());
-        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select((LibraryChartRow row) => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "a_item2.bms", "z_item10.bms" }, legacySorted.Select(row => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_legacy_string", legacyProfile);
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
     }
@@ -280,7 +280,7 @@ public sealed class BmsSortCompatibilityTests
     {
         LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
         LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Title),
             Direction = ListSortDirection.Ascending
@@ -288,7 +288,7 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView(new[] { title10, title2 }, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string fastProfile, out LibraryChartSortMetrics metrics);
 
-        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select((LibraryChartRow row) => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
         Assert.AreEqual(2, metrics.RowCount);
         Assert.AreEqual(nameof(LibraryChartRow.Title), metrics.ColumnName);
@@ -304,14 +304,14 @@ public sealed class BmsSortCompatibilityTests
     public void VirtualNormalLibraryModeSupport_CoversNormalListRefreshAndFilterUpdates()
     {
         MainWindowViewModel.viewUpdateMode[] supportedModes =
-        {
+        [
             MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
             MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
             MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected,
             MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
             MainWindowViewModel.viewUpdateMode.ModeFilterUpdated,
             MainWindowViewModel.viewUpdateMode.SortUpdated
-        };
+        ];
 
         foreach (MainWindowViewModel.viewUpdateMode mode in Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode)).Cast<MainWindowViewModel.viewUpdateMode>())
         {
@@ -515,22 +515,22 @@ public sealed class BmsSortCompatibilityTests
             nameof(LibraryChartRow.Title),
             ListSortDirection.Ascending,
             new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
-            new[] { "z_alpha.bms", "a_beta.bms", "m_gamma.bms" });
+            ["z_alpha.bms", "a_beta.bms", "m_gamma.bms"]);
         AssertLibraryChartSort(
             nameof(LibraryChartRow.Title),
             ListSortDirection.Descending,
             new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
-            new[] { "m_gamma.bms", "a_beta.bms", "z_alpha.bms" });
+            ["m_gamma.bms", "a_beta.bms", "z_alpha.bms"]);
         AssertLibraryChartSort(
             nameof(LibraryChartRow.path),
             ListSortDirection.Ascending,
             new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
-            new[] { "a_beta.bms", "m_gamma.bms", "z_alpha.bms" });
+            ["a_beta.bms", "m_gamma.bms", "z_alpha.bms"]);
         AssertLibraryChartSort(
             nameof(LibraryChartRow.path),
             ListSortDirection.Descending,
             new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
-            new[] { "z_alpha.bms", "m_gamma.bms", "a_beta.bms" });
+            ["z_alpha.bms", "m_gamma.bms", "a_beta.bms"]);
     }
 
     [TestMethod]
@@ -539,7 +539,7 @@ public sealed class BmsSortCompatibilityTests
     {
         LibraryChartRow level12 = CreateLibraryChartRow("z_level12.bms", "Level12", level: 12);
         LibraryChartRow level3 = CreateLibraryChartRow("a_level3.bms", "Level3", level: 3);
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Level),
             Direction = ListSortDirection.Ascending
@@ -547,7 +547,7 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(new[] { level12, level3 }, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
 
-        CollectionAssert.AreEqual(new[] { "a_level3.bms", "z_level12.bms" }, sorted.Select((LibraryChartRow row) => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "a_level3.bms", "z_level12.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_level_mixed_double", sortProfile);
     }
 
@@ -557,7 +557,7 @@ public sealed class BmsSortCompatibilityTests
     {
         LibraryChartRow folder10 = CreateLibraryChartRow("z_folder10.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a_folder2.bms", "A", level: 1, folder: "folder2");
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.Folder),
             Direction = ListSortDirection.Ascending
@@ -565,7 +565,7 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(new[] { folder10, folder2 }, sortParameters, isPlaylistDetailView: true, useLegacySortForDataGrid: false, out string sortProfile);
 
-        CollectionAssert.AreEqual(new[] { "a_folder2.bms", "z_folder10.bms" }, sorted.Select((LibraryChartRow row) => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "a_folder2.bms", "z_folder10.bms" }, sorted.Select(row => row.path).ToArray());
         Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
     }
 
@@ -576,10 +576,10 @@ public sealed class BmsSortCompatibilityTests
         LibraryChartRow high = CreateLibraryChartRow("z_high.bms", "High", level: 1, chartNotes: 100, chartTotal: 10.0, chartMainBpm: 200.0, rateScorePerfect: 90);
         LibraryChartRow low = CreateLibraryChartRow("a_low.bms", "Low", level: 1, chartNotes: 20, chartTotal: 2.0, chartMainBpm: 100.0, rateScorePerfect: 20);
 
-        AssertTypedSort(nameof(LibraryChartRow.ChartNotes), new[] { high, low }, new[] { "a_low.bms", "z_high.bms" });
-        AssertTypedSort(nameof(LibraryChartRow.ChartTotalSortKey), new[] { high, low }, new[] { "a_low.bms", "z_high.bms" });
-        AssertTypedSort(nameof(LibraryChartRow.ChartMainBpmSortKey), new[] { high, low }, new[] { "a_low.bms", "z_high.bms" });
-        AssertTypedSort(nameof(LibraryChartRow.rateDouble), new[] { high, low }, new[] { "a_low.bms", "z_high.bms" });
+        AssertTypedSort(nameof(LibraryChartRow.ChartNotes), new[] { high, low }, ["a_low.bms", "z_high.bms"]);
+        AssertTypedSort(nameof(LibraryChartRow.ChartTotalSortKey), new[] { high, low }, ["a_low.bms", "z_high.bms"]);
+        AssertTypedSort(nameof(LibraryChartRow.ChartMainBpmSortKey), new[] { high, low }, ["a_low.bms", "z_high.bms"]);
+        AssertTypedSort(nameof(LibraryChartRow.rateDouble), new[] { high, low }, ["a_low.bms", "z_high.bms"]);
     }
 
     [TestMethod]
@@ -591,7 +591,7 @@ public sealed class BmsSortCompatibilityTests
 
         Assert.AreEqual(0.91, row.rateDouble.GetValueOrDefault(), 0.000001);
 
-        TestableBmsFile zeroNotes = new TestableBmsFile();
+        var zeroNotes = new TestableBmsFile();
         zeroNotes.ApplySnapshot(new SongSnapshotRow { path = "zero.bms", title = "Zero", level = 1, hash = "55555555555555555555555555555555" });
         zeroNotes.bmsScore = new BMSScore { hash = zeroNotes.hash, perfect = 10, totalnotes = 0 };
 
@@ -605,19 +605,19 @@ public sealed class BmsSortCompatibilityTests
     [TestCategory("SortEngine")]
     public void PlaylistSummarySortEngine_SortsAscendingAndDescending()
     {
-        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
-        {
+        List<PlaylistSummaryRow> rows =
+        [
             new PlaylistSummaryRow { PlaylistId = 1, Name = "B", TotalCharts = 30 },
             new PlaylistSummaryRow { PlaylistId = 2, Name = "A", TotalCharts = 10 },
             new PlaylistSummaryRow { PlaylistId = 3, Name = "C", TotalCharts = 20 }
-        };
+        ];
 
-        MainWindowViewModel.cSortParameters asc = new MainWindowViewModel.cSortParameters
+        var asc = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
             Direction = ListSortDirection.Ascending
         };
-        MainWindowViewModel.cSortParameters desc = new MainWindowViewModel.cSortParameters
+        var desc = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
             Direction = ListSortDirection.Descending
@@ -626,8 +626,8 @@ public sealed class BmsSortCompatibilityTests
         List<PlaylistSummaryRow> ascSorted = PlaylistSummarySortEngine.Sort(rows, asc, useLegacyStringSort: false, out string ascProfile);
         List<PlaylistSummaryRow> descSorted = PlaylistSummarySortEngine.Sort(rows, desc, useLegacyStringSort: false, out string descProfile);
 
-        CollectionAssert.AreEqual(new[] { 2, 3, 1 }, ascSorted.Select((PlaylistSummaryRow row) => row.PlaylistId ?? -1).ToArray());
-        CollectionAssert.AreEqual(new[] { 1, 3, 2 }, descSorted.Select((PlaylistSummaryRow row) => row.PlaylistId ?? -1).ToArray());
+        CollectionAssert.AreEqual(new[] { 2, 3, 1 }, ascSorted.Select(row => row.PlaylistId ?? -1).ToArray());
+        CollectionAssert.AreEqual(new[] { 1, 3, 2 }, descSorted.Select(row => row.PlaylistId ?? -1).ToArray());
         Assert.AreEqual("playlist_summary_numeric_int32", ascProfile);
         Assert.AreEqual("playlist_summary_numeric_int32", descProfile);
     }
@@ -639,12 +639,12 @@ public sealed class BmsSortCompatibilityTests
         PlaylistDetailSourceRow hardAaa = CreatePlaylistDetailSourceRow("z_hard_aaa.bms", "Hard AAA", ClearType.HARD, RankType.AAA);
         PlaylistDetailSourceRow easyAa = CreatePlaylistDetailSourceRow("a_easy_aa.bms", "Easy AA", ClearType.EASY, RankType.AA);
 
-        MainWindowViewModel.cSortParameters clearSort = new MainWindowViewModel.cSortParameters
+        var clearSort = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.clear),
             Direction = ListSortDirection.Ascending
         };
-        MainWindowViewModel.cSortParameters rankSort = new MainWindowViewModel.cSortParameters
+        var rankSort = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.rank),
             Direction = ListSortDirection.Ascending
@@ -685,7 +685,7 @@ public sealed class BmsSortCompatibilityTests
         Assert.AreEqual("MAX", ScoreDisplayTextFormatter.FormatClear(ClearType.MAX));
         Assert.AreEqual("99", ScoreDisplayTextFormatter.FormatClear((ClearType)99));
 
-        cleartypeToStringConvberter converter = new cleartypeToStringConvberter();
+        var converter = new cleartypeToStringConvberter();
         Assert.AreEqual("PERFECT", converter.Convert(ClearType.PA, typeof(string), null, CultureInfo.InvariantCulture));
         Assert.AreEqual("99", converter.Convert((ClearType)99, typeof(string), null, CultureInfo.InvariantCulture));
     }
@@ -699,7 +699,7 @@ public sealed class BmsSortCompatibilityTests
         LibraryChartRow easy = CreateLibraryChartRow("a_easy.bms", "Easy", 1, clear: ClearType.EASY);
         LibraryChartRow failed = CreateLibraryChartRow("b_failed.bms", "Failed", 1, clear: ClearType.FAILED);
 
-        MainWindowViewModel.cSortParameters clearSort = new MainWindowViewModel.cSortParameters
+        var clearSort = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(LibraryChartRow.clear),
             Direction = ListSortDirection.Ascending
@@ -734,10 +734,10 @@ public sealed class BmsSortCompatibilityTests
     /// <returns>検証対象の BMS 行。</returns>
     private static List<BMSFile> LoadRowsFromSongDb(string songDbPath, int limit)
     {
-        using SQLiteConnection connection = new SQLiteConnection(songDbPath, SQLiteOpenFlags.ReadOnly);
+        using var connection = new SQLiteConnection(songDbPath, SQLiteOpenFlags.ReadOnly);
         string sql = "SELECT path, hash, title, subtitle, artist, subartist, genre, tag, level, mode, karinotes FROM song WHERE path IS NOT NULL ORDER BY path LIMIT ?";
         List<SongSnapshotRow> rows = connection.Query<SongSnapshotRow>(sql, limit);
-        List<BMSFile> result = new List<BMSFile>(rows.Count);
+        var result = new List<BMSFile>(rows.Count);
         for (int index = 0; index < rows.Count; index++)
         {
             SongSnapshotRow row = rows[index];
@@ -745,7 +745,7 @@ public sealed class BmsSortCompatibilityTests
             {
                 continue;
             }
-            TestableBmsFile bmsFile = new TestableBmsFile();
+            var bmsFile = new TestableBmsFile();
             bmsFile.ApplySnapshot(row);
             result.Add(bmsFile);
         }
@@ -755,10 +755,10 @@ public sealed class BmsSortCompatibilityTests
     private static List<LibraryChartRow> LoadLibraryRowsFromSongDb(string songDbPath, int limit)
     {
         List<BMSFile> bmsRows = LoadRowsFromSongDb(songDbPath, limit);
-        List<LibraryChartRow> result = new List<LibraryChartRow>(bmsRows.Count);
+        var result = new List<LibraryChartRow>(bmsRows.Count);
         for (int index = 0; index < bmsRows.Count; index++)
         {
-            LibraryChartRow row = LibraryChartRow.FromBmsFile(bmsRows[index]);
+            var row = LibraryChartRow.FromBmsFile(bmsRows[index]);
             if (row != null)
             {
                 result.Add(row);
@@ -775,7 +775,7 @@ public sealed class BmsSortCompatibilityTests
     /// <returns>ソート済みリスト。</returns>
     private static List<LibraryChartRow> SortByLegacyImplementation(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters)
     {
-        IEnumerable<LibraryChartRow> safeSource = source ?? Enumerable.Empty<LibraryChartRow>();
+        IEnumerable<LibraryChartRow> safeSource = source ?? [];
         string? columnName = sortParameters?.ColumnsName;
         ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
         if (string.IsNullOrWhiteSpace(columnName))
@@ -787,7 +787,7 @@ public sealed class BmsSortCompatibilityTests
             columnName = nameof(LibraryChartRow.rateDouble);
         }
         PropertyInfo? property = typeof(LibraryChartRow).GetProperty(columnName);
-        Func<LibraryChartRow, string> keySelector = delegate (LibraryChartRow row)
+        string keySelector(LibraryChartRow row)
         {
             if (row == null || property == null)
             {
@@ -803,12 +803,12 @@ public sealed class BmsSortCompatibilityTests
                 return ((int)value).ToString();
             }
             return value.ToString() ?? string.Empty;
-        };
+        }
         if (direction == ListSortDirection.Ascending)
         {
-            return safeSource.OrderBy(keySelector, new LegacyNaturalComparer<string>()).ThenBy((LibraryChartRow row) => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>()).ToList();
+            return [.. safeSource.OrderBy(keySelector, new LegacyNaturalComparer<string>()).ThenBy(row => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>())];
         }
-        return safeSource.OrderByDescending(keySelector, new LegacyNaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy((LibraryChartRow row) => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>()).ToList();
+        return [.. safeSource.OrderByDescending(keySelector, new LegacyNaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(row => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>())];
     }
 
     /// <summary>
@@ -818,14 +818,14 @@ public sealed class BmsSortCompatibilityTests
     /// <returns>比較用ダイジェスト。</returns>
     private static string ComputeDigest(IEnumerable<LibraryChartRow> rows)
     {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         foreach (LibraryChartRow row in rows)
         {
             builder.Append(row?.path ?? string.Empty).Append('\t').Append(row?.hash ?? string.Empty).Append('\n');
         }
         byte[] bytes = Encoding.UTF8.GetBytes(builder.ToString());
         byte[] hash;
-        using (SHA256 sha256 = SHA256.Create())
+        using (var sha256 = SHA256.Create())
         {
             hash = sha256.ComputeHash(bytes);
         }
@@ -843,7 +843,7 @@ public sealed class BmsSortCompatibilityTests
         {
             return 0L;
         }
-        List<long> sorted = values.OrderBy((long v) => v).ToList();
+        List<long> sorted = [.. values.OrderBy(v => v)];
         return sorted[sorted.Count / 2];
     }
 
@@ -871,7 +871,7 @@ public sealed class BmsSortCompatibilityTests
 
     private static void AssertTypedSort(string columnName, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
     {
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = columnName,
             Direction = ListSortDirection.Ascending
@@ -879,13 +879,13 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string sortProfile);
 
-        CollectionAssert.AreEqual(expectedPaths, sorted.Select((LibraryChartRow row) => row.path).ToArray(), columnName + " must use typed sort.");
+        CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " must use typed sort.");
         Assert.AreEqual("library_chart_typed", sortProfile, columnName + " must report typed sort profile.");
     }
 
     private static void AssertLibraryChartSort(string columnName, ListSortDirection direction, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
     {
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = columnName,
             Direction = direction
@@ -893,14 +893,14 @@ public sealed class BmsSortCompatibilityTests
 
         List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
 
-        CollectionAssert.AreEqual(expectedPaths, sorted.Select((LibraryChartRow row) => row.path).ToArray(), columnName + " " + direction + " order mismatch.");
+        CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " " + direction + " order mismatch.");
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
     }
 
     private static LibraryChartRow CreateLibraryChartRow(string path, string title, int level, string folder = "", int? chartNotes = null, double? chartTotal = null, double? chartMainBpm = null, int? rateScorePerfect = null, ClearType? clear = null)
     {
         string hash = CreateMd5FromPath(path);
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = level, hash = hash });
         file.SetFolder(folder);
         if (chartNotes.HasValue || chartTotal.HasValue || chartMainBpm.HasValue)
@@ -942,7 +942,7 @@ public sealed class BmsSortCompatibilityTests
     private static PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(string path, string title, ClearType clear, RankType rank)
     {
         string hash = CreateMd5FromPath(path);
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = 1, hash = hash });
         file.bmsScore = new BMSScore
         {
@@ -957,14 +957,14 @@ public sealed class BmsSortCompatibilityTests
 
     private static string CreateMd5FromPath(string path)
     {
-        using MD5 md5 = MD5.Create();
+        using var md5 = MD5.Create();
         byte[] hash = md5.ComputeHash(Encoding.UTF8.GetBytes(path));
         return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
     }
 
     private static string CreateSha256FromPath(string path)
     {
-        using SHA256 sha256 = SHA256.Create();
+        using var sha256 = SHA256.Create();
         byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(path));
         return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
     }

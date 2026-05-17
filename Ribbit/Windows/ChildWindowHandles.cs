@@ -16,7 +16,7 @@ public sealed class ChildWindowHandles : WindowHandles
         public static extern bool EnumChildWindows(IntPtr handle, [MarshalAs(UnmanagedType.FunctionPtr)] EnumWindowsProcDelegate enumProc, IntPtr lParam);
     }
 
-    private IntPtr windowHandle;
+    private readonly IntPtr windowHandle;
 
     public IntPtr WindowHandle => windowHandle;
 

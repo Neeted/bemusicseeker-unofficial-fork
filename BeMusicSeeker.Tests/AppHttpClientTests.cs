@@ -68,7 +68,7 @@ public sealed class AppHttpClientTests
     [TestCategory("Http")]
     public void PostString_StripsUtf8BomFromResponse()
     {
-        using SingleRequestHttpServer server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"ok\":true}"));
+        using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"ok\":true}"));
 
         string response = AppHttpClient.Shared.PostString(server.Address, "body", "application/json;charset=UTF-8", Encoding.UTF8);
 
@@ -83,7 +83,7 @@ public sealed class AppHttpClientTests
         string uploadFilePath = CreateTempFileWithBytes(Encoding.UTF8.GetBytes("upload"));
         try
         {
-            using SingleRequestHttpServer server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"uploaded\":true}"));
+            using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"uploaded\":true}"));
 
             string response = AppHttpClient.Shared.PostFile(server.Address, uploadFilePath, responseEncoding: Encoding.UTF8);
 
@@ -98,7 +98,7 @@ public sealed class AppHttpClientTests
 
     private static byte[] CreateUtf8BomBytes(string text)
     {
-        return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text)).ToArray();
+        return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
     }
 
     private static string CreateTempFileWithBytes(byte[] bytes)
@@ -122,7 +122,7 @@ public sealed class AppHttpClientTests
 
         public SingleRequestHttpServer(byte[] responseBody)
         {
-            this.responseBody = responseBody ?? Array.Empty<byte>();
+            this.responseBody = responseBody ?? [];
             listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
@@ -158,7 +158,7 @@ public sealed class AppHttpClientTests
         private void ReadRequest(NetworkStream stream)
         {
             byte[] buffer = new byte[4096];
-            using MemoryStream received = new MemoryStream();
+            using var received = new MemoryStream();
             int headerEndIndex = -1;
             while (headerEndIndex < 0)
             {
@@ -176,7 +176,7 @@ public sealed class AppHttpClientTests
                 return;
             }
             string headerText = Encoding.ASCII.GetString(receivedBytes, 0, headerEndIndex);
-            string[] headerLines = headerText.Split(new[] { "\r\n" }, StringSplitOptions.None);
+            string[] headerLines = headerText.Split(["\r\n"], StringSplitOptions.None);
             if (headerLines.Length > 0)
             {
                 string[] requestLineParts = headerLines[0].Split(' ');
@@ -222,7 +222,7 @@ public sealed class AppHttpClientTests
         private static byte[] BuildHttpResponse(byte[] body)
         {
             string header = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: " + body.Length + "\r\nConnection: close\r\n\r\n";
-            return Encoding.ASCII.GetBytes(header).Concat(body).ToArray();
+            return [.. Encoding.ASCII.GetBytes(header), .. body];
         }
     }
 }

@@ -16,7 +16,7 @@ public sealed class ThreadWindowHandles : WindowHandles
         public static extern bool EnumThreadWindows(uint threadId, [MarshalAs(UnmanagedType.FunctionPtr)] EnumWindowsProcDelegate enumProc, IntPtr lParam);
     }
 
-    private uint threadId;
+    private readonly uint threadId;
 
     public uint ThreadID => threadId;
 

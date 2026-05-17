@@ -27,7 +27,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
     {
         InitializeComponent();
         IsVisibleChanged += SettingDialogIsVisibleChanged;
-        Assembly entryAssembly = Assembly.GetEntryAssembly();
+        var entryAssembly = Assembly.GetEntryAssembly();
         string text = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
         string text2 = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         textBlockVerNum.Text = string.IsNullOrWhiteSpace(text2) ? text : text2;
@@ -68,10 +68,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
     private void SyncAppearanceThemeSelection(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
     {
         comboBoxAppearanceTheme.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateTarget();
-        if (comboBoxAppearanceTheme.SelectedValue == null)
-        {
-            comboBoxAppearanceTheme.SelectedValue = settingDialogViewModel.AppearanceTheme;
-        }
+        comboBoxAppearanceTheme.SelectedValue ??= settingDialogViewModel.AppearanceTheme;
     }
 
     private async void SaveAndClose(object sender, RoutedEventArgs e)
@@ -90,7 +87,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                 SyncAppearanceThemeSelection(settingDialogViewModel);
                 return;
             }
-            if (settingDialogViewModel.CheckValidation(out var errMsg))
+            if (settingDialogViewModel.CheckValidation(out string errMsg))
             {
                 bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
                 MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = shouldInitializeAfterSave
@@ -146,17 +143,18 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || viewModel.BMSTables == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null)
         {
             return;
         }
-        SaveFileDialog fileDialog = new SaveFileDialog();
-        fileDialog.Title = "プレイリストデータを保存";
-        fileDialog.FileName = "BeMusicSeeker_backup.sql";
-        fileDialog.DefaultExt = ".sql";
-        fileDialog.AddExtension = true;
-        fileDialog.Filter = "sqlファイル(*.sql)|*.sql";
+        var fileDialog = new SaveFileDialog
+        {
+            Title = "プレイリストデータを保存",
+            FileName = "BeMusicSeeker_backup.sql",
+            DefaultExt = ".sql",
+            AddExtension = true,
+            Filter = "sqlファイル(*.sql)|*.sql"
+        };
         if (fileDialog.ShowDialog() == true)
         {
             settingDialogRootGrid.IsEnabled = false;
@@ -170,16 +168,17 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || viewModel.BMSTables == null || DispatcherMessageBox.Show(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null || DispatcherMessageBox.Show(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             return;
         }
-        OpenFileDialog fileDialog = new OpenFileDialog();
-        fileDialog.Title = "プレイリストバックアップを開く";
-        fileDialog.FileName = "BeMusicSeeker_backup.sql";
-        fileDialog.DefaultExt = ".sql";
-        fileDialog.Filter = "sqlファイル(*.sql)|*.sql";
+        var fileDialog = new OpenFileDialog
+        {
+            Title = "プレイリストバックアップを開く",
+            FileName = "BeMusicSeeker_backup.sql",
+            DefaultExt = ".sql",
+            Filter = "sqlファイル(*.sql)|*.sql"
+        };
         if (fileDialog.ShowDialog() == true)
         {
             settingDialogRootGrid.IsEnabled = false;
@@ -197,8 +196,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || viewModel.BMSTables == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null)
         {
             return;
         }
@@ -261,7 +259,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        using CommonOpenFileDialog dialog = new CommonOpenFileDialog
+        using var dialog = new CommonOpenFileDialog
         {
             Title = BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
             IsFolderPicker = true,
@@ -277,9 +275,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void buttonPlayerTestClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        Button button = sender as Button;
-        if (viewModel != null && button != null)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is Button button)
         {
             settingDialog.IsEnabled = false;
             await Task.Run(delegate

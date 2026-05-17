@@ -4,7 +4,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class DuplicateAnalysisResult
 {
-    public HashSet<BMSFile> DuplicateFiles { get; } = new HashSet<BMSFile>();
+    public HashSet<BMSFile> DuplicateFiles { get; } = [];
 
-    public List<DuplicateGroup> DuplicateGroups { get; } = new List<DuplicateGroup>();
+    public List<DuplicateGroup> DuplicateGroups { get; } = [];
 }

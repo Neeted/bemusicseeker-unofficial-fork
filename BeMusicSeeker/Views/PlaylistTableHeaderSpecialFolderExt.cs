@@ -7,13 +7,14 @@ namespace BeMusicSeeker.Views;
 
 internal static class PlaylistTableHeaderSpecialFolderExt
 {
-    private static readonly Dictionary<PlaylistTableHeaderSpecialFolder, Tuple<string, MainWindowViewModel.PlaylistFilterType>> table = new Dictionary<PlaylistTableHeaderSpecialFolder, Tuple<string, MainWindowViewModel.PlaylistFilterType>> {
+    private static readonly Dictionary<PlaylistTableHeaderSpecialFolder, Tuple<string, MainWindowViewModel.PlaylistFilterType>> table = new()
+    {
     {
         PlaylistTableHeaderSpecialFolder.NOT_OWNED,
         new Tuple<string, MainWindowViewModel.PlaylistFilterType>("[NO SONG]", MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected)
     } };
 
-    private static readonly Dictionary<string, PlaylistTableHeaderSpecialFolder> tableReverse0 = table.ToDictionary((KeyValuePair<PlaylistTableHeaderSpecialFolder, Tuple<string, MainWindowViewModel.PlaylistFilterType>> kv) => kv.Value.Item1, (KeyValuePair<PlaylistTableHeaderSpecialFolder, Tuple<string, MainWindowViewModel.PlaylistFilterType>> kv) => kv.Key);
+    private static readonly Dictionary<string, PlaylistTableHeaderSpecialFolder> tableReverse0 = table.ToDictionary(kv => kv.Value.Item1, kv => kv.Key);
 
     internal static string ToDisplayName(this PlaylistTableHeaderSpecialFolder folder)
     {

@@ -14,9 +14,7 @@ internal sealed class DroppedInstallBatchRequest
 
     public DroppedInstallBatchRequest(IEnumerable<string> paths)
     {
-        Paths = (paths ?? Enumerable.Empty<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
-            .ToArray();
+        Paths = [.. (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         DisplayName = GetDisplayName(Paths.FirstOrDefault());
     }
 

@@ -153,14 +153,14 @@ internal sealed class CustomTablePalette
 
     private static Brush CreateBrush(Color color)
     {
-        SolidColorBrush brush = new SolidColorBrush(color);
+        var brush = new SolidColorBrush(color);
         brush.Freeze();
         return brush;
     }
 
     private static Pen CreatePen(Brush brush, double thickness)
     {
-        Pen pen = new Pen(brush, thickness);
+        var pen = new Pen(brush, thickness);
         if (pen.CanFreeze)
         {
             pen.Freeze();

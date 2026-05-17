@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LocalizationResourceParityTests
 {
-    private static readonly HashSet<string> JsonOnlyKeys = new HashSet<string>(StringComparer.Ordinal)
+    private static readonly HashSet<string> JsonOnlyKeys = new(StringComparer.Ordinal)
     {
         "_language_name"
     };
@@ -42,7 +42,7 @@ public sealed class LocalizationResourceParityTests
 
         foreach (string languagePath in Directory.GetFiles(langDirectory, "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
-            HashSet<string> jsonKeys = ReadLanguageJsonKeys(languagePath)
+            var jsonKeys = ReadLanguageJsonKeys(languagePath)
                 .Where(key => !JsonOnlyKeys.Contains(key))
                 .ToHashSet(StringComparer.Ordinal);
 
@@ -59,10 +59,10 @@ public sealed class LocalizationResourceParityTests
         string root = FindRepositoryRoot();
         string langDirectory = Path.Combine(root, "lang");
         string[] requiredKeys =
-        {
+        [
             nameof(Resources.InitialSetupLanguageDialogTitle),
             nameof(Resources.InitialSetupLanguageDialogContinue)
-        };
+        ];
 
         foreach (string languagePath in Directory.GetFiles(langDirectory, "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
@@ -90,7 +90,7 @@ public sealed class LocalizationResourceParityTests
 
     private static HashSet<string> ReadResxStringKeys(string path)
     {
-        XDocument document = XDocument.Load(path);
+        var document = XDocument.Load(path);
         return document
             .Root
             .Elements("data")
@@ -114,13 +114,13 @@ public sealed class LocalizationResourceParityTests
     private static JObject ReadLanguageJsonObject(string path)
     {
         string json = File.ReadAllText(path);
-        JsonLoadSettings settings = new JsonLoadSettings
+        var settings = new JsonLoadSettings
         {
             DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
         };
 
-        JToken token = JToken.Parse(json, settings);
-        if (!(token is JObject obj))
+        var token = JToken.Parse(json, settings);
+        if (token is not JObject obj)
         {
             Assert.Fail(Path.GetFileName(path) + " must be a JSON object.");
             throw new AssertFailedException(Path.GetFileName(path) + " must be a JSON object.");
@@ -131,8 +131,8 @@ public sealed class LocalizationResourceParityTests
 
     private static void AssertSetEquals(HashSet<string> expected, HashSet<string> actual, string message)
     {
-        string[] missing = expected.Except(actual, StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal).ToArray();
-        string[] extra = actual.Except(expected, StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal).ToArray();
+        string[] missing = [.. expected.Except(actual, StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal)];
+        string[] extra = [.. actual.Except(expected, StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal)];
 
         if (missing.Length == 0 && extra.Length == 0)
         {
@@ -164,7 +164,7 @@ public sealed class LocalizationResourceParityTests
 
     private static string FindRepositoryRoot()
     {
-        DirectoryInfo directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory != null)
         {
             if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker-decomp.sln")))

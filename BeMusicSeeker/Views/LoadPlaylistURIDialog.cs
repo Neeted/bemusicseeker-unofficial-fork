@@ -16,8 +16,8 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
     {
         internal PlaylistUriInputParseResult(IEnumerable<Uri> validUris, IEnumerable<string> invalidLines)
         {
-            ValidUris = (validUris ?? Enumerable.Empty<Uri>()).ToList();
-            InvalidLines = (invalidLines ?? Enumerable.Empty<string>()).ToList();
+            ValidUris = (validUris ?? []).ToList();
+            InvalidLines = (invalidLines ?? []).ToList();
         }
 
         internal IReadOnlyList<Uri> ValidUris { get; }
@@ -45,8 +45,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 
     private void SaveAndClose(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             PlaylistUriInputParseResult parseResult = ParsePlaylistUriInput(textBoxURIInput.Text);
             if (!parseResult.HasValidUris)
@@ -66,9 +65,11 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 
     private void OpenLocalFile(object sender, RoutedEventArgs e)
     {
-        OpenFileDialog openFileDialog = new OpenFileDialog();
-        openFileDialog.Title = "ヘッダーファイルを開く";
-        openFileDialog.DefaultExt = ".json";
+        var openFileDialog = new OpenFileDialog
+        {
+            Title = "ヘッダーファイルを開く",
+            DefaultExt = ".json"
+        };
         string filter = (openFileDialog.Filter = "Jsonファイル(*.json)|*.json");
         openFileDialog.Filter = filter;
         if (openFileDialog.ShowDialog() == true)
@@ -80,9 +81,9 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 
     internal static PlaylistUriInputParseResult ParsePlaylistUriInput(string input)
     {
-        List<Uri> validUris = new List<Uri>();
-        List<string> invalidLines = new List<string>();
-        string[] lines = (input ?? string.Empty).Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
+        List<Uri> validUris = [];
+        List<string> invalidLines = [];
+        string[] lines = (input ?? string.Empty).Split(["\r\n", "\n", "\r"], StringSplitOptions.None);
         foreach (string line in lines)
         {
             string trimmedLine = (line ?? string.Empty).Trim();
@@ -120,8 +121,8 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
     private void ShowInvalidUriLines(IReadOnlyList<string> invalidLines)
     {
         const int maxSamples = 5;
-        IReadOnlyList<string> samples = (invalidLines ?? Array.Empty<string>()).Where((string line) => !string.IsNullOrWhiteSpace(line)).Take(maxSamples).ToList();
-        string sampleText = string.Join(Environment.NewLine, samples.Select((string line) => "- " + line));
+        IReadOnlyList<string> samples = (invalidLines ?? []).Where(line => !string.IsNullOrWhiteSpace(line)).Take(maxSamples).ToList();
+        string sampleText = string.Join(Environment.NewLine, samples.Select(line => "- " + line));
         if (invalidLines != null && invalidLines.Count > maxSamples)
         {
             sampleText = sampleText + Environment.NewLine + "- ...";

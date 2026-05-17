@@ -19,13 +19,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
             string destinationPath = Path.Combine(tempDirectoryPath, "chart.bmx");
             File.WriteAllText(sourcePath, "same");
             File.WriteAllText(destinationPath, "same");
-            TestableBmsFile file = new TestableBmsFile
+            var file = new TestableBmsFile
             {
                 path = sourcePath
             };
@@ -43,15 +43,15 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
             string destinationPath = Path.Combine(tempDirectoryPath, "chart.bmx");
             string suffixedDestinationPath = Path.Combine(tempDirectoryPath, "chart(1).bmx");
             File.WriteAllText(sourcePath, "same");
             File.WriteAllText(destinationPath, "different");
             File.WriteAllText(suffixedDestinationPath, "same");
-            TestableBmsFile file = new TestableBmsFile
+            var file = new TestableBmsFile
             {
                 path = sourcePath
             };
@@ -71,8 +71,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
             string destinationPath = Path.Combine(tempDirectoryPath, "chart.bmx");
             string suffixedDestinationPath = Path.Combine(tempDirectoryPath, "chart(1).bmx");
@@ -80,7 +80,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             File.WriteAllText(sourcePath, "source");
             File.WriteAllText(destinationPath, "different-a");
             File.WriteAllText(suffixedDestinationPath, "different-b");
-            TestableBmsFile file = new TestableBmsFile
+            var file = new TestableBmsFile
             {
                 path = sourcePath
             };
@@ -101,15 +101,15 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
             string destinationPath = Path.Combine(tempDirectoryPath, "chart.bmx");
             string suffixedDestinationPath = Path.Combine(tempDirectoryPath, "chart(1).bmx");
             File.WriteAllText(sourcePath, "same");
             Directory.CreateDirectory(destinationPath);
             File.WriteAllText(suffixedDestinationPath, "same");
-            TestableBmsFile file = new TestableBmsFile
+            var file = new TestableBmsFile
             {
                 path = sourcePath
             };
@@ -126,17 +126,17 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void GetPendingPackagesFullyCoveredBySelection_ReturnsOnlyFullySelectedPackages()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile selectedA = CreateFile("C:\\Pending\\Pkg1\\a.bms");
         TestableBmsFile selectedB = CreateFile("C:\\Pending\\Pkg1\\b.bms");
         TestableBmsFile partial = CreateFile("C:\\Pending\\Pkg2\\a.bms");
         TestableBmsFile partialUnselected = CreateFile("C:\\Pending\\Pkg2\\b.bms");
-        ChartPackage pkg1 = new ChartPackage(new BMSFile[] { selectedA, selectedB })
+        var pkg1 = new ChartPackage(new BMSFile[] { selectedA, selectedB })
         {
             path = "C:\\Pending\\Pkg1",
             delete_parent = false
         };
-        ChartPackage pkg2 = new ChartPackage(new BMSFile[] { partial, partialUnselected })
+        var pkg2 = new ChartPackage(new BMSFile[] { partial, partialUnselected })
         {
             path = "C:\\Pending\\Pkg2",
             delete_parent = false
@@ -145,7 +145,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         List<ChartPackage> result = service.GetPendingPackagesFullyCoveredBySelection(
             new[] { pkg1, pkg2 },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedA.path, selectedB.path, partial.path },
-            new HashSet<BMSFile> { selectedA, selectedB, partial });
+            [selectedA, selectedB, partial]);
 
         CollectionAssert.AreEqual(new[] { pkg1 }, result);
     }
@@ -155,8 +155,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
             string nestedDirectoryPath = Path.Combine(sourceRoot, "Nested");
             Directory.CreateDirectory(nestedDirectoryPath);
@@ -164,21 +164,21 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
             uint sourceHash = ChartResourceKeyHash.GetLookupHash("root.wav");
             uint nestedHash = ChartResourceKeyHash.GetLookupHash("chart.bms");
-            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(sourceRoot, new[] { sourceHash }, Array.Empty<uint>(), Array.Empty<uint>());
-            lookupCache.AddDir(nestedDirectoryPath, new[] { nestedHash }, Array.Empty<uint>(), Array.Empty<uint>());
+            var lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceRoot, new[] { sourceHash }, [], []);
+            lookupCache.AddDir(nestedDirectoryPath, new[] { nestedHash }, [], []);
             lookupCache.EnsureAudioRelativeDirectoriesByHashes(new[] { sourceHash, nestedHash });
 
             TestableBmsFile libraryFile = CreateFile(Path.Combine(sourceRoot, "Nested", "chart.bms"));
             libraryFile.instl_dst = sourceRoot;
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = nestedDirectoryPath;
-            ChartPackage pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
+            var pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
             {
                 path = Path.Combine(tempDirectoryPath, "Pending"),
                 delete_parent = false
             };
-            ChartPackage installedPackage = new ChartPackage(new BMSFile[] { libraryFile })
+            var installedPackage = new ChartPackage(new BMSFile[] { libraryFile })
             {
                 path = nestedDirectoryPath,
                 delete_parent = false
@@ -194,7 +194,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 new[] { libraryFile },
-                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                [],
                 new[] { pendingPackage },
                 new[] { installedPackage },
                 unregister: false,
@@ -212,7 +212,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(1, delta.UpdatedInstalledPackagePaths.Count);
             CollectionAssert.AreEquivalent(
                 new[] { Path.Combine(destinationRoot, "Nested"), destinationRoot },
-                delta.UpdatedInstallDestinations.Select((LibraryInstallDestinationChange change) => change.NewInstallDestination).ToArray());
+                delta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
             Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), delta.UpdatedInstalledPackagePaths[0].NewPath);
         });
     }
@@ -222,8 +222,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string chartPath = Path.Combine(folderPath, "chart.bms");
@@ -232,13 +232,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             libraryFile.instl_dst = folderPath;
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = folderPath;
-            ChartPackage pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
+            var pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
             {
                 path = Path.Combine(tempDirectoryPath, "Pending"),
                 delete_parent = false
             };
-            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(folderPath, Enumerable.Empty<string>());
+            var lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(folderPath, []);
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(libraryFile) },
@@ -266,24 +266,24 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string folderPath = Path.Combine(tempDirectoryPath, "BmsonSong");
             Directory.CreateDirectory(folderPath);
             string chartPath = Path.Combine(folderPath, "chart.bmson");
             File.WriteAllText(chartPath, "{}");
-            LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+            var song = new LR2SongDBExtended.bmson_song
             {
                 path = chartPath,
                 folder = folderPath
             };
-            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(folderPath, Enumerable.Empty<string>());
+            var lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(folderPath, []);
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromBmsonSong(song) },
                 new[] { LibraryChartRef.FromBmsonSong(song) },
-                Array.Empty<ChartPackage>(),
+                [],
                 lookupCache,
                 false,
                 _ => true,
@@ -307,20 +307,20 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string chartPath = Path.Combine(folderPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             TestableBmsFile canonicalFile = CreateFile(chartPath);
-            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(folderPath, Enumerable.Empty<string>());
+            var lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(folderPath, []);
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256) },
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(canonicalFile) },
-                Array.Empty<ChartPackage>(),
+                [],
                 lookupCache,
                 true,
                 _ => true,
@@ -345,8 +345,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
@@ -358,7 +358,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, staleChartPath, null, null) },
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(catalogFile) },
-                Array.Empty<ChartPackage>(),
+                [],
                 new DirectoryResourceLookupCache(),
                 true,
                 _ => true,
@@ -381,8 +381,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string chartPath = Path.Combine(folderPath, "chart.bms");
@@ -393,7 +393,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(nonCanonicalFile) },
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(canonicalFile) },
-                Array.Empty<ChartPackage>(),
+                [],
                 new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
@@ -414,8 +414,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
@@ -427,7 +427,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256) },
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(catalogFile) },
-                Array.Empty<ChartPackage>(),
+                [],
                 new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
@@ -451,8 +451,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string chartPath = Path.Combine(folderPath, "chart.bms");
@@ -464,7 +464,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(libraryFile) },
                 new[] { LibraryChartRef.FromCompatibilityBmsFile(libraryFile) },
-                Array.Empty<ChartPackage>(),
+                [],
                 new DirectoryResourceLookupCache(),
                 false,
                 path =>
@@ -490,7 +490,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            var service = new BmsLibraryLibraryFileOperationsService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string chartPath = Path.Combine(folderPath, "chart.bms");
@@ -511,7 +511,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            var service = new BmsLibraryLibraryFileOperationsService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
@@ -533,7 +533,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            var service = new BmsLibraryLibraryFileOperationsService();
             string folderPath = Path.Combine(tempDirectoryPath, "Song");
             Directory.CreateDirectory(folderPath);
             string selectedChartPath = Path.Combine(folderPath, "selected.bms");
@@ -554,7 +554,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void BuildFolderMoveDelta_CanSuppressMainViewRefreshForRename()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile file1 = CreateFile("C:\\Lib\\Src\\A\\a.bms");
         TestableBmsFile file2 = CreateFile("C:\\Lib\\Src\\B\\b.bms");
 
@@ -562,9 +562,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             new[] { file1, file2 },
-            Array.Empty<LR2SongDBExtended.bmson_song>(),
-            Array.Empty<ChartPackage>(),
-            Array.Empty<ChartPackage>(),
+            [],
+            [],
+            [],
             unregister: false,
             raiseBmsFilesChanged: false);
 
@@ -573,7 +573,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(0, delta.FilesToUnregister.Count);
         CollectionAssert.AreEquivalent(
             new[] { "C:\\Lib\\Dst\\A\\a.bms", "C:\\Lib\\Dst\\B\\b.bms" },
-            delta.FilePathChanges.Select((LibraryFilePathChange change) => change.NewPath).ToArray());
+            delta.FilePathChanges.Select(change => change.NewPath).ToArray());
         Assert.IsFalse(delta.RaiseBmsFilesChanged);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(delta.InvalidateParentFolderCache);
@@ -582,16 +582,16 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void BuildFolderMoveDelta_RaisesMainViewRefreshForRootMove()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile file = CreateFile("C:\\Lib\\Src\\A\\a.bms");
 
         LibraryMutationDelta delta = service.BuildFolderMoveDelta(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             new[] { file },
-            Array.Empty<LR2SongDBExtended.bmson_song>(),
-            Array.Empty<ChartPackage>(),
-            Array.Empty<ChartPackage>(),
+            [],
+            [],
+            [],
             unregister: false,
             raiseBmsFilesChanged: true);
 
@@ -604,7 +604,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            var service = new BmsLibraryLibraryFileOperationsService();
             string rootPath = Path.Combine(tempDirectoryPath, "Songs");
             string sourcePath = Path.Combine(rootPath, "OldFolder");
             string nestedPath = Path.Combine(sourcePath, "Nested");
@@ -618,12 +618,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 new[] { file, nestedFile },
                 new[] { file, nestedFile },
-                Array.Empty<string>(),
+                [],
                 renameRootFolder: true,
                 (_, parentDir, _) => Path.Combine(parentDir, "Renamed"));
 
-            Assert.AreEqual(1, plans.Count((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)));
-            Assert.AreEqual(Path.Combine(rootPath, "Renamed (2)"), plans.Single((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)).DestinationDirectory);
+            Assert.AreEqual(1, plans.Count(plan => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)));
+            Assert.AreEqual(Path.Combine(rootPath, "Renamed (2)"), plans.Single(plan => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)).DestinationDirectory);
         });
     }
 
@@ -632,13 +632,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            var service = new BmsLibraryLibraryFileOperationsService();
             string rootPath = Path.Combine(tempDirectoryPath, "Songs");
             string sourcePath = Path.Combine(rootPath, "OldFolder");
             Directory.CreateDirectory(sourcePath);
             string chartPath = Path.Combine(sourcePath, "chart.bmson");
             File.WriteAllText(chartPath, "{}");
-            PendingChartEntry bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            var bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = chartPath,
                 folder = sourcePath,
@@ -649,7 +649,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 new[] { bmsonRow },
                 new[] { bmsonRow },
-                Array.Empty<string>(),
+                [],
                 renameRootFolder: true,
                 (children, parentDir, _) => Path.Combine(parentDir, children.First().Title + "_" + children.First().Artist));
 
@@ -663,7 +663,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            var service = new BmsLibraryLibraryFileOperationsService();
             string rootPath = Path.Combine(tempDirectoryPath, "Songs");
             string sourcePath = Path.Combine(rootPath, "OldFolder");
             Directory.CreateDirectory(sourcePath);
@@ -673,7 +673,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             File.WriteAllText(bmsonPath, "{}");
             TestableBmsFile bmsRow = CreateFile(bmsPath);
             bmsRow.SetTitleForTest("BmsTitle");
-            PendingChartEntry bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            var bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = bmsonPath,
                 folder = sourcePath,
@@ -681,15 +681,15 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 artist = "BmsonArtist"
             });
 
-            List<string> directChildTitles = new List<string>();
+            List<string> directChildTitles = [];
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 new[] { bmsRow },
                 new BMSFile[] { bmsRow, bmsonRow },
-                Array.Empty<string>(),
+                [],
                 renameRootFolder: true,
                 (children, parentDir, _) =>
                 {
-                    directChildTitles = children.Select((BMSFile child) => child.Title).OrderBy(title => title, StringComparer.Ordinal).ToList();
+                    directChildTitles = [.. children.Select(child => child.Title).OrderBy(title => title, StringComparer.Ordinal)];
                     return Path.Combine(parentDir, string.Join("_", directChildTitles));
                 });
 
@@ -702,8 +702,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void BuildFolderMoveDelta_TracksBmsonSongPathChanges()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        var service = new BmsLibraryLibraryFileOperationsService();
+        var bmsonSong = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Lib\\Src\\Pkg\\chart.bmson",
             folder = "C:\\Lib\\Src\\Pkg"
@@ -712,10 +712,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         LibraryMutationDelta delta = service.BuildFolderMoveDelta(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
-            Array.Empty<BMSFile>(),
+            [],
             new[] { bmsonSong },
-            Array.Empty<ChartPackage>(),
-            Array.Empty<ChartPackage>(),
+            [],
+            [],
             unregister: false,
             raiseBmsFilesChanged: false);
 
@@ -730,8 +730,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void BuildFolderMoveDelta_BmsonRootMove_RaisesMainViewRefresh()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        var service = new BmsLibraryLibraryFileOperationsService();
+        var bmsonSong = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Lib\\Src\\Pkg\\chart.bmson",
             folder = "C:\\Lib\\Src\\Pkg"
@@ -740,10 +740,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         LibraryMutationDelta delta = service.BuildFolderMoveDelta(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
-            Array.Empty<BMSFile>(),
+            [],
             new[] { bmsonSong },
-            Array.Empty<ChartPackage>(),
-            Array.Empty<ChartPackage>(),
+            [],
+            [],
             unregister: false,
             raiseBmsFilesChanged: true);
 
@@ -754,8 +754,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void BuildFolderMoveDelta_UnregisterTracksBmsonSongsSeparately()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        var service = new BmsLibraryLibraryFileOperationsService();
+        var bmsonSong = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Lib\\Src\\Pkg\\chart.bmson",
             folder = "C:\\Lib\\Src\\Pkg"
@@ -767,8 +767,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Dst",
             new[] { bmsFile },
             new[] { bmsonSong },
-            Array.Empty<ChartPackage>(),
-            Array.Empty<ChartPackage>(),
+            [],
+            [],
             unregister: true);
 
         CollectionAssert.AreEqual(new BMSFile[] { bmsFile }, delta.FilesToUnregister);
@@ -783,7 +783,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void FixInstallationDirectory_ReturnsMutationDeltaAndDuplicateRemovalCandidates()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile movedFile = CreateFile("C:\\Broken\\move.bms");
         movedFile.instl_dst = "C:\\Installed\\Move";
         TestableBmsFile duplicateFile = CreateFile("C:\\Broken\\dup.bms");
@@ -816,8 +816,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     [TestMethod]
     public void FixInstallationDirectory_BmsonChartReturnsBmsonSongPathChange()
     {
-        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        var service = new BmsLibraryLibraryFileOperationsService();
+        var song = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Broken\\move.bmson",
             folder = "C:\\Broken",
@@ -825,7 +825,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             sha256 = new string('b', 64),
             title = "Bmson"
         };
-        PendingChartEntry movedFile = PendingChartEntry.CreateFromBmsonSong(song);
+        var movedFile = PendingChartEntry.CreateFromBmsonSong(song);
         movedFile.instl_dst = "C:\\Installed\\Move";
 
         LibraryFixInstallationResult result = service.FixInstallationDirectory(
@@ -857,8 +857,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
-            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
-            TestFileMutationService fileMutationService = new TestFileMutationService();
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
             string renameSourcePath = Path.Combine(tempDirectoryPath, "rename_me.bms");
             string duplicateSourcePath = Path.Combine(tempDirectoryPath, "duplicate.bms");
             string duplicateDestinationPath = Path.Combine(tempDirectoryPath, "duplicate.bme");

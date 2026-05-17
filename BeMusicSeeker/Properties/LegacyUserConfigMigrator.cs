@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Properties;
 
 internal static class LegacyUserConfigMigrator
 {
-    private static readonly SerializableVersion LegacyCultureMigrationVersion = new SerializableVersion(0, 1, 6654, 30787);
+    private static readonly SerializableVersion LegacyCultureMigrationVersion = new(0, 1, 6654, 30787);
 
     public static void MigrateIfNeeded(ISet<string> availableCultures = null, string currentCultureName = null)
     {
@@ -27,20 +27,20 @@ internal static class LegacyUserConfigMigrator
                 NLogWrapper.TraceLogger?.Info("portable_settings_migration skip reason=no_legacy_root");
                 return;
             }
-            List<FileInfo> list = (from path in Directory.EnumerateFiles(legacyRoot, "user.config", SearchOption.AllDirectories)
+            List<FileInfo> list = [.. (from path in Directory.EnumerateFiles(legacyRoot, "user.config", SearchOption.AllDirectories)
                                    where IsLegacyConfigPath(path)
-                                   select new FileInfo(path)).ToList();
+                                   select new FileInfo(path))];
             if (list.Count == 0)
             {
                 NLogWrapper.TraceLogger?.Info("portable_settings_migration skip reason=no_legacy_file");
                 return;
             }
-            list = list.OrderByDescending((FileInfo f) => f.LastWriteTimeUtc).ThenBy((FileInfo f) => f.FullName, StringComparer.Ordinal).ToList();
+            list = [.. list.OrderByDescending(f => f.LastWriteTimeUtc).ThenBy(f => f.FullName, StringComparer.Ordinal)];
             NLogWrapper.TraceLogger?.Info("portable_settings_migration candidates count=" + list.Count);
             FileInfo fileInfo = null;
             foreach (FileInfo item in list)
             {
-                if (TryValidateCandidate(item, out var reason))
+                if (TryValidateCandidate(item, out string reason))
                 {
                     fileInfo = item;
                     break;
@@ -53,7 +53,7 @@ internal static class LegacyUserConfigMigrator
                 return;
             }
             Directory.CreateDirectory(PortableSettingsPath.ConfigDirectoryPath);
-            XDocument migratedConfig = XDocument.Load(fileInfo.FullName, LoadOptions.None);
+            var migratedConfig = XDocument.Load(fileInfo.FullName, LoadOptions.None);
             int normalizedSettings = NormalizeMigratedConfig(migratedConfig, availableCultures, currentCultureName);
             migratedConfig.Save(PortableSettingsPath.UserConfigPath);
             NLogWrapper.TraceLogger?.Info("portable_settings_migration success source=" + fileInfo.FullName + " target=" + PortableSettingsPath.UserConfigPath + " sourceWriteUtc=" + fileInfo.LastWriteTimeUtc.ToString("o") + " normalizedSettings=" + normalizedSettings);
@@ -69,7 +69,7 @@ internal static class LegacyUserConfigMigrator
         reason = "unknown";
         try
         {
-            XDocument xDocument = XDocument.Load(file.FullName, LoadOptions.None);
+            var xDocument = XDocument.Load(file.FullName, LoadOptions.None);
             XElement xElement = GetSettingsSection(xDocument);
             if (xElement == null)
             {
@@ -146,7 +146,7 @@ internal static class LegacyUserConfigMigrator
         {
             return string.Empty;
         }
-        XElement xElement = source.FirstOrDefault((XElement e) => string.Equals((string)e.Attribute("name"), name, StringComparison.Ordinal));
+        XElement xElement = source.FirstOrDefault(e => string.Equals((string)e.Attribute("name"), name, StringComparison.Ordinal));
         if (xElement == null)
         {
             return string.Empty;
@@ -187,7 +187,7 @@ internal static class LegacyUserConfigMigrator
     private static int SetSettingValue(XElement settingsSection, string name, string value)
     {
         XElement setting = settingsSection.Elements("setting")
-            .FirstOrDefault((XElement e) => string.Equals((string)e.Attribute("name"), name, StringComparison.Ordinal));
+            .FirstOrDefault(e => string.Equals((string)e.Attribute("name"), name, StringComparison.Ordinal));
         if (setting == null)
         {
             setting = new XElement("setting");
@@ -287,7 +287,7 @@ internal static class LegacyUserConfigMigrator
         try
         {
             string directoryName = Path.GetDirectoryName(path) ?? string.Empty;
-            DirectoryInfo directoryInfo = new DirectoryInfo(directoryName);
+            var directoryInfo = new DirectoryInfo(directoryName);
             DirectoryInfo directoryInfo2 = directoryInfo.Parent;
             if (directoryInfo2 == null || directoryInfo2.Parent == null)
             {

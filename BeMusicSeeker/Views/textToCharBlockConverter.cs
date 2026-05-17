@@ -10,13 +10,13 @@ internal class textToCharBlockConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        ItemsControl itemsControl = new ItemsControl();
-        if (!(value is string))
+        var itemsControl = new ItemsControl();
+        if (value is not string)
         {
             return itemsControl;
         }
         char[] array = (value as string).ToCharArray();
-        FrameworkElementFactory frameworkElementFactory = new FrameworkElementFactory(typeof(StackPanel));
+        var frameworkElementFactory = new FrameworkElementFactory(typeof(StackPanel));
         frameworkElementFactory.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
         frameworkElementFactory.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
         itemsControl.ItemsPanel = new ItemsPanelTemplate

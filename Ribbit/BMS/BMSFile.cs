@@ -55,7 +55,7 @@ public class BMSFile
 
         public bool Used;
 
-        public override string ToString()
+        public override readonly string ToString()
         {
             if (!Used)
             {
@@ -91,20 +91,15 @@ public class BMSFile
 
     public class Measure : IReadOnlyCollection<Chart>, IEnumerable<Chart>, IEnumerable
     {
-        private class MeasureEnumerator : IEnumerator<Chart>, IDisposable, IEnumerator
+        private class MeasureEnumerator(BMSFile.Measure measure) : IEnumerator<Chart>, IDisposable, IEnumerator
         {
-            private Measure measure;
+            private readonly Measure measure = measure;
 
             private int index = -1;
 
             public Chart Current => measure[index];
 
             object IEnumerator.Current => Current;
-
-            public MeasureEnumerator(Measure measure)
-            {
-                this.measure = measure;
-            }
 
             public void Dispose()
             {
@@ -134,7 +129,7 @@ public class BMSFile
 
                 private int noteIndex = -1;
 
-                private AllNotes allnotes;
+                private readonly AllNotes allnotes;
 
                 private IList<Chart.Note> notes;
 
@@ -144,11 +139,7 @@ public class BMSFile
 
                 public AllNotesEnumerator(AllNotes allnotes)
                 {
-                    if (allnotes == null)
-                    {
-                        throw new ArgumentNullException("allnotes");
-                    }
-                    this.allnotes = allnotes;
+                    this.allnotes = allnotes ?? throw new ArgumentNullException("allnotes");
                     Reset();
                 }
 
@@ -181,9 +172,9 @@ public class BMSFile
                 }
             }
 
-            private Measure measure;
+            private readonly Measure measure;
 
-            private Func<Chart, Func<IList<Chart.Note>>> acc;
+            private readonly Func<Chart, Func<IList<Chart.Note>>> acc;
 
             private AllNotes()
             {
@@ -191,16 +182,8 @@ public class BMSFile
 
             internal AllNotes(Measure measure, Func<Chart, Func<IList<Chart.Note>>> acc)
             {
-                if (measure == null)
-                {
-                    throw new ArgumentNullException("measure");
-                }
-                if (acc == null)
-                {
-                    throw new ArgumentNullException("acc");
-                }
-                this.measure = measure;
-                this.acc = acc;
+                this.measure = measure ?? throw new ArgumentNullException("measure");
+                this.acc = acc ?? throw new ArgumentNullException("acc");
             }
 
             public IEnumerator<Chart.Note> GetEnumerator()
@@ -232,11 +215,7 @@ public class BMSFile
             }
             set
             {
-                if (value == null)
-                {
-                    throw new InvalidOperationException("value should not be null");
-                }
-                scores[i] = value;
+                scores[i] = value ?? throw new InvalidOperationException("value should not be null");
                 if (i > LastIndex)
                 {
                     LastIndex = i;
@@ -276,27 +255,27 @@ public class BMSFile
 
         public Measure()
         {
-            ControlNotes = new AllNotes(this, (Chart c) => () => c.Control);
-            BgaBaseNotes = new AllNotes(this, (Chart c) => () => c.BgaBase);
-            BgaPoorNotes = new AllNotes(this, (Chart c) => () => c.BgaPoor);
-            BgaLayerNotes = new AllNotes(this, (Chart c) => () => c.BgaLayer);
-            BgmNotes = new AllNotes(this, (Chart c) => () => c.Bgm);
+            ControlNotes = new AllNotes(this, c => () => c.Control);
+            BgaBaseNotes = new AllNotes(this, c => () => c.BgaBase);
+            BgaPoorNotes = new AllNotes(this, c => () => c.BgaPoor);
+            BgaLayerNotes = new AllNotes(this, c => () => c.BgaLayer);
+            BgmNotes = new AllNotes(this, c => () => c.Bgm);
             VisibleNotes1P = (from i in Enumerable.Range(0, 9)
-                              select new AllNotes(this, (Chart c) => c.GetPropertiesAll1PVisNotes[i])).ToList().AsReadOnly();
+                              select new AllNotes(this, c => c.GetPropertiesAll1PVisNotes[i])).ToList().AsReadOnly();
             InvisibleNotes1P = (from i in Enumerable.Range(0, 9)
-                                select new AllNotes(this, (Chart c) => c.GetPropertiesAll1PInvNotes[i])).ToList().AsReadOnly();
+                                select new AllNotes(this, c => c.GetPropertiesAll1PInvNotes[i])).ToList().AsReadOnly();
             LongNotes1P = (from i in Enumerable.Range(0, 9)
-                           select new AllNotes(this, (Chart c) => c.GetPropertiesAll1PLngNotes[i])).ToList().AsReadOnly();
+                           select new AllNotes(this, c => c.GetPropertiesAll1PLngNotes[i])).ToList().AsReadOnly();
             MineNotes1P = (from i in Enumerable.Range(0, 9)
-                           select new AllNotes(this, (Chart c) => c.GetPropertiesAll1PMineNotes[i])).ToList().AsReadOnly();
+                           select new AllNotes(this, c => c.GetPropertiesAll1PMineNotes[i])).ToList().AsReadOnly();
             VisibleNotes2P = (from i in Enumerable.Range(0, 9)
-                              select new AllNotes(this, (Chart c) => c.GetPropertiesAll2PVisNotes[i])).ToList().AsReadOnly();
+                              select new AllNotes(this, c => c.GetPropertiesAll2PVisNotes[i])).ToList().AsReadOnly();
             InvisibleNotes2P = (from i in Enumerable.Range(0, 9)
-                                select new AllNotes(this, (Chart c) => c.GetPropertiesAll2PInvNotes[i])).ToList().AsReadOnly();
+                                select new AllNotes(this, c => c.GetPropertiesAll2PInvNotes[i])).ToList().AsReadOnly();
             LongNotes2P = (from i in Enumerable.Range(0, 9)
-                           select new AllNotes(this, (Chart c) => c.GetPropertiesAll2PLngNotes[i])).ToList().AsReadOnly();
+                           select new AllNotes(this, c => c.GetPropertiesAll2PLngNotes[i])).ToList().AsReadOnly();
             MineNotes2P = (from i in Enumerable.Range(0, 9)
-                           select new AllNotes(this, (Chart c) => c.GetPropertiesAll2PMineNotes[i])).ToList().AsReadOnly();
+                           select new AllNotes(this, c => c.GetPropertiesAll2PMineNotes[i])).ToList().AsReadOnly();
         }
 
         public IEnumerator<Chart> GetEnumerator()
@@ -465,11 +444,7 @@ public class BMSFile
 
             public Note(Chart measure, NoteType type)
             {
-                if (measure == null)
-                {
-                    throw new ArgumentNullException("measure");
-                }
-                Measure = measure;
+                Measure = measure ?? throw new ArgumentNullException("measure");
                 Type = type;
             }
         }
@@ -486,167 +461,167 @@ public class BMSFile
 
         public int Index { get; } = int.MaxValue;
 
-        public List<Note> Bpm { get; private set; } = new List<Note>();
+        public List<Note> Bpm { get; private set; } = [];
 
-        public List<Note> ExBpm { get; private set; } = new List<Note>();
+        public List<Note> ExBpm { get; private set; } = [];
 
-        public List<Note> Stop { get; private set; } = new List<Note>();
+        public List<Note> Stop { get; private set; } = [];
 
         public ReadOnlyCollection<Note> BarLine { get; private set; }
 
-        public List<Note> Control { get; set; } = new List<Note>();
+        public List<Note> Control { get; set; } = [];
 
-        public List<Note> BgaBase { get; private set; } = new List<Note>();
+        public List<Note> BgaBase { get; private set; } = [];
 
-        public List<Note> BgaPoor { get; private set; } = new List<Note>();
+        public List<Note> BgaPoor { get; private set; } = [];
 
-        public List<Note> BgaLayer { get; private set; } = new List<Note>();
+        public List<Note> BgaLayer { get; private set; } = [];
 
-        public List<Note> Bgm { get; private set; } = new List<Note>();
+        public List<Note> Bgm { get; private set; } = [];
 
-        public List<Note> Note1PVis01 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis01 { get; private set; } = [];
 
-        public List<Note> Note1PVis02 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis02 { get; private set; } = [];
 
-        public List<Note> Note1PVis03 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis03 { get; private set; } = [];
 
-        public List<Note> Note1PVis04 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis04 { get; private set; } = [];
 
-        public List<Note> Note1PVis05 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis05 { get; private set; } = [];
 
-        public List<Note> Note1PVis06 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis06 { get; private set; } = [];
 
-        public List<Note> Note1PVis07 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis07 { get; private set; } = [];
 
-        public List<Note> Note1PVis08 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis08 { get; private set; } = [];
 
-        public List<Note> Note1PVis09 { get; private set; } = new List<Note>();
+        public List<Note> Note1PVis09 { get; private set; } = [];
 
-        public List<Note> Note2PVis01 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis01 { get; private set; } = [];
 
-        public List<Note> Note2PVis02 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis02 { get; private set; } = [];
 
-        public List<Note> Note2PVis03 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis03 { get; private set; } = [];
 
-        public List<Note> Note2PVis04 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis04 { get; private set; } = [];
 
-        public List<Note> Note2PVis05 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis05 { get; private set; } = [];
 
-        public List<Note> Note2PVis06 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis06 { get; private set; } = [];
 
-        public List<Note> Note2PVis07 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis07 { get; private set; } = [];
 
-        public List<Note> Note2PVis08 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis08 { get; private set; } = [];
 
-        public List<Note> Note2PVis09 { get; private set; } = new List<Note>();
+        public List<Note> Note2PVis09 { get; private set; } = [];
 
-        public List<Note> Note1PInv01 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv01 { get; private set; } = [];
 
-        public List<Note> Note1PInv02 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv02 { get; private set; } = [];
 
-        public List<Note> Note1PInv03 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv03 { get; private set; } = [];
 
-        public List<Note> Note1PInv04 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv04 { get; private set; } = [];
 
-        public List<Note> Note1PInv05 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv05 { get; private set; } = [];
 
-        public List<Note> Note1PInv06 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv06 { get; private set; } = [];
 
-        public List<Note> Note1PInv07 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv07 { get; private set; } = [];
 
-        public List<Note> Note1PInv08 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv08 { get; private set; } = [];
 
-        public List<Note> Note1PInv09 { get; private set; } = new List<Note>();
+        public List<Note> Note1PInv09 { get; private set; } = [];
 
-        public List<Note> Note2PInv01 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv01 { get; private set; } = [];
 
-        public List<Note> Note2PInv02 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv02 { get; private set; } = [];
 
-        public List<Note> Note2PInv03 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv03 { get; private set; } = [];
 
-        public List<Note> Note2PInv04 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv04 { get; private set; } = [];
 
-        public List<Note> Note2PInv05 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv05 { get; private set; } = [];
 
-        public List<Note> Note2PInv06 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv06 { get; private set; } = [];
 
-        public List<Note> Note2PInv07 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv07 { get; private set; } = [];
 
-        public List<Note> Note2PInv08 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv08 { get; private set; } = [];
 
-        public List<Note> Note2PInv09 { get; private set; } = new List<Note>();
+        public List<Note> Note2PInv09 { get; private set; } = [];
 
-        public List<Note> Note1PLng01 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng01 { get; private set; } = [];
 
-        public List<Note> Note1PLng02 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng02 { get; private set; } = [];
 
-        public List<Note> Note1PLng03 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng03 { get; private set; } = [];
 
-        public List<Note> Note1PLng04 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng04 { get; private set; } = [];
 
-        public List<Note> Note1PLng05 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng05 { get; private set; } = [];
 
-        public List<Note> Note1PLng06 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng06 { get; private set; } = [];
 
-        public List<Note> Note1PLng07 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng07 { get; private set; } = [];
 
-        public List<Note> Note1PLng08 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng08 { get; private set; } = [];
 
-        public List<Note> Note1PLng09 { get; private set; } = new List<Note>();
+        public List<Note> Note1PLng09 { get; private set; } = [];
 
-        public List<Note> Note2PLng01 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng01 { get; private set; } = [];
 
-        public List<Note> Note2PLng02 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng02 { get; private set; } = [];
 
-        public List<Note> Note2PLng03 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng03 { get; private set; } = [];
 
-        public List<Note> Note2PLng04 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng04 { get; private set; } = [];
 
-        public List<Note> Note2PLng05 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng05 { get; private set; } = [];
 
-        public List<Note> Note2PLng06 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng06 { get; private set; } = [];
 
-        public List<Note> Note2PLng07 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng07 { get; private set; } = [];
 
-        public List<Note> Note2PLng08 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng08 { get; private set; } = [];
 
-        public List<Note> Note2PLng09 { get; private set; } = new List<Note>();
+        public List<Note> Note2PLng09 { get; private set; } = [];
 
-        public List<Note> Note1PBom01 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom01 { get; private set; } = [];
 
-        public List<Note> Note1PBom02 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom02 { get; private set; } = [];
 
-        public List<Note> Note1PBom03 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom03 { get; private set; } = [];
 
-        public List<Note> Note1PBom04 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom04 { get; private set; } = [];
 
-        public List<Note> Note1PBom05 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom05 { get; private set; } = [];
 
-        public List<Note> Note1PBom06 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom06 { get; private set; } = [];
 
-        public List<Note> Note1PBom07 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom07 { get; private set; } = [];
 
-        public List<Note> Note1PBom08 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom08 { get; private set; } = [];
 
-        public List<Note> Note1PBom09 { get; private set; } = new List<Note>();
+        public List<Note> Note1PBom09 { get; private set; } = [];
 
-        public List<Note> Note2PBom01 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom01 { get; private set; } = [];
 
-        public List<Note> Note2PBom02 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom02 { get; private set; } = [];
 
-        public List<Note> Note2PBom03 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom03 { get; private set; } = [];
 
-        public List<Note> Note2PBom04 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom04 { get; private set; } = [];
 
-        public List<Note> Note2PBom05 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom05 { get; private set; } = [];
 
-        public List<Note> Note2PBom06 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom06 { get; private set; } = [];
 
-        public List<Note> Note2PBom07 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom07 { get; private set; } = [];
 
-        public List<Note> Note2PBom08 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom08 { get; private set; } = [];
 
-        public List<Note> Note2PBom09 { get; private set; } = new List<Note>();
+        public List<Note> Note2PBom09 { get; private set; } = [];
 
         public ReadOnlyCollection<Func<IList<Note>>> GetPropertiesAllNotes { get; }
 
@@ -792,7 +767,7 @@ public class BMSFile
                     () => Note2PBom08,
                     () => Note2PBom09
                 }.AsReadOnly())
-            }.SelectMany((ReadOnlyCollection<Func<IList<Note>>> i) => i)).AsReadOnly();
+            }.SelectMany(i => i)).AsReadOnly();
             SetPropertiesAllNotes = new List<Action<List<Note>>>
             {
                 delegate(List<Note> l)
@@ -1118,7 +1093,7 @@ public class BMSFile
             }.AsReadOnly();
             BarLine = new List<Note>
             {
-                new Note(this, Note.NoteType.BAR_LINE)
+                new(this, Note.NoteType.BAR_LINE)
                 {
                     Position = 1L,
                     Value = index + 1
@@ -1130,97 +1105,97 @@ public class BMSFile
         {
             for (int i = 0; i < GetPropertiesAllNotes.Count; i++)
             {
-                SetPropertiesAllNotes[i](GetPropertiesAllNotes[i]().OrderByNotes().ToList());
+                SetPropertiesAllNotes[i]([.. GetPropertiesAllNotes[i]().OrderByNotes()]);
             }
         }
 
         public void SortAllVisibleNotes()
         {
-            Note1PVis01 = Note1PVis01.OrderByNotes().ToList();
-            Note1PVis02 = Note1PVis02.OrderByNotes().ToList();
-            Note1PVis03 = Note1PVis03.OrderByNotes().ToList();
-            Note1PVis04 = Note1PVis04.OrderByNotes().ToList();
-            Note1PVis05 = Note1PVis05.OrderByNotes().ToList();
-            Note1PVis06 = Note1PVis06.OrderByNotes().ToList();
-            Note1PVis07 = Note1PVis07.OrderByNotes().ToList();
-            Note1PVis08 = Note1PVis08.OrderByNotes().ToList();
-            Note1PVis09 = Note1PVis09.OrderByNotes().ToList();
-            Note2PVis01 = Note2PVis01.OrderByNotes().ToList();
-            Note2PVis02 = Note2PVis02.OrderByNotes().ToList();
-            Note2PVis03 = Note2PVis03.OrderByNotes().ToList();
-            Note2PVis04 = Note2PVis04.OrderByNotes().ToList();
-            Note2PVis05 = Note2PVis05.OrderByNotes().ToList();
-            Note2PVis06 = Note2PVis06.OrderByNotes().ToList();
-            Note2PVis07 = Note2PVis07.OrderByNotes().ToList();
-            Note2PVis08 = Note2PVis08.OrderByNotes().ToList();
-            Note2PVis09 = Note2PVis09.OrderByNotes().ToList();
+            Note1PVis01 = [.. Note1PVis01.OrderByNotes()];
+            Note1PVis02 = [.. Note1PVis02.OrderByNotes()];
+            Note1PVis03 = [.. Note1PVis03.OrderByNotes()];
+            Note1PVis04 = [.. Note1PVis04.OrderByNotes()];
+            Note1PVis05 = [.. Note1PVis05.OrderByNotes()];
+            Note1PVis06 = [.. Note1PVis06.OrderByNotes()];
+            Note1PVis07 = [.. Note1PVis07.OrderByNotes()];
+            Note1PVis08 = [.. Note1PVis08.OrderByNotes()];
+            Note1PVis09 = [.. Note1PVis09.OrderByNotes()];
+            Note2PVis01 = [.. Note2PVis01.OrderByNotes()];
+            Note2PVis02 = [.. Note2PVis02.OrderByNotes()];
+            Note2PVis03 = [.. Note2PVis03.OrderByNotes()];
+            Note2PVis04 = [.. Note2PVis04.OrderByNotes()];
+            Note2PVis05 = [.. Note2PVis05.OrderByNotes()];
+            Note2PVis06 = [.. Note2PVis06.OrderByNotes()];
+            Note2PVis07 = [.. Note2PVis07.OrderByNotes()];
+            Note2PVis08 = [.. Note2PVis08.OrderByNotes()];
+            Note2PVis09 = [.. Note2PVis09.OrderByNotes()];
         }
 
         public void SortAllLongNotes()
         {
-            Note1PLng01 = Note1PLng01.OrderByNotes().ToList();
-            Note1PLng02 = Note1PLng02.OrderByNotes().ToList();
-            Note1PLng03 = Note1PLng03.OrderByNotes().ToList();
-            Note1PLng04 = Note1PLng04.OrderByNotes().ToList();
-            Note1PLng05 = Note1PLng05.OrderByNotes().ToList();
-            Note1PLng06 = Note1PLng06.OrderByNotes().ToList();
-            Note1PLng07 = Note1PLng07.OrderByNotes().ToList();
-            Note1PLng08 = Note1PLng08.OrderByNotes().ToList();
-            Note1PLng09 = Note1PLng09.OrderByNotes().ToList();
-            Note2PLng01 = Note2PLng01.OrderByNotes().ToList();
-            Note2PLng02 = Note2PLng02.OrderByNotes().ToList();
-            Note2PLng03 = Note2PLng03.OrderByNotes().ToList();
-            Note2PLng04 = Note2PLng04.OrderByNotes().ToList();
-            Note2PLng05 = Note2PLng05.OrderByNotes().ToList();
-            Note2PLng06 = Note2PLng06.OrderByNotes().ToList();
-            Note2PLng07 = Note2PLng07.OrderByNotes().ToList();
-            Note2PLng08 = Note2PLng08.OrderByNotes().ToList();
-            Note2PLng09 = Note2PLng09.OrderByNotes().ToList();
+            Note1PLng01 = [.. Note1PLng01.OrderByNotes()];
+            Note1PLng02 = [.. Note1PLng02.OrderByNotes()];
+            Note1PLng03 = [.. Note1PLng03.OrderByNotes()];
+            Note1PLng04 = [.. Note1PLng04.OrderByNotes()];
+            Note1PLng05 = [.. Note1PLng05.OrderByNotes()];
+            Note1PLng06 = [.. Note1PLng06.OrderByNotes()];
+            Note1PLng07 = [.. Note1PLng07.OrderByNotes()];
+            Note1PLng08 = [.. Note1PLng08.OrderByNotes()];
+            Note1PLng09 = [.. Note1PLng09.OrderByNotes()];
+            Note2PLng01 = [.. Note2PLng01.OrderByNotes()];
+            Note2PLng02 = [.. Note2PLng02.OrderByNotes()];
+            Note2PLng03 = [.. Note2PLng03.OrderByNotes()];
+            Note2PLng04 = [.. Note2PLng04.OrderByNotes()];
+            Note2PLng05 = [.. Note2PLng05.OrderByNotes()];
+            Note2PLng06 = [.. Note2PLng06.OrderByNotes()];
+            Note2PLng07 = [.. Note2PLng07.OrderByNotes()];
+            Note2PLng08 = [.. Note2PLng08.OrderByNotes()];
+            Note2PLng09 = [.. Note2PLng09.OrderByNotes()];
         }
 
         public void SortAllMineNotes()
         {
-            Note1PBom01 = Note1PBom01.OrderByNotes().ToList();
-            Note1PBom02 = Note1PBom02.OrderByNotes().ToList();
-            Note1PBom03 = Note1PBom03.OrderByNotes().ToList();
-            Note1PBom04 = Note1PBom04.OrderByNotes().ToList();
-            Note1PBom05 = Note1PBom05.OrderByNotes().ToList();
-            Note1PBom06 = Note1PBom06.OrderByNotes().ToList();
-            Note1PBom07 = Note1PBom07.OrderByNotes().ToList();
-            Note1PBom08 = Note1PBom08.OrderByNotes().ToList();
-            Note1PBom09 = Note1PBom09.OrderByNotes().ToList();
-            Note2PBom01 = Note2PBom01.OrderByNotes().ToList();
-            Note2PBom02 = Note2PBom02.OrderByNotes().ToList();
-            Note2PBom03 = Note2PBom03.OrderByNotes().ToList();
-            Note2PBom04 = Note2PBom04.OrderByNotes().ToList();
-            Note2PBom05 = Note2PBom05.OrderByNotes().ToList();
-            Note2PBom06 = Note2PBom06.OrderByNotes().ToList();
-            Note2PBom07 = Note2PBom07.OrderByNotes().ToList();
-            Note2PBom08 = Note2PBom08.OrderByNotes().ToList();
-            Note2PBom09 = Note2PBom09.OrderByNotes().ToList();
+            Note1PBom01 = [.. Note1PBom01.OrderByNotes()];
+            Note1PBom02 = [.. Note1PBom02.OrderByNotes()];
+            Note1PBom03 = [.. Note1PBom03.OrderByNotes()];
+            Note1PBom04 = [.. Note1PBom04.OrderByNotes()];
+            Note1PBom05 = [.. Note1PBom05.OrderByNotes()];
+            Note1PBom06 = [.. Note1PBom06.OrderByNotes()];
+            Note1PBom07 = [.. Note1PBom07.OrderByNotes()];
+            Note1PBom08 = [.. Note1PBom08.OrderByNotes()];
+            Note1PBom09 = [.. Note1PBom09.OrderByNotes()];
+            Note2PBom01 = [.. Note2PBom01.OrderByNotes()];
+            Note2PBom02 = [.. Note2PBom02.OrderByNotes()];
+            Note2PBom03 = [.. Note2PBom03.OrderByNotes()];
+            Note2PBom04 = [.. Note2PBom04.OrderByNotes()];
+            Note2PBom05 = [.. Note2PBom05.OrderByNotes()];
+            Note2PBom06 = [.. Note2PBom06.OrderByNotes()];
+            Note2PBom07 = [.. Note2PBom07.OrderByNotes()];
+            Note2PBom08 = [.. Note2PBom08.OrderByNotes()];
+            Note2PBom09 = [.. Note2PBom09.OrderByNotes()];
         }
 
         public void SortBgmNotes()
         {
-            Bgm = Bgm.OrderByNotes().ToList();
+            Bgm = [.. Bgm.OrderByNotes()];
         }
     }
 
     private int _lnObj = -1;
 
-    private readonly List<RandomNumber> randomPattern = new List<RandomNumber>();
+    private readonly List<RandomNumber> randomPattern = [];
 
     private IndexEncoding _indexEncoding = IndexEncoding.Base64;
 
-    private static readonly Regex asciiPattern = new Regex("[\\p{IsBasicLatin}]+", RegexOptions.Compiled);
+    private static readonly Regex asciiPattern = new("[\\p{IsBasicLatin}]+", RegexOptions.Compiled);
 
-    private static readonly Regex spaceAndReturnPattern = new Regex("[\\s\\r\\n]", RegexOptions.Compiled);
+    private static readonly Regex spaceAndReturnPattern = new("[\\s\\r\\n]", RegexOptions.Compiled);
 
-    private static readonly Regex hangul5charasPattern = new Regex("[\\p{IsHangulSyllables}]{5,}", RegexOptions.Compiled);
+    private static readonly Regex hangul5charasPattern = new("[\\p{IsHangulSyllables}]{5,}", RegexOptions.Compiled);
 
-    private static readonly Regex japanese2charasPattern = new Regex("[\\p{IsCJKUnifiedIdeographs}々ぁ-んァ-ヶ！-｠]{2,}", RegexOptions.Compiled);
+    private static readonly Regex japanese2charasPattern = new("[\\p{IsCJKUnifiedIdeographs}々ぁ-んァ-ヶ！-｠]{2,}", RegexOptions.Compiled);
 
-    private static readonly Regex md5HashRegex = new Regex("^[a-fA-F0-9]{32}$", RegexOptions.Compiled);
+    private static readonly Regex md5HashRegex = new("^[a-fA-F0-9]{32}$", RegexOptions.Compiled);
 
     private static readonly Encoding sjisEnc = Encoding.GetEncoding(932, new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
@@ -1311,20 +1286,13 @@ public class BMSFile
         private set
         {
             _indexEncoding = value;
-            switch (IndexEncoding)
+            IndexMapper = IndexEncoding switch
             {
-                case IndexEncoding.Base16:
-                    IndexMapper = BMSBase64.MapToBase16Subset;
-                    break;
-                case IndexEncoding.Base36:
-                    IndexMapper = BMSBase64.MapToBase36Subset;
-                    break;
-                case IndexEncoding.Base64:
-                    IndexMapper = BMSBase64.MapToBase64Set;
-                    break;
-                default:
-                    throw new InvalidOperationException("Invalid program state.");
-            }
+                IndexEncoding.Base16 => BMSBase64.MapToBase16Subset,
+                IndexEncoding.Base36 => BMSBase64.MapToBase36Subset,
+                IndexEncoding.Base64 => BMSBase64.MapToBase64Set,
+                _ => throw new InvalidOperationException("Invalid program state."),
+            };
         }
     }
 
@@ -1336,7 +1304,7 @@ public class BMSFile
     }
 
     public BMSFile(string path, IReadOnlyCollection<RandomNumber> randomNumber)
-        : this(path, (randomNumber == null) ? null : new Queue<int>(randomNumber.Select((RandomNumber r) => r.Value)))
+        : this(path, (randomNumber == null) ? null : new Queue<int>(randomNumber.Select(r => r.Value)))
     {
     }
 
@@ -1432,7 +1400,7 @@ public class BMSFile
 
     public BMSFile Create(IReadOnlyCollection<RandomNumber> randomNumber)
     {
-        return new BMSFile(Path, Source, Encode, Md5, (randomPattern == null) ? null : new Queue<int>(randomNumber.Select((RandomNumber r) => r.Value)));
+        return new BMSFile(Path, Source, Encode, Md5, (randomPattern == null) ? null : new Queue<int>(randomNumber.Select(r => r.Value)));
     }
 
     public BMSFile Create(Queue<int> randomPattern = null)
@@ -1465,7 +1433,7 @@ public class BMSFile
         byte[] array = new byte[fileStream.Length];
         fileStream.Read(array, 0, array.Length);
         byte[] array2 = MD5.Create().ComputeHash(array);
-        StringBuilder stringBuilder = new StringBuilder();
+        var stringBuilder = new StringBuilder();
         byte[] array3 = array2;
         foreach (byte b in array3)
         {
@@ -1477,8 +1445,7 @@ public class BMSFile
             throw new Exception("Invalid MD5 string: " + text);
         }
         Md5 = text.ToLowerInvariant();
-        Encoding enc;
-        string autoDetectedString = getAutoDetectedString(array, out enc);
+        string autoDetectedString = getAutoDetectedString(array, out Encoding enc);
         if (enc == null)
         {
             Encode = sjisEncDefault;
@@ -1507,26 +1474,26 @@ public class BMSFile
     private void ParseMain(string source, Queue<int> pattern = null)
     {
         randomPattern.Clear();
-        Random genRan = new Random();
-        Func<string, int, object[]> selector = delegate (string s, int n)
+        var genRan = new Random();
+        object[] selector(string s, int n)
         {
             int length = s.Length;
             int i;
             for (i = 0; i < length && s[i] != ' ' && s[i] != ':'; i++)
             {
             }
-            return (i != length) ? new object[3]
-            {
+            return (i != length) ?
+            [
                 n + 1,
                 s.Substring(0, i),
                 (i == length - 1) ? string.Empty : s.Substring(i + 1, length - i - 1).Trim()
-            } : new object[3]
-            {
+            ] :
+            [
                 n + 1,
                 s,
                 string.Empty
-            };
-        };
+            ];
+        }
         IEnumerable<object[]> enumerable = source.ReadLine().Select(selector);
         int lineNum = 0;
         IEnumerator<object[]> enumerator = enumerable.GetEnumerator();
@@ -1536,7 +1503,7 @@ public class BMSFile
             string command = string.Empty;
             string parameter = string.Empty;
             int ifDepth = 0;
-            Func<Func<string, bool>, bool> skipLines = delegate (Func<string, bool> stopCond)
+            bool skipLines(Func<string, bool> stopCond)
             {
                 while (enumerator.MoveNext())
                 {
@@ -1634,9 +1601,8 @@ public class BMSFile
                     }
                 }
                 return true;
-            };
-            Func<Func<string, bool>, bool> parseLines = null;
-            parseLines = delegate (Func<string, bool> stopCond)
+            }
+            bool parseLines(Func<string, bool> stopCond)
             {
                 int? num = null;
                 while (enumerator.MoveNext())
@@ -1711,13 +1677,13 @@ public class BMSFile
                                         int num6 = parameter.TryParseOrDefault(0);
                                         if (num.HasValue && num6 != 0 && num == num6)
                                         {
-                                            if (!parseLines((string l) => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
+                                            if (!parseLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
                                             {
                                                 switch (text)
                                                 {
                                                     case "#ELSEIF":
                                                     case "#ELSE":
-                                                        if (skipLines((string l) => ifDepth == curIfDepth && l == "#ENDIF"))
+                                                        if (skipLines(l => ifDepth == curIfDepth && l == "#ENDIF"))
                                                         {
                                                             return true;
                                                         }
@@ -1727,14 +1693,14 @@ public class BMSFile
                                             }
                                             return true;
                                         }
-                                        if (!skipLines((string l) => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
+                                        if (!skipLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
                                         {
                                             switch (text)
                                             {
                                                 case "#ELSEIF":
                                                     continue;
                                                 case "#ELSE":
-                                                    if (parseLines((string l) => ifDepth == curIfDepth && l == "#ENDIF"))
+                                                    if (parseLines(l => ifDepth == curIfDepth && l == "#ENDIF"))
                                                     {
                                                         return true;
                                                     }
@@ -1777,7 +1743,7 @@ public class BMSFile
                                 break;
                             case "#BPM":
                                 {
-                                    if (double.TryParse(parameter, out var result6) && result6 > 0.0)
+                                    if (double.TryParse(parameter, out double result6) && result6 > 0.0)
                                     {
                                         Bpm = new Fraction(result6);
                                     }
@@ -1789,7 +1755,7 @@ public class BMSFile
                                 }
                             case "#RANK":
                                 {
-                                    if (int.TryParse(parameter, out var result9) && result9 >= 0)
+                                    if (int.TryParse(parameter, out int result9) && result9 >= 0)
                                     {
                                         Rank = result9;
                                     }
@@ -1801,7 +1767,7 @@ public class BMSFile
                                 }
                             case "#TOTAL":
                                 {
-                                    if (double.TryParse(parameter, out var result7) && result7 > 0.0)
+                                    if (double.TryParse(parameter, out double result7) && result7 > 0.0)
                                     {
                                         Total = result7;
                                     }
@@ -1822,7 +1788,7 @@ public class BMSFile
                                 break;
                             case "#PLAYLEVEL":
                                 {
-                                    if (double.TryParse(parameter, out var result8) && result8 >= 0.0)
+                                    if (double.TryParse(parameter, out double result8) && result8 >= 0.0)
                                     {
                                         Playlevel = result8;
                                     }
@@ -1834,7 +1800,7 @@ public class BMSFile
                                 }
                             case "#DIFFICULTY":
                                 {
-                                    if (int.TryParse(parameter, out var result5) && result5 > 0)
+                                    if (int.TryParse(parameter, out int result5) && result5 > 0)
                                     {
                                         Difficulty = result5;
                                     }
@@ -1884,7 +1850,7 @@ public class BMSFile
                                                         int num5 = BMSBase64.ToInt(s);
                                                         if (num5 != 0)
                                                         {
-                                                            if (decimal.TryParse(parameter, out var result4) && result4 > 0m)
+                                                            if (decimal.TryParse(parameter, out decimal result4) && result4 > 0m)
                                                             {
                                                                 BpmArray[num5] = result4;
                                                             }
@@ -1898,7 +1864,7 @@ public class BMSFile
                                                 }
                                             default:
                                                 {
-                                                    string text3 = new string(command.ToCharArray(), 1, 3);
+                                                    string text3 = new(command.ToCharArray(), 1, 3);
                                                     string text4 = command.Substring(4, 2).ToUpperInvariant();
                                                     int num2 = text3.TryParseOrDefault(-1);
                                                     parameter = parameter.Replace(" ", string.Empty);
@@ -1910,7 +1876,7 @@ public class BMSFile
                                                         {
                                                             case "02":
                                                                 {
-                                                                    if (double.TryParse(parameter, out var result2) && result2 > 0.0)
+                                                                    if (double.TryParse(parameter, out double result2) && result2 > 0.0)
                                                                     {
                                                                         Measures[num2].Length = new Fraction(result2);
                                                                     }
@@ -1919,15 +1885,15 @@ public class BMSFile
                                                             case "03":
                                                                 list = Measures[num2].Bpm;
                                                                 type = Chart.Note.NoteType.BPM;
-                                                                foreach (var item4 in parameter.Split(2).Select((string idx, int pos) => new
+                                                                foreach (var item4 in parameter.Split(2).Select((idx, pos) => new
                                                                 {
                                                                     Idx = idx,
                                                                     Pos = pos
                                                                 }))
                                                                 {
-                                                                    if (!(item4.Idx == "00") && int.TryParse(item4.Idx, NumberStyles.HexNumber, null, out var result3))
+                                                                    if (!(item4.Idx == "00") && int.TryParse(item4.Idx, NumberStyles.HexNumber, null, out int result3))
                                                                     {
-                                                                        Chart.Note item2 = new Chart.Note(Measures[num2], type)
+                                                                        var item2 = new Chart.Note(Measures[num2], type)
                                                                         {
                                                                             Value = result3,
                                                                             Position = new Fraction(item4.Pos, parameter.Length / 2)
@@ -2286,7 +2252,7 @@ public class BMSFile
                                                                 Attribute |= Feature.MINE_NOTE;
                                                                 break;
                                                             case "NOTE_COMMON":
-                                                                foreach (var item5 in parameter.Split(2).Select((string idx, int pos) => new
+                                                                foreach (var item5 in parameter.Split(2).Select((idx, pos) => new
                                                                 {
                                                                     Idx = idx,
                                                                     Pos = pos
@@ -2294,7 +2260,7 @@ public class BMSFile
                                                                 {
                                                                     if (!(item5.Idx == "00") && item5.Idx.Length != 1 && item5.Idx.IsBMSBase64())
                                                                     {
-                                                                        Chart.Note item = new Chart.Note(Measures[num2], type)
+                                                                        var item = new Chart.Note(Measures[num2], type)
                                                                         {
                                                                             Index = BMSBase64.ToInt(item5.Idx),
                                                                             Position = new Fraction(item5.Pos, parameter.Length / 2)
@@ -2308,7 +2274,7 @@ public class BMSFile
                                                             default:
                                                                 goto end_IL_0c52;
                                                         }
-                                                        foreach (var item6 in parameter.Split(2).Select((string idx, int pos) => new
+                                                        foreach (var item6 in parameter.Split(2).Select((idx, pos) => new
                                                         {
                                                             Idx = idx,
                                                             Pos = pos
@@ -2316,7 +2282,7 @@ public class BMSFile
                                                         {
                                                             if (!(item6.Idx == "00") && item6.Idx.Length != 1 && item6.Idx.IsBMSBase64())
                                                             {
-                                                                Chart.Note item3 = new Chart.Note(Measures[num2], type)
+                                                                var item3 = new Chart.Note(Measures[num2], type)
                                                                 {
                                                                     Index = 0,
                                                                     Value = BMSBase36.ToInt(item6.Idx),
@@ -2338,7 +2304,7 @@ public class BMSFile
                                             if (text2 == "#STOP")
                                             {
                                                 string s = command.ReplaceFromStart("#STOP", string.Empty, isIgnoreCase: true);
-                                                if (s.IsBMSBase64() && double.TryParse(parameter, out var result) && result > 0.0)
+                                                if (s.IsBMSBase64() && double.TryParse(parameter, out double result) && result > 0.0)
                                                 {
                                                     StopArray[BMSBase64.ToInt(s)] = result;
                                                 }
@@ -2355,16 +2321,14 @@ public class BMSFile
                     NLogWrapper.GetLogger()?.Trace("BMS Parser: Syntax error: #ENDIF did not found before EOF");
                 }
                 return true;
-            };
-            parseLines((string cmd) => false);
-            NLogWrapper.DebuggerLogger?.Trace("BMS Parser: RANDOM pattern: " + string.Join(", ", randomPattern.Select((RandomNumber i) => i.ToString()).ToArray()));
+            }
+
+            parseLines(cmd => false);
+            NLogWrapper.DebuggerLogger?.Trace("BMS Parser: RANDOM pattern: " + string.Join(", ", [.. randomPattern.Select(i => i.ToString())]));
         }
         finally
         {
-            if (enumerator != null)
-            {
-                enumerator.Dispose();
-            }
+            enumerator?.Dispose();
         }
     }
 
@@ -2375,11 +2339,11 @@ public class BMSFile
         string[] array2 = new string[4096];
         string[] array3 = new string[4096];
         string[] array4 = new string[4096];
-        Fraction[] array5 = new Fraction[4096];
-        Fraction[] array6 = new Fraction[4096];
-        Fraction[] array7 = new Fraction[4096];
-        Fraction[] array8 = new Fraction[4096];
-        Action<ReadOnlyCollection<int>, string[], ReadOnlyCollection<int>, string[], string[]> action = delegate (ReadOnlyCollection<int> mapTo1, string[] toAry1, ReadOnlyCollection<int> mapTo2, string[] toAry2, string[] fromAry)
+        var array5 = new Fraction[4096];
+        var array6 = new Fraction[4096];
+        var array7 = new Fraction[4096];
+        var array8 = new Fraction[4096];
+        static void action(ReadOnlyCollection<int> mapTo1, string[] toAry1, ReadOnlyCollection<int> mapTo2, string[] toAry2, string[] fromAry)
         {
             for (int i = 1; i < mapTo1.Count; i++)
             {
@@ -2397,8 +2361,8 @@ public class BMSFile
                     }
                 }
             }
-        };
-        Action<ReadOnlyCollection<int>, Fraction[], ReadOnlyCollection<int>, Fraction[], Fraction[]> action2 = delegate (ReadOnlyCollection<int> mapTo1, Fraction[] toAry1, ReadOnlyCollection<int> mapTo2, Fraction[] toAry2, Fraction[] fromAry)
+        }
+        static void action2(ReadOnlyCollection<int> mapTo1, Fraction[] toAry1, ReadOnlyCollection<int> mapTo2, Fraction[] toAry2, Fraction[] fromAry)
         {
             for (int i = 1; i < mapTo1.Count; i++)
             {
@@ -2416,23 +2380,23 @@ public class BMSFile
                     }
                 }
             }
-        };
+        }
         action(BMSBase64.MapToBase36Subset, array2, BMSBase64.MapToBase16Subset, array, WavArray);
         action(BMSBase64.MapToBase36Subset, array4, BMSBase64.MapToBase16Subset, array3, BmpArray);
         action2(BMSBase64.MapToBase36Subset, array6, BMSBase64.MapToBase16Subset, array5, BpmArray);
         action2(BMSBase64.MapToBase36Subset, array8, BMSBase64.MapToBase16Subset, array7, StopArray);
-        int num = WavArray.Count((string s) => s != null);
-        int num2 = BmpArray.Count((string s) => s != null);
-        int num3 = BpmArray.Count((Fraction s) => !s.IsDefault());
-        int num4 = StopArray.Count((Fraction s) => !s.IsDefault());
-        if (num == array2.Count((string s) => s != null) && num2 == array4.Count((string s) => s != null) && num3 == array6.Count((Fraction s) => !s.IsDefault()) && num4 == array8.Count((Fraction s) => !s.IsDefault()))
+        int num = WavArray.Count(s => s != null);
+        int num2 = BmpArray.Count(s => s != null);
+        int num3 = BpmArray.Count(s => !s.IsDefault());
+        int num4 = StopArray.Count(s => !s.IsDefault());
+        if (num == array2.Count(s => s != null) && num2 == array4.Count(s => s != null) && num3 == array6.Count(s => !s.IsDefault()) && num4 == array8.Count(s => !s.IsDefault()))
         {
             IndexEncoding = IndexEncoding.Base36;
             WavArray = array2;
             BmpArray = array4;
             BpmArray = array6;
             StopArray = array8;
-            if (num == array.Count((string s) => s != null) && num2 == array3.Count((string s) => s != null) && num3 == array5.Count((Fraction s) => !s.IsDefault()) && num4 == array7.Count((Fraction s) => !s.IsDefault()))
+            if (num == array.Count(s => s != null) && num2 == array3.Count(s => s != null) && num3 == array5.Count(s => !s.IsDefault()) && num4 == array7.Count(s => !s.IsDefault()))
             {
                 IndexEncoding = IndexEncoding.Base16;
                 WavArray = array;
@@ -2455,17 +2419,17 @@ public class BMSFile
         }
         bool[] array = new bool[18];
         bool[] array2 = new bool[18];
-        Chart.Note[] array3 = new Chart.Note[18];
-        Chart.Note[] array4 = new Chart.Note[18];
+        var array3 = new Chart.Note[18];
+        var array4 = new Chart.Note[18];
         for (int i = 0; i <= Measures.LastIndex; i++)
         {
             Measures[i].SortAllNotes();
-            foreach (Chart.Note item in Measures[i].GetPropertiesAllNotes.SelectMany((Func<IList<Chart.Note>> d) => d()))
+            foreach (Chart.Note item in Measures[i].GetPropertiesAllNotes.SelectMany(d => d()))
             {
                 item.Index = IndexMapper[item.Index];
                 if (item.Index == _lnObj)
                 {
-                    Chart.Note.NoteType noteType = (Chart.Note.NoteType)((uint)item.Type & 0xFFFFFFF0u);
+                    var noteType = (Chart.Note.NoteType)((uint)item.Type & 0xFFFFFFF0u);
                     if (noteType == Chart.Note.NoteType.NOTE_1P_VISIBLE_ALL || noteType == Chart.Note.NoteType.NOTE_2P_VISIBLE_ALL)
                     {
                         item.Type = 320 + item.Type;
@@ -2477,7 +2441,7 @@ public class BMSFile
             {
                 Chart.Note note = null;
                 IList<Chart.Note> list = getPropertiesAllNote();
-                Chart.Note[] array5 = list.ToArray();
+                Chart.Note[] array5 = [.. list];
                 foreach (Chart.Note note2 in array5)
                 {
                     if (note != null && note.Position == note2.Position && note.Type == note2.Type)
@@ -2536,19 +2500,19 @@ public class BMSFile
             {
                 continue;
             }
-            foreach (var item4 in Measures[i].GetPropertiesAll1PVisNotes.Select((Func<IList<Chart.Note>> d, int j5) => new
+            foreach (var item4 in Measures[i].GetPropertiesAll1PVisNotes.Select((d, j5) => new
             {
-                d = d,
+                d,
                 j = j5
             }))
             {
                 IList<Chart.Note> list2 = item4.d();
                 int j = item4.j;
-                Chart.Note[] array5 = list2.ToArray();
+                Chart.Note[] array5 = [.. list2];
                 foreach (Chart.Note note3 in array5)
                 {
                     Chart.Note note4 = array3[j];
-                    Chart.Note.NoteType noteType2 = (Chart.Note.NoteType)((uint)note3.Type & 0xFFFFFFF0u);
+                    var noteType2 = (Chart.Note.NoteType)((uint)note3.Type & 0xFFFFFFF0u);
                     if (noteType2 == Chart.Note.NoteType.NOTE_1P_LONG_END_ALL && note4 != null)
                     {
                         note4.Measure.GetPropertiesAll1PVisNotes[j]().Remove(note4);
@@ -2570,19 +2534,19 @@ public class BMSFile
                     }
                 }
             }
-            foreach (var item5 in Measures[i].GetPropertiesAll2PVisNotes.Select((Func<IList<Chart.Note>> d, int j5) => new
+            foreach (var item5 in Measures[i].GetPropertiesAll2PVisNotes.Select((d, j5) => new
             {
-                d = d,
+                d,
                 j = j5
             }))
             {
                 IList<Chart.Note> list3 = item5.d();
                 int j2 = item5.j;
-                Chart.Note[] array5 = list3.ToArray();
+                Chart.Note[] array5 = [.. list3];
                 foreach (Chart.Note note5 in array5)
                 {
                     Chart.Note note6 = array4[j2];
-                    Chart.Note.NoteType noteType3 = (Chart.Note.NoteType)((uint)note5.Type & 0xFFFFFFF0u);
+                    var noteType3 = (Chart.Note.NoteType)((uint)note5.Type & 0xFFFFFFF0u);
                     if (noteType3 == Chart.Note.NoteType.NOTE_2P_LONG_END_ALL && note6 != null)
                     {
                         note6.Measure.GetPropertiesAll2PVisNotes[j2]().Remove(note6);
@@ -2610,15 +2574,15 @@ public class BMSFile
         for (int num4 = 0; num4 <= Measures.LastIndex; num4++)
         {
             Measures[num4].SortAllLongNotes();
-            foreach (var item6 in Measures[num4].GetPropertiesAll1PLngNotes.Select((Func<IList<Chart.Note>> d, int j5) => new
+            foreach (var item6 in Measures[num4].GetPropertiesAll1PLngNotes.Select((d, j5) => new
             {
-                d = d,
+                d,
                 j = j5
             }))
             {
                 IList<Chart.Note> list4 = item6.d();
                 int j3 = item6.j;
-                Chart.Note[] array5 = list4.ToArray();
+                Chart.Note[] array5 = [.. list4];
                 foreach (Chart.Note note7 in array5)
                 {
                     switch ((Chart.Note.NoteType)((uint)note7.Type & 0xFFFFFFF0u))
@@ -2652,15 +2616,15 @@ public class BMSFile
                     }
                 }
             }
-            foreach (var item7 in Measures[num4].GetPropertiesAll2PLngNotes.Select((Func<IList<Chart.Note>> d, int j5) => new
+            foreach (var item7 in Measures[num4].GetPropertiesAll2PLngNotes.Select((d, j5) => new
             {
-                d = d,
+                d,
                 j = j5
             }))
             {
                 IList<Chart.Note> list5 = item7.d();
                 int j4 = item7.j;
-                Chart.Note[] array5 = list5.ToArray();
+                Chart.Note[] array5 = [.. list5];
                 foreach (Chart.Note note8 in array5)
                 {
                     switch ((Chart.Note.NoteType)((uint)note8.Type & 0xFFFFFFF0u))
@@ -2707,75 +2671,75 @@ public class BMSFile
         }
         NoteCount1PLN = new List<int>
         {
-            Measures.Sum((Chart m) => m.Note1PLng01.Count),
-            Measures.Sum((Chart m) => m.Note1PLng02.Count),
-            Measures.Sum((Chart m) => m.Note1PLng03.Count),
-            Measures.Sum((Chart m) => m.Note1PLng04.Count),
-            Measures.Sum((Chart m) => m.Note1PLng05.Count),
-            Measures.Sum((Chart m) => m.Note1PLng06.Count),
-            Measures.Sum((Chart m) => m.Note1PLng07.Count),
-            Measures.Sum((Chart m) => m.Note1PLng08.Count),
-            Measures.Sum((Chart m) => m.Note1PLng09.Count)
+            Measures.Sum(m => m.Note1PLng01.Count),
+            Measures.Sum(m => m.Note1PLng02.Count),
+            Measures.Sum(m => m.Note1PLng03.Count),
+            Measures.Sum(m => m.Note1PLng04.Count),
+            Measures.Sum(m => m.Note1PLng05.Count),
+            Measures.Sum(m => m.Note1PLng06.Count),
+            Measures.Sum(m => m.Note1PLng07.Count),
+            Measures.Sum(m => m.Note1PLng08.Count),
+            Measures.Sum(m => m.Note1PLng09.Count)
         }.AsReadOnly();
         NoteCount2PLN = new List<int>
         {
-            Measures.Sum((Chart m) => m.Note2PLng01.Count),
-            Measures.Sum((Chart m) => m.Note2PLng02.Count),
-            Measures.Sum((Chart m) => m.Note2PLng03.Count),
-            Measures.Sum((Chart m) => m.Note2PLng04.Count),
-            Measures.Sum((Chart m) => m.Note2PLng05.Count),
-            Measures.Sum((Chart m) => m.Note2PLng06.Count),
-            Measures.Sum((Chart m) => m.Note2PLng07.Count),
-            Measures.Sum((Chart m) => m.Note2PLng08.Count),
-            Measures.Sum((Chart m) => m.Note2PLng09.Count)
+            Measures.Sum(m => m.Note2PLng01.Count),
+            Measures.Sum(m => m.Note2PLng02.Count),
+            Measures.Sum(m => m.Note2PLng03.Count),
+            Measures.Sum(m => m.Note2PLng04.Count),
+            Measures.Sum(m => m.Note2PLng05.Count),
+            Measures.Sum(m => m.Note2PLng06.Count),
+            Measures.Sum(m => m.Note2PLng07.Count),
+            Measures.Sum(m => m.Note2PLng08.Count),
+            Measures.Sum(m => m.Note2PLng09.Count)
         }.AsReadOnly();
         NoteCount1P = new List<int>
         {
-            Measures.Sum((Chart m) => m.Note1PVis01.Count) + NoteCount1PLN[0],
-            Measures.Sum((Chart m) => m.Note1PVis02.Count) + NoteCount1PLN[1],
-            Measures.Sum((Chart m) => m.Note1PVis03.Count) + NoteCount1PLN[2],
-            Measures.Sum((Chart m) => m.Note1PVis04.Count) + NoteCount1PLN[3],
-            Measures.Sum((Chart m) => m.Note1PVis05.Count) + NoteCount1PLN[4],
-            Measures.Sum((Chart m) => m.Note1PVis06.Count) + NoteCount1PLN[5],
-            Measures.Sum((Chart m) => m.Note1PVis07.Count) + NoteCount1PLN[6],
-            Measures.Sum((Chart m) => m.Note1PVis08.Count) + NoteCount1PLN[7],
-            Measures.Sum((Chart m) => m.Note1PVis09.Count) + NoteCount1PLN[8]
+            Measures.Sum(m => m.Note1PVis01.Count) + NoteCount1PLN[0],
+            Measures.Sum(m => m.Note1PVis02.Count) + NoteCount1PLN[1],
+            Measures.Sum(m => m.Note1PVis03.Count) + NoteCount1PLN[2],
+            Measures.Sum(m => m.Note1PVis04.Count) + NoteCount1PLN[3],
+            Measures.Sum(m => m.Note1PVis05.Count) + NoteCount1PLN[4],
+            Measures.Sum(m => m.Note1PVis06.Count) + NoteCount1PLN[5],
+            Measures.Sum(m => m.Note1PVis07.Count) + NoteCount1PLN[6],
+            Measures.Sum(m => m.Note1PVis08.Count) + NoteCount1PLN[7],
+            Measures.Sum(m => m.Note1PVis09.Count) + NoteCount1PLN[8]
         }.AsReadOnly();
         NoteCount2P = new List<int>
         {
-            Measures.Sum((Chart m) => m.Note2PVis01.Count) + NoteCount2PLN[0],
-            Measures.Sum((Chart m) => m.Note2PVis02.Count) + NoteCount2PLN[1],
-            Measures.Sum((Chart m) => m.Note2PVis03.Count) + NoteCount2PLN[2],
-            Measures.Sum((Chart m) => m.Note2PVis04.Count) + NoteCount2PLN[3],
-            Measures.Sum((Chart m) => m.Note2PVis05.Count) + NoteCount2PLN[4],
-            Measures.Sum((Chart m) => m.Note2PVis06.Count) + NoteCount2PLN[5],
-            Measures.Sum((Chart m) => m.Note2PVis07.Count) + NoteCount2PLN[6],
-            Measures.Sum((Chart m) => m.Note2PVis08.Count) + NoteCount2PLN[7],
-            Measures.Sum((Chart m) => m.Note2PVis09.Count) + NoteCount2PLN[8]
+            Measures.Sum(m => m.Note2PVis01.Count) + NoteCount2PLN[0],
+            Measures.Sum(m => m.Note2PVis02.Count) + NoteCount2PLN[1],
+            Measures.Sum(m => m.Note2PVis03.Count) + NoteCount2PLN[2],
+            Measures.Sum(m => m.Note2PVis04.Count) + NoteCount2PLN[3],
+            Measures.Sum(m => m.Note2PVis05.Count) + NoteCount2PLN[4],
+            Measures.Sum(m => m.Note2PVis06.Count) + NoteCount2PLN[5],
+            Measures.Sum(m => m.Note2PVis07.Count) + NoteCount2PLN[6],
+            Measures.Sum(m => m.Note2PVis08.Count) + NoteCount2PLN[7],
+            Measures.Sum(m => m.Note2PVis09.Count) + NoteCount2PLN[8]
         }.AsReadOnly();
         NoteCount1PMN = new List<int>
         {
-            Measures.Sum((Chart m) => m.Note1PBom01.Count),
-            Measures.Sum((Chart m) => m.Note1PBom02.Count),
-            Measures.Sum((Chart m) => m.Note1PBom03.Count),
-            Measures.Sum((Chart m) => m.Note1PBom04.Count),
-            Measures.Sum((Chart m) => m.Note1PBom05.Count),
-            Measures.Sum((Chart m) => m.Note1PBom06.Count),
-            Measures.Sum((Chart m) => m.Note1PBom07.Count),
-            Measures.Sum((Chart m) => m.Note1PBom08.Count),
-            Measures.Sum((Chart m) => m.Note1PBom09.Count)
+            Measures.Sum(m => m.Note1PBom01.Count),
+            Measures.Sum(m => m.Note1PBom02.Count),
+            Measures.Sum(m => m.Note1PBom03.Count),
+            Measures.Sum(m => m.Note1PBom04.Count),
+            Measures.Sum(m => m.Note1PBom05.Count),
+            Measures.Sum(m => m.Note1PBom06.Count),
+            Measures.Sum(m => m.Note1PBom07.Count),
+            Measures.Sum(m => m.Note1PBom08.Count),
+            Measures.Sum(m => m.Note1PBom09.Count)
         }.AsReadOnly();
         NoteCount2PMN = new List<int>
         {
-            Measures.Sum((Chart m) => m.Note2PBom01.Count),
-            Measures.Sum((Chart m) => m.Note2PBom02.Count),
-            Measures.Sum((Chart m) => m.Note2PBom03.Count),
-            Measures.Sum((Chart m) => m.Note2PBom04.Count),
-            Measures.Sum((Chart m) => m.Note2PBom05.Count),
-            Measures.Sum((Chart m) => m.Note2PBom06.Count),
-            Measures.Sum((Chart m) => m.Note2PBom07.Count),
-            Measures.Sum((Chart m) => m.Note2PBom08.Count),
-            Measures.Sum((Chart m) => m.Note2PBom09.Count)
+            Measures.Sum(m => m.Note2PBom01.Count),
+            Measures.Sum(m => m.Note2PBom02.Count),
+            Measures.Sum(m => m.Note2PBom03.Count),
+            Measures.Sum(m => m.Note2PBom04.Count),
+            Measures.Sum(m => m.Note2PBom05.Count),
+            Measures.Sum(m => m.Note2PBom06.Count),
+            Measures.Sum(m => m.Note2PBom07.Count),
+            Measures.Sum(m => m.Note2PBom08.Count),
+            Measures.Sum(m => m.Note2PBom09.Count)
         }.AsReadOnly();
         Keys = DetectKeyNum();
         if (!Bpm.HasValue)
@@ -2785,14 +2749,14 @@ public class BMSFile
         }
         Fraction? fraction = (MaxBpm = Bpm);
         Fraction curBPM = (MinBpm = fraction).Value;
-        Func<Fraction> func = () => 4L / curBPM;
+        Fraction func() => 4L / curBPM;
         for (int num = 0; num <= Measures.LastIndex; num++)
         {
-            Measures[num].Control = Measures[num].GetPropertiesAllControlNotes.SelectMany((Func<IList<Chart.Note>> c) => c()).OrderByNotes().ToList();
-            IList<Chart.Note>[] array = Measures[num].GetPropertiesAllNotes.Select((Func<IList<Chart.Note>> d) => d()).ToArray();
+            Measures[num].Control = [.. Measures[num].GetPropertiesAllControlNotes.SelectMany(c => c()).OrderByNotes()];
+            IList<Chart.Note>[] array = [.. Measures[num].GetPropertiesAllNotes.Select(d => d())];
             int[] array2 = new int[array.Length];
-            Fraction fraction3 = new Fraction(0L);
-            Fraction fraction4 = new Fraction(0L);
+            var fraction3 = new Fraction(0L);
+            var fraction4 = new Fraction(0L);
             Measures[num].Time = ((num == 0) ? TimeSpan.Zero : Measures[num - 1].BarLine.First().AbsoluteTime);
             foreach (Chart.Note item in Measures[num].Control)
             {
@@ -2890,7 +2854,7 @@ public class BMSFile
         {
             Attribute |= Feature.RANDOM;
         }
-        if (BmpArray.Any((string e) => !string.IsNullOrEmpty(e)))
+        if (BmpArray.Any(e => !string.IsNullOrEmpty(e)))
         {
             Attribute |= Feature.BGA;
         }
@@ -2910,36 +2874,36 @@ public class BMSFile
         {
             Total = getIIDXtotalValue();
         }
-        Duration = Measures[Measures.LastIndex].Control.Last((Chart.Note n) => n.Type == Chart.Note.NoteType.BAR_LINE).AbsoluteTime;
+        Duration = Measures[Measures.LastIndex].Control.Last(n => n.Type == Chart.Note.NoteType.BAR_LINE).AbsoluteTime;
     }
 
     private KeyType DetectKeyNum()
     {
-        int[] source = new int[2] { 7, 8 };
-        int[] source2 = new int[9] { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
-        int[] source3 = new int[5] { 0, 1, 2, 3, 4 };
-        int[] source4 = new int[4] { 5, 6, 7, 8 };
-        int[] source5 = new int[5] { 0, 5, 6, 7, 8 };
-        int[] source6 = new int[2] { 7, 8 };
-        int[] source7 = new int[2] { 7, 8 };
-        int[] source8 = new int[9] { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
-        if (source.Sum((int i) => NoteCount1P[i] + NoteCount1PMN[i]) + source2.Sum((int i) => NoteCount2P[i] + NoteCount2PMN[i]) == 0)
+        int[] source = [7, 8];
+        int[] source2 = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+        int[] source3 = [0, 1, 2, 3, 4];
+        int[] source4 = [5, 6, 7, 8];
+        int[] source5 = [0, 5, 6, 7, 8];
+        int[] source6 = [7, 8];
+        int[] source7 = [7, 8];
+        int[] source8 = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+        if (source.Sum(i => NoteCount1P[i] + NoteCount1PMN[i]) + source2.Sum(i => NoteCount2P[i] + NoteCount2PMN[i]) == 0)
         {
-            if (source3.All((int i) => NoteCount1P[i] + NoteCount1PMN[i] == 0))
+            if (source3.All(i => NoteCount1P[i] + NoteCount1PMN[i] == 0))
             {
                 return KeyType.KEYS7;
             }
             return KeyType.KEYS5;
         }
-        if (source4.All((int i) => NoteCount1P[i] + NoteCount1PMN[i] == 0) && source5.All((int i) => NoteCount2P[i] + NoteCount2PMN[i] == 0))
+        if (source4.All(i => NoteCount1P[i] + NoteCount1PMN[i] == 0) && source5.All(i => NoteCount2P[i] + NoteCount2PMN[i] == 0))
         {
             return KeyType.KEYS9;
         }
-        if (source6.All((int i) => NoteCount1P[i] + NoteCount1PMN[i] == 0) && source7.All((int i) => NoteCount2P[i] + NoteCount2PMN[i] == 0))
+        if (source6.All(i => NoteCount1P[i] + NoteCount1PMN[i] == 0) && source7.All(i => NoteCount2P[i] + NoteCount2PMN[i] == 0))
         {
             return KeyType.KEYS10;
         }
-        if (source8.All((int i) => NoteCount2P[i] + NoteCount2PMN[i] == 0))
+        if (source8.All(i => NoteCount2P[i] + NoteCount2PMN[i] == 0))
         {
             return KeyType.KEYS7;
         }

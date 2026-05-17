@@ -13,16 +13,16 @@ public sealed class DropInstallQueueProcessorTests
     [TestMethod]
     public void Enqueue_ProcessesBatchesSequentiallyAndReportsPendingCount()
     {
-        List<string> processed = new List<string>();
-        List<DropInstallQueueStatusSnapshot> snapshots = new List<DropInstallQueueStatusSnapshot>();
-        object syncRoot = new object();
+        List<string> processed = [];
+        List<DropInstallQueueStatusSnapshot> snapshots = [];
+        object syncRoot = new();
         Exception? backgroundFailure = null;
-        ManualResetEventSlim firstStarted = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim releaseFirst = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim secondFinished = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim pendingReported = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim queueBecameInactive = new ManualResetEventSlim(initialState: false);
-        DropInstallQueueProcessor processor = new DropInstallQueueProcessor(
+        var firstStarted = new ManualResetEventSlim(initialState: false);
+        var releaseFirst = new ManualResetEventSlim(initialState: false);
+        var secondFinished = new ManualResetEventSlim(initialState: false);
+        var pendingReported = new ManualResetEventSlim(initialState: false);
+        var queueBecameInactive = new ManualResetEventSlim(initialState: false);
+        var processor = new DropInstallQueueProcessor(
             delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
                 lock (syncRoot)
@@ -99,14 +99,14 @@ public sealed class DropInstallQueueProcessorTests
     [TestMethod]
     public void CancelAll_CancelsActiveBatchAndClearsPendingBatches()
     {
-        List<string> startedBatches = new List<string>();
-        List<DropInstallQueueStatusSnapshot> snapshots = new List<DropInstallQueueStatusSnapshot>();
-        object syncRoot = new object();
+        List<string> startedBatches = [];
+        List<DropInstallQueueStatusSnapshot> snapshots = [];
+        object syncRoot = new();
         Exception? backgroundFailure = null;
-        ManualResetEventSlim firstStarted = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim tokenCancelled = new ManualResetEventSlim(initialState: false);
-        ManualResetEventSlim queueBecameInactive = new ManualResetEventSlim(initialState: false);
-        DropInstallQueueProcessor processor = new DropInstallQueueProcessor(
+        var firstStarted = new ManualResetEventSlim(initialState: false);
+        var tokenCancelled = new ManualResetEventSlim(initialState: false);
+        var queueBecameInactive = new ManualResetEventSlim(initialState: false);
+        var processor = new DropInstallQueueProcessor(
             delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
                 lock (syncRoot)
@@ -114,7 +114,7 @@ public sealed class DropInstallQueueProcessorTests
                     startedBatches.Add(request.DisplayName);
                 }
                 firstStarted.Set();
-                int signaledIndex = WaitHandle.WaitAny(new WaitHandle[1] { token.WaitHandle }, 3000);
+                int signaledIndex = WaitHandle.WaitAny([token.WaitHandle], 3000);
                 if (signaledIndex == WaitHandle.WaitTimeout)
                 {
                     lock (syncRoot)
@@ -154,18 +154,18 @@ public sealed class DropInstallQueueProcessorTests
                 throw backgroundFailure;
             }
             CollectionAssert.AreEqual(new[] { "first.zip" }, startedBatches);
-            Assert.IsTrue(snapshots.Any((DropInstallQueueStatusSnapshot snapshot) => snapshot.IsCancellationRequested || !snapshot.CanCancel));
+            Assert.IsTrue(snapshots.Any(snapshot => snapshot.IsCancellationRequested || !snapshot.CanCancel));
         }
     }
 
     [TestMethod]
     public void BatchFailure_DoesNotPreventFollowingBatch()
     {
-        List<string> processed = new List<string>();
-        List<string> errors = new List<string>();
-        object syncRoot = new object();
-        ManualResetEventSlim secondFinished = new ManualResetEventSlim(initialState: false);
-        DropInstallQueueProcessor processor = new DropInstallQueueProcessor(
+        List<string> processed = [];
+        List<string> errors = [];
+        object syncRoot = new();
+        var secondFinished = new ManualResetEventSlim(initialState: false);
+        var processor = new DropInstallQueueProcessor(
             delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
                 if (request.DisplayName == "first.zip")

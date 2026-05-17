@@ -14,7 +14,7 @@ public class LR2IRCache : NotificationObject
 
     public LR2IRCache()
     {
-        ranking = new List<LR2IRData>();
+        ranking = [];
     }
 
     public LR2IRCache(XDocument getrankingxml, string md5, DateTime cacheupdate)
@@ -43,15 +43,15 @@ public class LR2IRCache : NotificationObject
         {
             throw new ArgumentException("md5 hashではありません", "md5");
         }
-        if (!Lr2IrRankingCacheParser.TryParseLookup(getrankingxml, md5, cacheupdate, true, out var lookup))
+        if (!Lr2IrRankingCacheParser.TryParseLookup(getrankingxml, md5, cacheupdate, true, out Lr2IrRankingLookup lookup))
         {
-            ranking = new List<LR2IRData>();
+            ranking = [];
             Lookup = null;
             throw new FormatException("LR2IR ranking cache XML could not be parsed.");
         }
 
         Lookup = lookup;
-        ranking = lookup.Ranking.ToList();
+        ranking = [.. lookup.Ranking];
     }
 
     public void SetRanking(string rankingxml, string md5, DateTime cacheupdate)
@@ -68,15 +68,15 @@ public class LR2IRCache : NotificationObject
         {
             throw new ArgumentException("md5 hashではありません", "md5");
         }
-        if (!Lr2IrRankingCacheParser.TryParseLookup(rankingxml, md5, cacheupdate, true, out var lookup))
+        if (!Lr2IrRankingCacheParser.TryParseLookup(rankingxml, md5, cacheupdate, true, out Lr2IrRankingLookup lookup))
         {
-            ranking = new List<LR2IRData>();
+            ranking = [];
             Lookup = null;
             throw new FormatException("LR2IR ranking cache XML could not be parsed.");
         }
 
         Lookup = lookup;
-        ranking = lookup.Ranking.ToList();
+        ranking = [.. lookup.Ranking];
     }
 
     public LR2IRData GetLR2IRData(int _lr2id)
@@ -91,6 +91,6 @@ public class LR2IRCache : NotificationObject
 
     public int GetRankFromScore(int score)
     {
-        return Lookup?.GetRankFromScore(score) ?? ranking.TakeWhile((LR2IRData s) => s.score > score).Count() + 1;
+        return Lookup?.GetRankFromScore(score) ?? ranking.TakeWhile(s => s.score > score).Count() + 1;
     }
 }

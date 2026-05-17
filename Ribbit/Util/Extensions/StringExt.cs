@@ -18,32 +18,32 @@ public static class StringExt
 
         private static readonly TryPattern Func;
 
-        private static TryParsePattern tp;
+        private static readonly TryParsePattern tp;
 
         static Cache()
         {
-            MethodInfo method = typeof(T).GetMethod("TryParse", new Type[2]
-            {
+            MethodInfo method = typeof(T).GetMethod("TryParse",
+            [
                 typeof(string),
                 typeof(T).MakeByRefType()
-            });
+            ]);
             if (method == null)
             {
                 if (typeof(T) == typeof(string))
                 {
-                    Func = (string x, T y) => (T)(object)x;
+                    Func = (x, y) => (T)(object)x;
                     return;
                 }
                 if (typeof(T).IsEnum)
                 {
                     throw new NotSupportedException("Convert to enum type is not supported");
                 }
-                Func = (string x, T y) => y;
+                Func = (x, y) => y;
             }
             else
             {
                 tp = (TryParsePattern)Delegate.CreateDelegate(typeof(TryParsePattern), method);
-                Func = (string x, T y) => tp(x, out var value) ? value : y;
+                Func = (x, y) => tp(x, out T value) ? value : y;
             }
         }
 
@@ -55,19 +55,19 @@ public static class StringExt
 
     private static readonly Encoding sjisEnc = Encoding.GetEncoding("shift_jis", new EncoderReplacementFallback(string.Empty), new DecoderReplacementFallback(string.Empty));
 
-    private static Regex invalidFileNameCharsRegex = new Regex("[" + Regex.Escape(new string(Path.GetInvalidFileNameChars())) + "]", RegexOptions.Compiled);
+    private static readonly Regex invalidFileNameCharsRegex = new("[" + Regex.Escape(new string(Path.GetInvalidFileNameChars())) + "]", RegexOptions.Compiled);
 
-    private static Regex invalidFileNameStringsRegex = new Regex("^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]|CLOCK\\$)(?:\\.+(.*))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex invalidFileNameStringsRegex = new("^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]|CLOCK\\$)(?:\\.+(.*))?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static Regex invalidHeadTailCharsRegex = new Regex("^[\\s.\u3000]*(.*?)[\\s.\u3000]*$", RegexOptions.Compiled);
+    private static readonly Regex invalidHeadTailCharsRegex = new("^[\\s.\u3000]*(.*?)[\\s.\u3000]*$", RegexOptions.Compiled);
 
-    private static Regex multipleExtensionPeriodsRegex = new Regex("[.]+([^.]+)$", RegexOptions.Compiled);
+    private static readonly Regex multipleExtensionPeriodsRegex = new("[.]+([^.]+)$", RegexOptions.Compiled);
 
-    private static Regex wideCharsAsciiRegex = new Regex("[\u3000！“”＃＄％＆‘’（）＊＋，－．／：；＜＝＞？＠［￥］\uff3e\uff3f\uffe3｜０-９Ａ-Ｚａ-ｚ]", RegexOptions.Compiled);
+    private static readonly Regex wideCharsAsciiRegex = new("[\u3000！“”＃＄％＆‘’（）＊＋，－．／：；＜＝＞？＠［￥］\uff3e\uff3f\uffe3｜０-９Ａ-Ｚａ-ｚ]", RegexOptions.Compiled);
 
-    private static Regex narrowCharsKanaRegex = new Regex("[｡-ﾟ]+", RegexOptions.Compiled);
+    private static readonly Regex narrowCharsKanaRegex = new("[｡-ﾟ]+", RegexOptions.Compiled);
 
-    private static Regex multipleSpacesRegex = new Regex("[\\s\u3000]{2,}", RegexOptions.Compiled);
+    private static readonly Regex multipleSpacesRegex = new("[\\s\u3000]{2,}", RegexOptions.Compiled);
 
     public static string ReplaceFromStart(this string input, string search, string replacement, bool isIgnoreCase = false)
     {
@@ -101,7 +101,7 @@ public static class StringExt
         {
             throw new ArgumentNullException("source");
         }
-        using StringReader reader = new StringReader(source);
+        using var reader = new StringReader(source);
         string text;
         while ((text = reader.ReadLine()) != null)
         {
@@ -124,7 +124,7 @@ public static class StringExt
 
     public static string RemoveBlanks(this string str)
     {
-        StringBuilder stringBuilder = new StringBuilder(str.Length);
+        var stringBuilder = new StringBuilder(str.Length);
         foreach (char c in str)
         {
             if (!char.IsWhiteSpace(c))
@@ -149,13 +149,13 @@ public static class StringExt
 
     public static string ReplaceInvalidFileNameCharsByWide(this string input)
     {
-        return invalidFileNameCharsRegex.Replace(input, (Match m) => Strings.StrConv(m.Value, VbStrConv.Wide, 1041));
+        return invalidFileNameCharsRegex.Replace(input, m => Strings.StrConv(m.Value, VbStrConv.Wide, 1041));
     }
 
     public static string NaturalNormalizationForFileName(this string input)
     {
-        input = wideCharsAsciiRegex.Replace(input, (Match m) => Strings.StrConv(m.Value, VbStrConv.Narrow, 1041));
-        input = narrowCharsKanaRegex.Replace(input, (Match m) => Strings.StrConv(m.Value, VbStrConv.Wide, 1041));
+        input = wideCharsAsciiRegex.Replace(input, m => Strings.StrConv(m.Value, VbStrConv.Narrow, 1041));
+        input = narrowCharsKanaRegex.Replace(input, m => Strings.StrConv(m.Value, VbStrConv.Wide, 1041));
         input = multipleSpacesRegex.Replace(input, " ");
         return input.Trim();
     }
@@ -194,7 +194,7 @@ public static class StringExt
         int[,] array = new int[str1.Length, str2.Length];
         int num = 0;
         int num2 = 0;
-        StringBuilder stringBuilder = new StringBuilder();
+        var stringBuilder = new StringBuilder();
         for (int i = 0; i < str1.Length; i++)
         {
             for (int j = 0; j < str2.Length; j++)
@@ -236,7 +236,7 @@ public static class StringExt
         {
             return string.Empty;
         }
-        StringBuilder stringBuilder = new StringBuilder();
+        var stringBuilder = new StringBuilder();
         for (int i = 0; i < System.Math.Min(str1.Length, str2.Length) && str1[i] == str2[i]; i++)
         {
             stringBuilder.Append(str1[i]);

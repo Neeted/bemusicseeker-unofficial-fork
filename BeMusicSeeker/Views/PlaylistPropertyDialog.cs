@@ -56,18 +56,17 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 
     private void folderListUp(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
         IList selectedItems = foldersListBox.SelectedItems;
-        if (mainWindowViewModel == null || selectedItems == null || selectedItems.Count == 0)
+        if (base.DataContext is not MainWindowViewModel mainWindowViewModel || selectedItems == null || selectedItems.Count == 0)
         {
             return;
         }
         DispatcherCollection<string> folder_order = mainWindowViewModel.playlistPropertyDialog.folder_order;
-        List<int> list = (from string f in selectedItems
+        List<int> list = [.. (from string f in selectedItems
                           select folder_order.IndexOf(f) into i
                           where i != -1
                           orderby i
-                          select i).ToList();
+                          select i)];
         for (int num = 0; num < list.Count(); num++)
         {
             if (list[num] > num)
@@ -80,18 +79,17 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 
     private void folderListDown(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
         IList selectedItems = foldersListBox.SelectedItems;
-        if (mainWindowViewModel == null || selectedItems == null || selectedItems.Count == 0)
+        if (base.DataContext is not MainWindowViewModel mainWindowViewModel || selectedItems == null || selectedItems.Count == 0)
         {
             return;
         }
         DispatcherCollection<string> folder_order = mainWindowViewModel.playlistPropertyDialog.folder_order;
-        List<int> list = (from string f in selectedItems
+        List<int> list = [.. (from string f in selectedItems
                           select folder_order.IndexOf(f) into i
                           where i != -1
                           orderby i
-                          select i).ToList();
+                          select i)];
         list.Reverse();
         for (int num = 0; num < list.Count(); num++)
         {
@@ -105,13 +103,13 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 
     private void folderNaturalSort(object sender, RoutedEventArgs e)
     {
-        if (!(sender is CheckBox { IsChecked: var isChecked }) || isChecked != true || !(base.DataContext is MainWindowViewModel mainWindowViewModel))
+        if (!(sender is CheckBox { IsChecked: var isChecked }) || isChecked != true || base.DataContext is not MainWindowViewModel mainWindowViewModel)
         {
             return;
         }
         DispatcherCollection<string> folder_order = mainWindowViewModel.playlistPropertyDialog.folder_order;
-        using NaturalComparer<string> comparer = new NaturalComparer<string>();
-        List<string> list = folder_order.ToList();
+        using var comparer = new NaturalComparer<string>();
+        List<string> list = [.. folder_order];
         list.Sort(comparer);
         mainWindowViewModel.playlistPropertyDialog.folder_order = new DispatcherCollection<string>(new ObservableCollection<string>(list), DispatcherHelper.UIDispatcher);
     }

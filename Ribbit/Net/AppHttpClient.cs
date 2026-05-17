@@ -72,25 +72,18 @@ internal sealed class AppHttpResponse : IDisposable
     /// <param name="responseStream">保持する応答ストリーム。</param>
     internal AppHttpResponse(Uri requestUri, HttpResponseMessage httpResponseMessage, Stream responseStream)
     {
-        if (requestUri == null)
-        {
-            throw new ArgumentNullException(nameof(requestUri));
-        }
         if (httpResponseMessage == null)
         {
             throw new ArgumentNullException(nameof(httpResponseMessage));
         }
-        if (responseStream == null)
-        {
-            throw new ArgumentNullException(nameof(responseStream));
-        }
-        RequestUri = requestUri;
+
+        RequestUri = requestUri ?? throw new ArgumentNullException(nameof(requestUri));
         ResponseUri = httpResponseMessage.RequestMessage?.RequestUri ?? requestUri;
         StatusCode = httpResponseMessage.StatusCode;
         Headers = httpResponseMessage.Headers;
         ContentHeaders = httpResponseMessage.Content?.Headers;
         ContentLength = httpResponseMessage.Content?.Headers?.ContentLength;
-        ResponseStream = responseStream;
+        ResponseStream = responseStream ?? throw new ArgumentNullException(nameof(responseStream));
         this.httpResponseMessage = httpResponseMessage;
     }
 
@@ -101,15 +94,11 @@ internal sealed class AppHttpResponse : IDisposable
     /// <param name="responseStream">保持するファイルストリーム。</param>
     internal AppHttpResponse(Uri fileUri, Stream responseStream)
     {
-        if (fileUri == null)
-        {
-            throw new ArgumentNullException(nameof(fileUri));
-        }
         if (responseStream == null)
         {
             throw new ArgumentNullException(nameof(responseStream));
         }
-        RequestUri = fileUri;
+        RequestUri = fileUri ?? throw new ArgumentNullException(nameof(fileUri));
         ResponseUri = fileUri;
         StatusCode = HttpStatusCode.OK;
         Headers = null;
@@ -171,7 +160,7 @@ internal sealed class AppHttpClient
     /// <param name="requestTimeoutMs">リクエスト全体のタイムアウト時間（ミリ秒）。</param>
     private AppHttpClient(int requestTimeoutMs)
     {
-        HttpClientHandler httpClientHandler = new HttpClientHandler
+        var httpClientHandler = new HttpClientHandler
         {
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
         };
@@ -208,10 +197,8 @@ internal sealed class AppHttpClient
         {
             return File.ReadAllBytes(uri.LocalPath);
         }
-        using (HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri))
-        {
-            return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-        }
+        using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
+        return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -234,7 +221,7 @@ internal sealed class AppHttpClient
     /// <param name="cancellationToken">キャンセル用トークン。</param>
     /// <returns>指定文字コードで解釈した文字列。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="uri"/> が <see langword="null"/> の場合。</exception>
-    internal async Task<string> GetStringAsync(Uri uri, Encoding encoding = null, CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<string> GetStringAsync(Uri uri, Encoding encoding = null, CancellationToken cancellationToken = default)
     {
         if (uri == null)
         {
@@ -270,7 +257,7 @@ internal sealed class AppHttpClient
         {
             throw new ArgumentNullException(nameof(formData));
         }
-        List<KeyValuePair<string, string>> list = new List<KeyValuePair<string, string>>();
+        List<KeyValuePair<string, string>> list = [];
         foreach (string allKey in formData.AllKeys)
         {
             string[] values = formData.GetValues(allKey);
@@ -284,10 +271,8 @@ internal sealed class AppHttpClient
                 list.Add(new KeyValuePair<string, string>(allKey ?? string.Empty, value ?? string.Empty));
             }
         }
-        using (FormUrlEncodedContent formUrlEncodedContent = new FormUrlEncodedContent(list))
-        {
-            return ReadResponseString(Send(HttpMethod.Post, uri, formUrlEncodedContent), responseEncoding);
-        }
+        using var formUrlEncodedContent = new FormUrlEncodedContent(list);
+        return ReadResponseString(Send(HttpMethod.Post, uri, formUrlEncodedContent), responseEncoding);
     }
 
     /// <summary>
@@ -312,11 +297,9 @@ internal sealed class AppHttpClient
         }
         Encoding requestEncoding = ResolveContentEncoding(contentType);
         byte[] bytes = requestEncoding.GetBytes(body ?? string.Empty);
-        using (ByteArrayContent byteArrayContent = new ByteArrayContent(bytes))
-        {
-            byteArrayContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-            return ReadResponseString(Send(HttpMethod.Post, uri, byteArrayContent, headers), responseEncoding);
-        }
+        using var byteArrayContent = new ByteArrayContent(bytes);
+        byteArrayContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
+        return ReadResponseString(Send(HttpMethod.Post, uri, byteArrayContent, headers), responseEncoding);
     }
 
     /// <summary>
@@ -355,40 +338,34 @@ internal sealed class AppHttpClient
         {
             fileName = Path.GetFileName(filePath);
         }
-        using (MultipartFormDataContent multipartFormDataContent = new MultipartFormDataContent())
+        using MultipartFormDataContent multipartFormDataContent = [];
+        if (additionalFormFields != null)
         {
-            if (additionalFormFields != null)
+            foreach (KeyValuePair<string, string> additionalFormField in additionalFormFields)
             {
-                foreach (KeyValuePair<string, string> additionalFormField in additionalFormFields)
-                {
-                    multipartFormDataContent.Add(new StringContent(additionalFormField.Value ?? string.Empty), additionalFormField.Key ?? string.Empty);
-                }
-            }
-            using (ByteArrayContent byteArrayContent = new ByteArrayContent(File.ReadAllBytes(filePath)))
-            {
-                byteArrayContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                byteArrayContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
-                {
-                    Name = QuoteContentDispositionValue(formFieldName),
-                    FileName = QuoteContentDispositionValue(fileName),
-                    FileNameStar = null
-                };
-                multipartFormDataContent.Add(byteArrayContent);
-                using (HttpResponseMessage httpResponseMessage = Send(HttpMethod.Post, uri, multipartFormDataContent, headers, throwOnNonSuccess: false))
-                {
-                    byte[] responseBytes = ReadResponseBytes(httpResponseMessage);
-                    string responseBody = DecodeStringAndTrimBom(responseBytes, responseEncoding);
-                    if (!httpResponseMessage.IsSuccessStatusCode)
-                    {
-                        string formattedResponseBody = logErrorResponseBody ? FormatResponseBodyForLog(responseBody) : null;
-                        LogRequestFailure(HttpMethod.Post.Method, uri, httpResponseMessage, null, null, formattedResponseBody);
-                        HttpStatusCode statusCode = httpResponseMessage.StatusCode;
-                        throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
-                    }
-                    return responseBody;
-                }
+                multipartFormDataContent.Add(new StringContent(additionalFormField.Value ?? string.Empty), additionalFormField.Key ?? string.Empty);
             }
         }
+        using var byteArrayContent = new ByteArrayContent(File.ReadAllBytes(filePath));
+        byteArrayContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        byteArrayContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
+        {
+            Name = QuoteContentDispositionValue(formFieldName),
+            FileName = QuoteContentDispositionValue(fileName),
+            FileNameStar = null
+        };
+        multipartFormDataContent.Add(byteArrayContent);
+        using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Post, uri, multipartFormDataContent, headers, throwOnNonSuccess: false);
+        byte[] responseBytes = ReadResponseBytes(httpResponseMessage);
+        string responseBody = DecodeStringAndTrimBom(responseBytes, responseEncoding);
+        if (!httpResponseMessage.IsSuccessStatusCode)
+        {
+            string formattedResponseBody = logErrorResponseBody ? FormatResponseBodyForLog(responseBody) : null;
+            LogRequestFailure(HttpMethod.Post.Method, uri, httpResponseMessage, null, null, formattedResponseBody);
+            HttpStatusCode statusCode = httpResponseMessage.StatusCode;
+            throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
+        }
+        return responseBody;
     }
 
     /// <summary>
@@ -412,16 +389,10 @@ internal sealed class AppHttpClient
             File.Copy(uri.LocalPath, destinationPath, overwrite: true);
             return;
         }
-        using (HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri))
-        {
-            using (Stream stream = httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false).GetAwaiter().GetResult())
-            {
-                using (FileStream fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                {
-                    stream.CopyTo(fileStream);
-                }
-            }
-        }
+        using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
+        using Stream stream = httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+        using var fileStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+        stream.CopyTo(fileStream);
     }
 
     /// <summary>
@@ -479,7 +450,7 @@ internal sealed class AppHttpClient
     /// <param name="throwOnNonSuccess"><see langword="true"/> の場合は非成功レスポンスを例外化します。</param>
     /// <returns>レスポンス。既定では成功レスポンスのみ返します。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="method"/> または <paramref name="uri"/> が <see langword="null"/> の場合。</exception>
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, CancellationToken cancellationToken = default(CancellationToken), bool throwOnNonSuccess = true)
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, CancellationToken cancellationToken = default, bool throwOnNonSuccess = true)
     {
         if (method == null)
         {
@@ -489,50 +460,48 @@ internal sealed class AppHttpClient
         {
             throw new ArgumentNullException(nameof(uri));
         }
-        using (HttpRequestMessage httpRequestMessage = new HttpRequestMessage(method, uri))
+        using var httpRequestMessage = new HttpRequestMessage(method, uri);
+        httpRequestMessage.Content = content;
+        if (headers != null)
         {
-            httpRequestMessage.Content = content;
-            if (headers != null)
+            foreach (KeyValuePair<string, string> header in headers)
             {
-                foreach (KeyValuePair<string, string> header in headers)
-                {
-                    httpRequestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value);
-                }
+                httpRequestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value);
             }
-            HttpResponseMessage httpResponseMessage;
-            try
+        }
+        HttpResponseMessage httpResponseMessage;
+        try
+        {
+            httpResponseMessage = await httpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException ex)
+        {
+            LogRequestFailure(method.Method, uri, null, "timeout_or_canceled", ex);
+            throw;
+        }
+        catch (HttpRequestException ex)
+        {
+            LogRequestFailure(method.Method, uri, null, "http_request_exception", ex);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LogRequestFailure(method.Method, uri, null, "unexpected_exception", ex);
+            throw;
+        }
+        if (!httpResponseMessage.IsSuccessStatusCode)
+        {
+            if (throwOnNonSuccess)
             {
-                httpResponseMessage = await httpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                LogRequestFailure(method.Method, uri, httpResponseMessage, null, null);
+                HttpStatusCode statusCode = httpResponseMessage.StatusCode;
+                httpResponseMessage.Dispose();
+                throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
             }
-            catch (TaskCanceledException ex)
-            {
-                LogRequestFailure(method.Method, uri, null, "timeout_or_canceled", ex);
-                throw;
-            }
-            catch (HttpRequestException ex)
-            {
-                LogRequestFailure(method.Method, uri, null, "http_request_exception", ex);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                LogRequestFailure(method.Method, uri, null, "unexpected_exception", ex);
-                throw;
-            }
-            if (!httpResponseMessage.IsSuccessStatusCode)
-            {
-                if (throwOnNonSuccess)
-                {
-                    LogRequestFailure(method.Method, uri, httpResponseMessage, null, null);
-                    HttpStatusCode statusCode = httpResponseMessage.StatusCode;
-                    httpResponseMessage.Dispose();
-                    throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
-                }
-                return httpResponseMessage;
-            }
-            LogRequestSuccess(method.Method, uri, httpResponseMessage);
             return httpResponseMessage;
         }
+        LogRequestSuccess(method.Method, uri, httpResponseMessage);
+        return httpResponseMessage;
     }
 
     /// <summary>
@@ -568,7 +537,7 @@ internal sealed class AppHttpClient
         }
         if (httpResponseMessage.Content == null)
         {
-            return Array.Empty<byte>();
+            return [];
         }
         return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     }
@@ -593,7 +562,7 @@ internal sealed class AppHttpClient
     /// <returns>先頭 BOM を除去した文字列。</returns>
     private static string DecodeStringAndTrimBom(byte[] bytes, Encoding encoding)
     {
-        string decoded = ResolveEncoding(encoding).GetString(bytes ?? Array.Empty<byte>());
+        string decoded = ResolveEncoding(encoding).GetString(bytes ?? []);
         if (!string.IsNullOrEmpty(decoded) && decoded[0] == '\uFEFF')
         {
             return decoded.Substring(1);

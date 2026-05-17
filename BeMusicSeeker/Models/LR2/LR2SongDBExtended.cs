@@ -280,10 +280,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
             protected set
             {
-                if (value == null)
-                {
-                    value = string.Empty;
-                }
+                value ??= string.Empty;
                 if (!(title == value))
                 {
                     title = value;
@@ -299,10 +296,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
             protected set
             {
-                if (value == null)
-                {
-                    value = string.Empty;
-                }
+                value ??= string.Empty;
                 if (!(_artist == value))
                 {
                     _artist = value;
@@ -318,10 +312,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
             set
             {
-                if (value == null)
-                {
-                    value = string.Empty;
-                }
+                value ??= string.Empty;
                 if (!(_folder == value))
                 {
                     _folder = value;
@@ -394,7 +385,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                     _sha256 = null;
                     return;
                 }
-                if (value.Length != 64 || value.Any((char c) => !Uri.IsHexDigit(c)))
+                if (value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
                 {
                     throw new FormatException("SHA256 HASH ではありません");
                 }
@@ -611,7 +602,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             {
                 return null;
             }
-            if (value.Length != 64 || value.Any((char c) => !Uri.IsHexDigit(c)))
+            if (value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
             {
                 throw new FormatException("SHA256 HASH ではありません");
             }
@@ -910,7 +901,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                     _sha256 = null;
                     return;
                 }
-                if (value.Length != 64 || value.Any((char c) => !Uri.IsHexDigit(c)))
+                if (value.Length != 64 || value.Any(c => !Uri.IsHexDigit(c)))
                 {
                     throw new FormatException("SHA256 HASH ではありません");
                 }
@@ -969,10 +960,10 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public DateTime updated_at { get; set; }
 
         [Ignore]
-        public List<string> wav_files { get; set; } = new List<string>();
+        public List<string> wav_files { get; set; } = [];
 
         [Ignore]
-        public List<string> bga_files { get; set; } = new List<string>();
+        public List<string> bga_files { get; set; } = [];
 
         /// <summary>
         /// この実行中に parser から resource reference を構築済みかどうか。
@@ -1166,13 +1157,13 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public List<string[]> GetRawValuesAsString()
         {
-            List<string[]> list = new List<string[]>();
+            List<string[]> list = [];
             IntPtr stmt = Prepare();
             int count = SQLite3.ColumnCount(stmt);
             while (SQLite3.Step(stmt) == SQLite3.Result.Row)
             {
-                list.Add((from i in Enumerable.Range(0, count)
-                          select SQLite3.ColumnString(stmt, i)).ToArray());
+                list.Add([.. (from i in Enumerable.Range(0, count)
+                          select SQLite3.ColumnString(stmt, i))]);
             }
             Finalize(stmt);
             return list;
@@ -1208,7 +1199,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         }
     }
 
-    private static object lockObject = new object();
+    private static readonly object lockObject = new();
 
     private bool doNotUnlock;
 
@@ -1269,7 +1260,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
             doNotUnlock = true;
             return;
         }
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         Monitor.Enter(lockObject);
         stopwatch.Stop();
         ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;
@@ -1322,8 +1313,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
     public IEnumerable<string> Dump<T>()
     {
         SQLiteCommand sQLiteCommand = CreateCommand($"PRAGMA TABLE_INFO ('{GetMapping(typeof(T)).TableName}');");
-        List<string> colNames = (from r in ((SQLiteCommandExtended)sQLiteCommand).GetRawValuesAsString()
-                                 select r[1]).ToList();
+        List<string> colNames = [.. (from r in ((SQLiteCommandExtended)sQLiteCommand).GetRawValuesAsString()
+                                 select r[1])];
         sQLiteCommand = CreateCommand($"SELECT * FROM \"{GetMapping(typeof(T)).TableName}\";");
         List<string[]> rawValuesAsString = ((SQLiteCommandExtended)sQLiteCommand).GetRawValuesAsString();
         if (rawValuesAsString.Count == 0)
@@ -1334,10 +1325,10 @@ public sealed class LR2SongDBExtended : LR2SongDB
         {
             throw SQLiteException.New(SQLite3.Result.Abort, "Dump failed");
         }
-        Func<string, string> sqlQuote = (string str) => (!string.IsNullOrWhiteSpace(str)) ? ((!double.TryParse(str, out var _) || (str.Count() > 1 && str.StartsWith("0"))) ? ("'" + str.Replace("'", "''") + "'") : str) : "''";
+        static string sqlQuote(string str) => (!string.IsNullOrWhiteSpace(str)) ? ((!double.TryParse(str, out double _) || (str.Count() > 1 && str.StartsWith("0"))) ? ("'" + str.Replace("'", "''") + "'") : str) : "''";
         foreach (string[] item in rawValuesAsString)
         {
-            yield return $"INSERT OR REPLACE INTO \"{GetMapping(typeof(T)).TableName}\" " + "(" + string.Join(", ", colNames.Select((string c) => $"\"{c}\"")) + ") VALUES (" + string.Join(", ", item.Select((string c) => (c != null) ? sqlQuote(c) : "NULL")) + ");";
+            yield return $"INSERT OR REPLACE INTO \"{GetMapping(typeof(T)).TableName}\" " + "(" + string.Join(", ", colNames.Select(c => $"\"{c}\"")) + ") VALUES (" + string.Join(", ", item.Select(c => (c != null) ? sqlQuote(c) : "NULL")) + ");";
         }
     }
 }

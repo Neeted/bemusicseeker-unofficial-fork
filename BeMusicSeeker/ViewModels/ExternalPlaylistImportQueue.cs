@@ -49,29 +49,29 @@ internal sealed class ExternalPlaylistImportQueueSummary
 {
     internal ExternalPlaylistImportQueueSummary(IEnumerable<ExternalPlaylistImportOutcome> outcomes)
     {
-        Outcomes = (outcomes ?? Enumerable.Empty<ExternalPlaylistImportOutcome>()).Where((ExternalPlaylistImportOutcome outcome) => outcome != null).ToList();
+        Outcomes = (outcomes ?? []).Where(outcome => outcome != null).ToList();
     }
 
     internal IReadOnlyList<ExternalPlaylistImportOutcome> Outcomes { get; }
 
-    internal int ImportedCount => Outcomes.Count((ExternalPlaylistImportOutcome outcome) => outcome.Kind == ExternalPlaylistImportOutcomeKind.Imported);
+    internal int ImportedCount => Outcomes.Count(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.Imported);
 
-    internal int SkippedDuplicateNameCount => Outcomes.Count((ExternalPlaylistImportOutcome outcome) => outcome.Kind == ExternalPlaylistImportOutcomeKind.SkippedDuplicateName);
+    internal int SkippedDuplicateNameCount => Outcomes.Count(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.SkippedDuplicateName);
 
-    internal int FailedCount => Outcomes.Count((ExternalPlaylistImportOutcome outcome) => outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed);
+    internal int FailedCount => Outcomes.Count(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed);
 
     internal bool HasNotifiableItems => SkippedDuplicateNameCount > 0 || FailedCount > 0;
 
-    internal IReadOnlyList<ExternalPlaylistImportOutcome> SkippedDuplicateNameOutcomes => Outcomes.Where((ExternalPlaylistImportOutcome outcome) => outcome.Kind == ExternalPlaylistImportOutcomeKind.SkippedDuplicateName).ToList();
+    internal IReadOnlyList<ExternalPlaylistImportOutcome> SkippedDuplicateNameOutcomes => Outcomes.Where(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.SkippedDuplicateName).ToList();
 
-    internal IReadOnlyList<ExternalPlaylistImportOutcome> FailedOutcomes => Outcomes.Where((ExternalPlaylistImportOutcome outcome) => outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed).ToList();
+    internal IReadOnlyList<ExternalPlaylistImportOutcome> FailedOutcomes => Outcomes.Where(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed).ToList();
 }
 
 internal sealed class ExternalPlaylistImportQueue
 {
-    private readonly object syncRoot = new object();
+    private readonly object syncRoot = new();
 
-    private readonly Queue<Uri> pendingUris = new Queue<Uri>();
+    private readonly Queue<Uri> pendingUris = new();
 
     private bool isDraining;
 
@@ -82,7 +82,7 @@ internal sealed class ExternalPlaylistImportQueue
 
     internal bool EnqueueRange(IEnumerable<Uri> uris)
     {
-        List<Uri> validUris = (uris ?? Enumerable.Empty<Uri>()).Where((Uri uri) => uri != null).ToList();
+        List<Uri> validUris = [.. (uris ?? []).Where(uri => uri != null)];
         if (validUris.Count == 0)
         {
             return false;

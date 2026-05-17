@@ -11,11 +11,11 @@ internal class folderSortKeyListConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (!(value is IEnumerable<string> source))
+        if (value is not IEnumerable<string> source)
         {
             return value;
         }
-        return source.Select((string v) => v switch
+        return source.Select(v => v switch
         {
             "(無し)" => Resources.None,
             "レベル" => Resources.Level,

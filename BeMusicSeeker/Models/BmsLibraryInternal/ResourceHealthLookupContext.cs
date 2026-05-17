@@ -11,7 +11,7 @@ internal enum ResourceHealthFallbackKind
     Unknown
 }
 
-internal sealed class ResourceHealthLookupContext
+internal sealed class ResourceHealthLookupContext(DirectoryResourceLookupCache directoryLookupCache)
 {
     private long cacheHitCount;
 
@@ -27,12 +27,7 @@ internal sealed class ResourceHealthLookupContext
 
     private long unknownFileExistsFallbackCount;
 
-    public ResourceHealthLookupContext(DirectoryResourceLookupCache directoryLookupCache)
-    {
-        DirectoryLookupCache = directoryLookupCache;
-    }
-
-    public DirectoryResourceLookupCache DirectoryLookupCache { get; }
+    public DirectoryResourceLookupCache DirectoryLookupCache { get; } = directoryLookupCache;
 
     public long CacheHitCount => Interlocked.Read(ref cacheHitCount);
 

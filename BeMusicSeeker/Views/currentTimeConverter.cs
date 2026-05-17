@@ -14,8 +14,8 @@ internal class currentTimeConverter : IMultiValueConverter
         }
         try
         {
-            TimeSpan timeSpan = (TimeSpan)values[1];
-            TimeSpan timeSpan2 = (TimeSpan)values[0];
+            var timeSpan = (TimeSpan)values[1];
+            var timeSpan2 = (TimeSpan)values[0];
             string obj = ((!(timeSpan2.TotalHours > 1.0)) ? timeSpan.ToString("mm\\:ss") : ((timeSpan2.TotalDays > 1.0) ? timeSpan.ToString("d\\:hh\\:mm\\:ss") : timeSpan.ToString("hh\\:mm\\:ss")));
             string text = ((!(timeSpan2.TotalHours > 1.0)) ? timeSpan2.ToString("mm\\:ss") : ((timeSpan2.TotalDays > 1.0) ? timeSpan2.ToString("d\\:hh\\:mm\\:ss") : timeSpan2.ToString("hh\\:mm\\:ss")));
             return obj + " / " + text;

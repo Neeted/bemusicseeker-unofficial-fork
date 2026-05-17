@@ -13,8 +13,8 @@ internal static class CustomTableDataTransfer
 
     internal static DataObject CreateSelectedRowsDataObject(IReadOnlyList<object> selectedRows)
     {
-        List<object> rows = selectedRows?.Where(row => row != null).ToList() ?? new List<object>();
-        DataObject dataObject = new DataObject();
+        List<object> rows = selectedRows?.Where(row => row != null).ToList() ?? [];
+        var dataObject = new DataObject();
         dataObject.SetData(SelectedRowsDataFormat, rows);
         dataObject.SetData(LegacySelectedRowsDataFormat, rows);
         return dataObject;
@@ -32,7 +32,7 @@ internal static class CustomTableDataTransfer
         {
             return false;
         }
-        selectedRows = selectedRows.Where(row => row != null).ToList();
+        selectedRows = [.. selectedRows.Where(row => row != null)];
         return selectedRows.Count > 0;
     }
 
@@ -42,7 +42,7 @@ internal static class CustomTableDataTransfer
         {
             return string.Empty;
         }
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         foreach (object row in rows.Where(row => row != null))
         {
             if (builder.Length > 0)
@@ -82,7 +82,7 @@ internal static class CustomTableDataTransfer
         {
             return false;
         }
-        List<CustomTableColumn> reordered = visibleColumns.Where(column => column != null).ToList();
+        List<CustomTableColumn> reordered = [.. visibleColumns.Where(column => column != null)];
         int originalIndex = reordered.IndexOf(sourceColumn);
         if (originalIndex < 0)
         {
@@ -130,7 +130,7 @@ internal static class CustomTableDataTransfer
         {
             if (dataObject.GetData(format) is System.Collections.IEnumerable enumerable)
             {
-                selectedRows = enumerable.Cast<object>().Where(row => row != null).ToList();
+                selectedRows = [.. enumerable.Cast<object>().Where(row => row != null)];
                 return selectedRows.Count > 0;
             }
         }

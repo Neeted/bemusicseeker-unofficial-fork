@@ -11,9 +11,9 @@ public sealed class BMSTableLoadTests
     [TestMethod]
     public void LoadHeaderJson_StoresPassedHeaderUri()
     {
-        BMSTable table = new BMSTable();
-        Uri pageUri = new Uri("https://example.com/table.html");
-        Uri headerUri = new Uri("https://example.com/header.json");
+        var table = new BMSTable();
+        var pageUri = new Uri("https://example.com/table.html");
+        var headerUri = new Uri("https://example.com/header.json");
 
         table.LoadHeaderJSON("{\"name\":\"Test\",\"symbol\":\"T\",\"data_url\":\"score.json\",\"level_order\":[1]}", pageUri, headerUri);
 
@@ -25,7 +25,7 @@ public sealed class BMSTableLoadTests
     [TestMethod]
     public void LoadHeaderJson_PreservesInnerException()
     {
-        BMSTable table = new BMSTable();
+        var table = new BMSTable();
 
         PlaylistHeaderParseException exception = Assert.ThrowsException<PlaylistHeaderParseException>(() => table.LoadHeaderJSON("{ invalid json }"));
 
@@ -35,7 +35,7 @@ public sealed class BMSTableLoadTests
     [TestMethod]
     public void LoadDataJson_PreservesInnerException()
     {
-        BMSTable table = new BMSTable();
+        var table = new BMSTable();
 
         PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(() => table.LoadDataJSON("{ invalid json }"));
 
@@ -45,7 +45,7 @@ public sealed class BMSTableLoadTests
     [TestMethod]
     public void LoadHeaderJson_InvalidDataUrlThrowsInvalidOperationException()
     {
-        BMSTable table = new BMSTable();
+        var table = new BMSTable();
 
         InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() => table.LoadHeaderJSON("{\"name\":\"Test\",\"symbol\":\"T\",\"data_url\":\"http://[broken\",\"level_order\":[1]}"));
 
@@ -55,7 +55,7 @@ public sealed class BMSTableLoadTests
     [TestMethod]
     public void StoredDataUrlSetter_InvalidValueDoesNotThrowAndKeepsNull()
     {
-        BMSTable table = new BMSTable();
+        var table = new BMSTable();
         PropertyInfo propertyInfo = typeof(BMSTable).GetProperty("data_url", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
         propertyInfo.SetValue(table, "http://[broken");
@@ -66,7 +66,7 @@ public sealed class BMSTableLoadTests
     [TestMethod]
     public void LoadHeaderJson_StoresTagAndCoursesForRoundTrip()
     {
-        BMSTable table = new BMSTable();
+        var table = new BMSTable();
 
         table.LoadHeaderJSON("{\"name\":\"Stella\",\"symbol\":\"sl\",\"tag\":\"st\",\"data_url\":\"data.json\",\"level_order\":[0],\"course\":[[{\"name\":\"段位\",\"constraint\":[\"grade_mirror\"],\"md5\":[\"11111111111111111111111111111111\"]}]]}");
 

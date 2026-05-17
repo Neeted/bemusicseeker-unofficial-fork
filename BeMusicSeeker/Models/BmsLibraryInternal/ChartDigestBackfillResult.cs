@@ -24,5 +24,5 @@ internal sealed class ChartDigestBackfillResult
 
     public long TotalMs { get; set; }
 
-    public List<string> FailedPaths { get; } = new List<string>();
+    public List<string> FailedPaths { get; } = [];
 }

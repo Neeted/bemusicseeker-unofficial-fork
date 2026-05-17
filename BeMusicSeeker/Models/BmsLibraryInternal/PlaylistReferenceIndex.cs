@@ -7,17 +7,17 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PlaylistReferenceIndex
 {
-    internal static PlaylistReferenceIndex Empty => new PlaylistReferenceIndex();
+    internal static PlaylistReferenceIndex Empty => new();
 
-    private readonly Dictionary<string, List<BMSTable>> md5ToTablesMap = new Dictionary<string, List<BMSTable>>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<BMSTable>> md5ToTablesMap = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, List<BMSTable>> sha256ToTablesMap = new Dictionary<string, List<BMSTable>>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, List<BMSTable>> sha256ToTablesMap = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, PlaylistReferenceDisplay> md5ToDisplayMap = new Dictionary<string, PlaylistReferenceDisplay>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PlaylistReferenceDisplay> md5ToDisplayMap = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, PlaylistReferenceDisplay> sha256ToDisplayMap = new Dictionary<string, PlaylistReferenceDisplay>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PlaylistReferenceDisplay> sha256ToDisplayMap = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<BMSTable, PlaylistReferenceTableKeys> tableKeys = new Dictionary<BMSTable, PlaylistReferenceTableKeys>(BmsTableReferenceComparer.Instance);
+    private readonly Dictionary<BMSTable, PlaylistReferenceTableKeys> tableKeys = new(BmsTableReferenceComparer.Instance);
 
     internal int Md5Count => md5ToTablesMap.Count;
 
@@ -43,7 +43,7 @@ internal sealed class PlaylistReferenceIndex
             return;
         }
         RemoveTable(table);
-        PlaylistReferenceTableKeys keys = new PlaylistReferenceTableKeys();
+        var keys = new PlaylistReferenceTableKeys();
         AddEntries(table, entries, keys);
         if (keys.HasAny)
         {
@@ -70,7 +70,7 @@ internal sealed class PlaylistReferenceIndex
 
     internal static PlaylistReferenceIndex FromReferenceMaps(PlaylistReferenceMaps referenceMaps)
     {
-        PlaylistReferenceIndex index = new PlaylistReferenceIndex();
+        var index = new PlaylistReferenceIndex();
         if (referenceMaps == null)
         {
             return index;
@@ -82,8 +82,8 @@ internal sealed class PlaylistReferenceIndex
 
     internal static PlaylistReferenceIndex FromTables(IEnumerable<BMSTable> tables)
     {
-        PlaylistReferenceIndex index = new PlaylistReferenceIndex();
-        foreach (BMSTable table in tables ?? Enumerable.Empty<BMSTable>())
+        var index = new PlaylistReferenceIndex();
+        foreach (BMSTable table in tables ?? [])
         {
             if (table == null)
             {
@@ -96,7 +96,7 @@ internal sealed class PlaylistReferenceIndex
                 {
                     throw new InvalidOperationException("Playlist entries are not loaded. table=" + (table.name ?? string.Empty));
                 }
-                entries = table.entries.ToList();
+                entries = [.. table.entries];
             }
             index.ReplaceTable(table, entries);
         }
@@ -116,7 +116,7 @@ internal sealed class PlaylistReferenceIndex
                 continue;
             }
             string key = item.Key.Trim();
-            foreach (BMSTable table in (item.Value ?? Array.Empty<BMSTable>()).Where(table => table != null).Distinct())
+            foreach (BMSTable table in (item.Value ?? []).Where(table => table != null).Distinct())
             {
                 AddTableToKey(target, displayMap, key, table);
                 AddTableKey(table, key, isMd5);
@@ -186,7 +186,7 @@ internal sealed class PlaylistReferenceIndex
         }
         if (!map.TryGetValue(key, out List<BMSTable> tables))
         {
-            tables = new List<BMSTable>();
+            tables = [];
             map[key] = tables;
         }
         if (!tables.Any(candidate => ReferenceEquals(candidate, table)))
@@ -232,7 +232,7 @@ internal sealed class PlaylistReferenceIndex
 
     private sealed class BmsTableReferenceComparer : IEqualityComparer<BMSTable>
     {
-        internal static readonly BmsTableReferenceComparer Instance = new BmsTableReferenceComparer();
+        internal static readonly BmsTableReferenceComparer Instance = new();
 
         public bool Equals(BMSTable x, BMSTable y)
         {

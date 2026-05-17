@@ -5,23 +5,23 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class LibraryMutationDelta
 {
-    public List<BMSFile> FilesToUnregister { get; } = new List<BMSFile>();
+    public List<BMSFile> FilesToUnregister { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> BmsonSongsToUnregister { get; } = new List<LR2SongDBExtended.bmson_song>();
+    public List<LR2SongDBExtended.bmson_song> BmsonSongsToUnregister { get; } = [];
 
-    public List<LibraryFilePathChange> FilePathChanges { get; } = new List<LibraryFilePathChange>();
+    public List<LibraryFilePathChange> FilePathChanges { get; } = [];
 
-    public List<LibraryBmsonSongPathChange> BmsonSongPathChanges { get; } = new List<LibraryBmsonSongPathChange>();
+    public List<LibraryBmsonSongPathChange> BmsonSongPathChanges { get; } = [];
 
-    public List<LibraryFolderPathChange> FolderPathChanges { get; } = new List<LibraryFolderPathChange>();
+    public List<LibraryFolderPathChange> FolderPathChanges { get; } = [];
 
-    public List<LibraryInstallDestinationChange> UpdatedInstallDestinations { get; } = new List<LibraryInstallDestinationChange>();
+    public List<LibraryInstallDestinationChange> UpdatedInstallDestinations { get; } = [];
 
-    public List<LibraryInstalledPackagePathChange> UpdatedInstalledPackagePaths { get; } = new List<LibraryInstalledPackagePathChange>();
+    public List<LibraryInstalledPackagePathChange> UpdatedInstalledPackagePaths { get; } = [];
 
-    public List<BMSFile> FilesToRecheckMaintenance { get; } = new List<BMSFile>();
+    public List<BMSFile> FilesToRecheckMaintenance { get; } = [];
 
-    public List<LibraryDeleteFailure> Failures { get; } = new List<LibraryDeleteFailure>();
+    public List<LibraryDeleteFailure> Failures { get; } = [];
 
     public bool RaiseBmsFilesChanged { get; set; }
 

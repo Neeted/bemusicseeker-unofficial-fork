@@ -58,13 +58,12 @@ internal static class BeatorajaConfigService
         string playerRoot = GetPlayerRootPath(rootPath);
         if (string.IsNullOrWhiteSpace(playerRoot) || !Directory.Exists(playerRoot))
         {
-            return new List<string>();
+            return [];
         }
-        return Directory.EnumerateDirectories(playerRoot, "*", SearchOption.TopDirectoryOnly)
+        return [.. Directory.EnumerateDirectories(playerRoot, "*", SearchOption.TopDirectoryOnly)
             .Select(Path.GetFileName)
-            .Where((string name) => !string.IsNullOrWhiteSpace(name))
-            .OrderBy((string name) => name, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
     }
 
     internal static bool IsPlayerScoreDbPathValid(string rootPath, string playerId)
@@ -82,26 +81,24 @@ internal static class BeatorajaConfigService
             return;
         }
         string configPath = GetConfigPath(rootPath);
-        JObject config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
-        HashSet<string> managedUrlSet = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string url in (previousManagedUrls ?? Enumerable.Empty<string>()).Concat(currentManagedUrls ?? Enumerable.Empty<string>()))
+        var config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+        var managedUrlSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string url in (previousManagedUrls ?? []).Concat(currentManagedUrls ?? []))
         {
             if (!string.IsNullOrWhiteSpace(url))
             {
                 managedUrlSet.Add(url);
             }
         }
-        List<string> existingUrls = (config["tableURL"] as JArray ?? new JArray())
-            .Select((JToken token) => token.Type == JTokenType.String ? token.Value<string>() : null)
-            .Where((string url) => !string.IsNullOrWhiteSpace(url))
-            .Where((string url) => !managedUrlSet.Contains(url))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        List<string> appendedUrls = (currentManagedUrls ?? Enumerable.Empty<string>())
-            .Where((string url) => !string.IsNullOrWhiteSpace(url))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        JArray tableUrl = new JArray(existingUrls.Concat(appendedUrls));
+        List<string> existingUrls = [.. (config["tableURL"] as JArray ?? [])
+            .Select(token => token.Type == JTokenType.String ? token.Value<string>() : null)
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Where(url => !managedUrlSet.Contains(url))
+            .Distinct(StringComparer.Ordinal)];
+        List<string> appendedUrls = [.. (currentManagedUrls ?? [])
+            .Where(url => !string.IsNullOrWhiteSpace(url))
+            .Distinct(StringComparer.Ordinal)];
+        var tableUrl = new JArray(existingUrls.Concat(appendedUrls));
         if (JToken.DeepEquals(config["tableURL"], tableUrl))
         {
             return;
@@ -131,7 +128,7 @@ internal static class BeatorajaConfigService
 
     private static JObject ReadConfigOrDefault(string rootPath)
     {
-        return TryReadConfig(rootPath, out JObject config) ? config : new JObject();
+        return TryReadConfig(rootPath, out JObject config) ? config : [];
     }
 
     private static string ResolveConfiguredPath(string rootPath, string configuredPath, string defaultPath)

@@ -21,12 +21,12 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)
         {
             string installedDir = Path.Combine(tempRoot, "Installed", "PackageA");
-            List<BMSFile> installedFiles = new List<BMSFile>
-            {
+            List<BMSFile> installedFiles =
+            [
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir, "a.bms")),
                 CreateInstalledFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(installedDir, "b.bme")),
                 CreateInstalledFile("cccccccccccccccccccccccccccccccc", Path.Combine(installedDir, "c.pms"))
-            };
+            ];
 
             ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
@@ -49,11 +49,11 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         {
             string installedDir1 = Path.Combine(tempRoot, "Installed", "Dir1");
             string installedDir2 = Path.Combine(tempRoot, "Installed", "Dir2");
-            List<BMSFile> installedFiles = new List<BMSFile>
-            {
+            List<BMSFile> installedFiles =
+            [
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms")),
                 CreateInstalledFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(installedDir2, "b.bme"))
-            };
+            ];
 
             ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
@@ -75,11 +75,11 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         {
             string installedDir1 = Path.Combine(tempRoot, "Installed", "Dir1");
             string installedDir2 = Path.Combine(tempRoot, "Installed", "Dir2");
-            List<BMSFile> installedFiles = new List<BMSFile>
-            {
+            List<BMSFile> installedFiles =
+            [
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms")),
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir2, "a.bms"))
-            };
+            ];
 
             ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")));
@@ -99,10 +99,10 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)
         {
             string installedDir = Path.Combine(tempRoot, "Installed", "Dir1");
-            List<BMSFile> installedFiles = new List<BMSFile>
-            {
+            List<BMSFile> installedFiles =
+            [
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir, "a.bms"))
-            };
+            ];
 
             ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
@@ -124,11 +124,11 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         {
             string installedDir1 = Path.Combine(tempRoot, "Installed", "Dir1");
             string installedDir2 = Path.Combine(tempRoot, "Installed", "Dir2");
-            List<BMSFile> installedFiles = new List<BMSFile>
-            {
+            List<BMSFile> installedFiles =
+            [
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms")),
                 CreateInstalledFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(installedDir2, "b.bme"))
-            };
+            ];
 
             TestableBmsFile pendingA = CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms"));
             TestableBmsFile pendingB = CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme"));
@@ -174,18 +174,18 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         {
             string installedDir1 = Path.Combine(tempRoot, "Installed", "Dir1");
             string installedDir2 = Path.Combine(tempRoot, "Installed", "Dir2");
-            List<BMSFile> installedFiles = new List<BMSFile>
-            {
+            List<BMSFile> installedFiles =
+            [
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms"))
-            };
+            ];
 
             InstalledChartDirectoryIndexSnapshot firstSnapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             CollectionAssert.AreEqual(new[] { installedDir1 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(firstSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 
-            installedFiles = new List<BMSFile>
-            {
+            installedFiles =
+            [
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir2, "a.bms"))
-            };
+            ];
 
             InstalledChartDirectoryIndexSnapshot secondSnapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             CollectionAssert.AreEqual(new[] { installedDir2 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(secondSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
@@ -199,7 +199,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         Directory.CreateDirectory(tempRoot);
         try
         {
-            BmsLibraryInstallEstimationService service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
+            var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
             testAction(service, tempRoot);
         }
         finally
@@ -210,7 +210,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
 
     private static TestableBmsFile CreateInstalledFile(string hash, string path)
     {
-        TestableBmsFile file = new TestableBmsFile
+        var file = new TestableBmsFile
         {
             path = path
         };

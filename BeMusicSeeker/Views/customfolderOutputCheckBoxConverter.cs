@@ -11,9 +11,9 @@ internal class customfolderOutputCheckBoxConverter : IValueConverter
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        LR2SongDBExtended.playlist.CustomFolderType customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)value;
+        var customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)value;
         string value2 = parameter as string;
-        LR2SongDBExtended.playlist.CustomFolderType customFolderType2 = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
+        var customFolderType2 = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
         flags = customFolderType;
         return (customFolderType & customFolderType2) != customFolderType2;
     }
@@ -22,7 +22,7 @@ internal class customfolderOutputCheckBoxConverter : IValueConverter
     {
         bool num = (bool)value;
         string value2 = parameter as string;
-        LR2SongDBExtended.playlist.CustomFolderType customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
+        var customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
         if (num)
         {
             flags &= ~customFolderType;

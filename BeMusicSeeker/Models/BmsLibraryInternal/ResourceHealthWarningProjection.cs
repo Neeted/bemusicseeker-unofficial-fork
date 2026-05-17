@@ -8,12 +8,12 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ResourceHealthWarningProjection
 {
-    internal static readonly ResourceHealthWarningProjection Empty = new ResourceHealthWarningProjection(0, Array.Empty<ChartWarning>(), false);
+    internal static readonly ResourceHealthWarningProjection Empty = new(0, [], false);
 
     internal ResourceHealthWarningProjection(int version, IReadOnlyList<ChartWarning> warnings, bool isIgnored)
     {
         Version = version;
-        Warnings = warnings ?? Array.Empty<ChartWarning>();
+        Warnings = warnings ?? [];
         IsIgnored = isIgnored;
     }
 
@@ -28,12 +28,12 @@ internal sealed class ResourceHealthWarningProjection
 
 internal sealed class ResourceHealthIndexSnapshot
 {
-    internal static readonly ResourceHealthIndexSnapshot Empty = new ResourceHealthIndexSnapshot(
+    internal static readonly ResourceHealthIndexSnapshot Empty = new(
         0,
-        Array.Empty<BMSFile>(),
-        Array.Empty<BMSFile>(),
-        new Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection>(),
-        new HashSet<ResourceHealthChartKey>(),
+        [],
+        [],
+        [],
+        [],
         0,
         0);
 
@@ -51,10 +51,10 @@ internal sealed class ResourceHealthIndexSnapshot
         long buildMs)
     {
         Version = version;
-        ActiveFiles = activeFiles ?? Array.Empty<BMSFile>();
-        IgnoredFiles = ignoredFiles ?? Array.Empty<BMSFile>();
-        this.projectionsByKey = projectionsByKey ?? new Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection>();
-        this.targetKeys = targetKeys ?? new HashSet<ResourceHealthChartKey>();
+        ActiveFiles = activeFiles ?? [];
+        IgnoredFiles = ignoredFiles ?? [];
+        this.projectionsByKey = projectionsByKey ?? [];
+        this.targetKeys = targetKeys ?? [];
         TargetCount = targetCount;
         BuildMs = buildMs;
     }
@@ -78,26 +78,26 @@ internal sealed class ResourceHealthIndexSnapshot
         BmsLibraryMaintenanceService maintenanceService,
         int version)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<BMSFile> activeFiles = new List<BMSFile>();
-        List<BMSFile> ignoredFiles = new List<BMSFile>();
-        Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> projections = new Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection>();
-        HashSet<ResourceHealthChartKey> targetKeys = new HashSet<ResourceHealthChartKey>();
+        var stopwatch = Stopwatch.StartNew();
+        List<BMSFile> activeFiles = [];
+        List<BMSFile> ignoredFiles = [];
+        Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> projections = [];
+        HashSet<ResourceHealthChartKey> targetKeys = [];
         int targetCount = 0;
-        foreach (BMSFile target in targets ?? Enumerable.Empty<BMSFile>())
+        foreach (BMSFile target in targets ?? [])
         {
             if (target == null)
             {
                 continue;
             }
             targetCount++;
-            ResourceHealthChartKey key = ResourceHealthChartKey.FromBmsFile(target);
+            var key = ResourceHealthChartKey.FromBmsFile(target);
             if (!key.IsValid)
             {
                 continue;
             }
             targetKeys.Add(key);
-            IReadOnlyList<ChartWarning> warnings = maintenanceService?.BuildResourceHealthWarnings(target) ?? Array.Empty<ChartWarning>();
+            IReadOnlyList<ChartWarning> warnings = maintenanceService?.BuildResourceHealthWarnings(target) ?? [];
             if (warnings.Count == 0)
             {
                 continue;
@@ -106,7 +106,7 @@ internal sealed class ResourceHealthIndexSnapshot
                 ? target.TryGetMaintenanceInfoWithoutCreating()
                 : null;
             bool isIgnored = maintenanceInfo?.is_files_warning_ignored == true;
-            ResourceHealthWarningProjection projection = new ResourceHealthWarningProjection(version, warnings, isIgnored);
+            var projection = new ResourceHealthWarningProjection(version, warnings, isIgnored);
             projections[key] = projection;
             if (isIgnored)
             {
@@ -127,13 +127,13 @@ internal sealed class ResourceHealthIndexSnapshot
         BmsLibraryMaintenanceService maintenanceService,
         int version)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> nextProjections = new Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection>(projectionsByKey);
-        HashSet<ResourceHealthChartKey> nextTargetKeys = new HashSet<ResourceHealthChartKey>(targetKeys);
-        HashSet<ResourceHealthChartKey> changedKeys = new HashSet<ResourceHealthChartKey>();
-        foreach (BMSFile removedTarget in removedTargets ?? Enumerable.Empty<BMSFile>())
+        var stopwatch = Stopwatch.StartNew();
+        var nextProjections = new Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection>(projectionsByKey);
+        var nextTargetKeys = new HashSet<ResourceHealthChartKey>(targetKeys);
+        HashSet<ResourceHealthChartKey> changedKeys = [];
+        foreach (BMSFile removedTarget in removedTargets ?? [])
         {
-            ResourceHealthChartKey key = ResourceHealthChartKey.FromBmsFile(removedTarget);
+            var key = ResourceHealthChartKey.FromBmsFile(removedTarget);
             if (!key.IsValid)
             {
                 continue;
@@ -142,9 +142,9 @@ internal sealed class ResourceHealthIndexSnapshot
             nextProjections.Remove(key);
             changedKeys.Add(key);
         }
-        foreach (BMSFile updatedTarget in updatedTargets ?? Enumerable.Empty<BMSFile>())
+        foreach (BMSFile updatedTarget in updatedTargets ?? [])
         {
-            ResourceHealthChartKey key = ResourceHealthChartKey.FromBmsFile(updatedTarget);
+            var key = ResourceHealthChartKey.FromBmsFile(updatedTarget);
             if (!key.IsValid)
             {
                 continue;
@@ -152,7 +152,7 @@ internal sealed class ResourceHealthIndexSnapshot
             nextTargetKeys.Add(key);
             nextProjections.Remove(key);
             changedKeys.Add(key);
-            IReadOnlyList<ChartWarning> warnings = maintenanceService?.BuildResourceHealthWarnings(updatedTarget) ?? Array.Empty<ChartWarning>();
+            IReadOnlyList<ChartWarning> warnings = maintenanceService?.BuildResourceHealthWarnings(updatedTarget) ?? [];
             if (warnings.Count == 0)
             {
                 continue;
@@ -163,15 +163,11 @@ internal sealed class ResourceHealthIndexSnapshot
             bool isIgnored = maintenanceInfo?.is_files_warning_ignored == true;
             nextProjections[key] = new ResourceHealthWarningProjection(version, warnings, isIgnored);
         }
-        List<BMSFile> activeFiles = ActiveFiles
-            .Where((BMSFile file) => !changedKeys.Contains(ResourceHealthChartKey.FromBmsFile(file)))
-            .ToList();
-        List<BMSFile> ignoredFiles = IgnoredFiles
-            .Where((BMSFile file) => !changedKeys.Contains(ResourceHealthChartKey.FromBmsFile(file)))
-            .ToList();
-        foreach (BMSFile updatedTarget in updatedTargets ?? Enumerable.Empty<BMSFile>())
+        List<BMSFile> activeFiles = [.. ActiveFiles.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromBmsFile(file)))];
+        List<BMSFile> ignoredFiles = [.. IgnoredFiles.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromBmsFile(file)))];
+        foreach (BMSFile updatedTarget in updatedTargets ?? [])
         {
-            ResourceHealthChartKey key = ResourceHealthChartKey.FromBmsFile(updatedTarget);
+            var key = ResourceHealthChartKey.FromBmsFile(updatedTarget);
             if (!key.IsValid || !nextProjections.TryGetValue(key, out ResourceHealthWarningProjection projection))
             {
                 continue;
@@ -191,13 +187,13 @@ internal sealed class ResourceHealthIndexSnapshot
 
     internal ResourceHealthWarningProjection GetProjection(BMSFile file)
     {
-        ResourceHealthChartKey key = ResourceHealthChartKey.FromBmsFile(file);
+        var key = ResourceHealthChartKey.FromBmsFile(file);
         return GetProjection(key);
     }
 
     internal ResourceHealthWarningProjection GetProjection(LR2SongDBExtended.bmson_song song)
     {
-        ResourceHealthChartKey key = ResourceHealthChartKey.FromBmsonSong(song);
+        var key = ResourceHealthChartKey.FromBmsonSong(song);
         return GetProjection(key);
     }
 

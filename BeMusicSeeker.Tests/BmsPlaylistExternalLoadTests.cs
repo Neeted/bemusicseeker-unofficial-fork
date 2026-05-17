@@ -28,7 +28,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Test Song\",\"artist\":\"Test Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
 
             BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -62,7 +62,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Test Song\",\"artist\":\"Test Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
 
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -94,7 +94,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllText(htmlPath, "<html><head><title>No header</title></head><body>moved</body></html>", Encoding.UTF8);
 
             string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
 
             Assert.ThrowsException<PlaylistHeaderUriNotFoundException>(() => playlist.LoadExternalTable(new Uri(htmlPath)));
         }
@@ -117,12 +117,12 @@ public sealed class BmsPlaylistExternalLoadTests
         {
             string headerJsonPath = Path.Combine(tempDirectory, "header.json");
             string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
-            string sha256 = new string('a', 64);
+            string sha256 = new('a', 64);
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"ShaOnly\",\"symbol\":\"S\",\"data_url\":\"./score.json\"}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"sha256\":\"" + sha256 + "\",\"title\":\"Sha Song\",\"artist\":\"Sha Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
 
             BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -154,7 +154,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Dual Song\",\"artist\":\"Dual Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
 
             BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -185,7 +185,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"invalid\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
 
             BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -216,7 +216,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"title\":\"Title Only\"},{\"title\":\"\",\"artist\":\"\",\"folder\":\"\"}]"));
 
             string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
 
             BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -248,10 +248,12 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(
-                new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } }),
-                Dispatcher.CurrentDispatcher);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } }),
+                    Dispatcher.CurrentDispatcher)
+            };
 
             PlaylistAlreadyExistsException ex = await Assert.ThrowsExceptionAsync<PlaylistAlreadyExistsException>(async delegate
             {
@@ -274,7 +276,7 @@ public sealed class BmsPlaylistExternalLoadTests
 
     private static byte[] CreateUtf8BomBytes(string text)
     {
-        return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text)).ToArray();
+        return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
     }
 
     private static string CreateTempSongDbPath(string tempDirectory)

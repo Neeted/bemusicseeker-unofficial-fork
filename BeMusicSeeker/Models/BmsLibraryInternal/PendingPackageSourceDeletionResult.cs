@@ -16,7 +16,7 @@ internal sealed class PendingPackageSourceDeletionResult
 
     public bool Canceled { get; set; }
 
-    public List<ChartPackage> PackagesToRemove { get; } = new List<ChartPackage>();
+    public List<ChartPackage> PackagesToRemove { get; } = [];
 
-    public List<PendingPackageSourceDeletionFailure> Failures { get; } = new List<PendingPackageSourceDeletionFailure>();
+    public List<PendingPackageSourceDeletionFailure> Failures { get; } = [];
 }

@@ -5,11 +5,11 @@ using Ribbit.Threading;
 
 namespace BeMusicSeeker.Models.Utils;
 
-public class ReaderWriterLockSlimWrapper : NotificationObject
+public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = LockRecursionPolicy.SupportsRecursion) : NotificationObject
 {
     private class ReaderGuard : Ribbit.Threading.ReaderGuard
     {
-        private Action onExitReadLock;
+        private readonly Action onExitReadLock;
 
         public ReaderGuard(ReaderWriterLockSlim readerWriterLock, Action onEnterReadLock = null, Action onExitReadLock = null)
             : base(readerWriterLock)
@@ -27,7 +27,7 @@ public class ReaderWriterLockSlimWrapper : NotificationObject
 
     private class WriterGuard : Ribbit.Threading.WriterGuard
     {
-        private Action onExitWriteLock;
+        private readonly Action onExitWriteLock;
 
         public WriterGuard(ReaderWriterLockSlim readerWriterLock, Action onEnterWriteLock = null, Action onExitWriteLock = null)
             : base(readerWriterLock)
@@ -54,11 +54,11 @@ public class ReaderWriterLockSlimWrapper : NotificationObject
             }
         }
 
-        private Action onExitUpgradeLock;
+        private readonly Action onExitUpgradeLock;
 
-        private Action onEnterWriteLock;
+        private readonly Action onEnterWriteLock;
 
-        private Action onExitWriteLock;
+        private readonly Action onExitWriteLock;
 
         public UpgradeableGuard(ReaderWriterLockSlim readerWriterLock, Action onEnterUpgradeLock = null, Action onExitUpgradeLock = null, Action onEnterWriteLock = null, Action onExitWriteLock = null)
             : base(readerWriterLock)
@@ -77,17 +77,14 @@ public class ReaderWriterLockSlimWrapper : NotificationObject
 
         public override IDisposable UpgradeToWriterLock()
         {
-            if (_upgradedLock == null)
-            {
-                _upgradedLock = new UpgradedGuardExt(this, onEnterWriteLock, onExitWriteLock);
-            }
+            _upgradedLock ??= new UpgradedGuardExt(this, onEnterWriteLock, onExitWriteLock);
             return _upgradedLock;
         }
     }
 
-    private ReaderWriterLockSlim readerWriterLockSlim;
+    private readonly ReaderWriterLockSlim readerWriterLockSlim = new ReaderWriterLockSlim(recursionPolicy);
 
-    private object lockThis = new object();
+    private readonly object lockThis = new();
 
     private uint _LockingReadCount;
 
@@ -163,11 +160,6 @@ public class ReaderWriterLockSlimWrapper : NotificationObject
                 RaisePropertyChanged("LockingUpgradeCount");
             }
         }
-    }
-
-    public ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = LockRecursionPolicy.SupportsRecursion)
-    {
-        readerWriterLockSlim = new ReaderWriterLockSlim(recursionPolicy);
     }
 
     public void Dispose()

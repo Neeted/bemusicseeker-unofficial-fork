@@ -15,16 +15,16 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal static class PlaylistDetailSortEngine
 {
-    private static readonly ConcurrentDictionary<string, Func<PlaylistDetailSourceRow, string>> stringSelectorCache = new ConcurrentDictionary<string, Func<PlaylistDetailSourceRow, string>>(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, Func<PlaylistDetailSourceRow, string>> stringSelectorCache = new(StringComparer.Ordinal);
 
-    private static readonly ConcurrentDictionary<string, Delegate> typedSelectorCache = new ConcurrentDictionary<string, Delegate>(StringComparer.Ordinal);
+    private static readonly ConcurrentDictionary<string, Delegate> typedSelectorCache = new(StringComparer.Ordinal);
 
     /// <summary>
     /// source row を指定条件でソートします。
     /// </summary>
     internal static List<PlaylistDetailSourceRow> Sort(IEnumerable<PlaylistDetailSourceRow> source, MainWindowViewModel.cSortParameters sortParameters, out string sortProfile)
     {
-        IEnumerable<PlaylistDetailSourceRow> safeSource = source ?? Enumerable.Empty<PlaylistDetailSourceRow>();
+        IEnumerable<PlaylistDetailSourceRow> safeSource = source ?? [];
         string columnName = sortParameters?.ColumnsName;
         ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
         if (string.IsNullOrWhiteSpace(columnName))
@@ -45,7 +45,7 @@ internal static class PlaylistDetailSortEngine
         if (property == null)
         {
             sortProfile = "string_fast_fallback";
-            return SortByFastString(safeSource, (PlaylistDetailSourceRow _) => string.Empty, direction);
+            return SortByFastString(safeSource, _ => string.Empty, direction);
         }
         Type propertyType = property.PropertyType;
         Type nonNullableType = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
@@ -121,7 +121,7 @@ internal static class PlaylistDetailSortEngine
             MemberExpression member = Expression.Property(parameter, property);
             Expression body = member.Type == typeof(TKey) ? (Expression)member : Expression.Convert(member, typeof(TKey));
             Func<PlaylistDetailSourceRow, TKey> compiled = Expression.Lambda<Func<PlaylistDetailSourceRow, TKey>>(body, parameter).Compile();
-            return new Func<PlaylistDetailSourceRow, TKey>((PlaylistDetailSourceRow row) => row == null ? default : compiled(row));
+            return new Func<PlaylistDetailSourceRow, TKey>(row => row == null ? default : compiled(row));
         });
     }
 
@@ -130,18 +130,18 @@ internal static class PlaylistDetailSortEngine
         StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
-            return source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, comparer).ToList();
+            return [.. source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, comparer)];
         }
-        return source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, comparer).ToList();
+        return [.. source.OrderByDescending(keySelector, comparer).ThenBy(GetTitleKey, comparer)];
     }
 
     private static List<PlaylistDetailSourceRow> SortByLegacyNaturalString(IEnumerable<PlaylistDetailSourceRow> source, Func<PlaylistDetailSourceRow, string> keySelector, ListSortDirection direction)
     {
         if (direction == ListSortDirection.Ascending)
         {
-            return source.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy(GetTitleKey, new NaturalComparer<string>()).ToList();
+            return [.. source.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy(GetTitleKey, new NaturalComparer<string>())];
         }
-        return source.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(GetTitleKey, new NaturalComparer<string>()).ToList();
+        return [.. source.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(GetTitleKey, new NaturalComparer<string>())];
     }
 
     private static List<PlaylistDetailSourceRow> SortByTypedKey<TKey>(IEnumerable<PlaylistDetailSourceRow> source, Func<PlaylistDetailSourceRow, TKey> keySelector, ListSortDirection direction)
@@ -149,9 +149,9 @@ internal static class PlaylistDetailSortEngine
         StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
-            return source.OrderBy(keySelector, Comparer<TKey>.Default).ThenBy(GetTitleKey, comparer).ToList();
+            return [.. source.OrderBy(keySelector, Comparer<TKey>.Default).ThenBy(GetTitleKey, comparer)];
         }
-        return source.OrderByDescending(keySelector, Comparer<TKey>.Default).ThenBy(GetTitleKey, comparer).ToList();
+        return [.. source.OrderByDescending(keySelector, Comparer<TKey>.Default).ThenBy(GetTitleKey, comparer)];
     }
 
     private static List<PlaylistDetailSourceRow> SortByLevelKey(IEnumerable<PlaylistDetailSourceRow> source, ListSortDirection direction)
@@ -159,9 +159,9 @@ internal static class PlaylistDetailSortEngine
         StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
-            return source.OrderBy((PlaylistDetailSourceRow row) => GetLevelKey(row), Comparer<double?>.Default).ThenBy(GetTitleKey, comparer).ToList();
+            return [.. source.OrderBy(row => GetLevelKey(row), Comparer<double?>.Default).ThenBy(GetTitleKey, comparer)];
         }
-        return source.OrderByDescending((PlaylistDetailSourceRow row) => GetLevelKey(row), Comparer<double?>.Default).ThenBy(GetTitleKey, comparer).ToList();
+        return [.. source.OrderByDescending(row => GetLevelKey(row), Comparer<double?>.Default).ThenBy(GetTitleKey, comparer)];
     }
 
     private static double? GetLevelKey(PlaylistDetailSourceRow row)

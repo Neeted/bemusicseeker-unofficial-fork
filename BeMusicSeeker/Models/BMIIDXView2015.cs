@@ -44,15 +44,15 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
     private EventHandler onExitEventHandlerRegstered;
 
-    private EventHandler onExitEventHandlerDefault;
+    private readonly EventHandler onExitEventHandlerDefault;
 
-    private object lockThis = new object();
+    private readonly object lockThis = new();
 
     private string _exePath;
 
     private IntPtr _parentHandle;
 
-    private static Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF> KeyEventFlags = new Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF>
+    private static readonly Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF> KeyEventFlags = new()
     {
         {
             KeyCode.UP,
@@ -76,7 +76,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
         }
     };
 
-    private static Regex iniVolume = new Regex("^BMSVOLUME=[0-9]+", RegexOptions.Multiline | RegexOptions.Compiled);
+    private static readonly Regex iniVolume = new("^BMSVOLUME=[0-9]+", RegexOptions.Multiline | RegexOptions.Compiled);
 
     public string ExePath
     {
@@ -216,7 +216,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
         {
             Process[] processesByName = Process.GetProcessesByName("BMIIDXView2015");
             Process[] processesByName2 = Process.GetProcessesByName("BMIIDXView2015_64");
-            Process[] array = processesByName.Concat(processesByName2).ToArray();
+            Process[] array = [.. processesByName, .. processesByName2];
             if (array.Length != 0)
             {
                 if (BMIIDXView2015HandleShowing == IntPtr.Zero)
@@ -235,12 +235,16 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
                 BMIIDXView2015HandleShowing = IntPtr.Zero;
                 BMIIDXView2015Process = null;
             }
-            ProcessStartInfo processStartInfo = new ProcessStartInfo(ExePath);
-            processStartInfo.WindowStyle = ProcessWindowStyle.Minimized;
-            processStartInfo.Arguments = "-S \"" + bmsFilePath + "\"";
-            BMIIDXView2015Process = new Process();
-            BMIIDXView2015Process.StartInfo = processStartInfo;
-            BMIIDXView2015Process.EnableRaisingEvents = true;
+            var processStartInfo = new ProcessStartInfo(ExePath)
+            {
+                WindowStyle = ProcessWindowStyle.Minimized,
+                Arguments = "-S \"" + bmsFilePath + "\""
+            };
+            BMIIDXView2015Process = new Process
+            {
+                StartInfo = processStartInfo,
+                EnableRaisingEvents = true
+            };
             BMIIDXView2015Process.Exited += onExitEventHandlerDefault;
             if (onExitEventHandler == null)
             {
@@ -378,7 +382,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
     private void temporarilyRewriteSettings(string iniFilePath)
     {
-        Encoding encoding = Encoding.GetEncoding("shift_jis");
+        var encoding = Encoding.GetEncoding("shift_jis");
         string input;
         try
         {

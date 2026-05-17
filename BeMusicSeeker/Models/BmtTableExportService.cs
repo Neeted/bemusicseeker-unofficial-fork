@@ -14,7 +14,7 @@ internal static class BmtTableExportService
 {
     internal const string ManifestFileName = ".bemusicseeker-bmt-manifest";
 
-    private static readonly object ManifestLock = new object();
+    private static readonly object ManifestLock = new();
 
     private sealed class ManifestState
     {
@@ -40,9 +40,9 @@ internal static class BmtTableExportService
 
     internal sealed class ExportResult
     {
-        public List<ManagedTableUrlEntry> PreviousManagedTables { get; } = new List<ManagedTableUrlEntry>();
+        public List<ManagedTableUrlEntry> PreviousManagedTables { get; } = [];
 
-        public List<ManagedTableUrlEntry> CurrentManagedTables { get; } = new List<ManagedTableUrlEntry>();
+        public List<ManagedTableUrlEntry> CurrentManagedTables { get; } = [];
     }
 
     internal static ExportResult ExportTables(string tablePath, IEnumerable<BMSTable> tables, bool cleanupStaleManagedFiles)
@@ -52,8 +52,8 @@ internal static class BmtTableExportService
             return new ExportResult();
         }
         Directory.CreateDirectory(tablePath);
-        HashSet<string> exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSTable table in tables ?? Enumerable.Empty<BMSTable>())
+        var exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSTable table in tables ?? [])
         {
             string fileName = ExportTable(tablePath, table);
             if (!string.IsNullOrWhiteSpace(fileName))
@@ -66,7 +66,7 @@ internal static class BmtTableExportService
 
     internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<JObject> tableDataSet, bool cleanupStaleManagedFiles)
     {
-        return ExportTableDataSet(tablePath, (tableDataSet ?? Enumerable.Empty<JObject>()).Select((JObject tableData) => Tuple.Create<string, JObject>(null, tableData)), cleanupStaleManagedFiles);
+        return ExportTableDataSet(tablePath, (tableDataSet ?? []).Select(tableData => Tuple.Create<string, JObject>(null, tableData)), cleanupStaleManagedFiles);
     }
 
     internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<Tuple<string, JObject>> tableDataSet, bool cleanupStaleManagedFiles)
@@ -77,9 +77,9 @@ internal static class BmtTableExportService
         }
         Directory.CreateDirectory(tablePath);
         List<ManagedTableUrlEntry> previousManagedTables = ReadManagedTableUrls(tablePath);
-        HashSet<string> exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, ManifestPlaylistEntry> playlists = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
-        foreach (Tuple<string, JObject> item in tableDataSet ?? Enumerable.Empty<Tuple<string, JObject>>())
+        var exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var playlists = new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
+        foreach (Tuple<string, JObject> item in tableDataSet ?? [])
         {
             string fileName = ExportTableData(tablePath, item?.Item2, item?.Item1);
             if (!string.IsNullOrWhiteSpace(fileName))
@@ -133,9 +133,9 @@ internal static class BmtTableExportService
         string tempPath = outputPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (FileStream fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            using (GZipStream gzipStream = new GZipStream(fileStream, CompressionMode.Compress))
-            using (StreamWriter writer = new StreamWriter(gzipStream, new UTF8Encoding(false)))
+            using (var fileStream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var gzipStream = new GZipStream(fileStream, CompressionMode.Compress))
+            using (var writer = new StreamWriter(gzipStream, new UTF8Encoding(false)))
             {
                 writer.Write(tableData.ToString(Formatting.Indented));
             }
@@ -167,7 +167,7 @@ internal static class BmtTableExportService
 
     internal static ExportResult RemoveManagedPlaylist(string tablePath, string playlistIdentity)
     {
-        ExportResult result = new ExportResult();
+        var result = new ExportResult();
         if (string.IsNullOrWhiteSpace(tablePath) || string.IsNullOrWhiteSpace(playlistIdentity))
         {
             return result;
@@ -192,11 +192,11 @@ internal static class BmtTableExportService
     {
         if (string.IsNullOrWhiteSpace(tablePath) || !Directory.Exists(tablePath))
         {
-            return new List<ManagedTableUrlEntry>();
+            return [];
         }
         lock (ManifestLock)
         {
-            return ReadManifest(tablePath).Playlists.Values.Select(CloneManagedTableUrlEntry).ToList();
+            return [.. ReadManifest(tablePath).Playlists.Values.Select(CloneManagedTableUrlEntry)];
         }
     }
 
@@ -217,7 +217,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JObject root = new JObject
+        var root = new JObject
         {
             ["url"] = url,
             ["name"] = table.name ?? string.Empty,
@@ -257,13 +257,13 @@ internal static class BmtTableExportService
 
     private static JArray BuildFolders(BMSTable table)
     {
-        JArray folders = new JArray();
-        List<string> folderNames = table.folder_list ?? new List<string>();
+        JArray folders = [];
+        List<string> folderNames = table.folder_list ?? [];
         foreach (string folderName in folderNames)
         {
-            JArray songs = new JArray();
-            IEnumerable<BMSTableEntry> entries = (table.entries ?? new List<BMSTableEntry>())
-                .Where((BMSTableEntry entry) => entry != null && !entry.is_removed && string.Equals(entry.folder ?? string.Empty, folderName ?? string.Empty, StringComparison.Ordinal));
+            JArray songs = [];
+            IEnumerable<BMSTableEntry> entries = (table.entries ?? [])
+                .Where(entry => entry != null && !entry.is_removed && string.Equals(entry.folder ?? string.Empty, folderName ?? string.Empty, StringComparison.Ordinal));
             foreach (BMSTableEntry entry in entries)
             {
                 JObject song = BuildSong(entry, null);
@@ -309,7 +309,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JObject song = new JObject
+        var song = new JObject
         {
             ["title"] = title
         };
@@ -330,7 +330,7 @@ internal static class BmtTableExportService
 
     private static JArray BuildOrgMd5(BMSTableEntry entry, JObject sourceChart)
     {
-        JArray values = new JArray();
+        JArray values = [];
         foreach (string value in entry?.Org_md5 ?? Enumerable.Empty<string>())
         {
             if (!string.IsNullOrWhiteSpace(value))
@@ -358,13 +358,13 @@ internal static class BmtTableExportService
                 values.Add(value.ToLowerInvariant());
             }
         }
-        return new JArray(values.Select((JToken item) => item.ToString()).Distinct(StringComparer.OrdinalIgnoreCase));
+        return new JArray(values.Select(item => item.ToString()).Distinct(StringComparer.OrdinalIgnoreCase));
     }
 
     private static JArray BuildCourses(BMSTable table)
     {
-        JArray courses = new JArray();
-        foreach (LR2SongDBExtended.playlist_course courseRow in table.Courses ?? Array.Empty<LR2SongDBExtended.playlist_course>())
+        JArray courses = [];
+        foreach (LR2SongDBExtended.playlist_course courseRow in table.Courses ?? [])
         {
             JObject course = ConvertCourse(courseRow?.course_json);
             if (course != null)
@@ -390,7 +390,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JArray songs = new JArray();
+        JArray songs = [];
         int index = 1;
         foreach (JToken chartToken in EnumerateCourseChartTokens(source))
         {
@@ -404,7 +404,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JObject course = new JObject
+        var course = new JObject
         {
             ["name"] = FirstNonEmpty(source.Value<string>("name"), "No Course Title"),
             ["hash"] = songs
@@ -437,7 +437,7 @@ internal static class BmtTableExportService
             }
             yield break;
         }
-        foreach (JToken md5 in source["md5"] as JArray ?? new JArray())
+        foreach (JToken md5 in source["md5"] as JArray ?? [])
         {
             if (!string.IsNullOrWhiteSpace(md5?.ToString()))
             {
@@ -447,7 +447,7 @@ internal static class BmtTableExportService
                 };
             }
         }
-        foreach (JToken sha256 in source["sha256"] as JArray ?? new JArray())
+        foreach (JToken sha256 in source["sha256"] as JArray ?? [])
         {
             if (!string.IsNullOrWhiteSpace(sha256?.ToString()))
             {
@@ -473,7 +473,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JObject song = new JObject
+        var song = new JObject
         {
             ["title"] = title
         };
@@ -498,7 +498,7 @@ internal static class BmtTableExportService
         {
             return null;
         }
-        JObject chartObject = new JObject();
+        JObject chartObject = [];
         if (hash.Length == 64)
         {
             chartObject["sha256"] = hash;
@@ -512,7 +512,7 @@ internal static class BmtTableExportService
 
     private static JArray BuildCourseConstraints(JArray source)
     {
-        JArray constraints = new JArray();
+        JArray constraints = [];
         if (source == null)
         {
             return constraints;
@@ -520,7 +520,7 @@ internal static class BmtTableExportService
         foreach (JToken item in source)
         {
             string value = ConvertConstraint(item?.ToString());
-            if (!string.IsNullOrWhiteSpace(value) && !constraints.Any((JToken token) => string.Equals(token.ToString(), value, StringComparison.Ordinal)))
+            if (!string.IsNullOrWhiteSpace(value) && !constraints.Any(token => string.Equals(token.ToString(), value, StringComparison.Ordinal)))
             {
                 constraints.Add(value);
             }
@@ -530,54 +530,36 @@ internal static class BmtTableExportService
 
     private static string ConvertConstraint(string value)
     {
-        switch ((value ?? string.Empty).Trim().ToLowerInvariant())
+        return (value ?? string.Empty).Trim().ToLowerInvariant() switch
         {
-            case "class":
-            case "grade":
-                return "CLASS";
-            case "mirror":
-            case "grade_mirror":
-                return "MIRROR";
-            case "random":
-            case "grade_random":
-                return "RANDOM";
-            case "no_speed":
-                return "NO_SPEED";
-            case "no_good":
-                return "NO_GOOD";
-            case "no_great":
-                return "NO_GREAT";
-            case "gauge_lr2":
-                return "GAUGE_LR2";
-            case "gauge_5k":
-                return "GAUGE_5KEYS";
-            case "gauge_7k":
-                return "GAUGE_7KEYS";
-            case "gauge_9k":
-                return "GAUGE_9KEYS";
-            case "gauge_24k":
-                return "GAUGE_24KEYS";
-            case "ln":
-                return "LN";
-            case "cn":
-                return "CN";
-            case "hcn":
-                return "HCN";
-            default:
-                return null;
-        }
+            "class" or "grade" => "CLASS",
+            "mirror" or "grade_mirror" => "MIRROR",
+            "random" or "grade_random" => "RANDOM",
+            "no_speed" => "NO_SPEED",
+            "no_good" => "NO_GOOD",
+            "no_great" => "NO_GREAT",
+            "gauge_lr2" => "GAUGE_LR2",
+            "gauge_5k" => "GAUGE_5KEYS",
+            "gauge_7k" => "GAUGE_7KEYS",
+            "gauge_9k" => "GAUGE_9KEYS",
+            "gauge_24k" => "GAUGE_24KEYS",
+            "ln" => "LN",
+            "cn" => "CN",
+            "hcn" => "HCN",
+            _ => null,
+        };
     }
 
     private static JArray BuildCourseTrophies(JArray source)
     {
-        JArray trophies = new JArray();
+        JArray trophies = [];
         if (source == null)
         {
             return trophies;
         }
         foreach (JToken item in source)
         {
-            if (!(item is JObject trophy))
+            if (item is not JObject trophy)
             {
                 continue;
             }
@@ -600,14 +582,14 @@ internal static class BmtTableExportService
 
     private static ExportResult UpdateManifest(string tablePath, HashSet<string> currentFiles, Dictionary<string, ManifestPlaylistEntry> playlists, bool cleanupStaleManagedFiles)
     {
-        ExportResult result = new ExportResult();
+        var result = new ExportResult();
         lock (ManifestLock)
         {
             ManifestState previous = ReadManifest(tablePath);
             result.PreviousManagedTables.AddRange(previous.Playlists.Values.Select(CloneManagedTableUrlEntry));
             if (cleanupStaleManagedFiles)
             {
-                foreach (string fileName in previous.Files.Where((string fileName) => !currentFiles.Contains(fileName)))
+                foreach (string fileName in previous.Files.Where(fileName => !currentFiles.Contains(fileName)))
                 {
                     TryDeleteFile(Path.Combine(tablePath, fileName));
                 }
@@ -641,7 +623,7 @@ internal static class BmtTableExportService
 
     private static ManifestState ReadManifest(string tablePath)
     {
-        ManifestState state = new ManifestState();
+        var state = new ManifestState();
         string manifestPath = Path.Combine(tablePath, ManifestFileName);
         if (!File.Exists(manifestPath))
         {
@@ -649,8 +631,8 @@ internal static class BmtTableExportService
         }
         try
         {
-            JObject manifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
-            foreach (JToken item in manifest["files"] as JArray ?? new JArray())
+            var manifest = JObject.Parse(File.ReadAllText(manifestPath, Encoding.UTF8));
+            foreach (JToken item in manifest["files"] as JArray ?? [])
             {
                 string fileName = Path.GetFileName(item.ToString());
                 if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase))
@@ -658,12 +640,11 @@ internal static class BmtTableExportService
                     state.Files.Add(fileName);
                 }
             }
-            JObject playlists = manifest["playlists"] as JObject;
-            if (playlists != null)
+            if (manifest["playlists"] is JObject playlists)
             {
                 foreach (JProperty property in playlists.Properties())
                 {
-                    JObject value = property.Value as JObject;
+                    var value = property.Value as JObject;
                     string fileName = Path.GetFileName(value?.Value<string>("file"));
                     string url = value?.Value<string>("url");
                     if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(url))
@@ -693,14 +674,14 @@ internal static class BmtTableExportService
 
     private static void WriteManifest(string tablePath, IEnumerable<string> fileNames, IDictionary<string, ManifestPlaylistEntry> playlists)
     {
-        JObject manifest = new JObject
+        var manifest = new JObject
         {
-            ["files"] = new JArray((fileNames ?? Enumerable.Empty<string>()).Where((string fileName) => !string.IsNullOrWhiteSpace(fileName)).OrderBy((string fileName) => fileName, StringComparer.OrdinalIgnoreCase))
+            ["files"] = new JArray((fileNames ?? []).Where(fileName => !string.IsNullOrWhiteSpace(fileName)).OrderBy(fileName => fileName, StringComparer.OrdinalIgnoreCase))
         };
         if (playlists != null && playlists.Count > 0)
         {
-            JObject playlistJson = new JObject();
-            foreach (KeyValuePair<string, ManifestPlaylistEntry> item in playlists.OrderBy((KeyValuePair<string, ManifestPlaylistEntry> item) => item.Key, StringComparer.Ordinal))
+            JObject playlistJson = [];
+            foreach (KeyValuePair<string, ManifestPlaylistEntry> item in playlists.OrderBy(item => item.Key, StringComparer.Ordinal))
             {
                 if (!string.IsNullOrWhiteSpace(item.Key) && item.Value != null && !string.IsNullOrWhiteSpace(item.Value.FileName) && !string.IsNullOrWhiteSpace(item.Value.Url))
                 {
@@ -772,6 +753,6 @@ internal static class BmtTableExportService
 
     private static string FirstNonEmpty(params string[] values)
     {
-        return values?.FirstOrDefault((string value) => !string.IsNullOrWhiteSpace(value));
+        return values?.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
     }
 }

@@ -33,8 +33,8 @@ internal static class ChartResourcePathNormalizer
         {
             return string.Empty;
         }
-        string[] segments = normalized.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0 || segments.Any((string segment) => segment == "." || segment == ".."))
+        string[] segments = normalized.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0 || segments.Any(segment => segment == "." || segment == ".."))
         {
             return string.Empty;
         }
@@ -108,15 +108,15 @@ internal static class ChartResourcePathNormalizer
         {
             return ChartResourceKind.Unknown;
         }
-        if (BMSFile.wavExtensions.Any((string item) => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
+        if (BMSFile.wavExtensions.Any(item => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
         {
             return ChartResourceKind.Audio;
         }
-        if (BMSFile.bgaImageExtensions.Any((string item) => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
+        if (BMSFile.bgaImageExtensions.Any(item => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
         {
             return ChartResourceKind.Image;
         }
-        if (BMSFile.bgaMovieExtensions.Any((string item) => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
+        if (BMSFile.bgaMovieExtensions.Any(item => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
         {
             return ChartResourceKind.Movie;
         }

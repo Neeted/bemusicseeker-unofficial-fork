@@ -6,7 +6,7 @@ namespace BeMusicSeeker.Models.LR2;
 
 internal static class EntryUnitTypeExt
 {
-    private static readonly Dictionary<LR2SongDBExtended.playlist.EntryUnitType, string[]> table = new Dictionary<LR2SongDBExtended.playlist.EntryUnitType, string[]>
+    private static readonly Dictionary<LR2SongDBExtended.playlist.EntryUnitType, string[]> table = new()
     {
         {
             LR2SongDBExtended.playlist.EntryUnitType.File,
@@ -22,9 +22,9 @@ internal static class EntryUnitTypeExt
         }
     };
 
-    private static readonly Dictionary<string, LR2SongDBExtended.playlist.EntryUnitType> tableReverse0 = table.ToDictionary((KeyValuePair<LR2SongDBExtended.playlist.EntryUnitType, string[]> kv) => kv.Value[0], (KeyValuePair<LR2SongDBExtended.playlist.EntryUnitType, string[]> kv) => kv.Key);
+    private static readonly Dictionary<string, LR2SongDBExtended.playlist.EntryUnitType> tableReverse0 = table.ToDictionary(kv => kv.Value[0], kv => kv.Key);
 
-    private static readonly Dictionary<string, LR2SongDBExtended.playlist.EntryUnitType> tableReverse1 = table.ToDictionary((KeyValuePair<LR2SongDBExtended.playlist.EntryUnitType, string[]> kv) => kv.Value[1], (KeyValuePair<LR2SongDBExtended.playlist.EntryUnitType, string[]> kv) => kv.Key);
+    private static readonly Dictionary<string, LR2SongDBExtended.playlist.EntryUnitType> tableReverse1 = table.ToDictionary(kv => kv.Value[1], kv => kv.Key);
 
     public static string ToStringName(this LR2SongDBExtended.playlist.EntryUnitType utype)
     {
@@ -48,12 +48,12 @@ internal static class EntryUnitTypeExt
 
     public static IEnumerable<LR2SongDBExtended.playlist.EntryUnitType> GetEnumerable()
     {
-        return table.Select((KeyValuePair<LR2SongDBExtended.playlist.EntryUnitType, string[]> kv) => kv.Key);
+        return table.Select(kv => kv.Key);
     }
 
     public static IEnumerable<string> GetDisplayNames()
     {
-        return table.Select((KeyValuePair<LR2SongDBExtended.playlist.EntryUnitType, string[]> kv) => kv.Value[1]);
+        return table.Select(kv => kv.Value[1]);
     }
 
     public static IEnumerable<string> GetTypeNames()

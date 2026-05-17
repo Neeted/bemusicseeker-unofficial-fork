@@ -24,7 +24,7 @@ public sealed class DropDownMenuButton : ToggleButton
 
     public DropDownMenuButton()
     {
-        Binding binding = new Binding("DropDownContextMenu.IsOpen")
+        var binding = new Binding("DropDownContextMenu.IsOpen")
         {
             Source = this
         };

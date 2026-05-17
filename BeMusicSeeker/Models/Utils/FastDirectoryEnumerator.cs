@@ -15,20 +15,13 @@ namespace BeMusicSeeker.Models.Utils;
 
 public static class FastDirectoryEnumerator
 {
-    private class FileEnumerable : IEnumerable<FileData>, IEnumerable
+    private class FileEnumerable(string path, string filter, SearchOption searchOption) : IEnumerable<FileData>, IEnumerable
     {
-        private readonly string m_path;
+        private readonly string m_path = path;
 
-        private readonly string m_filter;
+        private readonly string m_filter = filter;
 
-        private readonly SearchOption m_searchOption;
-
-        public FileEnumerable(string path, string filter, SearchOption searchOption)
-        {
-            m_path = path;
-            m_filter = filter;
-            m_searchOption = searchOption;
-        }
+        private readonly SearchOption m_searchOption = searchOption;
 
         public IEnumerator<FileData> GetEnumerator()
         {
@@ -62,35 +55,30 @@ public static class FastDirectoryEnumerator
     [SuppressUnmanagedCodeSecurity]
     private class FileEnumerator : IEnumerator<FileData>, IDisposable, IEnumerator
     {
-        private class SearchContext
+        private class SearchContext(string path)
         {
-            public readonly string Path;
+            public readonly string Path = path;
 
             public Stack<string> SubdirectoriesToProcess;
-
-            public SearchContext(string path)
-            {
-                Path = path;
-            }
         }
 
         private string m_path;
 
-        private string m_filter;
+        private readonly string m_filter;
 
-        private SearchOption m_searchOption;
+        private readonly SearchOption m_searchOption;
 
-        private Stack<SearchContext> m_contextStack;
+        private readonly Stack<SearchContext> m_contextStack;
 
         private SearchContext m_currentContext;
 
         private SafeFindHandle m_hndFindFile;
 
-        private WIN32_FIND_DATA m_win_find_data = new WIN32_FIND_DATA();
+        private readonly WIN32_FIND_DATA m_win_find_data = new();
 
-        private List<string> dirCache = new List<string>();
+        private List<string> dirCache = [];
 
-        public FileData Current => new FileData(m_path, m_win_find_data);
+        public FileData Current => new(m_path, m_win_find_data);
 
         object IEnumerator.Current => new FileData(m_path, m_win_find_data);
 
@@ -108,10 +96,7 @@ public static class FastDirectoryEnumerator
 
         public void Dispose()
         {
-            if (m_hndFindFile != null)
-            {
-                m_hndFindFile.Dispose();
-            }
+            m_hndFindFile?.Dispose();
         }
 
         public bool MoveNext()
@@ -146,8 +131,8 @@ public static class FastDirectoryEnumerator
             {
                 if (m_currentContext.SubdirectoriesToProcess == null)
                 {
-                    string[] collection = dirCache.ToArray();
-                    dirCache = new List<string>();
+                    string[] collection = [.. dirCache];
+                    dirCache = [];
                     m_currentContext.SubdirectoriesToProcess = new Stack<string>(collection);
                 }
                 if (m_currentContext.SubdirectoriesToProcess.Count > 0)
@@ -226,8 +211,8 @@ public static class FastDirectoryEnumerator
 
     public static FileData[] GetFiles(string path, string searchPattern, SearchOption searchOption)
     {
-        List<FileData> list = new List<FileData>(EnumerateFiles(path, searchPattern, searchOption));
-        FileData[] array = new FileData[list.Count];
+        var list = new List<FileData>(EnumerateFiles(path, searchPattern, searchOption));
+        var array = new FileData[list.Count];
         list.CopyTo(array);
         return array;
     }
@@ -256,7 +241,7 @@ public static class FastDirectoryEnumerator
             yield break;
         }
         string lpFileName = Path.Combine(dirPath, searchPattern);
-        WIN32_FIND_DATA wIN32_FIND_DATA = new WIN32_FIND_DATA();
+        var wIN32_FIND_DATA = new WIN32_FIND_DATA();
         SafeFindHandle m_hndFindFile = FindFirstFileEx(lpFileName, fInfoLevelId, wIN32_FIND_DATA, FINDEX_SEARCH_OPS.FindExSearchNameMatch, IntPtr.Zero, dwAdditionalFlags);
         if (m_hndFindFile.IsInvalid)
         {
@@ -286,13 +271,13 @@ public static class FastDirectoryEnumerator
             DispatcherMessageBox.Show("ファイルリスト取得中に下記のエラーが発生したためスキップされました。" + Environment.NewLine + "ディレクトリへのアクセスが可能か確認して下さい。" + Environment.NewLine + Environment.NewLine + "対象:" + Environment.NewLine + dirPath + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             yield break;
         }
-        WIN32_FIND_DATA m_win_find_data = new WIN32_FIND_DATA();
+        var m_win_find_data = new WIN32_FIND_DATA();
         SafeFindHandle m_hndFindFile = FindFirstFileEx(dirPath + "\\*", fInfoLevelId, m_win_find_data, FINDEX_SEARCH_OPS.FindExSearchNameMatch, IntPtr.Zero, dwAdditionalFlags);
         if (m_hndFindFile.IsInvalid)
         {
             yield break;
         }
-        List<string> subdirs = new List<string>();
+        List<string> subdirs = [];
         do
         {
             string text = dirPath + "\\" + m_win_find_data.cFileName;
@@ -304,7 +289,7 @@ public static class FastDirectoryEnumerator
                 }
                 continue;
             }
-            if (extensions == null || extensions.Any((string e) => m_win_find_data.cFileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+            if (extensions == null || extensions.Any(e => m_win_find_data.cFileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
             {
                 yield return text;
             }
@@ -314,7 +299,7 @@ public static class FastDirectoryEnumerator
         {
             yield break;
         }
-        foreach (string item in subdirs.AsParallel().SelectMany((string path) => GetFilePathsAsParallel(path, extensions, searchOption)))
+        foreach (string item in subdirs.AsParallel().SelectMany(path => GetFilePathsAsParallel(path, extensions, searchOption)))
         {
             yield return item;
         }

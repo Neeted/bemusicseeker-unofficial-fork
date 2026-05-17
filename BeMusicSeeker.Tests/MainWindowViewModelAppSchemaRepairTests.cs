@@ -16,7 +16,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         bool approvedForSession = false;
         bool repairCalled = false;
         bool shutdownCalled = false;
-        AppSchemaPreflightResult result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
+        var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
 
         bool shouldContinue = MainWindowViewModel.ApplyAppSchemaRepairPreflightForStartup(result, ref approvedForSession, _ => false, delegate
         {
@@ -40,7 +40,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         bool repairCalled = false;
         bool shutdownCalled = false;
         string callOrder = string.Empty;
-        AppSchemaPreflightResult result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
+        var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
 
         bool shouldContinue = MainWindowViewModel.ApplyAppSchemaRepairPreflightForStartup(result, ref approvedForSession, _ => true, delegate
         {
@@ -62,7 +62,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
     [TestCategory("Playlist")]
     public void BuildAppSchemaRepairWarningMessage_IncludesCompatibilityAndDurationWarnings()
     {
-        AppSchemaPreflightResult result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: true, needsBmsonSongSchema: true, needsAppSchemaVersionRepair: true, RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing);
+        var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: true, needsBmsonSongSchema: true, needsAppSchemaVersionRepair: true, RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
         string message = MainWindowViewModel.BuildAppSchemaRepairWarningMessage(result);
 
@@ -76,7 +76,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         bool approvedForSession = false;
         bool repairCalled = false;
         bool shutdownCalled = false;
-        AppSchemaPreflightResult result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: false, needsChartDigestMapSchema: false, needsBmsonSongSchema: true, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.BmsonSongTableMissing);
+        var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: false, needsChartDigestMapSchema: false, needsBmsonSongSchema: true, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
         bool shouldContinue = MainWindowViewModel.ApplyAppSchemaRepairPreflightForStartup(result, ref approvedForSession, null, delegate
         {
@@ -101,7 +101,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         bool approvedForSession = false;
         bool repairCalled = false;
         bool shutdownCalled = false;
-        AppSchemaPreflightResult result = new AppSchemaPreflightResult(
+        var result = new AppSchemaPreflightResult(
             needsPlaylistEntrySha256Repair: false,
             needsChartDigestMapSchema: true,
             needsBmsonSongSchema: true,

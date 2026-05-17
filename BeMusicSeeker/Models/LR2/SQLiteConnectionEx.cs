@@ -25,18 +25,15 @@ public class SQLiteConnectionEx : SQLiteConnection
         {
             throw new ArgumentNullException("onAction");
         }
-        if (onError == null)
-        {
-            onError = delegate (Exception ex)
+        onError ??= delegate (Exception ex)
             {
                 ExceptionDispatchInfo.Capture(ex).Throw();
             };
-        }
-        Action retryDelay = delegate
+        static void retryDelay()
         {
             Thread.Sleep(1000);
-        };
-        Func<Exception, bool> retryCondition = (Exception ex) => ex is SQLiteException ex2 && (ex2.Result == SQLite3.Result.Busy || ex2.Result == SQLite3.Result.Locked);
+        }
+        static bool retryCondition(Exception ex) => ex is SQLiteException ex2 && (ex2.Result == SQLite3.Result.Busy || ex2.Result == SQLite3.Result.Locked);
         if (maxRetryCount.HasValue)
         {
             RetryHelper.RetryIfError(onAction, onError, retryDelay, retryCondition, maxRetryCount.Value);
@@ -77,7 +74,7 @@ public class SQLiteConnectionEx : SQLiteConnection
 
     public List<string> TryApplyReadOptimizedPragmas(bool enabled, int cacheSizeKb = 262144, long mmapSizeBytes = 2147483648L)
     {
-        List<string> list = new List<string>();
+        List<string> list = [];
         if (!enabled)
         {
             list.Add("enabled=false");

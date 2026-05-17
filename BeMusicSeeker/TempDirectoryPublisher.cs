@@ -5,7 +5,7 @@ namespace BeMusicSeeker;
 
 public static class TempDirectoryPublisher
 {
-    private static readonly List<string> DirList = new List<string>();
+    private static readonly List<string> DirList = [];
 
     public static string Get()
     {

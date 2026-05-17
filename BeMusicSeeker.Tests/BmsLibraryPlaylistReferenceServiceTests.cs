@@ -13,16 +13,16 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     [TestMethod]
     public void BuildReferenceMaps_AndApplyReferenceMap_MatchesSongAndPendingFiles()
     {
-        BmsLibraryPlaylistReferenceService service = new BmsLibraryPlaylistReferenceService(2);
+        var service = new BmsLibraryPlaylistReferenceService(2);
         BMSTable table = CreateTable(
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
-        List<BMSFile> files = new List<BMSFile>
-        {
+        List<BMSFile> files =
+        [
             CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
             CreateFile("cccccccccccccccccccccccccccccccc")
-        };
+        ];
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
         int addedRefs = service.ApplyReferenceMap(files, maps, out int matchedFiles, out PlaylistReferenceApplyStats stats);
@@ -40,7 +40,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     [TestMethod]
     public void ApplyReferenceMap_FallsBackToSha256WhenMd5IsMissing()
     {
-        BmsLibraryPlaylistReferenceService service = new BmsLibraryPlaylistReferenceService(2);
+        var service = new BmsLibraryPlaylistReferenceService(2);
         BMSTable table = CreateTable(CreateEntry(null, new string('a', 64)));
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
 
@@ -57,7 +57,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     [TestMethod]
     public void ApplyReferenceMap_PrefersMd5WhenBothHashesExist()
     {
-        BmsLibraryPlaylistReferenceService service = new BmsLibraryPlaylistReferenceService(2);
+        var service = new BmsLibraryPlaylistReferenceService(2);
         BMSTable md5Table = CreateTable(CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         md5Table.name = "MD5";
         BMSTable shaTable = CreateTable(CreateEntry(null, new string('b', 64)));
@@ -76,13 +76,13 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     [TestMethod]
     public void PlaylistReferenceIndex_FindsSha256OnlyBmsonReference()
     {
-        BmsLibraryPlaylistReferenceService service = new BmsLibraryPlaylistReferenceService(2);
+        var service = new BmsLibraryPlaylistReferenceService(2);
         BMSTable table = CreateTable(CreateEntry(null, new string('c', 64)));
         table.symbol = "BMSN";
         table.name = "Bmson Table";
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromReferenceMaps(maps);
+        var index = PlaylistReferenceIndex.FromReferenceMaps(maps);
         PlaylistReferenceDisplay display = index.Find(null, new string('c', 64));
 
         Assert.AreEqual("BMSN", display.Symbols);
@@ -100,10 +100,10 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
         Assert.AreEqual("OLD", index.Find(null, new string('d', 64)).Symbols);
 
-        table.entries = new List<BMSTableEntry>
-        {
+        table.entries =
+        [
             CreateEntry(null, new string('e', 64))
-        };
+        ];
         table.symbol = "NEW";
         table.name = "New Table";
         index.ReplaceTable(table, table.entries);
@@ -114,17 +114,17 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
     private static BMSTable CreateTable(params TestablePlaylistEntry[] entries)
     {
-        BMSTable table = new BMSTable
+        var table = new BMSTable
         {
-            name = "Playlist"
+            name = "Playlist",
+            entries = [.. entries.Cast<BMSTableEntry>()]
         };
-        table.entries = entries.Cast<BMSTableEntry>().ToList();
         return table;
     }
 
     private static TestablePlaylistEntry CreateEntry(string? md5, string? sha256 = null)
     {
-        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        var entry = new TestablePlaylistEntry();
         if (md5 != null)
         {
             entry.SetMd5(md5);
@@ -139,7 +139,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
     private static TestableBmsFile CreateFile(string hash, string? sha256 = null)
     {
-        TestableBmsFile file = new TestableBmsFile
+        var file = new TestableBmsFile
         {
             path = "C:\\Dummy\\" + Guid.NewGuid().ToString("N") + ".bms"
         };

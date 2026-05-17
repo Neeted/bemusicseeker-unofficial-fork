@@ -7,61 +7,54 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartResourceSnapshot
 {
-    internal readonly struct ResourceReference
+    internal readonly struct ResourceReference(string normalizedPath, uint relativePathHash, bool isPathAware)
     {
-        public ResourceReference(string normalizedPath, uint relativePathHash, bool isPathAware)
-        {
-            NormalizedPath = normalizedPath ?? string.Empty;
-            RelativePathHash = relativePathHash;
-            IsPathAware = isPathAware;
-        }
+        public string NormalizedPath { get; } = normalizedPath ?? string.Empty;
 
-        public string NormalizedPath { get; }
+        public uint RelativePathHash { get; } = relativePathHash;
 
-        public uint RelativePathHash { get; }
-
-        public bool IsPathAware { get; }
+        public bool IsPathAware { get; } = isPathAware;
     }
 
-    private readonly List<ResourceReference> audioReferences = new List<ResourceReference>();
+    private readonly List<ResourceReference> audioReferences = [];
 
-    private readonly List<ResourceReference> visualReferences = new List<ResourceReference>();
+    private readonly List<ResourceReference> visualReferences = [];
 
-    private readonly List<ResourceReference> movieReferences = new List<ResourceReference>();
+    private readonly List<ResourceReference> movieReferences = [];
 
-    private readonly List<ResourceReference> optionalImageReferences = new List<ResourceReference>();
+    private readonly List<ResourceReference> optionalImageReferences = [];
 
     public HashSet<string> AudioRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> AudioRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> AudioRelativePathHashes { get; } = [];
 
     public HashSet<string> AudioPathAwareRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> AudioPathAwareRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> AudioPathAwareRelativePathHashes { get; } = [];
 
     public HashSet<string> VisualRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> VisualRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> VisualRelativePathHashes { get; } = [];
 
     public HashSet<string> VisualPathAwareRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> VisualPathAwareRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> VisualPathAwareRelativePathHashes { get; } = [];
 
     public HashSet<string> MovieRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> MovieRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> MovieRelativePathHashes { get; } = [];
 
     public HashSet<string> MoviePathAwareRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> MoviePathAwareRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> MoviePathAwareRelativePathHashes { get; } = [];
 
     public HashSet<string> OptionalImageRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> OptionalImageRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> OptionalImageRelativePathHashes { get; } = [];
 
     public HashSet<string> OptionalImagePathAwareRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-    public HashSet<uint> OptionalImagePathAwareRelativePathHashes { get; } = new HashSet<uint>();
+    public HashSet<uint> OptionalImagePathAwareRelativePathHashes { get; } = [];
 
     public int AudioReferenceCount => AudioRelativePaths.Count;
 
@@ -93,11 +86,10 @@ internal sealed class ChartResourceSnapshot
 
     public HashSet<uint> EnumerateAllRelativePathHashes()
     {
-        return new HashSet<uint>(
-            AudioRelativePathHashes
+        return [.. AudioRelativePathHashes
                 .Concat(VisualRelativePathHashes)
                 .Concat(MovieRelativePathHashes)
-                .Concat(OptionalImageRelativePathHashes));
+                .Concat(OptionalImageRelativePathHashes)];
     }
 
     public IEnumerable<string> EnumerateAllRelativePaths()
@@ -116,7 +108,7 @@ internal sealed class ChartResourceSnapshot
             throw new ArgumentNullException(nameof(file));
         }
         EnsureComponentCollectionsLoaded(file);
-        ChartResourceSnapshot snapshot = new ChartResourceSnapshot();
+        var snapshot = new ChartResourceSnapshot();
         foreach (string audioPath in file.WAVfiles ?? Enumerable.Empty<string>())
         {
             snapshot.AddReference(ChartResourceKind.Audio, audioPath);
@@ -134,8 +126,8 @@ internal sealed class ChartResourceSnapshot
 
     public static ChartResourceSnapshot CreateAggregate(IEnumerable<BMSFile> files)
     {
-        ChartResourceSnapshot aggregate = new ChartResourceSnapshot();
-        foreach (BMSFile file in (files ?? Enumerable.Empty<BMSFile>()).Where((BMSFile item) => item != null))
+        var aggregate = new ChartResourceSnapshot();
+        foreach (BMSFile file in (files ?? []).Where(item => item != null))
         {
             aggregate.Merge(Create(file));
         }

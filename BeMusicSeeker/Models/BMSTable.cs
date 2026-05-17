@@ -26,7 +26,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 {
     private List<string> _Folder_order;
 
-    private List<LR2SongDBExtended.playlist_course> _Courses = new List<LR2SongDBExtended.playlist_course>();
+    private List<LR2SongDBExtended.playlist_course> _Courses = [];
 
     protected List<BMSTableEntry> _entries;
 
@@ -49,7 +49,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             try
             {
                 dynamic val = DynamicJson.Parse(value);
-                Folder_order = ((object[])val).Cast<string>().ToList();
+                Folder_order = [.. ((object[])val).Cast<string>()];
             }
             catch
             {
@@ -91,7 +91,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 Page_url = null;
                 return;
             }
-            if (TryParseStoredUri(value, UriKind.Absolute, out var uri, out var exception))
+            if (TryParseStoredUri(value, UriKind.Absolute, out Uri uri, out Exception exception))
             {
                 Page_url = uri;
                 return;
@@ -120,7 +120,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 Header_url = null;
                 return;
             }
-            if (TryParseStoredUri(value, UriKind.RelativeOrAbsolute, out var uri, out var exception))
+            if (TryParseStoredUri(value, UriKind.RelativeOrAbsolute, out Uri uri, out Exception exception))
             {
                 Header_url = uri;
                 return;
@@ -149,7 +149,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 Data_url = null;
                 return;
             }
-            if (TryParseStoredUri(value, UriKind.RelativeOrAbsolute, out var uri, out var exception))
+            if (TryParseStoredUri(value, UriKind.RelativeOrAbsolute, out Uri uri, out Exception exception))
             {
                 Data_url = uri;
                 return;
@@ -165,18 +165,17 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     internal void SetPersistedCourses(IEnumerable<LR2SongDBExtended.playlist_course> courses)
     {
-        _Courses = (courses ?? Enumerable.Empty<LR2SongDBExtended.playlist_course>())
-            .Where((LR2SongDBExtended.playlist_course course) => course != null && !string.IsNullOrWhiteSpace(course.course_json))
-            .OrderBy((LR2SongDBExtended.playlist_course course) => course.course_order)
-            .Select((LR2SongDBExtended.playlist_course course, int index) => new LR2SongDBExtended.playlist_course
+        _Courses = [.. (courses ?? [])
+            .Where(course => course != null && !string.IsNullOrWhiteSpace(course.course_json))
+            .OrderBy(course => course.course_order)
+            .Select((course, index) => new LR2SongDBExtended.playlist_course
             {
                 course_id = course.course_id,
                 playlist_id = course.playlist_id,
                 course_order = index,
                 course_json = NormalizeJsonOrNull(course.course_json)
             })
-            .Where((LR2SongDBExtended.playlist_course course) => !string.IsNullOrWhiteSpace(course.course_json))
-            .ToList();
+            .Where(course => !string.IsNullOrWhiteSpace(course.course_json))];
     }
 
     private static bool TryParseStoredUri(string value, UriKind uriKind, out Uri uri, out Exception exception)
@@ -221,7 +220,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             if (value == null)
             {
-                _entries = new List<BMSTableEntry>();
+                _entries = [];
                 RebuildFolderState();
                 MarkEntriesLoadedCore();
                 return;
@@ -295,7 +294,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     internal void MarkEntriesNotLoaded()
     {
-        _entries = new List<BMSTableEntry>();
+        _entries = [];
         EntriesLoadErrorMessage = string.Empty;
         PlaylistEntriesLoadState = PlaylistEntriesLoadState.NotLoaded;
         RebuildFolderState();
@@ -388,10 +387,10 @@ public class BMSTable : LR2SongDBExtended.playlist
     public BMSTable()
     {
         base.name = string.Empty;
-        _entries = new List<BMSTableEntry>();
+        _entries = [];
         base.is_external_sync = false;
         base.is_root_folder = false;
-        Folder_order = new List<string>();
+        Folder_order = [];
         base.folder_sort_key = CustomFolderSortType.NONE;
         base.folder_sort_ascending = true;
         base.ignore_folder_output = CustomFolderType.None;
@@ -452,7 +451,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         dynamic val = new DynamicJson();
         val.name = base.name;
         val.symbol = base.symbol;
-        val.level_order = folder_list.Select((string f) => ConvertBackFolderNameToCompatibleLevelName(f)).ToArray();
+        val.level_order = folder_list.Select(f => ConvertBackFolderNameToCompatibleLevelName(f)).ToArray();
         val.folder_order = Folder_order.ToArray();
         val.folder_sort_key = base.folder_sort_key.ToColumnName();
         val.folder_sort_ascending = base.folder_sort_ascending;
@@ -465,8 +464,8 @@ public class BMSTable : LR2SongDBExtended.playlist
         if (_Courses.Count > 0)
         {
             val.course = _Courses
-                .OrderBy((LR2SongDBExtended.playlist_course course) => course.course_order)
-                .Select((LR2SongDBExtended.playlist_course course) => DynamicJson.Parse(course.course_json))
+                .OrderBy(course => course.course_order)
+                .Select(course => DynamicJson.Parse(course.course_json))
                 .ToArray();
         }
         val.compat_prefix = base.compat_prefix;
@@ -480,21 +479,21 @@ public class BMSTable : LR2SongDBExtended.playlist
     public dynamic DataToJson()
     {
         dynamic val = new DynamicJson(DynamicJson.JsonType.array);
-        List<List<BMSTableEntry>> list = folder_list.Select(delegate (string f)
+        List<List<BMSTableEntry>> list = [.. folder_list.Select(delegate (string f)
         {
-            IEnumerable<BMSTableEntry> source = entries.Where((BMSTableEntry e) => !e.is_removed && e.folder == f);
+            IEnumerable<BMSTableEntry> source = entries.Where(e => !e.is_removed && e.folder == f);
             return (base.folder_sort_key switch
             {
-                CustomFolderSortType.LEVEL => (!base.folder_sort_ascending) ? source.OrderByDescending((BMSTableEntry e) => e.level) : source.OrderBy((BMSTableEntry e) => e.level),
-                CustomFolderSortType.ARTIST => (!base.folder_sort_ascending) ? source.OrderByDescending((BMSTableEntry e) => e.artist) : source.OrderBy((BMSTableEntry e) => e.artist),
-                CustomFolderSortType.ADDDATE => (!base.folder_sort_ascending) ? source.OrderByDescending((BMSTableEntry e) => e.adddate.ToLocalTime()) : source.OrderBy((BMSTableEntry e) => e.adddate.ToLocalTime()),
-                _ => (!base.folder_sort_ascending) ? source.OrderByDescending((BMSTableEntry e) => e.title) : source.OrderBy((BMSTableEntry e) => e.title),
+                CustomFolderSortType.LEVEL => (!base.folder_sort_ascending) ? source.OrderByDescending(e => e.level) : source.OrderBy(e => e.level),
+                CustomFolderSortType.ARTIST => (!base.folder_sort_ascending) ? source.OrderByDescending(e => e.artist) : source.OrderBy(e => e.artist),
+                CustomFolderSortType.ADDDATE => (!base.folder_sort_ascending) ? source.OrderByDescending(e => e.adddate.ToLocalTime()) : source.OrderBy(e => e.adddate.ToLocalTime()),
+                _ => (!base.folder_sort_ascending) ? source.OrderByDescending(e => e.title) : source.OrderBy(e => e.title),
             }).ToList();
-        }).ToList();
+        })];
         int num = 0;
         foreach (List<BMSTableEntry> item in list)
         {
-            foreach (dynamic item2 in item.Select((BMSTableEntry e) => e.ToDynamicJson()))
+            foreach (dynamic item2 in item.Select(e => e.ToDynamicJson()))
             {
                 val[num] = item2;
                 num++;
@@ -558,7 +557,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 try
                 {
-                    Folder_order = ((object[])val.folder_order).Select((object e) => e.ToString()).Cast<string>().ToList();
+                    Folder_order = [.. ((object[])val.folder_order).Select(e => e.ToString()).Cast<string>()];
                 }
                 catch
                 {
@@ -587,7 +586,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 {
                     try
                     {
-                        Folder_order = ((object[])val.level_order).Select((object e) => ConvertCompatibleLevelNameToFolderName(e.ToString())).Cast<string>().ToList();
+                        Folder_order = [.. ((object[])val.level_order).Select(e => ConvertCompatibleLevelNameToFolderName(e.ToString())).Cast<string>()];
                     }
                     catch
                     {
@@ -627,7 +626,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             dynamic val = DynamicJson.Parse(_data_json);
             base.data_sha256 = ComputeSha256Hex(_data_json);
-            entries = ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where((BMSTableEntry entry) => BMSPlaylist.CreateComparablePlaylistEntryRow(entry) != null).ToList();
+            entries = [.. ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where(entry => BMSPlaylist.CreateComparablePlaylistEntryRow(entry) != null)];
         }
         catch (Exception ex)
         {
@@ -647,16 +646,16 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
     private List<string> getSortedFolderList()
     {
-        List<string> folderList = (from e in entries
+        List<string> folderList = [.. (from e in entries
                                    where !e.is_removed
-                                   select e.folder).Distinct().ToList();
-        IEnumerable<string> enumerable = Folder_order.Where((string f) => folderList.Contains(f));
-        List<string> list = folderList.Except(enumerable).ToList();
-        using (NaturalComparer<string> comparer = new NaturalComparer<string>())
+                                   select e.folder).Distinct()];
+        IEnumerable<string> enumerable = Folder_order.Where(f => folderList.Contains(f));
+        List<string> list = [.. folderList.Except(enumerable)];
+        using (var comparer = new NaturalComparer<string>())
         {
             list.Sort(comparer);
         }
-        return enumerable.Concat(list).ToList();
+        return [.. enumerable, .. list];
     }
 
     /// <summary>
@@ -667,10 +666,10 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// <returns>プレイリストツリー表示用ノード一覧。</returns>
     private List<PlaylistFolderNode> BuildFolderNodes(List<string> orderedFolderNames)
     {
-        List<PlaylistFolderNode> list = (from PlaylistFolderNodeSpecialKind kind in Enum.GetValues(typeof(PlaylistFolderNodeSpecialKind))
+        List<PlaylistFolderNode> list = [.. (from PlaylistFolderNodeSpecialKind kind in Enum.GetValues(typeof(PlaylistFolderNodeSpecialKind))
                                          where kind != PlaylistFolderNodeSpecialKind.None
-                                         select PlaylistFolderNode.CreateSpecial(kind)).ToList();
-        list.AddRange(orderedFolderNames.Select((string folderName) => PlaylistFolderNode.CreateFolder(folderName)));
+                                         select PlaylistFolderNode.CreateSpecial(kind))];
+        list.AddRange(orderedFolderNames.Select(folderName => PlaylistFolderNode.CreateFolder(folderName)));
         return list;
     }
 
@@ -752,15 +751,15 @@ public class BMSTable : LR2SongDBExtended.playlist
         _entries = rebuildFolder(folderNameAfter);
         if (string.IsNullOrWhiteSpace(folderNameAfter))
         {
-            if (entries.Any((BMSTableEntry e) => string.IsNullOrWhiteSpace(e.folder) && e.md5 != "00000000000000000000000000000000") && !Folder_order.Contains(string.Empty))
+            if (entries.Any(e => string.IsNullOrWhiteSpace(e.folder) && e.md5 != "00000000000000000000000000000000") && !Folder_order.Contains(string.Empty))
             {
                 Folder_order.Insert(0, string.Empty);
             }
-            Folder_order = Folder_order.Where((string f) => f != folderNameBefore).ToList();
+            Folder_order = [.. Folder_order.Where(f => f != folderNameBefore)];
         }
         else
         {
-            Folder_order = Folder_order.Select((string f) => (!(f == folderNameBefore)) ? f : folderNameAfter).Distinct().ToList();
+            Folder_order = [.. Folder_order.Select(f => (!(f == folderNameBefore)) ? f : folderNameAfter).Distinct()];
         }
         base.last_update = DateTime.Now;
         TouchPlaylistEntriesRevision();
@@ -773,7 +772,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public IEnumerable<BMSTableEntry> GetEntriesExceptDummy()
     {
-        return entries.Where((BMSTableEntry e) => e.md5 != "00000000000000000000000000000000");
+        return entries.Where(e => e.md5 != "00000000000000000000000000000000");
     }
 
     public string CreateNewFolder(string newName)
@@ -786,7 +785,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             num++;
             text = newName + " (" + num + ")";
         }
-        BMSTableEntry bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
+        var bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
         bMSTableEntry.parent = this;
         bMSTableEntry.folder = text;
         _entries.Add(bMSTableEntry);
@@ -798,14 +797,14 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public void AddBMSTableEntriesToFolder(IEnumerable<BMSFile> bmsFiles, string folderName = "")
     {
-        List<BMSTableEntry> bmsEntries = bmsFiles.Select((BMSFile f) => new BMSTableEntry(f)).ToList();
+        List<BMSTableEntry> bmsEntries = [.. bmsFiles.Select(f => new BMSTableEntry(f))];
         AddBMSTableEntriesToFolder(bmsEntries, folderName);
     }
 
     public void AddBMSTableEntriesToFolder(IEnumerable<BMSTableEntry> bmsEntries, string folderName = "")
     {
         bool flag = !GetExistingFolderNameSet().Contains(folderName);
-        List<BMSTableEntry> list = bmsEntries.ToList();
+        List<BMSTableEntry> list = [.. bmsEntries];
         foreach (BMSTableEntry item in list)
         {
             item.folder = folderName;
@@ -822,17 +821,17 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public void RemoveBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries)
     {
-        List<string> source = bmsEntries.Select((BMSTableEntry e) => e.folder).Distinct().ToList();
-        _entries = entries.Except(bmsEntries).ToList();
+        List<string> source = [.. bmsEntries.Select(e => e.folder).Distinct()];
+        _entries = [.. entries.Except(bmsEntries)];
         bool flag = false;
-        foreach (string item in source.Where((string f) => _entries.Where((BMSTableEntry e) => e.folder == f).Count() == 0))
+        foreach (string item in source.Where(f => _entries.Where(e => e.folder == f).Count() == 0))
         {
             if (string.IsNullOrWhiteSpace(item))
             {
                 flag = true;
                 continue;
             }
-            BMSTableEntry bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
+            var bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
             bMSTableEntry.parent = this;
             bMSTableEntry.folder = item;
             _entries.Add(bMSTableEntry);
@@ -847,11 +846,8 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private List<BMSTableEntry> rebuildFolder(string folderName, IEnumerable<BMSTableEntry> inputEntries = null)
     {
-        if (inputEntries == null)
-        {
-            inputEntries = entries;
-        }
-        List<BMSTableEntry> list = inputEntries.Where((BMSTableEntry e) => e.folder == folderName).ToList();
+        inputEntries ??= entries;
+        List<BMSTableEntry> list = [.. inputEntries.Where(e => e.folder == folderName)];
         IEnumerable<IGrouping<string, BMSTableEntry>> source = list.GroupBy(delegate (BMSTableEntry e)
         {
             string text = string.Empty;
@@ -873,13 +869,13 @@ public class BMSTable : LR2SongDBExtended.playlist
             }
             return text;
         });
-        List<BMSTableEntry> second = list.Except(source.Select((IGrouping<string, BMSTableEntry> g) => g.First())).ToList();
-        List<BMSTableEntry> second2 = new List<BMSTableEntry>();
-        if ((list.Count > 1 || folderName == string.Empty) && list.Any((BMSTableEntry e) => e.md5 == "00000000000000000000000000000000"))
+        List<BMSTableEntry> second = [.. list.Except(source.Select(g => g.First()))];
+        List<BMSTableEntry> second2 = [];
+        if ((list.Count > 1 || folderName == string.Empty) && list.Any(e => e.md5 == "00000000000000000000000000000000"))
         {
-            second2 = list.Where((BMSTableEntry e) => e.md5 == "00000000000000000000000000000000").ToList();
+            second2 = [.. list.Where(e => e.md5 == "00000000000000000000000000000000")];
         }
-        return inputEntries.Except(second).Except(second2).ToList();
+        return [.. inputEntries.Except(second).Except(second2)];
     }
 
     private List<BMSTableEntry> normalizeEntries(List<BMSTableEntry> inputEntries)
@@ -888,7 +884,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return inputEntries;
         }
-        Dictionary<string, FolderNormalizeState> dictionary = new Dictionary<string, FolderNormalizeState>(StringComparer.Ordinal);
+        var dictionary = new Dictionary<string, FolderNormalizeState>(StringComparer.Ordinal);
         FolderNormalizeState folderNormalizeState = null;
         HashSet<BMSTableEntry> hashSet = null;
         foreach (BMSTableEntry inputEntry in inputEntries)
@@ -896,10 +892,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             FolderNormalizeState value;
             if (inputEntry.folder == null)
             {
-                if (folderNormalizeState == null)
-                {
-                    folderNormalizeState = new FolderNormalizeState();
-                }
+                folderNormalizeState ??= new FolderNormalizeState();
                 value = folderNormalizeState;
             }
             else if (!dictionary.TryGetValue(inputEntry.folder, out value))
@@ -910,7 +903,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             value.Count++;
             if (!value.SeenKeys.Add(getEntryIdentityKey(inputEntry)))
             {
-                hashSet = hashSet ?? new HashSet<BMSTableEntry>();
+                hashSet ??= [];
                 hashSet.Add(inputEntry);
             }
             if (inputEntry.md5 == BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)
@@ -921,7 +914,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         addDummyRemovalTargets(dictionary, ref hashSet);
         if (folderNormalizeState != null && folderNormalizeState.DummyEntries.Count > 0 && folderNormalizeState.Count > 1)
         {
-            hashSet = hashSet ?? new HashSet<BMSTableEntry>();
+            hashSet ??= [];
             foreach (BMSTableEntry dummyEntry in folderNormalizeState.DummyEntries)
             {
                 hashSet.Add(dummyEntry);
@@ -931,7 +924,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return inputEntries;
         }
-        return inputEntries.Where((BMSTableEntry e) => !hashSet.Contains(e)).ToList();
+        return [.. inputEntries.Where(e => !hashSet.Contains(e))];
     }
 
     private static void addDummyRemovalTargets(Dictionary<string, FolderNormalizeState> statesByFolder, ref HashSet<BMSTableEntry> removalSet)
@@ -941,7 +934,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             FolderNormalizeState value = item.Value;
             if (value.DummyEntries.Count > 0 && (value.Count > 1 || item.Key == string.Empty))
             {
-                removalSet = removalSet ?? new HashSet<BMSTableEntry>();
+                removalSet ??= [];
                 foreach (BMSTableEntry dummyEntry in value.DummyEntries)
                 {
                     removalSet.Add(dummyEntry);
@@ -973,9 +966,9 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private sealed class FolderNormalizeState
     {
-        public readonly HashSet<string> SeenKeys = new HashSet<string>(StringComparer.Ordinal);
+        public readonly HashSet<string> SeenKeys = new(StringComparer.Ordinal);
 
-        public readonly List<BMSTableEntry> DummyEntries = new List<BMSTableEntry>();
+        public readonly List<BMSTableEntry> DummyEntries = [];
 
         public int Count;
     }
@@ -992,10 +985,10 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private void LoadCourseJsonFromHeader(string headerJson)
     {
-        _Courses = new List<LR2SongDBExtended.playlist_course>();
+        _Courses = [];
         try
         {
-            JObject header = JObject.Parse(headerJson);
+            var header = JObject.Parse(headerJson);
             if (header["course"] == null)
             {
                 return;
@@ -1013,7 +1006,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         catch
         {
-            _Courses = new List<LR2SongDBExtended.playlist_course>();
+            _Courses = [];
         }
     }
 
@@ -1054,9 +1047,9 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     internal static string ComputeSha256Hex(string value)
     {
-        using SHA256 sha256 = SHA256.Create();
+        using var sha256 = SHA256.Create();
         byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
-        StringBuilder builder = new StringBuilder(hash.Length * 2);
+        var builder = new StringBuilder(hash.Length * 2);
         foreach (byte b in hash)
         {
             builder.Append(b.ToString("x2"));

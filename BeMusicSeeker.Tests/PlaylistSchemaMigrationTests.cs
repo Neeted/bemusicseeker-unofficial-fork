@@ -16,7 +16,7 @@ public sealed class PlaylistSchemaMigrationTests
         string tempDbPath = CreateTempSongDbPath();
         try
         {
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.DropTable<LR2SongDBExtended.playlist>();
                 db.DropTable<LR2SongDBExtended.playlist_entry>();
@@ -27,7 +27,7 @@ public sealed class PlaylistSchemaMigrationTests
 
             _ = new BMSPlaylist(tempDbPath);
 
-            using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
+            using var verify = new LR2SongDBExtended(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             Assert.IsFalse(tableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
@@ -47,7 +47,7 @@ public sealed class PlaylistSchemaMigrationTests
         string tempDbPath = CreateTempSongDbPath();
         try
         {
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.DropTable<LR2SongDBExtended.playlist>();
                 db.DropTable<LR2SongDBExtended.playlist_entry>();
@@ -58,7 +58,7 @@ public sealed class PlaylistSchemaMigrationTests
 
             BMSPlaylist.EnsureSchema(tempDbPath);
 
-            using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
+            using var verify = new LR2SongDBExtended(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             StringAssert.Contains(tableSql, "sha256");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
@@ -78,14 +78,14 @@ public sealed class PlaylistSchemaMigrationTests
         string tempDbPath = CreateTempSongDbPath();
         try
         {
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.DropTable<LR2SongDBExtended.playlist_course>();
             }
 
             BMSPlaylist.EnsureSchema(tempDbPath);
 
-            using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
+            using var verify = new LR2SongDBExtended(tempDbPath);
             string playlistSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist';");
             StringAssert.Contains(playlistSql, "tag");
             StringAssert.Contains(playlistSql, "header_sha256");
@@ -109,8 +109,8 @@ public sealed class PlaylistSchemaMigrationTests
         try
         {
             BMSPlaylist.EnsureSchema(tempDbPath);
-            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            var playlist = new BMSPlaylist(tempDbPath);
+            using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.Execute("DELETE FROM playlist_entry;");
                 db.Execute("DELETE FROM playlist;");
@@ -119,7 +119,7 @@ public sealed class PlaylistSchemaMigrationTests
 
             playlist.LoadPlaylistDump(dump);
 
-            using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
+            using var verify = new LR2SongDBExtended(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             StringAssert.Contains(tableSql, "sha256");
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
@@ -137,7 +137,7 @@ public sealed class PlaylistSchemaMigrationTests
         string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistSchemaMigrationTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         string tempDbPath = Path.Combine(tempDirectory, "song.db");
-        using (LR2SongDBExtended _ = new LR2SongDBExtended(tempDbPath))
+        using (var _ = new LR2SongDBExtended(tempDbPath))
         {
         }
         return tempDbPath;

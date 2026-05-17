@@ -14,7 +14,7 @@ internal sealed class PendingFileDeletionResult
 
     public int Skipped { get; set; }
 
-    public List<BMSFile> FilesToRemove { get; } = new List<BMSFile>();
+    public List<BMSFile> FilesToRemove { get; } = [];
 
-    public List<PendingFileDeletionFailure> Failures { get; } = new List<PendingFileDeletionFailure>();
+    public List<PendingFileDeletionFailure> Failures { get; } = [];
 }

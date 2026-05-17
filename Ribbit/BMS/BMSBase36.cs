@@ -7,16 +7,16 @@ namespace Ribbit.BMS;
 
 public static class BMSBase36
 {
-    internal static readonly char[] B36E = new char[36]
-    {
+    internal static readonly char[] B36E =
+    [
         '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
         'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
         'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
         'U', 'V', 'W', 'X', 'Y', 'Z'
-    };
+    ];
 
-    internal static readonly int[] B36D = new int[256]
-    {
+    internal static readonly int[] B36D =
+    [
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -43,7 +43,7 @@ public static class BMSBase36
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
         -1, -1, -1, -1, -1, -1
-    };
+    ];
 
     public static readonly ReadOnlyCollection<int> MapFromBase36Set = Enumerable.Range(0, 1296).ToList().AsReadOnly();
 
@@ -67,9 +67,9 @@ public static class BMSBase36
         });
     }).ToList().AsReadOnly();
 
-    public static readonly ReadOnlyCollection<int> MapToBase16Subset = MapToBase16Set.Select((int i) => MapFromBase16Set[i]).ToList().AsReadOnly();
+    public static readonly ReadOnlyCollection<int> MapToBase16Subset = MapToBase16Set.Select(i => MapFromBase16Set[i]).ToList().AsReadOnly();
 
-    public static List<Tuple<string, string>> b = MapToBase16Subset.Select((int i, int j) => new Tuple<string, string>(FromInt(j), FromInt(i))).ToList();
+    public static List<Tuple<string, string>> b = [.. MapToBase16Subset.Select((i, j) => new Tuple<string, string>(FromInt(j), FromInt(i)))];
 
     public const int MaxValue = 1295;
 
@@ -79,11 +79,11 @@ public static class BMSBase36
         {
             throw new ArgumentOutOfRangeException("value", "Argument should be 0 <= value <= " + 1295);
         }
-        return new string(new char[2]
-        {
+        return new string(
+        [
             B36E[value / 36],
             B36E[value % 36]
-        });
+        ]);
     }
 
     public static int ToInt(string s)

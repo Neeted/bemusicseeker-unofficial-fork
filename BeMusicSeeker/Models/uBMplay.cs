@@ -44,13 +44,13 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private class temporarilyRewriteSettings
     {
-        private IniDocument backup = new IniDocument();
+        private readonly IniDocument backup = new();
 
-        private IniDocument settings = new IniDocument();
+        private readonly IniDocument settings = new();
 
-        private string iniFilePath;
+        private readonly string iniFilePath;
 
-        private IniSyntaxDefinition syntax = new IniSyntaxDefinition
+        private readonly IniSyntaxDefinition syntax = new()
         {
             CommentStartChar = ';',
             NameValueDelimiter = '=',
@@ -58,7 +58,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             RequireQuotes = false
         };
 
-        private IniWriterFormattingSettings format = new IniWriterFormattingSettings
+        private readonly IniWriterFormattingSettings format = new()
         {
             IndentParameters = false,
             SpaceBeforeDelimiter = false,
@@ -76,7 +76,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             }
             try
             {
-                using StreamWriter tw = new StreamWriter(iniFilePath, append: false, Encoding.GetEncoding("shift_jis"));
+                using var tw = new StreamWriter(iniFilePath, append: false, Encoding.GetEncoding("shift_jis"));
                 backup.Save(tw, format);
             }
             catch
@@ -91,18 +91,20 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             {
                 backup.SyntaxDefinition = syntax;
                 settings.SyntaxDefinition = syntax;
-                using (StreamReader tr = new StreamReader(iniFilePath, Encoding.GetEncoding("shift_jis")))
+                using (var tr = new StreamReader(iniFilePath, Encoding.GetEncoding("shift_jis")))
                 {
                     settings.Load(tr);
                 }
-                using StreamReader tr2 = new StreamReader(iniFilePath, Encoding.GetEncoding("shift_jis"));
+                using var tr2 = new StreamReader(iniFilePath, Encoding.GetEncoding("shift_jis"));
                 backup.Load(tr2);
             }
             catch
             {
                 backup = null;
-                settings = new IniDocument();
-                settings.SyntaxDefinition = syntax;
+                settings = new IniDocument
+                {
+                    SyntaxDefinition = syntax
+                };
             }
             if ((1u & (setSectionParameterValue("Main", "AlwaysOnTop", "False") ? 1u : 0u) & (setSectionParameterValue("Main", "VSYNC", "False") ? 1u : 0u) & (setSectionParameterValue("Option", "BGA", "3") ? 1u : 0u) & (setSectionParameterValue("Option", "AutoSeparate", "True") ? 1u : 0u) & (setSectionParameterValue("Option", "SkinType", "0") ? 1u : 0u) & (setSectionParameterValue("Option", "Volume", Math.Min(100, Math.Max(0, Settings.Default.uBMplayVolume)).ToString()) ? 1u : 0u)) == 0)
             {
@@ -110,7 +112,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
             }
             try
             {
-                using StreamWriter tw = new StreamWriter(iniFilePath, append: false, Encoding.GetEncoding("shift_jis"));
+                using var tw = new StreamWriter(iniFilePath, append: false, Encoding.GetEncoding("shift_jis"));
                 settings.Save(tw, format);
             }
             catch
@@ -121,14 +123,14 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
         private bool setSectionParameterValue(string sectionName, string parameterName, string value)
         {
-            if (!settings.Sections.Any((IniSection s) => s.Header == sectionName))
+            if (!settings.Sections.Any(s => s.Header == sectionName))
             {
-                IniSection iniSection = new IniSection(sectionName);
+                var iniSection = new IniSection(sectionName);
                 iniSection.Parameters.Add(new IniParameter(parameterName, value));
                 settings.Sections.Add(iniSection);
                 return false;
             }
-            if (!settings.Sections[sectionName].Parameters.Any((IniParameter p) => p.Name == parameterName))
+            if (!settings.Sections[sectionName].Parameters.Any(p => p.Name == parameterName))
             {
                 settings.Sections[sectionName].AddParameter(parameterName, value);
                 return false;
@@ -144,15 +146,15 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private IntPtr foregroundWindowHandle = IntPtr.Zero;
 
-    private uint uBMplayHandleWindowStatusOrg = 382337024u;
+    private readonly uint uBMplayHandleWindowStatusOrg = 382337024u;
 
     private EventHandler onExitEventHandlerRegstered;
 
-    private EventHandler onExitEventHandlerDefault;
+    private readonly EventHandler onExitEventHandlerDefault;
 
-    private bool IS_WIN8OR10 = Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012);
+    private readonly bool IS_WIN8OR10 = Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012);
 
-    private object lockThis = new object();
+    private readonly object lockThis = new();
 
     private temporarilyRewriteSettings iniFile;
 
@@ -162,7 +164,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private IntPtr CurrentFocusForKeyEvent;
 
-    private static Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF> KeyEventFlags = new Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF>
+    private static readonly Dictionary<KeyCode, DirectInputSendKey.KEYEVENTF> KeyEventFlags = new()
     {
         {
             KeyCode.UP,
@@ -315,10 +317,10 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private List<IntPtr> uBMplayHandles()
     {
-        return (from ProcessThread pt in uBMplayProcess.Threads
+        return [.. (from ProcessThread pt in uBMplayProcess.Threads
                 from wh in new ThreadWindowHandles((uint)pt.Id)
                 where wh != IntPtr.Zero
-                select wh).ToList();
+                select wh)];
     }
 
     public uBMplay(string exePath)
@@ -415,7 +417,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 flag = true;
             }
         }
-        ProcessStartInfo processStartInfo = new ProcessStartInfo(ExePath);
+        var processStartInfo = new ProcessStartInfo(ExePath);
         if (!IS_WIN8OR10)
         {
             processStartInfo.WindowStyle = ProcessWindowStyle.Minimized;
@@ -423,9 +425,11 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         processStartInfo.Arguments = "-SP \"" + bmsFilePath + "\"";
         if (uBMplayHandleShowing == IntPtr.Zero)
         {
-            uBMplayProcess = new Process();
-            uBMplayProcess.StartInfo = processStartInfo;
-            uBMplayProcess.EnableRaisingEvents = true;
+            uBMplayProcess = new Process
+            {
+                StartInfo = processStartInfo,
+                EnableRaisingEvents = true
+            };
             uBMplayProcess.Exited += onExitEventHandlerDefault;
             if (onExitEventHandler != null)
             {
@@ -437,7 +441,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
                 onExitEventHandlerRegstered = null;
             }
             uBMplayProcess.Start();
-            StringBuilder classname = new StringBuilder(4096);
+            var classname = new StringBuilder(4096);
             while (!uBMplayProcess.HasExited)
             {
                 bool flag2 = uBMplayHandles().Any(delegate (IntPtr wh)
@@ -479,7 +483,7 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
         }
         else
         {
-            Process process = Process.Start(processStartInfo);
+            var process = Process.Start(processStartInfo);
             while (!process.HasExited)
             {
                 if (!IS_WIN8OR10)
@@ -493,8 +497,8 @@ public class uBMplay : NotificationObject, IBMSPlayer, INotifyPropertyChanged
 
     private void waitForLoading(string bmsFilePath)
     {
-        StringBuilder stringBuilder = new StringBuilder(4096);
-        Regex regex = new Regex(Regex.Escape(bmsFilePath));
+        var stringBuilder = new StringBuilder(4096);
+        var regex = new Regex(Regex.Escape(bmsFilePath));
         while (!uBMplayProcess.HasExited)
         {
             if (!Win32API.IsWindow(uBMplayHandleShowing))

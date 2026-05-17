@@ -13,13 +13,13 @@ public sealed class CustomTablePhase6CacheTests
     public void ColumnLayoutSnapshot_ResolvesVisibleColumnsAndResizeEdges()
     {
         CustomTableColumn[] columns =
-        {
+        [
             CreateColumn("A", 50),
             CreateColumn("B", 80),
             CreateColumn("C", 30)
-        };
+        ];
 
-        CustomTableColumnLayoutSnapshot snapshot = CustomTableColumnLayoutSnapshot.Create(columns, horizontalOffset: 20d, viewportWidth: 100d);
+        var snapshot = CustomTableColumnLayoutSnapshot.Create(columns, horizontalOffset: 20d, viewportWidth: 100d);
 
         Assert.AreEqual(170d, snapshot.ExtentWidth);
         Assert.AreEqual(2, snapshot.VisibleColumnCount);
@@ -34,8 +34,8 @@ public sealed class CustomTablePhase6CacheTests
     [TestMethod]
     public void ColumnLayoutSnapshot_MatchesOnlySameViewportAndColumns()
     {
-        CustomTableColumn[] columns = { CreateColumn("A", 50) };
-        CustomTableColumnLayoutSnapshot snapshot = CustomTableColumnLayoutSnapshot.Create(columns, 0d, 100d);
+        CustomTableColumn[] columns = [CreateColumn("A", 50)];
+        var snapshot = CustomTableColumnLayoutSnapshot.Create(columns, 0d, 100d);
 
         Assert.IsTrue(snapshot.Matches(columns, 0d, 100d));
         Assert.IsFalse(snapshot.Matches(columns, 1d, 100d));
@@ -49,9 +49,9 @@ public sealed class CustomTablePhase6CacheTests
         int textCalls = 0;
         int foregroundCalls = 0;
         int backgroundCalls = 0;
-        object row = new object();
+        object row = new();
         bool undefined = true;
-        CustomTableColumn column = new CustomTableColumn(
+        var column = new CustomTableColumn(
             "Title",
             "TITLE",
             layout: null,
@@ -74,7 +74,7 @@ public sealed class CustomTablePhase6CacheTests
                 return undefined ? Brushes.Yellow : null;
             },
             textStyle: CustomTableTextStyle.Score);
-        CustomTableCellValueCache cache = new CustomTableCellValueCache();
+        var cache = new CustomTableCellValueCache();
 
         CustomTableCellValue first = cache.GetOrCreate(row, column, 0, 0, out bool firstHit);
         CustomTableCellValue second = cache.GetOrCreate(row, column, 0, 0, out bool secondHit);
@@ -102,8 +102,8 @@ public sealed class CustomTablePhase6CacheTests
     public void CellValueCache_TreatsGenerationChangesAsMisses()
     {
         int textCalls = 0;
-        object row = new object();
-        CustomTableColumn column = new CustomTableColumn(
+        object row = new();
+        var column = new CustomTableColumn(
             "Title",
             "TITLE",
             layout: null,
@@ -115,7 +115,7 @@ public sealed class CustomTablePhase6CacheTests
                 textCalls++;
                 return textCalls.ToString();
             });
-        CustomTableCellValueCache cache = new CustomTableCellValueCache();
+        var cache = new CustomTableCellValueCache();
 
         CustomTableCellValue first = cache.GetOrCreate(row, column, 0, 0, out bool firstHit);
         CustomTableCellValue second = cache.GetOrCreate(row, column, 1, 0, out bool secondHit);
@@ -131,7 +131,7 @@ public sealed class CustomTablePhase6CacheTests
 
     private static CustomTableColumn CreateColumn(string id, int width)
     {
-        CustomTableColumnSettings.ColumnLayout layout = new CustomTableColumnSettings.ColumnLayout
+        var layout = new CustomTableColumnSettings.ColumnLayout
         {
             Width = width,
             Visibility = Visibility.Visible

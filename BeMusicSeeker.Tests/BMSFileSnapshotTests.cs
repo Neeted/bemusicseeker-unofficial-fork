@@ -34,12 +34,12 @@ public sealed class BMSFileSnapshotTests
                 + "#BMP01 image.png\r\n"
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
-            DateTime lastWriteTimeUtc = new DateTime(2026, 5, 2, 1, 2, 3, DateTimeKind.Utc);
+            var lastWriteTimeUtc = new DateTime(2026, 5, 2, 1, 2, 3, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile expected = BMSFile.CreateBMSFileFromFile(filePath);
-            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var expected = BMSFile.CreateBMSFileFromFile(filePath);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             Assert.AreEqual(Path.GetFullPath(filePath), snapshot.Path);
             Assert.AreEqual(new FileInfo(filePath).Length, snapshot.Length);
@@ -53,7 +53,7 @@ public sealed class BMSFileSnapshotTests
     [TestMethod]
     public void CreateBMSFileFromSnapshot_MatchesFileApiForRepresentativeEncodings()
     {
-        string[] encodings = { "shift_jis", "gb2312", "big5", "ks_c_5601-1987" };
+        string[] encodings = ["shift_jis", "gb2312", "big5", "ks_c_5601-1987"];
         foreach (string encodingName in encodings)
         {
             WithTempDirectory(delegate (string tempDirectory)
@@ -64,8 +64,8 @@ public sealed class BMSFileSnapshotTests
                     Encoding.GetEncoding(encodingName));
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-                BMSFile expected = BMSFile.CreateBMSFileFromFile(filePath, encodingName);
-                BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, encodingName);
+                var expected = BMSFile.CreateBMSFileFromFile(filePath, encodingName);
+                var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot, encodingName);
 
                 AssertBmsMetadataEqual(expected, actual);
             });
@@ -84,7 +84,7 @@ public sealed class BMSFileSnapshotTests
 
             File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE After\r\n", Encoding.GetEncoding("shift_jis"));
 
-            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             Assert.AreEqual("Before", actual.Title);
             Assert.AreEqual(originalMd5, actual.hash);
@@ -96,7 +96,7 @@ public sealed class BMSFileSnapshotTests
     public void CreateBMSFileFromSnapshot_DetectsModeChannelsLikeFileApi()
     {
         (string FileName, string ChannelLine, int ExpectedMode)[] cases =
-        {
+        [
             ("fivekey.bms", "#00111:01", 5),
             ("default-seven.bms", "#00111:000000", 7),
             ("legacy-seven.bms", "#00116:01", 7),
@@ -105,7 +105,7 @@ public sealed class BMSFileSnapshotTests
             ("fourteenkey.bms", "#00128:01", 14),
             ("fullwidth-leading-space.bms", "\u3000#00111:01", 5),
             ("whitespace-separator-is-ignored.bms", "#00111 01", 7)
-        };
+        ];
         foreach ((string fileName, string channelLine, int expectedMode) in cases)
         {
             WithTempDirectory(delegate (string tempDirectory)
@@ -114,8 +114,8 @@ public sealed class BMSFileSnapshotTests
                 File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE Mode\r\n" + channelLine + "\r\n", Encoding.GetEncoding("shift_jis"));
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-                BMSFile expected = BMSFile.CreateBMSFileFromFile(filePath);
-                BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+                var expected = BMSFile.CreateBMSFileFromFile(filePath);
+                var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
                 Assert.AreEqual(expectedMode, actual.mode, fileName);
                 AssertBmsMetadataEqual(expected, actual);
@@ -154,8 +154,8 @@ public sealed class BMSFileSnapshotTests
                 Encoding.GetEncoding("shift_jis"));
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile expected = BMSFile.CreateBMSFileFromFile(filePath);
-            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var expected = BMSFile.CreateBMSFileFromFile(filePath);
+            var actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
 
             AssertBmsMetadataEqual(expected, actual);
             CollectionAssert.Contains(actual.WAVfiles.ToArray(), "sound.wav");
@@ -172,14 +172,14 @@ public sealed class BMSFileSnapshotTests
     public void DetectEncodingOfBMSFile_SnapshotMatchesPathApiForRepresentativeEncodings()
     {
         (string CaseName, byte[] Bytes)[] cases =
-        {
+        [
             ("ascii", Encoding.ASCII.GetBytes("#TITLE ASCII\r\n")),
             ("shift_jis_japanese", Encoding.GetEncoding("shift_jis").GetBytes("#TITLE 日本語\r\n")),
             ("korean_definite", Encoding.GetEncoding("ks_c_5601-1987").GetBytes("#TITLE \uacaf\r\n")),
             ("korean_ambiguous", Encoding.GetEncoding("ks_c_5601-1987").GetBytes("#TITLE \uac00\ub098\r\n")),
             ("utf8", Encoding.UTF8.GetBytes("#TITLE \u3012\u2605\r\n")),
             ("unknown", new byte[] { 0xFF, 0xFF, 0xFF })
-        };
+        ];
         foreach ((string caseName, byte[] bytes) in cases)
         {
             WithTempDirectory(delegate (string tempDirectory)
@@ -240,7 +240,7 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE Before\r\n#SUBTITLE SubBefore\r\n#ARTIST ArtistBefore\r\n#SUBARTIST SubArtistBefore\r\n#GENRE GenreBefore\r\n",
                 Encoding.GetEncoding("shift_jis"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile file = BMSFile.CreateBMSFileFromFile(filePath);
+            var file = BMSFile.CreateBMSFileFromFile(filePath);
 
             File.WriteAllText(filePath,
                 "#PLAYER 1\r\n#TITLE After\r\n#SUBTITLE SubAfter\r\n#ARTIST ArtistAfter\r\n#SUBARTIST SubArtistAfter\r\n#GENRE GenreAfter\r\n",
@@ -272,7 +272,7 @@ public sealed class BMSFileSnapshotTests
             File.WriteAllText(filePath,
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
-            BMSFile file = BMSFile.CreateBMSFileFromFile(filePath);
+            var file = BMSFile.CreateBMSFileFromFile(filePath);
             Assert.AreNotEqual(title + " " + subtitle, file.Title);
 
             BMSFile.ReloadBMSFileWithEncoding(file, "ks_c_5601-1987");
@@ -294,7 +294,7 @@ public sealed class BMSFileSnapshotTests
         {
             string filePath = Path.Combine(tempDirectory, "chart.bms");
             File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE ASCII\r\n#ARTIST Artist\r\n", Encoding.GetEncoding("shift_jis"));
-            BMSFile file = BMSFile.CreateBMSFileFromFile(filePath);
+            var file = BMSFile.CreateBMSFileFromFile(filePath);
             file.date = 123;
             file.adddate = 456;
 
@@ -322,7 +322,7 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n#WAV01 sound.wav\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            var file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
             Assert.AreNotEqual(title, file.Title);
 
             BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);

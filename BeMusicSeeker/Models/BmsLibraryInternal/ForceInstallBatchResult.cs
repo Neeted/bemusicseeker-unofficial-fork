@@ -14,7 +14,7 @@ internal sealed class ForceInstallBatchResult
 
     public int Skipped { get; set; }
 
-    public List<ChartPackage> PendingPackagesToRemove { get; } = new List<ChartPackage>();
+    public List<ChartPackage> PendingPackagesToRemove { get; } = [];
 
-    public List<ChartPackage> DeferredInstalledPackages { get; } = new List<ChartPackage>();
+    public List<ChartPackage> DeferredInstalledPackages { get; } = [];
 }

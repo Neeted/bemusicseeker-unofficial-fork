@@ -6,17 +6,17 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class DropInstallQueueProcessor
+internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchRequest, CancellationToken> processBatch, Action<DropInstallQueueStatusSnapshot> statusChanged, Action<Exception> batchFailed = null)
 {
-    private readonly object syncRoot = new object();
+    private readonly object syncRoot = new();
 
-    private readonly Queue<DroppedInstallBatchRequest> pendingBatches = new Queue<DroppedInstallBatchRequest>();
+    private readonly Queue<DroppedInstallBatchRequest> pendingBatches = new();
 
-    private readonly Action<DroppedInstallBatchRequest, CancellationToken> processBatch;
+    private readonly Action<DroppedInstallBatchRequest, CancellationToken> processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
 
-    private readonly Action<DropInstallQueueStatusSnapshot> statusChanged;
+    private readonly Action<DropInstallQueueStatusSnapshot> statusChanged = statusChanged ?? throw new ArgumentNullException(nameof(statusChanged));
 
-    private readonly Action<Exception> batchFailed;
+    private readonly Action<Exception> batchFailed = batchFailed;
 
     private bool workerRunning;
 
@@ -28,16 +28,9 @@ internal sealed class DropInstallQueueProcessor
 
     private int activeCompletedPathCount;
 
-    public DropInstallQueueProcessor(Action<DroppedInstallBatchRequest, CancellationToken> processBatch, Action<DropInstallQueueStatusSnapshot> statusChanged, Action<Exception> batchFailed = null)
-    {
-        this.processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
-        this.statusChanged = statusChanged ?? throw new ArgumentNullException(nameof(statusChanged));
-        this.batchFailed = batchFailed;
-    }
-
     public void Enqueue(IEnumerable<string> paths)
     {
-        DroppedInstallBatchRequest request = new DroppedInstallBatchRequest(paths);
+        var request = new DroppedInstallBatchRequest(paths);
         if (request.PathCount == 0)
         {
             return;

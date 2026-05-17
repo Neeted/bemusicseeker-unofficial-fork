@@ -5,23 +5,23 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class FileScanDiffCommitChunk
 {
-    public List<string> DeletedBmsPaths { get; } = new List<string>();
+    public List<string> DeletedBmsPaths { get; } = [];
 
-    public List<BMSFile> AddedBmsFiles { get; } = new List<BMSFile>();
+    public List<BMSFile> AddedBmsFiles { get; } = [];
 
-    public List<string> DeletedBmsonPaths { get; } = new List<string>();
+    public List<string> DeletedBmsonPaths { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> UpsertBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+    public List<LR2SongDBExtended.bmson_song> UpsertBmsonSongs { get; } = [];
 
-    public List<BMSFileMaintenanceInfo> MaintenanceInfoRows { get; } = new List<BMSFileMaintenanceInfo>();
+    public List<BMSFileMaintenanceInfo> MaintenanceInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+    public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> AppliedChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+    public List<LR2SongDBExtended.chart_info> AppliedChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = new List<LR2SongDBExtended.chart_info_parse_failure>();
+    public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = [];
 
-    public List<string> ParseFailureDeleteMd5s { get; } = new List<string>();
+    public List<string> ParseFailureDeleteMd5s { get; } = [];
 
     public int MutationCount { get; private set; }
 

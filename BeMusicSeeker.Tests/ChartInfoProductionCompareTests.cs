@@ -32,11 +32,11 @@ public sealed class ChartInfoProductionCompareTests
             Assert.AreEqual(1, result.ExtraChartInfoCount);
             Assert.AreEqual(1, result.RandomValueDiffCount);
             Assert.AreEqual(2, result.NonRandomDiffChartCount);
-            Assert.AreEqual(1, result.FieldDiffs.Single((FieldDiffSummary diff) => diff.Field == "charthash").Count);
-            Assert.AreEqual(1, result.FieldDiffs.Single((FieldDiffSummary diff) => diff.Field == "difficulty").Count);
-            Assert.IsFalse(result.FieldDiffs.Any((FieldDiffSummary diff) => diff.Field == "md5"));
-            Assert.IsFalse(result.FieldDiffs.Any((FieldDiffSummary diff) => diff.Field == "level"));
-            Assert.IsFalse(result.FieldDiffs.Any((FieldDiffSummary diff) => diff.Field == "maxbpm"));
+            Assert.AreEqual(1, result.FieldDiffs.Single(diff => diff.Field == "charthash").Count);
+            Assert.AreEqual(1, result.FieldDiffs.Single(diff => diff.Field == "difficulty").Count);
+            Assert.IsFalse(result.FieldDiffs.Any(diff => diff.Field == "md5"));
+            Assert.IsFalse(result.FieldDiffs.Any(diff => diff.Field == "level"));
+            Assert.IsFalse(result.FieldDiffs.Any(diff => diff.Field == "maxbpm"));
             Assert.IsTrue(File.Exists(Path.Combine(fixture.ReportPath, "summary.json")));
             Assert.IsTrue(File.Exists(Path.Combine(fixture.ReportPath, "field_diffs.csv")));
             Assert.IsTrue(File.Exists(Path.Combine(fixture.ReportPath, "missing_chart_info.csv")));
@@ -67,7 +67,7 @@ public sealed class ChartInfoProductionCompareTests
             Assert.AreEqual(2, result.FixtureExportedCount);
             Assert.IsTrue(File.Exists(Path.Combine(exportPath, "manifest.json")));
             Assert.IsTrue(File.Exists(Path.Combine(exportPath, "expected.db")));
-            using SQLiteConnection expected = new SQLiteConnection(Path.Combine(exportPath, "expected.db"));
+            using var expected = new SQLiteConnection(Path.Combine(exportPath, "expected.db"));
             Assert.AreEqual(2L, expected.ExecuteScalar<long>("SELECT COUNT(1) FROM FixtureSampleChart;"));
             Assert.AreEqual(2L, expected.ExecuteScalar<long>("SELECT COUNT(1) FROM FixtureExpectedChartInfo;"));
             string[] copiedCharts = Directory.GetFiles(Path.Combine(exportPath, "charts"), "*", SearchOption.AllDirectories);
@@ -104,7 +104,7 @@ public sealed class ChartInfoProductionCompareTests
         Directory.CreateDirectory(root);
         try
         {
-            ProductionCompareFixture fixture = new ProductionCompareFixture(root);
+            var fixture = new ProductionCompareFixture(root);
             fixture.Create();
             action(fixture);
         }
@@ -117,63 +117,51 @@ public sealed class ChartInfoProductionCompareTests
         }
     }
 
-    private sealed class ProductionCompareFixture
+    private sealed class ProductionCompareFixture(string rootPath)
     {
-        public ProductionCompareFixture(string rootPath)
-        {
-            RootPath = rootPath;
-            AppDbPath = Path.Combine(rootPath, "song.db");
-            SongDbPath = Path.Combine(rootPath, "songdata.db");
-            InfoDbPath = Path.Combine(rootPath, "songinfo.db");
-            ChartRootPath = Path.Combine(rootPath, "charts");
-            ReportPath = Path.Combine(rootPath, "reports");
-        }
+        public string RootPath { get; } = rootPath;
 
-        public string RootPath { get; }
+        public string AppDbPath { get; } = Path.Combine(rootPath, "song.db");
 
-        public string AppDbPath { get; }
+        public string SongDbPath { get; } = Path.Combine(rootPath, "songdata.db");
 
-        public string SongDbPath { get; }
+        public string InfoDbPath { get; } = Path.Combine(rootPath, "songinfo.db");
 
-        public string InfoDbPath { get; }
+        public string ChartRootPath { get; } = Path.Combine(rootPath, "charts");
 
-        public string ChartRootPath { get; }
-
-        public string ReportPath { get; }
+        public string ReportPath { get; } = Path.Combine(rootPath, "reports");
 
         public void Create()
         {
             Directory.CreateDirectory(ChartRootPath);
-            using (SQLiteConnection app = new SQLiteConnection(AppDbPath))
-            using (SQLiteConnection song = new SQLiteConnection(SongDbPath))
-            using (SQLiteConnection info = new SQLiteConnection(InfoDbPath))
-            {
-                app.Execute("CREATE TABLE chart_info (sha256 TEXT PRIMARY KEY, md5 TEXT, charthash TEXT, level INTEGER, difficulty INTEGER, maxbpm REAL, minbpm REAL, length INTEGER, mode INTEGER, judge INTEGER, feature INTEGER, notes INTEGER, n INTEGER, ln INTEGER, s INTEGER, ls INTEGER, total REAL, density REAL, peakdensity REAL, enddensity REAL, mainbpm REAL, distribution TEXT, speedchange TEXT, lanenotes TEXT);");
-                song.Execute("CREATE TABLE song (sha256 TEXT PRIMARY KEY, md5 TEXT, path TEXT, title TEXT, subtitle TEXT, charthash TEXT, level INTEGER, difficulty INTEGER, maxbpm INTEGER, minbpm INTEGER, length INTEGER, mode INTEGER, judge INTEGER, feature INTEGER, notes INTEGER);");
-                info.Execute("CREATE TABLE information (sha256 TEXT PRIMARY KEY, n INTEGER, ln INTEGER, s INTEGER, ls INTEGER, total REAL, density REAL, peakdensity REAL, enddensity REAL, mainbpm REAL, distribution TEXT, speedchange TEXT, lanenotes TEXT);");
+            using var app = new SQLiteConnection(AppDbPath);
+            using var song = new SQLiteConnection(SongDbPath);
+            using var info = new SQLiteConnection(InfoDbPath);
+            app.Execute("CREATE TABLE chart_info (sha256 TEXT PRIMARY KEY, md5 TEXT, charthash TEXT, level INTEGER, difficulty INTEGER, maxbpm REAL, minbpm REAL, length INTEGER, mode INTEGER, judge INTEGER, feature INTEGER, notes INTEGER, n INTEGER, ln INTEGER, s INTEGER, ls INTEGER, total REAL, density REAL, peakdensity REAL, enddensity REAL, mainbpm REAL, distribution TEXT, speedchange TEXT, lanenotes TEXT);");
+            song.Execute("CREATE TABLE song (sha256 TEXT PRIMARY KEY, md5 TEXT, path TEXT, title TEXT, subtitle TEXT, charthash TEXT, level INTEGER, difficulty INTEGER, maxbpm INTEGER, minbpm INTEGER, length INTEGER, mode INTEGER, judge INTEGER, feature INTEGER, notes INTEGER);");
+            info.Execute("CREATE TABLE information (sha256 TEXT PRIMARY KEY, n INTEGER, ln INTEGER, s INTEGER, ls INTEGER, total REAL, density REAL, peakdensity REAL, enddensity REAL, mainbpm REAL, distribution TEXT, speedchange TEXT, lanenotes TEXT);");
 
-                InsertReference(song, info, Sha('a'), "exact.bms", "hash-a", level: 12, difficulty: 3, feature: 0);
-                InsertChartInfo(app, Sha('a'), "hash-a", level: 12, difficulty: 3, feature: 0);
+            InsertReference(song, info, Sha('a'), "exact.bms", "hash-a", level: 12, difficulty: 3, feature: 0);
+            InsertChartInfo(app, Sha('a'), "hash-a", level: 12, difficulty: 3, feature: 0);
 
-                InsertReference(song, info, Sha('b'), "level-null.bms", "hash-b", level: 0, difficulty: 2, feature: 0);
-                InsertChartInfo(app, Sha('b'), "hash-b", level: null, difficulty: 2, feature: 0, maxbpm: 180.9);
+            InsertReference(song, info, Sha('b'), "level-null.bms", "hash-b", level: 0, difficulty: 2, feature: 0);
+            InsertChartInfo(app, Sha('b'), "hash-b", level: null, difficulty: 2, feature: 0, maxbpm: 180.9);
 
-                InsertReference(song, info, Sha('c'), "value-diff.bms", "hash-c", level: 7, difficulty: 4, feature: 0);
-                InsertChartInfo(app, Sha('c'), "wrong-c", level: 7, difficulty: 3, feature: 0);
+            InsertReference(song, info, Sha('c'), "value-diff.bms", "hash-c", level: 7, difficulty: 4, feature: 0);
+            InsertChartInfo(app, Sha('c'), "wrong-c", level: 7, difficulty: 3, feature: 0);
 
-                InsertReference(song, info, Sha('d'), "missing-non-random.bms", "hash-d", level: 5, difficulty: 2, feature: 0);
+            InsertReference(song, info, Sha('d'), "missing-non-random.bms", "hash-d", level: 5, difficulty: 2, feature: 0);
 
-                InsertReference(song, info, Sha('e'), "random-diff.bms", "hash-e", level: 5, difficulty: 2, feature: 4);
-                InsertChartInfo(app, Sha('e'), "wrong-e", level: 5, difficulty: 9, feature: 4);
+            InsertReference(song, info, Sha('e'), "random-diff.bms", "hash-e", level: 5, difficulty: 2, feature: 4);
+            InsertChartInfo(app, Sha('e'), "wrong-e", level: 5, difficulty: 9, feature: 4);
 
-                InsertReference(song, info, Sha('f'), "missing-random.bms", "hash-f", level: 5, difficulty: 2, feature: 4);
+            InsertReference(song, info, Sha('f'), "missing-random.bms", "hash-f", level: 5, difficulty: 2, feature: 4);
 
-                InsertChartInfo(app, Sha('g'), "extra-g", level: 1, difficulty: 1, feature: 0);
+            InsertChartInfo(app, Sha('g'), "extra-g", level: 1, difficulty: 1, feature: 0);
 
-                InsertReference(song, info, Sha('h'), "bmson-md5-is-ignored.bmson", "hash-h", level: 3, difficulty: 1, feature: 0);
-                song.Execute("UPDATE song SET md5 = '' WHERE sha256 = ?;", Sha('h'));
-                InsertChartInfo(app, Sha('h'), "hash-h", level: 3, difficulty: 1, feature: 0);
-            }
+            InsertReference(song, info, Sha('h'), "bmson-md5-is-ignored.bmson", "hash-h", level: 3, difficulty: 1, feature: 0);
+            song.Execute("UPDATE song SET md5 = '' WHERE sha256 = ?;", Sha('h'));
+            InsertChartInfo(app, Sha('h'), "hash-h", level: 3, difficulty: 1, feature: 0);
         }
 
         private void InsertReference(SQLiteConnection song, SQLiteConnection info, string sha256, string fileName, string charthash, int level, int difficulty, int feature)

@@ -6,33 +6,26 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models;
 
-internal sealed class PendingInstallEstimateQueueProcessor
+internal sealed class PendingInstallEstimateQueueProcessor(
+    Action<PendingInstallEstimateBatchRequest, CancellationToken> processBatch,
+    Action<PendingInstallEstimateQueueStatusSnapshot> statusChanged,
+    Action<Exception> batchFailed = null)
 {
-    private readonly object syncRoot = new object();
+    private readonly object syncRoot = new();
 
-    private readonly Queue<PendingInstallEstimateBatchRequest> pendingBatches = new Queue<PendingInstallEstimateBatchRequest>();
+    private readonly Queue<PendingInstallEstimateBatchRequest> pendingBatches = new();
 
-    private readonly Action<PendingInstallEstimateBatchRequest, CancellationToken> processBatch;
+    private readonly Action<PendingInstallEstimateBatchRequest, CancellationToken> processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
 
-    private readonly Action<PendingInstallEstimateQueueStatusSnapshot> statusChanged;
+    private readonly Action<PendingInstallEstimateQueueStatusSnapshot> statusChanged = statusChanged ?? throw new ArgumentNullException(nameof(statusChanged));
 
-    private readonly Action<Exception> batchFailed;
+    private readonly Action<Exception> batchFailed = batchFailed;
 
     private bool workerRunning;
 
     private PendingInstallEstimateBatchRequest activeBatch;
 
     private int activeCompletedPackageCount;
-
-    public PendingInstallEstimateQueueProcessor(
-        Action<PendingInstallEstimateBatchRequest, CancellationToken> processBatch,
-        Action<PendingInstallEstimateQueueStatusSnapshot> statusChanged,
-        Action<Exception> batchFailed = null)
-    {
-        this.processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
-        this.statusChanged = statusChanged ?? throw new ArgumentNullException(nameof(statusChanged));
-        this.batchFailed = batchFailed;
-    }
 
     public void Enqueue(PendingInstallEstimateBatchRequest request)
     {

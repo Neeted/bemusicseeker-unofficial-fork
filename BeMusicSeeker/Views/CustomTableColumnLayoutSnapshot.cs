@@ -43,8 +43,8 @@ internal sealed class CustomTableColumnLayoutSnapshot
 
     internal static CustomTableColumnLayoutSnapshot Create(IReadOnlyList<CustomTableColumn> columns, double horizontalOffset, double viewportWidth)
     {
-        List<CustomTableColumnLayoutEntry> entries = new List<CustomTableColumnLayoutEntry>();
-        List<CustomTableColumnLayoutEntry> visibleEntries = new List<CustomTableColumnLayoutEntry>();
+        List<CustomTableColumnLayoutEntry> entries = [];
+        List<CustomTableColumnLayoutEntry> visibleEntries = [];
         double x = 0d;
         if (columns != null)
         {
@@ -52,7 +52,7 @@ internal sealed class CustomTableColumnLayoutSnapshot
             {
                 CustomTableColumn column = columns[i];
                 double width = column?.Width ?? 0d;
-                CustomTableColumnLayoutEntry entry = new CustomTableColumnLayoutEntry(column, i, x, width, horizontalOffset, viewportWidth);
+                var entry = new CustomTableColumnLayoutEntry(column, i, x, width, horizontalOffset, viewportWidth);
                 entries.Add(entry);
                 if (entry.IntersectsViewport)
                 {

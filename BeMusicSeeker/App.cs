@@ -94,7 +94,7 @@ public partial class App : System.Windows.Application
         EquationTokenizer.AddNamespace(typeof(SystemInformation));
         try
         {
-            SerializableVersion serializableVersion = new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version);
+            var serializableVersion = new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version);
             firstStartup = Settings.Default.AssemblyVersion == null;
             if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion != serializableVersion)
             {
@@ -117,15 +117,12 @@ public partial class App : System.Windows.Application
 
     private static LogLevel ConvertToNLogLevel(NormalLogLevel level)
     {
-        switch (level)
+        return level switch
         {
-            case NormalLogLevel.Info:
-                return LogLevel.Info;
-            case NormalLogLevel.Error:
-                return LogLevel.Error;
-            default:
-                return LogLevel.Warn;
-        }
+            NormalLogLevel.Info => LogLevel.Info,
+            NormalLogLevel.Error => LogLevel.Error,
+            _ => LogLevel.Warn,
+        };
     }
 
     private static void ConfigureExtraLogging()
@@ -133,7 +130,7 @@ public partial class App : System.Windows.Application
         if (CommandLineSwitches.IsInfoLoggingEnabled)
         {
             string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "install-performance.log");
-            FileTarget target = new FileTarget
+            var target = new FileTarget
             {
                 Name = "InstallPerformanceFileTarget",
                 FileName = path,
@@ -244,7 +241,7 @@ public partial class App : System.Windows.Application
             return argument;
         }
 
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         builder.Append('"');
         int backslashCount = 0;
         foreach (char c in argument)
@@ -319,7 +316,7 @@ public partial class App : System.Windows.Application
         }
         try
         {
-            Exception ex = (Exception)e.ExceptionObject;
+            var ex = (Exception)e.ExceptionObject;
             ExceptionLogger(ex);
         }
         finally

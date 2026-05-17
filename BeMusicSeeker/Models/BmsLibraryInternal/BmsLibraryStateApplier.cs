@@ -16,67 +16,49 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// The facade must acquire every required lock before invoking this applier.
 /// This type never acquires locks and never shows UI.
 /// </summary>
-internal sealed class BmsLibraryStateApplier
+internal sealed class BmsLibraryStateApplier(
+    BmsLibraryDbGateway dbGateway,
+    Func<List<BMSFile>> getBmsFiles,
+    Action<List<BMSFile>> setBmsFiles,
+    Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs,
+    Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs,
+    Func<DispatcherCollection<ChartPackage>> getPendingPackages,
+    Action<DispatcherCollection<ChartPackage>> setPendingPackages,
+    Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
+    Action<DispatcherCollection<ChartPackage>> setInstalledPackages,
+    Action invalidateInstalledDirectoryIndex,
+    Action invalidateParentFolderCache,
+    Action clearDuplicatedCache,
+    Action raiseBmsFilesChanged,
+    Action raiseInstalledPackagesChanged)
 {
-    private readonly BmsLibraryDbGateway dbGateway;
+    private readonly BmsLibraryDbGateway dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
 
-    private readonly Func<List<BMSFile>> getBmsFiles;
+    private readonly Func<List<BMSFile>> getBmsFiles = getBmsFiles ?? throw new ArgumentNullException(nameof(getBmsFiles));
 
-    private readonly Action<List<BMSFile>> setBmsFiles;
+    private readonly Action<List<BMSFile>> setBmsFiles = setBmsFiles ?? throw new ArgumentNullException(nameof(setBmsFiles));
 
-    private readonly Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs;
+    private readonly Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs = getBmsonSongs ?? throw new ArgumentNullException(nameof(getBmsonSongs));
 
-    private readonly Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs;
+    private readonly Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs = setBmsonSongs ?? throw new ArgumentNullException(nameof(setBmsonSongs));
 
-    private readonly Func<DispatcherCollection<ChartPackage>> getPendingPackages;
+    private readonly Func<DispatcherCollection<ChartPackage>> getPendingPackages = getPendingPackages ?? throw new ArgumentNullException(nameof(getPendingPackages));
 
-    private readonly Action<DispatcherCollection<ChartPackage>> setPendingPackages;
+    private readonly Action<DispatcherCollection<ChartPackage>> setPendingPackages = setPendingPackages ?? throw new ArgumentNullException(nameof(setPendingPackages));
 
-    private readonly Func<DispatcherCollection<ChartPackage>> getInstalledPackages;
+    private readonly Func<DispatcherCollection<ChartPackage>> getInstalledPackages = getInstalledPackages ?? throw new ArgumentNullException(nameof(getInstalledPackages));
 
-    private readonly Action<DispatcherCollection<ChartPackage>> setInstalledPackages;
+    private readonly Action<DispatcherCollection<ChartPackage>> setInstalledPackages = setInstalledPackages ?? throw new ArgumentNullException(nameof(setInstalledPackages));
 
-    private readonly Action invalidateInstalledDirectoryIndex;
+    private readonly Action invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
 
-    private readonly Action invalidateParentFolderCache;
+    private readonly Action invalidateParentFolderCache = invalidateParentFolderCache ?? throw new ArgumentNullException(nameof(invalidateParentFolderCache));
 
-    private readonly Action clearDuplicatedCache;
+    private readonly Action clearDuplicatedCache = clearDuplicatedCache ?? throw new ArgumentNullException(nameof(clearDuplicatedCache));
 
-    private readonly Action raiseBmsFilesChanged;
+    private readonly Action raiseBmsFilesChanged = raiseBmsFilesChanged ?? throw new ArgumentNullException(nameof(raiseBmsFilesChanged));
 
-    private readonly Action raiseInstalledPackagesChanged;
-
-    public BmsLibraryStateApplier(
-        BmsLibraryDbGateway dbGateway,
-        Func<List<BMSFile>> getBmsFiles,
-        Action<List<BMSFile>> setBmsFiles,
-        Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs,
-        Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs,
-        Func<DispatcherCollection<ChartPackage>> getPendingPackages,
-        Action<DispatcherCollection<ChartPackage>> setPendingPackages,
-        Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
-        Action<DispatcherCollection<ChartPackage>> setInstalledPackages,
-        Action invalidateInstalledDirectoryIndex,
-        Action invalidateParentFolderCache,
-        Action clearDuplicatedCache,
-        Action raiseBmsFilesChanged,
-        Action raiseInstalledPackagesChanged)
-    {
-        this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
-        this.getBmsFiles = getBmsFiles ?? throw new ArgumentNullException(nameof(getBmsFiles));
-        this.setBmsFiles = setBmsFiles ?? throw new ArgumentNullException(nameof(setBmsFiles));
-        this.getBmsonSongs = getBmsonSongs ?? throw new ArgumentNullException(nameof(getBmsonSongs));
-        this.setBmsonSongs = setBmsonSongs ?? throw new ArgumentNullException(nameof(setBmsonSongs));
-        this.getPendingPackages = getPendingPackages ?? throw new ArgumentNullException(nameof(getPendingPackages));
-        this.setPendingPackages = setPendingPackages ?? throw new ArgumentNullException(nameof(setPendingPackages));
-        this.getInstalledPackages = getInstalledPackages ?? throw new ArgumentNullException(nameof(getInstalledPackages));
-        this.setInstalledPackages = setInstalledPackages ?? throw new ArgumentNullException(nameof(setInstalledPackages));
-        this.invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
-        this.invalidateParentFolderCache = invalidateParentFolderCache ?? throw new ArgumentNullException(nameof(invalidateParentFolderCache));
-        this.clearDuplicatedCache = clearDuplicatedCache ?? throw new ArgumentNullException(nameof(clearDuplicatedCache));
-        this.raiseBmsFilesChanged = raiseBmsFilesChanged ?? throw new ArgumentNullException(nameof(raiseBmsFilesChanged));
-        this.raiseInstalledPackagesChanged = raiseInstalledPackagesChanged ?? throw new ArgumentNullException(nameof(raiseInstalledPackagesChanged));
-    }
+    private readonly Action raiseInstalledPackagesChanged = raiseInstalledPackagesChanged ?? throw new ArgumentNullException(nameof(raiseInstalledPackagesChanged));
 
     public void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
     {
@@ -86,13 +68,12 @@ internal sealed class BmsLibraryStateApplier
         }
 
         setPendingPackages(new DispatcherCollection<ChartPackage>(
-            new ObservableCollection<ChartPackage>(delta.RemainingPackages ?? new List<ChartPackage>()),
+            new ObservableCollection<ChartPackage>(delta.RemainingPackages ?? []),
             DispatcherHelper.UIDispatcher));
 
-        List<string> installPathsToDelete = (delta.InstallPathsToDelete ?? new List<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<string> installPathsToDelete = [.. (delta.InstallPathsToDelete ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (installPathsToDelete.Count == 0)
         {
             return;
@@ -182,28 +163,26 @@ internal sealed class BmsLibraryStateApplier
             throw new ArgumentNullException(nameof(bmsFiles));
         }
 
-        List<BMSFile> removedFilesList = bmsFiles.Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> removedFilesList = [.. bmsFiles.Where(file => file != null)];
         if (removedFilesList.Count == 0)
         {
             return;
         }
 
-        HashSet<string> removedPaths = new HashSet<string>(
-            removedFilesList.Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path)).Select((BMSFile file) => file.path),
+        var removedPaths = new HashSet<string>(
+            removedFilesList.Where(file => !string.IsNullOrWhiteSpace(file.path)).Select(file => file.path),
             StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSFile> removedFileRefs = new HashSet<BMSFile>(removedFilesList);
-        setBmsFiles(getBmsFiles()
-            .Where((BMSFile file) => !IsMatchedRemovedFile(file, removedPaths, removedFileRefs))
-            .ToList());
+        var removedFileRefs = new HashSet<BMSFile>(removedFilesList);
+        setBmsFiles([.. getBmsFiles().Where(file => !IsMatchedRemovedFile(file, removedPaths, removedFileRefs))]);
         dbGateway.DeleteSongsAndMaintenance(removedFilesList);
         DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
-        List<ChartPackage> emptyInstalledPackages = new List<ChartPackage>();
+        List<ChartPackage> emptyInstalledPackages = [];
 
-        foreach (ChartPackage installedPackage in installedPackages.Where((ChartPackage package) => package != null).ToList())
+        foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
             int countBefore = installedPackage.ChartFiles.Count;
-            installedPackage.ChartFiles.RemoveAll((BMSFile file) => IsMatchedRemovedFile(file, removedPaths, removedFileRefs));
+            installedPackage.ChartFiles.RemoveAll(file => IsMatchedRemovedFile(file, removedPaths, removedFileRefs));
             if (installedPackage.ChartFiles.Count != countBefore)
             {
                 installedPackagesChanged = true;
@@ -236,30 +215,26 @@ internal sealed class BmsLibraryStateApplier
             throw new ArgumentNullException(nameof(bmsonSongs));
         }
 
-        List<LR2SongDBExtended.bmson_song> removedSongsList = bmsonSongs
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .ToList();
+        List<LR2SongDBExtended.bmson_song> removedSongsList = [.. bmsonSongs.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         if (removedSongsList.Count == 0)
         {
             return;
         }
 
-        HashSet<string> removedPaths = new HashSet<string>(
-            removedSongsList.Select((LR2SongDBExtended.bmson_song song) => song.path),
+        var removedPaths = new HashSet<string>(
+            removedSongsList.Select(song => song.path),
             StringComparer.OrdinalIgnoreCase);
-        HashSet<LR2SongDBExtended.bmson_song> removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(removedSongsList);
-        setBmsonSongs(getBmsonSongs()
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !removedSongRefs.Contains(song) && !removedPaths.Contains(song.path))
-            .ToList());
+        var removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(removedSongsList);
+        setBmsonSongs([.. getBmsonSongs().Where(song => song != null && !removedSongRefs.Contains(song) && !removedPaths.Contains(song.path))]);
         dbGateway.DeleteBmsonSongs(removedSongsList);
 
         DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
-        List<ChartPackage> emptyInstalledPackages = new List<ChartPackage>();
-        foreach (ChartPackage installedPackage in installedPackages.Where((ChartPackage package) => package != null).ToList())
+        List<ChartPackage> emptyInstalledPackages = [];
+        foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
             int countBefore = installedPackage.ChartFiles.Count;
-            installedPackage.ChartFiles.RemoveAll((BMSFile file) => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs));
+            installedPackage.ChartFiles.RemoveAll(file => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs));
             if (installedPackage.ChartFiles.Count != countBefore)
             {
                 installedPackagesChanged = true;
@@ -320,7 +295,7 @@ internal sealed class BmsLibraryStateApplier
             try
             {
                 string directoryName = Path.GetDirectoryName(bmsFile.path);
-                Encoding encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+                var encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
                 bmsFile.folder = LR2CRC32.Compute(encoding.GetBytes(directoryName + "\\\0")).ToString("x");
                 bmsFile.parent = LR2CRC32.Compute(encoding.GetBytes(Path.GetDirectoryName(directoryName) + "\\\0")).ToString("x");
             }

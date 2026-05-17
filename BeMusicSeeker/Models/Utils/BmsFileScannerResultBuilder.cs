@@ -9,7 +9,7 @@ internal static class BmsFileScannerResultBuilder
 {
     internal static BmsScanExecutionResult Build(RootFileEnumerationResult enumerationResult)
     {
-        Stopwatch buildStopwatch = Stopwatch.StartNew();
+        var buildStopwatch = Stopwatch.StartNew();
         BmsScanResult scanResult = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
         buildStopwatch.Stop();
         long buildMs = buildStopwatch.ElapsedMilliseconds;
@@ -50,7 +50,7 @@ internal static class BmsFileScannerResultBuilder
 
     private static ulong CountHashEntries(Dictionary<string, uint[]> hashesByDirectory)
     {
-        return (ulong)((hashesByDirectory ?? new Dictionary<string, uint[]>()).Values.Sum((uint[] hashes) => hashes?.Length ?? 0));
+        return (ulong)((hashesByDirectory ?? []).Values.Sum(hashes => hashes?.Length ?? 0));
     }
 
 }

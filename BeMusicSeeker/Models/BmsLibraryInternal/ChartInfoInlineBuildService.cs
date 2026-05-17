@@ -7,24 +7,17 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class ChartInfoInlineBuildService
+internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInfoBuildService, int parserDegree, int? batchSizeOverride = null)
 {
     // Shared inline chart_info builder for file diff and package install.
     // It consumes short-lived ChartFileSnapshot bytes and never keeps them in long-lived models.
     public const int DefaultBatchSize = 512;
 
-    private readonly ChartInfoBuildService chartInfoBuildService;
+    private readonly ChartInfoBuildService chartInfoBuildService = chartInfoBuildService ?? new ChartInfoBuildService();
 
-    private readonly int parserDegree;
+    private readonly int parserDegree = Math.Max(1, parserDegree);
 
-    private readonly int batchSize;
-
-    public ChartInfoInlineBuildService(ChartInfoBuildService chartInfoBuildService, int parserDegree, int? batchSizeOverride = null)
-    {
-        this.chartInfoBuildService = chartInfoBuildService ?? new ChartInfoBuildService();
-        this.parserDegree = Math.Max(1, parserDegree);
-        batchSize = Math.Max(1, batchSizeOverride ?? DefaultBatchSize);
-    }
+    private readonly int batchSize = Math.Max(1, batchSizeOverride ?? DefaultBatchSize);
 
     public int BatchSize => batchSize;
 
@@ -36,19 +29,22 @@ internal sealed class ChartInfoInlineBuildService
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null)
     {
-        ChartInfoInlineBuildResult result = new ChartInfoInlineBuildResult();
-        List<InlineChartSnapshotTarget> targets = (bmsCharts ?? Enumerable.Empty<InlineBmsChartSnapshot>())
-            .Where((InlineBmsChartSnapshot item) => item?.Snapshot != null && item.File != null)
-            .Select((InlineBmsChartSnapshot item) => InlineChartSnapshotTarget.FromBms(item))
-            .Concat((bmsonCharts ?? Enumerable.Empty<InlineBmsonChartSnapshot>())
-                .Where((InlineBmsonChartSnapshot item) => item?.Snapshot != null && item.Song != null)
-                .Select((InlineBmsonChartSnapshot item) => InlineChartSnapshotTarget.FromBmson(item)))
-            .ToList();
+        var result = new ChartInfoInlineBuildResult();
+        List<InlineChartSnapshotTarget> targets =
+        [
+            .. (bmsCharts ?? [])
+                        .Where(item => item?.Snapshot != null && item.File != null)
+                        .Select(item => InlineChartSnapshotTarget.FromBms(item))
+,
+            .. (bmsonCharts ?? [])
+                    .Where(item => item?.Snapshot != null && item.Song != null)
+                    .Select(item => InlineChartSnapshotTarget.FromBmson(item)),
+        ];
         foreach (List<InlineChartSnapshotTarget> batch in CreateBatches(targets, batchSize))
         {
-            Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadCurrentRows(dbGateway, batch.Select((InlineChartSnapshotTarget target) => target.Snapshot));
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            List<ChartInfoBuildService.InlineChartInfoBuildResult> inlineResults = new List<ChartInfoBuildService.InlineChartInfoBuildResult>(batch.Count);
+            Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadCurrentRows(dbGateway, batch.Select(target => target.Snapshot));
+            var stopwatch = Stopwatch.StartNew();
+            var inlineResults = new List<ChartInfoBuildService.InlineChartInfoBuildResult>(batch.Count);
             foreach (InlineChartSnapshotTarget target in batch)
             {
                 inlineResults.Add(chartInfoBuildService.BuildInlineChartInfo(
@@ -78,21 +74,24 @@ internal sealed class ChartInfoInlineBuildService
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null)
     {
-        ChartInfoInlineBuildResult total = new ChartInfoInlineBuildResult();
+        var total = new ChartInfoInlineBuildResult();
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway != null
             ? dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout)
             : new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
-        List<InlineFileChartTarget> targets = (bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path))
-            .Select((BMSFile file) => InlineFileChartTarget.FromBms(file))
-            .Concat((bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-                .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
-                .Select((LR2SongDBExtended.bmson_song song) => InlineFileChartTarget.FromBmson(song)))
-            .ToList();
+        List<InlineFileChartTarget> targets =
+        [
+            .. (bmsFiles ?? [])
+                        .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
+                        .Select(file => InlineFileChartTarget.FromBms(file))
+,
+            .. (bmsonSongs ?? [])
+                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                    .Select(song => InlineFileChartTarget.FromBmson(song)),
+        ];
         foreach (List<InlineFileChartTarget> batch in CreateBatches(targets, batchSize))
         {
-            List<InlineBmsChartSnapshot> bmsSnapshots = new List<InlineBmsChartSnapshot>();
-            List<InlineBmsonChartSnapshot> bmsonSnapshots = new List<InlineBmsonChartSnapshot>();
+            List<InlineBmsChartSnapshot> bmsSnapshots = [];
+            List<InlineBmsonChartSnapshot> bmsonSnapshots = [];
             foreach (InlineFileChartTarget target in batch)
             {
                 try
@@ -196,10 +195,10 @@ internal sealed class ChartInfoInlineBuildService
         {
             return new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
         }
-        HashSet<string> sha256s = new HashSet<string>(
-            (snapshots ?? Enumerable.Empty<ChartFileSnapshot>())
-                .Where((ChartFileSnapshot snapshot) => snapshot != null && !string.IsNullOrWhiteSpace(snapshot.Sha256))
-                .Select((ChartFileSnapshot snapshot) => snapshot.Sha256),
+        var sha256s = new HashSet<string>(
+            (snapshots ?? [])
+                .Where(snapshot => snapshot != null && !string.IsNullOrWhiteSpace(snapshot.Sha256))
+                .Select(snapshot => snapshot.Sha256),
             StringComparer.OrdinalIgnoreCase);
         return sha256s.Count == 0
             ? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
@@ -208,8 +207,8 @@ internal sealed class ChartInfoInlineBuildService
 
     private static IEnumerable<List<T>> CreateBatches<T>(IEnumerable<T> source, int batchSize)
     {
-        List<T> batch = new List<T>(Math.Max(1, batchSize));
-        foreach (T item in source ?? Enumerable.Empty<T>())
+        var batch = new List<T>(Math.Max(1, batchSize));
+        foreach (T item in source ?? [])
         {
             batch.Add(item);
             if (batch.Count >= batchSize)
@@ -291,28 +290,16 @@ internal sealed class ChartInfoInlineBuildService
     }
 }
 
-internal sealed class InlineBmsChartSnapshot
+internal sealed class InlineBmsChartSnapshot(BMSFile file, ChartFileSnapshot snapshot)
 {
-    public InlineBmsChartSnapshot(BMSFile file, ChartFileSnapshot snapshot)
-    {
-        File = file;
-        Snapshot = snapshot;
-    }
+    public BMSFile File { get; } = file;
 
-    public BMSFile File { get; }
-
-    public ChartFileSnapshot Snapshot { get; }
+    public ChartFileSnapshot Snapshot { get; } = snapshot;
 }
 
-internal sealed class InlineBmsonChartSnapshot
+internal sealed class InlineBmsonChartSnapshot(LR2SongDBExtended.bmson_song song, ChartFileSnapshot snapshot)
 {
-    public InlineBmsonChartSnapshot(LR2SongDBExtended.bmson_song song, ChartFileSnapshot snapshot)
-    {
-        Song = song;
-        Snapshot = snapshot;
-    }
+    public LR2SongDBExtended.bmson_song Song { get; } = song;
 
-    public LR2SongDBExtended.bmson_song Song { get; }
-
-    public ChartFileSnapshot Snapshot { get; }
+    public ChartFileSnapshot Snapshot { get; } = snapshot;
 }

@@ -41,7 +41,7 @@ internal static class SevenZipArchiveExtractor
     public static List<ArchiveEntryMetadata> ExtractArchiveEntries(string archivePath, string nativeLibraryPath, string extractedTempDirectoryPath)
     {
         string managedAssemblyPath = ResolveBundledSevenZipExtractorAssemblyPath();
-        Assembly managedAssembly = Assembly.LoadFrom(managedAssemblyPath);
+        var managedAssembly = Assembly.LoadFrom(managedAssemblyPath);
         Type archiveFileType = GetRequiredType(managedAssembly, "SevenZipExtractor.ArchiveFile");
         Type entryType = GetRequiredType(managedAssembly, "SevenZipExtractor.Entry");
         ConstructorInfo archiveFileConstructor = GetRequiredConstructor(archiveFileType, typeof(string), typeof(string));
@@ -52,10 +52,10 @@ internal static class SevenZipArchiveExtractor
         PropertyInfo creationTimeProperty = GetRequiredProperty(entryType, "CreationTime");
         PropertyInfo lastAccessTimeProperty = GetRequiredProperty(entryType, "LastAccessTime");
         PropertyInfo lastWriteTimeProperty = GetRequiredProperty(entryType, "LastWriteTime");
-        List<ArchiveEntryMetadata> archiveEntries = new List<ArchiveEntryMetadata>();
+        List<ArchiveEntryMetadata> archiveEntries = [];
         // Load the bundled managed wrapper/native library pair explicitly so archive handling
         // stays deterministic even when machine-level 7z registrations are present.
-        using (IDisposable archiveFile = (IDisposable)InvokeConstructor(archiveFileConstructor, archivePath, nativeLibraryPath))
+        using (var archiveFile = (IDisposable)InvokeConstructor(archiveFileConstructor, archivePath, nativeLibraryPath))
         {
             InvokeMethod(extractMethod, archiveFile, extractedTempDirectoryPath, false, null);
             IEnumerable reflectedEntries = GetPropertyValue<IEnumerable>(entriesProperty, archiveFile);

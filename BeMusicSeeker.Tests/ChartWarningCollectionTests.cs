@@ -16,7 +16,7 @@ public sealed class ChartWarningCollectionTests
     public void WarningDigestText_OrdersByPriorityAndDeduplicatesLabelsWhileCountingKinds()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
 
         file.SetWarning(ChartWarningKind.ResourceWavMissing, "wav missing");
         file.SetWarning(ChartWarningKind.ResourceBgaMissing, "bga missing");
@@ -32,7 +32,7 @@ public sealed class ChartWarningCollectionTests
     public void ClearWarningsByCategory_RemovesOnlyMatchingStructuredWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "structured estimate");
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
 
@@ -48,9 +48,9 @@ public sealed class ChartWarningCollectionTests
     public void ResourceWarningDigest_IsHiddenWhenInstallDestinationIsSet()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
         file.SetWarning(ChartWarningKind.ResourceWavMissing, string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2));
-        List<string> changedProperties = new List<string>();
+        List<string> changedProperties = [];
         file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             changedProperties.Add(e.PropertyName);
@@ -67,7 +67,7 @@ public sealed class ChartWarningCollectionTests
     public void StructuredWarnings_DriveCompatibilityAliasesHighlightAndDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
 
         file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
@@ -94,11 +94,12 @@ public sealed class ChartWarningCollectionTests
     public void CompatibilityAliasSetters_MutateStructuredWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
-
-        file.HasZeroNoteMismatchWarning = true;
-        file.HasLowConfidenceInstallWarning = true;
-        file.IsHashDuplicated = true;
+        var file = new BMSFile
+        {
+            HasZeroNoteMismatchWarning = true,
+            HasLowConfidenceInstallWarning = true,
+            IsHashDuplicated = true
+        };
 
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence));
@@ -117,7 +118,7 @@ public sealed class ChartWarningCollectionTests
     public void InstalledDestinationResolveFailed_IsNotLowConfidenceAlias()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
 
         file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed);
 
@@ -129,7 +130,7 @@ public sealed class ChartWarningCollectionTests
     public void InstalledDestinationAmbiguous_IsLowConfidenceAlias()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
 
         file.SetWarning(ChartWarningKind.InstalledDestinationAmbiguous, Resources.Warning_InstalledDestinationAmbiguous);
 
@@ -143,7 +144,7 @@ public sealed class ChartWarningCollectionTests
     public void ChartInfoParseFailure_HighlightsAndUsesDedicatedDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
 
         file.SetWarning(
             ChartWarningKind.ChartInfoParseFailure,
@@ -160,7 +161,7 @@ public sealed class ChartWarningCollectionTests
     public void Lr2PathEncodingUnsupported_HighlightsAndUsesDedicatedDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
 
         file.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
 
@@ -173,7 +174,7 @@ public sealed class ChartWarningCollectionTests
     public void ClearWarning_RemovesMatchingStructuredWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile();
+        var file = new BMSFile();
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
 
@@ -188,10 +189,10 @@ public sealed class ChartWarningCollectionTests
     public void CopyStructuredWarningsFrom_CopiesStructuredWarningsToSnapshot()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile source = new BMSFile();
+        var source = new BMSFile();
         source.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
         source.SetWarning(ChartWarningKind.ResourceWavMissing, "wav missing");
-        BMSFile copy = new BMSFile();
+        var copy = new BMSFile();
 
         copy.CopyStructuredWarningsFrom(source);
 
@@ -208,16 +209,14 @@ public sealed class ChartWarningCollectionTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         try
         {
-            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDBExtended.install>();
+            songDb.CreateTable<LR2SongDBExtended.maintenance>();
 
-                AssertNoWarningColumn(songDb, "song");
-                AssertNoWarningColumn(songDb, "install");
-                AssertNoWarningColumn(songDb, "maintenance");
-            }
+            AssertNoWarningColumn(songDb, "song");
+            AssertNoWarningColumn(songDb, "install");
+            AssertNoWarningColumn(songDb, "maintenance");
         }
         finally
         {
@@ -230,9 +229,7 @@ public sealed class ChartWarningCollectionTests
 
     private static void AssertNoWarningColumn(LR2SongDBExtended songDb, string tableName)
     {
-        string[] columnNames = songDb.Query<ColumnNameRow>("PRAGMA table_info(" + tableName + ");")
-            .Select((ColumnNameRow row) => row.name)
-            .ToArray();
+        string[] columnNames = [.. songDb.Query<ColumnNameRow>("PRAGMA table_info(" + tableName + ");").Select(row => row.name)];
         CollectionAssert.DoesNotContain(columnNames, "warning");
     }
 

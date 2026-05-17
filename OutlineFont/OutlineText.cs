@@ -200,7 +200,7 @@ internal class OutlineText : FrameworkElement
 
     public OutlineText()
     {
-        TextDecorations = new TextDecorationCollection();
+        TextDecorations = [];
     }
 
     protected override void OnRender(DrawingContext drawingContext)
@@ -228,7 +228,7 @@ internal class OutlineText : FrameworkElement
 
     private static void OnFormattedTextInvalidated(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
     {
-        OutlineText obj = (OutlineText)dependencyObject;
+        var obj = (OutlineText)dependencyObject;
         obj.FormattedText = null;
         obj.TextGeometry = null;
         obj.InvalidateMeasure();
@@ -237,7 +237,7 @@ internal class OutlineText : FrameworkElement
 
     private static void OnFormattedTextUpdated(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
     {
-        OutlineText obj = (OutlineText)dependencyObject;
+        var obj = (OutlineText)dependencyObject;
         obj.UpdateFormattedText();
         obj.TextGeometry = null;
         obj.InvalidateMeasure();
@@ -275,7 +275,7 @@ internal class OutlineText : FrameworkElement
         if (TextGeometry == null)
         {
             EnsureFormattedText();
-            TextGeometry = FormattedText.BuildGeometry(default(Point));
+            TextGeometry = FormattedText.BuildGeometry(default);
         }
     }
 }

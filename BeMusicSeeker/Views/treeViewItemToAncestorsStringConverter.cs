@@ -33,17 +33,17 @@ internal class treeViewItemToAncestorsStringConverter : IMultiValueConverter
             {
                 return string.Empty;
             }
-            if (!(values[1] is TreeView))
+            if (values[1] is not TreeView)
             {
                 throw new InvalidOperationException();
             }
-            List<object> visualPathNodes = new List<object>();
-            if (!((!(values[0] is DependencyObject)) ? WPFUtil.FindVisualChildPathSearchedByDataContext((TreeView)values[1], values[0], ref visualPathNodes) : WPFUtil.FindVisualChildPath((TreeView)values[1], (DependencyObject)values[0], ref visualPathNodes)))
+            List<object> visualPathNodes = [];
+            if (!((values[0] is not DependencyObject) ? WPFUtil.FindVisualChildPathSearchedByDataContext((TreeView)values[1], values[0], ref visualPathNodes) : WPFUtil.FindVisualChildPath((TreeView)values[1], (DependencyObject)values[0], ref visualPathNodes)))
             {
                 return string.Empty;
             }
-            List<string> ancestorHeaders = (from node in visualPathNodes.Where((object o) => o is TreeViewItem).Reverse()
-                                            select GetTreeViewHeaderDisplayText((TreeViewItem)node)).ToList();
+            List<string> ancestorHeaders = [.. (from node in visualPathNodes.Where(o => o is TreeViewItem).Reverse()
+                                            select GetTreeViewHeaderDisplayText((TreeViewItem)node))];
             if (ancestorHeaders.Count > 1 && ancestorHeaders[1] == Resources.Folder)
             {
                 ancestorHeaders.RemoveAt(1);

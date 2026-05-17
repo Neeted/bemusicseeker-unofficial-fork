@@ -16,7 +16,7 @@ internal static class StandaloneLibraryDatabase
         {
         }
 
-        using LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath);
+        using var songDb = new LR2SongDBExtended(songDbPath);
         EnsureLibrarySchema(songDb);
         BMSPlaylist.EnsureSchema(songDbPath);
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);

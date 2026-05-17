@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Views;
 
 public class DragAdorner : Adorner
 {
-    private UIElement _ghost;
+    private readonly UIElement _ghost;
 
     protected Vector _move;
 
@@ -57,7 +57,7 @@ public class DragAdorner : Adorner
             try
             {
                 Rect descendantBounds = VisualTreeHelper.GetDescendantBounds(element3);
-                Rectangle element2 = new Rectangle
+                var element2 = new Rectangle
                 {
                     Height = descendantBounds.Height,
                     Width = descendantBounds.Width,

@@ -21,12 +21,8 @@ public class SQLiteTable<SelfType> : NotificationObject
             throw new ArgumentNullException("e");
         }
         string name = ObjectExt.GetName(e);
-        PropertyInfo property = typeof(SelfType).GetProperty(name);
-        if (property == null)
-        {
-            throw new ArgumentException();
-        }
-        Attribute customAttribute = Attribute.GetCustomAttribute(property, typeof(ColumnAttribute));
+        PropertyInfo property = typeof(SelfType).GetProperty(name) ?? throw new ArgumentException();
+        var customAttribute = Attribute.GetCustomAttribute(property, typeof(ColumnAttribute));
         if (customAttribute != null)
         {
             return ((ColumnAttribute)customAttribute).Name;

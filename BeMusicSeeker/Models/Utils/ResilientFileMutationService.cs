@@ -12,7 +12,7 @@ namespace BeMusicSeeker.Models.Utils;
 /// </summary>
 internal sealed class ResilientFileMutationService : IFileMutationService
 {
-    private static readonly FileMutationOptions defaultOptions = new FileMutationOptions();
+    private static readonly FileMutationOptions defaultOptions = new();
 
     /// <inheritdoc />
     public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
@@ -271,7 +271,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
                     }
                 }
 
-                FileMutationException fileMutationException = new FileMutationException(
+                var fileMutationException = new FileMutationException(
                     mutationKind,
                     primaryPath,
                     secondaryPath,
@@ -362,15 +362,12 @@ internal sealed class ResilientFileMutationService : IFileMutationService
             return 0;
         }
 
-        switch (normalizationScope)
+        return normalizationScope switch
         {
-            case ReadOnlyNormalizationScope.TargetOnly:
-                return TryNormalizeFileSystemReadOnlyAttribute(path) ? 1 : 0;
-            case ReadOnlyNormalizationScope.RecursiveDirectoryTree:
-                return NormalizeReadOnlyAttributesRecursively(path);
-            default:
-                return 0;
-        }
+            ReadOnlyNormalizationScope.TargetOnly => TryNormalizeFileSystemReadOnlyAttribute(path) ? 1 : 0,
+            ReadOnlyNormalizationScope.RecursiveDirectoryTree => NormalizeReadOnlyAttributesRecursively(path),
+            _ => 0,
+        };
     }
 
     private static bool TryNormalizeFileSystemReadOnlyAttribute(string fileSystemPath)
@@ -405,7 +402,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
         }
 
         int normalizedReadOnlyCount = 0;
-        Queue<string> pendingDirectoryPaths = new Queue<string>();
+        var pendingDirectoryPaths = new Queue<string>();
         pendingDirectoryPaths.Enqueue(rootDirectoryPath);
 
         while (pendingDirectoryPaths.Count > 0)
@@ -416,7 +413,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
                 normalizedReadOnlyCount++;
             }
 
-            string[] childDirectoryPaths = Array.Empty<string>();
+            string[] childDirectoryPaths = [];
             try
             {
                 childDirectoryPaths = Directory.GetDirectories(currentDirectoryPath);
@@ -430,7 +427,7 @@ internal sealed class ResilientFileMutationService : IFileMutationService
                 pendingDirectoryPaths.Enqueue(childDirectoryPath);
             }
 
-            string[] childFilePaths = Array.Empty<string>();
+            string[] childFilePaths = [];
             try
             {
                 childFilePaths = Directory.GetFiles(currentDirectoryPath);

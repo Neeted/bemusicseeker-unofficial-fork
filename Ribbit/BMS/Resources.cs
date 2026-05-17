@@ -14,7 +14,7 @@ public class Resources
 {
     public const char DirectorySeparatorChar = '/';
 
-    private readonly Dictionary<string, uint> _files = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, uint> _files = new(StringComparer.OrdinalIgnoreCase);
 
     public static readonly ReadOnlyCollection<string> AudioFileExtensions = new string[3] { ".wav", ".ogg", ".mp3" }.ToList().AsReadOnly();
 
@@ -22,7 +22,7 @@ public class Resources
 
     public static readonly ReadOnlyCollection<string> VideoFileExtensions = new string[4] { ".mpg", ".wmv", ".mp4", ".mpeg" }.ToList().AsReadOnly();
 
-    private static readonly Regex FormatFilePathRegex = new Regex("[^/]+/\\.\\./", RegexOptions.Compiled);
+    private static readonly Regex FormatFilePathRegex = new("[^/]+/\\.\\./", RegexOptions.Compiled);
 
     public ImmutableHashSet<string> FilePaths => _files.Keys.ToImmutableHashSet();
 
@@ -53,7 +53,7 @@ public class Resources
         }
         string extension = Path.GetExtension(filePath);
         string filePathWoExt = filePath.Substring(0, filePath.Length - extension.Length);
-        ReadOnlyCollection<string>[] array = new ReadOnlyCollection<string>[3] { AudioFileExtensions, ImageFileExtensions, VideoFileExtensions };
+        var array = new ReadOnlyCollection<string>[3] { AudioFileExtensions, ImageFileExtensions, VideoFileExtensions };
         for (int i = 0; i < array.Length; i++)
         {
             if (!array[i].Contains(extension, StringComparer.OrdinalIgnoreCase))
@@ -77,7 +77,7 @@ public class Resources
         }
         string extension = Path.GetExtension(filePath);
         string text = filePath.Substring(0, filePath.Length - extension.Length);
-        ReadOnlyCollection<string>[] array = new ReadOnlyCollection<string>[3] { AudioFileExtensions, ImageFileExtensions, VideoFileExtensions };
+        var array = new ReadOnlyCollection<string>[3] { AudioFileExtensions, ImageFileExtensions, VideoFileExtensions };
         foreach (ReadOnlyCollection<string> readOnlyCollection in array)
         {
             if (readOnlyCollection.Contains(extension, StringComparer.OrdinalIgnoreCase))

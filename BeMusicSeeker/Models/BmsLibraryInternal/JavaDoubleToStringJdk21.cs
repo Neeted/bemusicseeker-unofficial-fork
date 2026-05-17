@@ -36,7 +36,7 @@ internal static unsafe class JavaDoubleToStringJdk21
     private const int GeMax = 324;
 
     private static readonly long[] Pow10 =
-    {
+    [
         1L,
         10L,
         100L,
@@ -56,7 +56,7 @@ internal static unsafe class JavaDoubleToStringJdk21
         10000000000000000L,
         100000000000000000L,
         1000000000000000000L
-    };
+    ];
 
     // Generated once at type initialization. Replace with the OpenJDK MathUtils.g table
     // if first-use chart parsing cost ever becomes visible in profiling.
@@ -436,7 +436,7 @@ internal static unsafe class JavaDoubleToStringJdk21
         long[] result = new long[(GeMax - GeMin + 1) * 2];
 
         int maxAbs = Math.Max(-GeMin, GeMax);
-        BigInteger[] p10 = new BigInteger[maxAbs + 1];
+        var p10 = new BigInteger[maxAbs + 1];
         p10[0] = BigInteger.One;
         for (int i = 1; i < p10.Length; i++)
         {

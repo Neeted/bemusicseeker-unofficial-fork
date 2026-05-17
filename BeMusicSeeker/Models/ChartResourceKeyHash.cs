@@ -15,7 +15,7 @@ public static class ChartResourceKeyHash
 
     public static uint[] GetFileNameHashArray(IEnumerable<string> list)
     {
-        return (list ?? Enumerable.Empty<string>()).Select(GetFileNameHash).ToArray();
+        return [.. (list ?? []).Select(GetFileNameHash)];
     }
 
     public static uint GetFileNameHash(string fileName)

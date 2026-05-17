@@ -22,7 +22,7 @@ public enum PendingChartLookupHashKind
 
 public sealed class PendingChartEntry : BMSFile
 {
-    public static readonly string[] bmsonExtensions = new string[1] { ".bmson" };
+    public static readonly string[] bmsonExtensions = [".bmson"];
 
     private string displayLevel = string.Empty;
 
@@ -165,7 +165,7 @@ public sealed class PendingChartEntry : BMSFile
         {
             return null;
         }
-        PendingChartEntry entry = new PendingChartEntry
+        var entry = new PendingChartEntry
         {
             ChartKind = PendingChartKind.Bms,
             path = source.path,
@@ -180,7 +180,7 @@ public sealed class PendingChartEntry : BMSFile
             instl_dst = source.instl_dst,
             InstallDestinationTitle = source.InstallDestinationTitle,
             InstallDestinationArtist = source.InstallDestinationArtist,
-            InstallDestinationSuggestions = source.InstallDestinationSuggestions?.ToArray() ?? Array.Empty<string>(),
+            InstallDestinationSuggestions = source.InstallDestinationSuggestions?.ToArray() ?? [],
             status = source.status,
             IsInstallDestinationSuggestionPopupOpen = false,
             WAVfiles = source.WAVfiles != null ? new HashSet<string>(source.WAVfiles, StringComparer.OrdinalIgnoreCase) : null,
@@ -219,7 +219,7 @@ public sealed class PendingChartEntry : BMSFile
         {
             return null;
         }
-        PendingChartEntry entry = new PendingChartEntry
+        var entry = new PendingChartEntry
         {
             ChartKind = PendingChartKind.Bmson,
             instl_dst = null,
@@ -231,17 +231,13 @@ public sealed class PendingChartEntry : BMSFile
 
     public void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)
     {
-        if (song == null)
-        {
-            throw new ArgumentNullException(nameof(song));
-        }
         ChartKind = PendingChartKind.Bmson;
-        BmsonSong = song;
+        BmsonSong = song ?? throw new ArgumentNullException(nameof(song));
         path = song.path;
         instl_dst = null;
         InstallDestinationTitle = string.Empty;
         InstallDestinationArtist = string.Empty;
-        InstallDestinationSuggestions = Array.Empty<string>();
+        InstallDestinationSuggestions = [];
         status = BMSFileStatus.NONE;
         tag = string.Empty;
         IsInstallDestinationSuggestionPopupOpen = false;
@@ -297,13 +293,10 @@ public sealed class PendingChartEntry : BMSFile
         target.banner = parsed.banner;
         target.backbmp = parsed.backbmp;
         target.preview_music = parsed.preview_music;
-        target.wav_files = parsed.wav_files ?? new List<string>();
-        target.bga_files = parsed.bga_files ?? new List<string>();
+        target.wav_files = parsed.wav_files ?? [];
+        target.bga_files = parsed.bga_files ?? [];
         target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
-        if (target.MaintenanceInfo == null)
-        {
-            target.MaintenanceInfo = maintenanceInfo;
-        }
+        target.MaintenanceInfo ??= maintenanceInfo;
         stagefile = target.stagefile;
         banner = target.banner;
         backbmp = target.backbmp;
@@ -327,7 +320,7 @@ public sealed class PendingChartEntry : BMSFile
         bool installedMaintenanceValid = IsMeaningfulResourceMaintenanceInfo(installedSong.MaintenanceInfo);
         MaintenanceInfoOrigin origin = installedMaintenanceValid
             ? MaintenanceInfoOrigin.DbHydrated
-            : this.MaintenanceInfoOrigin;
+            : MaintenanceInfoOrigin;
         BMSFileMaintenanceInfo nextMaintenanceInfo = installedMaintenanceValid
             ? installedSong.MaintenanceInfo
             : null

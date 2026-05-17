@@ -44,7 +44,7 @@ public static class Win32API
 
         public int X
         {
-            get
+            readonly get
             {
                 return Left;
             }
@@ -57,7 +57,7 @@ public static class Win32API
 
         public int Y
         {
-            get
+            readonly get
             {
                 return Top;
             }
@@ -70,7 +70,7 @@ public static class Win32API
 
         public int Height
         {
-            get
+            readonly get
             {
                 return Bottom - Top;
             }
@@ -82,7 +82,7 @@ public static class Win32API
 
         public int Width
         {
-            get
+            readonly get
             {
                 return Right - Left;
             }
@@ -94,7 +94,7 @@ public static class Win32API
 
         public Point Location
         {
-            get
+            readonly get
             {
                 return new Point(Left, Top);
             }
@@ -143,7 +143,7 @@ public static class Win32API
             return !r1.Equals(r2);
         }
 
-        public bool Equals(RECT r)
+        public readonly bool Equals(RECT r)
         {
             if (r.Left == Left && r.Top == Top && r.Right == Right)
             {
@@ -165,12 +165,12 @@ public static class Win32API
             return false;
         }
 
-        public override int GetHashCode()
+        public override readonly int GetHashCode()
         {
             return ((Rectangle)this/*cast due to .constrained prefix*/).GetHashCode();
         }
 
-        public override string ToString()
+        public override readonly string ToString()
         {
             return string.Format(CultureInfo.CurrentCulture, "{{Left={0},Top={1},Right={2},Bottom={3}}}", Left, Top, Right, Bottom);
         }

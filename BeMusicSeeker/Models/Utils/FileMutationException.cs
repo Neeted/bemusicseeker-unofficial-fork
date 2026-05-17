@@ -31,23 +31,14 @@ internal sealed class FileMutationException : IOException
         Exception rootCause)
         : base(BuildMessage(kind, primaryPath, secondaryPath, attemptCount, normalizedReadOnlyCount, win32ErrorCode, wasRetried, rootCause), rootCause)
     {
-        if (primaryPath == null)
-        {
-            throw new ArgumentNullException(nameof(primaryPath));
-        }
-        if (rootCause == null)
-        {
-            throw new ArgumentNullException(nameof(rootCause));
-        }
-
         Kind = kind;
-        PrimaryPath = primaryPath;
+        PrimaryPath = primaryPath ?? throw new ArgumentNullException(nameof(primaryPath));
         SecondaryPath = secondaryPath;
         AttemptCount = attemptCount;
         NormalizedReadOnlyCount = normalizedReadOnlyCount;
         Win32ErrorCode = win32ErrorCode;
         WasRetried = wasRetried;
-        RootCause = rootCause;
+        RootCause = rootCause ?? throw new ArgumentNullException(nameof(rootCause));
     }
 
     public FileMutationException() : base()

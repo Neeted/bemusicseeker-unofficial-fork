@@ -2,32 +2,22 @@ using System;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class ChartFileSnapshot
+internal sealed class ChartFileSnapshot(
+    string path,
+    byte[] bytes,
+    DateTime lastWriteTimeUtc,
+    string md5,
+    string sha256)
 {
-    public ChartFileSnapshot(
-        string path,
-        byte[] bytes,
-        DateTime lastWriteTimeUtc,
-        string md5,
-        string sha256)
-    {
-        Path = path ?? throw new ArgumentNullException(nameof(path));
-        Bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
-        Length = bytes.LongLength;
-        LastWriteTimeUtc = lastWriteTimeUtc;
-        Md5 = md5 ?? throw new ArgumentNullException(nameof(md5));
-        Sha256 = sha256 ?? throw new ArgumentNullException(nameof(sha256));
-    }
+    public string Path { get; } = path ?? throw new ArgumentNullException(nameof(path));
 
-    public string Path { get; }
+    public byte[] Bytes { get; } = bytes ?? throw new ArgumentNullException(nameof(bytes));
 
-    public byte[] Bytes { get; }
+    public long Length { get; } = bytes.LongLength;
 
-    public long Length { get; }
+    public DateTime LastWriteTimeUtc { get; } = lastWriteTimeUtc;
 
-    public DateTime LastWriteTimeUtc { get; }
+    public string Md5 { get; } = md5 ?? throw new ArgumentNullException(nameof(md5));
 
-    public string Md5 { get; }
-
-    public string Sha256 { get; }
+    public string Sha256 { get; } = sha256 ?? throw new ArgumentNullException(nameof(sha256));
 }

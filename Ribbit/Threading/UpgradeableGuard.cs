@@ -7,7 +7,7 @@ public class UpgradeableGuard : IDisposable
 {
     protected class UpgradedGuard : IDisposable
     {
-        private UpgradeableGuard _parentGuard;
+        private readonly UpgradeableGuard _parentGuard;
 
         protected WriterGuard _writerLock;
 
@@ -36,19 +36,13 @@ public class UpgradeableGuard : IDisposable
 
     public virtual IDisposable UpgradeToWriterLock()
     {
-        if (_upgradedLock == null)
-        {
-            _upgradedLock = new UpgradedGuard(this);
-        }
+        _upgradedLock ??= new UpgradedGuard(this);
         return _upgradedLock;
     }
 
     public virtual void Dispose()
     {
-        if (_upgradedLock != null)
-        {
-            _upgradedLock.Dispose();
-        }
+        _upgradedLock?.Dispose();
         _readerWriterLock.ExitUpgradeableReadLock();
     }
 }

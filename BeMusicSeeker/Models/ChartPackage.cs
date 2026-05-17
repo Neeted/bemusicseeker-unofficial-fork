@@ -10,11 +10,11 @@ namespace BeMusicSeeker.Models;
 
 public class ChartPackage : LR2SongDBExtended.install
 {
-    private List<BMSFile> chartFiles;
+    private readonly List<BMSFile> chartFiles;
 
     private readonly bool hasExplicitChartFiles;
 
-    private readonly object installEstimationSnapshotLock = new object();
+    private readonly object installEstimationSnapshotLock = new();
 
     private PackageChartDiscoverySnapshot packageChartDiscoverySnapshot;
 
@@ -22,7 +22,7 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
 
-    public List<PendingChartEntry> PendingCharts => (ChartFiles ?? new List<BMSFile>()).OfType<PendingChartEntry>().ToList();
+    public List<PendingChartEntry> PendingCharts => [.. (ChartFiles ?? []).OfType<PendingChartEntry>()];
 
     public List<BMSFile> ChartFiles
     {
@@ -30,7 +30,7 @@ public class ChartPackage : LR2SongDBExtended.install
         {
             if (hasExplicitChartFiles)
             {
-                return chartFiles ?? new List<BMSFile>();
+                return chartFiles ?? [];
             }
             return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartFiles;
         }
@@ -43,19 +43,19 @@ public class ChartPackage : LR2SongDBExtended.install
     public ChartPackage(BMSFile chartFile)
     {
         path = chartFile.path;
-        chartFiles = new List<BMSFile> { chartFile };
+        chartFiles = [chartFile];
         hasExplicitChartFiles = true;
     }
 
     public ChartPackage(IEnumerable<BMSFile> chartFiles)
     {
-        this.chartFiles = chartFiles.ToList();
+        this.chartFiles = [.. chartFiles];
         hasExplicitChartFiles = true;
     }
 
     internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles)
     {
-        List<BMSFile> targetFileList = (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
         PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);
         return PackageInstallEstimationSnapshotBuilder.Build(this, targetFileList, installSurfaceSnapshot, sourceSurfaceCacheHit);
     }

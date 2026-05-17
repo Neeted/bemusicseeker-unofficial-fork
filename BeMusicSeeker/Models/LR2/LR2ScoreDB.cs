@@ -23,52 +23,31 @@ internal static class ClearTypeStorageConverter
 {
     internal static ClearType FromLr2Value(int value)
     {
-        switch (value)
+        return value switch
         {
-            case 0:
-                return ClearType.NO_PLAY;
-            case 1:
-                return ClearType.FAILED;
-            case 2:
-                return ClearType.EASY;
-            case 3:
-                return ClearType.CLEAR;
-            case 4:
-                return ClearType.HARD;
-            case 5:
-                return ClearType.FC;
-            case 21:
-                return ClearType.PA;
-            default:
-                return (ClearType)value;
-        }
+            0 => ClearType.NO_PLAY,
+            1 => ClearType.FAILED,
+            2 => ClearType.EASY,
+            3 => ClearType.CLEAR,
+            4 => ClearType.HARD,
+            5 => ClearType.FC,
+            21 => ClearType.PA,
+            _ => (ClearType)value,
+        };
     }
 
     internal static int ToLr2Value(ClearType clear)
     {
-        switch (clear)
+        return clear switch
         {
-            case ClearType.NO_SONG:
-            case ClearType.NO_PLAY:
-                return 0;
-            case ClearType.FAILED:
-            case ClearType.INVALID:
-            case ClearType.L_ASSIST:
-                return 1;
-            case ClearType.EASY:
-                return 2;
-            case ClearType.CLEAR:
-                return 3;
-            case ClearType.HARD:
-            case ClearType.EX_HARD:
-                return 4;
-            case ClearType.FC:
-            case ClearType.PA:
-            case ClearType.MAX:
-                return 5;
-            default:
-                return (int)clear;
-        }
+            ClearType.NO_SONG or ClearType.NO_PLAY => 0,
+            ClearType.FAILED or ClearType.INVALID or ClearType.L_ASSIST => 1,
+            ClearType.EASY => 2,
+            ClearType.CLEAR => 3,
+            ClearType.HARD or ClearType.EX_HARD => 4,
+            ClearType.FC or ClearType.PA or ClearType.MAX => 5,
+            _ => (int)clear,
+        };
     }
 }
 

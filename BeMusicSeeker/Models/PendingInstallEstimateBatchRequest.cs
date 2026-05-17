@@ -33,17 +33,14 @@ internal sealed class PendingInstallEstimateBatchRequest
         PendingEstimateSourceBatchSnapshot batchSourceSnapshot = null)
     {
         Source = source;
-        Packages = (packages ?? Enumerable.Empty<ChartPackage>())
-            .Where((ChartPackage package) => package != null)
-            .ToArray();
+        Packages = [.. (packages ?? []).Where(package => package != null)];
         DeferredPackageCount = Math.Max(0, deferredPackageCount);
         DisplayName = string.IsNullOrWhiteSpace(displayName)
             ? GetDisplayName(Packages.FirstOrDefault()?.path)
             : displayName;
-        RegroupEligibleSourceDirectories = (regroupEligibleSourceDirectories ?? Enumerable.Empty<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        RegroupEligibleSourceDirectories = [.. (regroupEligibleSourceDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
         BatchSourceSnapshot = batchSourceSnapshot;
     }
 

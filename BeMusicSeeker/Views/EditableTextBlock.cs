@@ -113,7 +113,7 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
 
     private static void OnTextChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (!(d is EditableTextBlock editableTextBlock))
+        if (d is not EditableTextBlock editableTextBlock)
         {
             return;
         }
@@ -129,7 +129,7 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
 
     private static void OnIsEditableChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        if (!(d is EditableTextBlock editableTextBlock))
+        if (d is not EditableTextBlock editableTextBlock)
         {
             return;
         }
@@ -142,7 +142,7 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
 
     private void TextBox_Loaded(object sender, RoutedEventArgs e)
     {
-        TextBox obj = sender as TextBox;
+        var obj = sender as TextBox;
         obj.Focus();
         obj.SelectAll();
     }
@@ -196,7 +196,7 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
 
     private void RaiseEditModeChangedEvent()
     {
-        RoutedEventArgs e = new RoutedEventArgs(EditModeChangedEvent);
+        var e = new RoutedEventArgs(EditModeChangedEvent);
         RaiseEvent(e);
     }
 }

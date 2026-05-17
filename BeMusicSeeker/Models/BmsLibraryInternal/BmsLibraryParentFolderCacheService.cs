@@ -10,9 +10,9 @@ internal sealed class BmsLibraryParentFolderCacheService
 {
     public List<string> BuildParentFolderCandidates(IEnumerable<string> bmsDirectories, List<BMSFile> bmsFilesSnapshot, BmsLibraryOptionsSnapshot options)
     {
-        return (bmsDirectories ?? Enumerable.Empty<string>()).Where(delegate (string directoryPath)
+        return [.. (bmsDirectories ?? []).Where(delegate (string directoryPath)
         {
-            if ((bmsFilesSnapshot ?? new List<BMSFile>()).Any(delegate (BMSFile file)
+            if ((bmsFilesSnapshot ?? []).Any(delegate (BMSFile file)
             {
                 return file != null && !string.IsNullOrWhiteSpace(file.path) && file.path.StartsWith(directoryPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
             }))
@@ -39,12 +39,12 @@ internal sealed class BmsLibraryParentFolderCacheService
                 }
             }
             return true;
-        }).ToList();
+        })];
     }
 
     public BMSLibrary.ParentFolderListCacheSnapshot BuildSnapshot(int version, List<BMSFile> bmsFilesSnapshot, IEnumerable<string> bmsDirectories, BmsLibraryOptionsSnapshot options)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         List<string> parentFolders = BuildParentFolderCandidates(bmsDirectories, bmsFilesSnapshot, options);
         stopwatch.Stop();
         return new BMSLibrary.ParentFolderListCacheSnapshot

@@ -26,7 +26,7 @@ internal class CommonOpenFileDialogInteractionMessageAction : InteractionMessage
 
     private void ShowFolderSelectionDialog(FolderSelectionMessage message)
     {
-        using CommonOpenFileDialog dialog = new CommonOpenFileDialog
+        using var dialog = new CommonOpenFileDialog
         {
             Title = message.Title,
             IsFolderPicker = true,
@@ -43,7 +43,7 @@ internal class CommonOpenFileDialogInteractionMessageAction : InteractionMessage
 
     private void ShowFileSelectionDialog(OpeningFileSelectionMessage message)
     {
-        using CommonOpenFileDialog dialog = new CommonOpenFileDialog
+        using var dialog = new CommonOpenFileDialog
         {
             Title = message.Title,
             IsFolderPicker = false,
@@ -65,13 +65,13 @@ internal class CommonOpenFileDialogInteractionMessageAction : InteractionMessage
 
         if (dialog.ShowDialog(Window.GetWindow(AssociatedObject)) == CommonFileDialogResult.Ok)
         {
-            message.Response = dialog.FileNames.ToArray();
+            message.Response = [.. dialog.FileNames];
         }
     }
 
     internal static IReadOnlyList<Tuple<string, string>> ParseFilterPairsForTest(string filter)
     {
-        List<Tuple<string, string>> filters = new List<Tuple<string, string>>();
+        List<Tuple<string, string>> filters = [];
         if (!string.IsNullOrWhiteSpace(filter))
         {
             string[] parts = filter.Split('|');

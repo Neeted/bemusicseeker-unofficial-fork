@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Models.LR2;
 
 public class LR2Config : XDocument
 {
-    private ReaderWriterLockSlim rwlock = new ReaderWriterLockSlim();
+    private readonly ReaderWriterLockSlim rwlock = new();
 
     private string _configPath;
 
@@ -60,9 +60,9 @@ public class LR2Config : XDocument
         List<string> list;
         using (new ReaderGuard(rwlock))
         {
-            source = (from dirs in Element("config").Element("jukebox").Elements("path")
-                      select dirs.Value.TrimEnd('\\')).ToList();
-            list = (string.IsNullOrWhiteSpace(LR2RootPath) ? source.Where((string dir) => Directory.Exists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : (from dir in source.Select(delegate (string d)
+            source = [.. (from dirs in Element("config").Element("jukebox").Elements("path")
+                      select dirs.Value.TrimEnd('\\'))];
+            list = (string.IsNullOrWhiteSpace(LR2RootPath) ? source.Where(dir => Directory.Exists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [.. (from dir in source.Select(delegate (string d)
                 {
                     try
                     {
@@ -80,11 +80,11 @@ public class LR2Config : XDocument
                     return d;
                 })
                                                                                                                                                                                                     where Directory.Exists(dir) && dir.IsSjisSchemeString()
-                                                                                                                                                                                                    select dir).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
-            List<string> list2 = new List<string>();
-            foreach (string p in list.OrderBy((string f) => f.Length))
+                                                                                                                                                                                                    select dir).Distinct(StringComparer.OrdinalIgnoreCase)]);
+            List<string> list2 = [];
+            foreach (string p in list.OrderBy(f => f.Length))
             {
-                if (!list2.Any((string pp) => p.StartsWith(pp + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                if (!list2.Any(pp => p.StartsWith(pp + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                 {
                     list2.Add(p);
                 }
@@ -101,16 +101,13 @@ public class LR2Config : XDocument
 
     public void SetBMSSearchDirectories(IEnumerable<string> dirs)
     {
-        if (dirs == null)
-        {
-            dirs = Enumerable.Empty<string>();
-        }
-        dirs = dirs.Where((string d) => Directory.Exists(d));
-        if (dirs.Any((string d) => !Directory.Exists(d)))
+        dirs ??= [];
+        dirs = dirs.Where(d => Directory.Exists(d));
+        if (dirs.Any(d => !Directory.Exists(d)))
         {
             throw new ArgumentException("与えられたディレクトリの一部または全てが存在しません");
         }
-        List<string> list = dirs.Where((string d) => !d.IsSjisSchemeString()).ToList();
+        List<string> list = [.. dirs.Where(d => !d.IsSjisSchemeString())];
         if (list.Count() > 0)
         {
             throw new ArgumentException("Shift_JISで表現できない文字がディレクトリパスに含まれています。" + Environment.NewLine + string.Join(Environment.NewLine, list));
@@ -118,7 +115,7 @@ public class LR2Config : XDocument
         using (new WriterGuard(rwlock))
         {
             RemoveBMSSearchDirectories();
-            Element("config").Element("jukebox").Add(dirs.Select((string d) => new XElement("path")
+            Element("config").Element("jukebox").Add(dirs.Select(d => new XElement("path")
             {
                 Value = d.TrimEnd('\\') + "\\"
             }));
@@ -127,16 +124,13 @@ public class LR2Config : XDocument
 
     public void AddBMSSearchDirectories(IEnumerable<string> dirs)
     {
-        if (dirs == null)
-        {
-            dirs = Enumerable.Empty<string>();
-        }
-        dirs = dirs.Where((string d) => Directory.Exists(d));
-        if (dirs.Any((string d) => !Directory.Exists(d)))
+        dirs ??= [];
+        dirs = dirs.Where(d => Directory.Exists(d));
+        if (dirs.Any(d => !Directory.Exists(d)))
         {
             throw new ArgumentException("指定されたディレクトリの一部または全てが存在しません。");
         }
-        List<string> list = dirs.Where((string d) => !d.IsSjisSchemeString()).ToList();
+        List<string> list = [.. dirs.Where(d => !d.IsSjisSchemeString())];
         if (list.Count() > 0)
         {
             throw new ArgumentException("Shift_JISで表現できない文字がディレクトリパスに含まれています。" + Environment.NewLine + string.Join(Environment.NewLine, list));
@@ -144,11 +138,11 @@ public class LR2Config : XDocument
         List<string> dirsInXML = GetBMSSearchDirectories();
         using (new WriterGuard(rwlock))
         {
-            if (dirs.Any((string dnew) => dirsInXML.Any((string dold) => (dold + "\\").StartsWith(dnew + "\\", StringComparison.OrdinalIgnoreCase) || (dnew + "\\").StartsWith(dold + "\\", StringComparison.OrdinalIgnoreCase) || (dold + "\\").Equals(dnew + "\\", StringComparison.OrdinalIgnoreCase))))
+            if (dirs.Any(dnew => dirsInXML.Any(dold => (dold + "\\").StartsWith(dnew + "\\", StringComparison.OrdinalIgnoreCase) || (dnew + "\\").StartsWith(dold + "\\", StringComparison.OrdinalIgnoreCase) || (dold + "\\").Equals(dnew + "\\", StringComparison.OrdinalIgnoreCase))))
             {
                 throw new ArgumentException("登録済みディレクトリまたはその親・子ディレクトリは追加できません。");
             }
-            Element("config").Element("jukebox").Add(dirs.Select((string d) => new XElement("path")
+            Element("config").Element("jukebox").Add(dirs.Select(d => new XElement("path")
             {
                 Value = d.TrimEnd('\\') + "\\"
             }));
@@ -167,9 +161,9 @@ public class LR2Config : XDocument
             }
             foreach (string dir in dirs)
             {
-                List<XElement> targets = (from dirInXml in Element("config").Element("jukebox").Elements("path")
+                List<XElement> targets = [.. (from dirInXml in Element("config").Element("jukebox").Elements("path")
                                           where dirInXml.Value.Equals(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)
-                                          select dirInXml).ToList();
+                                          select dirInXml)];
                 if (targets.Count > 0)
                 {
                     targets.Remove();
@@ -252,7 +246,7 @@ public class LR2Config : XDocument
         {
             try
             {
-                return (int.Parse(Element("config").Element("system").Element("screenmode").Value) != 0) ? true : false;
+                return (int.Parse(Element("config").Element("system").Element("screenmode").Value) != 0);
             }
             catch
             {
@@ -312,7 +306,7 @@ public class LR2Config : XDocument
         {
             try
             {
-                return (int.Parse(Element("config").Element("sound").Element("volumeflag").Value) != 0) ? true : false;
+                return (int.Parse(Element("config").Element("sound").Element("volumeflag").Value) != 0);
             }
             catch
             {

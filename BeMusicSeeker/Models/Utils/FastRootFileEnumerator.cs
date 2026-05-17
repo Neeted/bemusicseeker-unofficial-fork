@@ -9,15 +9,13 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 {
     public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
     {
-        RootFileEnumerationResult result = new RootFileEnumerationResult
+        var result = new RootFileEnumerationResult
         {
             BackendName = "fast"
         };
 
         List<string> roots = NormalizeRoots(rootDirectories);
-        List<RootFileEnumerationGroup> groupList = (groups ?? Enumerable.Empty<RootFileEnumerationGroup>())
-            .Where((RootFileEnumerationGroup group) => group != null && !string.IsNullOrWhiteSpace(group.Name))
-            .ToList();
+        List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         foreach (RootFileEnumerationGroup group in groupList)
         {
             result.PathsByGroup[group.Name] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -31,14 +29,14 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             return result;
         }
 
-        System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            HashSet<string> allFiles = new HashSet<string>(
+            var allFiles = new HashSet<string>(
                 roots
                     .AsParallel()
                     .SelectMany(EnumerateAllFilesForRoot)
-                    .Where((string path) => !string.IsNullOrWhiteSpace(path)),
+                    .Where(path => !string.IsNullOrWhiteSpace(path)),
                 StringComparer.OrdinalIgnoreCase);
 
             result.TotalFileCount = allFiles.Count;
@@ -77,27 +75,25 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 
     private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
     {
-        return (rootDirectories ?? Enumerable.Empty<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+        return [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
             .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static IEnumerable<string> EnumerateAllFilesForRoot(string root)
     {
-        List<string> fastPaths = new List<string>();
+        List<string> fastPaths = [];
         try
         {
-            fastPaths = FastDirectoryEnumerator.GetFilePathsAsParallel(root, null, SearchOption.AllDirectories)
-                .Where((string path) => !string.IsNullOrWhiteSpace(path))
+            fastPaths = [.. FastDirectoryEnumerator.GetFilePathsAsParallel(root, null, SearchOption.AllDirectories)
+                .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
         }
         catch
         {
-            fastPaths = new List<string>();
+            fastPaths = [];
         }
 
         if (fastPaths.Count > 0)
@@ -108,14 +104,14 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         try
         {
             return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                .Where((string path) => !string.IsNullOrWhiteSpace(path))
+                .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
         catch
         {
-            return Array.Empty<string>();
+            return [];
         }
     }
 }

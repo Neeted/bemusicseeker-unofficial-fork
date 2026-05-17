@@ -48,7 +48,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
             {
                 throw new ArgumentNullException("notes");
             }
-            this.notes = notes.ToArray();
+            this.notes = [.. notes];
         }
 
         public void Reset()
@@ -155,7 +155,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     private BMSFile.Chart.Note lastCtrlNote;
 
-    private TimeSpan densityRange = new TimeSpan(0, 0, 0, 1);
+    private TimeSpan densityRange = new(0, 0, 0, 1);
 
     protected readonly NoteQueue ControlNotesQueue;
 
@@ -313,24 +313,20 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     public BMSPlayer(BMSFile bms)
     {
-        if (bms == null)
-        {
-            throw new ArgumentNullException("bms");
-        }
-        Bms = bms;
+        Bms = bms ?? throw new ArgumentNullException("bms");
         ControlNotesQueue = new NoteQueue(Bms.Measures.ControlNotes);
         BgaBaseNotesQueue = new NoteQueue(Bms.Measures.BgaBaseNotes);
         BgaPoorNotesQueue = new NoteQueue(Bms.Measures.BgaPoorNotes);
         BgaLayerNotesQueue = new NoteQueue(Bms.Measures.BgaLayerNotes);
         BgmNotesQueue = new NoteQueue(Bms.Measures.BgmNotes);
-        VisibleNotes1PQueue = Bms.Measures.VisibleNotes1P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
-        VisibleNotes2PQueue = Bms.Measures.VisibleNotes2P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
-        InvisibleNotes1PQueue = Bms.Measures.InvisibleNotes1P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
-        InvisibleNotes2PQueue = Bms.Measures.InvisibleNotes2P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
-        LongNotes1PQueue = Bms.Measures.LongNotes1P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
-        LongNotes2PQueue = Bms.Measures.LongNotes2P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
-        MineNotes1PQueue = Bms.Measures.MineNotes1P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
-        MineNotes2PQueue = Bms.Measures.MineNotes2P.Select((BMSFile.Measure.AllNotes a) => new NoteQueue(a)).ToList().AsReadOnly();
+        VisibleNotes1PQueue = Bms.Measures.VisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        VisibleNotes2PQueue = Bms.Measures.VisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        InvisibleNotes1PQueue = Bms.Measures.InvisibleNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        InvisibleNotes2PQueue = Bms.Measures.InvisibleNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        LongNotes1PQueue = Bms.Measures.LongNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        LongNotes2PQueue = Bms.Measures.LongNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        MineNotes1PQueue = Bms.Measures.MineNotes1P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
+        MineNotes2PQueue = Bms.Measures.MineNotes2P.Select(a => new NoteQueue(a)).ToList().AsReadOnly();
         InitializeLoaders();
         currentTime = TimeSpan.Zero;
         durationProvider = () => TimeSpan.FromTicks(System.Math.Max(BmsDuration.Ticks, System.Math.Max(BgaDuration.Ticks, MusicDuration.Ticks)));
@@ -341,12 +337,12 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     private double calculateNotesDensity()
     {
-        return (double)(VisibleNotes1PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + VisibleNotes2PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes1PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes2PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS))) / densityRange.TotalSeconds;
+        return (double)(VisibleNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + VisibleNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS)) + LongNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE) - q.CountDequeued(NoteQueue.QueueType.STATICS))) / densityRange.TotalSeconds;
     }
 
     private int calculateCombo()
     {
-        return VisibleNotes1PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE)) + VisibleNotes2PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes1PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes2PQueue.Sum((NoteQueue q) => q.CountDequeued(NoteQueue.QueueType.NOTE));
+        return VisibleNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + VisibleNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes1PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE)) + LongNotes2PQueue.Sum(q => q.CountDequeued(NoteQueue.QueueType.NOTE));
     }
 
     protected virtual void InitializeLoaders()
@@ -390,7 +386,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     protected virtual void ForwardControlNotesToCurrentTime()
     {
-        foreach (BMSFile.Chart.Note item in ControlNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item in ControlNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             BMSFile.Chart.Note note = (lastCtrlNote = item);
             switch (note.Type)
@@ -432,7 +428,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     protected virtual void ForwardBgaNotesToCurrentTime()
     {
-        foreach (BMSFile.Chart.Note item in BgaBaseNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item in BgaBaseNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             TImageLoader val = ImageLoaders[item.Index];
             if (val != BgaBaseLoader)
@@ -442,7 +438,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
                 BgaBaseLoader?.Attach();
             }
         }
-        foreach (BMSFile.Chart.Note item2 in BgaPoorNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item2 in BgaPoorNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             TImageLoader val2 = ImageLoaders[item2.Index];
             if (val2 != BgaPoorLoader)
@@ -452,7 +448,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
                 BgaPoorLoader?.Attach();
             }
         }
-        foreach (BMSFile.Chart.Note item3 in BgaLayerNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item3 in BgaLayerNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             TImageLoader val3 = ImageLoaders[item3.Index];
             if (val3 != BgaLayerLoader)
@@ -466,7 +462,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     protected virtual void ForwardBgmNotesToCurrentTime()
     {
-        foreach (BMSFile.Chart.Note item in BgmNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item in BgmNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             AudioPlayers[item.Index]?.Play();
         }
@@ -476,28 +472,28 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
         foreach (NoteQueue item in VisibleNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 AudioPlayers[item2.Index]?.Play();
             }
         }
         foreach (NoteQueue item3 in VisibleNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 AudioPlayers[item4.Index]?.Play();
             }
         }
         foreach (NoteQueue item5 in VisibleNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item6;
             }
         }
         foreach (NoteQueue item7 in VisibleNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item8;
             }
@@ -508,14 +504,14 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
         foreach (NoteQueue item in InvisibleNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 _ = item2;
             }
         }
         foreach (NoteQueue item3 in InvisibleNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 _ = item4;
             }
@@ -526,7 +522,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
         foreach (NoteQueue item in LongNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 if (((uint)item2.Type & 0xFFFFFFF0u) == 80)
                 {
@@ -536,7 +532,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
         foreach (NoteQueue item3 in LongNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 if (((uint)item4.Type & 0xFFFFFFF0u) == 96)
                 {
@@ -546,14 +542,14 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
         foreach (NoteQueue item5 in LongNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item6;
             }
         }
         foreach (NoteQueue item7 in LongNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item8;
             }
@@ -564,14 +560,14 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
         foreach (NoteQueue item in MineNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 _ = item2;
             }
         }
         foreach (NoteQueue item3 in MineNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 _ = item4;
             }
@@ -616,7 +612,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     protected virtual void MoveBgaNotesToCurrentTime()
     {
-        foreach (BMSFile.Chart.Note item in BgaBaseNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item in BgaBaseNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             TImageLoader val = ImageLoaders[item.Index];
             if (val == BgaBaseLoader)
@@ -635,7 +631,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
                 }
             }
         }
-        foreach (BMSFile.Chart.Note item2 in BgaPoorNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item2 in BgaPoorNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             TImageLoader val2 = ImageLoaders[item2.Index];
             if (val2 == BgaPoorLoader)
@@ -654,7 +650,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
                 }
             }
         }
-        foreach (BMSFile.Chart.Note item3 in BgaLayerNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item3 in BgaLayerNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             TImageLoader val3 = ImageLoaders[item3.Index];
             if (val3 == BgaLayerLoader)
@@ -677,7 +673,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
 
     protected virtual void MoveBgmNotesToCurrentTime()
     {
-        foreach (BMSFile.Chart.Note item in BgmNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+        foreach (BMSFile.Chart.Note item in BgmNotesQueue.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
         {
             TAudioPlayer val = AudioPlayers[item.Index];
             if (val != null)
@@ -701,7 +697,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
         foreach (NoteQueue item in LongNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 if (((uint)item2.Type & 0xFFFFFFF0u) != 80)
                 {
@@ -721,7 +717,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
         foreach (NoteQueue item3 in LongNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 if (((uint)item4.Type & 0xFFFFFFF0u) != 96)
                 {
@@ -741,14 +737,14 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
         foreach (NoteQueue item5 in LongNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item6;
             }
         }
         foreach (NoteQueue item7 in LongNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item8;
             }
@@ -764,7 +760,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
     {
         foreach (NoteQueue item in VisibleNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item2 in item.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 TAudioPlayer val = AudioPlayers[item2.Index];
                 if (val != null)
@@ -780,7 +776,7 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
         foreach (NoteQueue item3 in VisibleNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, (BMSFile.Chart.Note n) => n.AbsoluteTime <= currentTime))
+            foreach (BMSFile.Chart.Note item4 in item3.DequeWhile(NoteQueue.QueueType.NOTE, n => n.AbsoluteTime <= currentTime))
             {
                 TAudioPlayer val2 = AudioPlayers[item4.Index];
                 if (val2 != null)
@@ -796,14 +792,14 @@ public abstract class BMSPlayer<TAudioPlayer, TImageLoader> : IDisposable where 
         }
         foreach (NoteQueue item5 in VisibleNotes1PQueue)
         {
-            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item6 in item5.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item6;
             }
         }
         foreach (NoteQueue item7 in VisibleNotes2PQueue)
         {
-            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, (BMSFile.Chart.Note n) => n.AbsoluteTime < currentTime - densityRange))
+            foreach (BMSFile.Chart.Note item8 in item7.DequeWhile(NoteQueue.QueueType.STATICS, n => n.AbsoluteTime < currentTime - densityRange))
             {
                 _ = item8;
             }

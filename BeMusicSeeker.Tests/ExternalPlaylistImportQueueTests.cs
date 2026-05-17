@@ -11,10 +11,10 @@ public sealed class ExternalPlaylistImportQueueTests
     [TestMethod]
     public void Enqueue_StartsOnlyOneDrainAndDequeuesInFifoOrder()
     {
-        ExternalPlaylistImportQueue queue = new ExternalPlaylistImportQueue();
-        Uri first = new Uri("https://example.com/first");
-        Uri second = new Uri("https://example.com/second");
-        Uri third = new Uri("https://example.com/third");
+        var queue = new ExternalPlaylistImportQueue();
+        var first = new Uri("https://example.com/first");
+        var second = new Uri("https://example.com/second");
+        var third = new Uri("https://example.com/third");
 
         Assert.IsTrue(queue.Enqueue(first));
         Assert.IsFalse(queue.Enqueue(second));
@@ -36,10 +36,10 @@ public sealed class ExternalPlaylistImportQueueTests
     [TestMethod]
     public void EnqueueRange_StartsOnlyOneDrainAndDequeuesInFifoOrder()
     {
-        ExternalPlaylistImportQueue queue = new ExternalPlaylistImportQueue();
-        Uri first = new Uri("https://example.com/range-first");
-        Uri second = new Uri("https://example.com/range-second");
-        Uri third = new Uri("https://example.com/range-third");
+        var queue = new ExternalPlaylistImportQueue();
+        var first = new Uri("https://example.com/range-first");
+        var second = new Uri("https://example.com/range-second");
+        var third = new Uri("https://example.com/range-third");
 
         Assert.IsTrue(queue.EnqueueRange(new[] { first, second }));
         Assert.AreEqual(2, queue.PendingCount);
@@ -60,11 +60,11 @@ public sealed class ExternalPlaylistImportQueueTests
     [TestMethod]
     public void EnqueueRange_IgnoresEmptyAndNullEntries()
     {
-        ExternalPlaylistImportQueue queue = new ExternalPlaylistImportQueue();
-        Uri valid = new Uri("https://example.com/valid");
+        var queue = new ExternalPlaylistImportQueue();
+        var valid = new Uri("https://example.com/valid");
 
         Assert.IsFalse(queue.EnqueueRange(null));
-        Assert.IsFalse(queue.EnqueueRange(Enumerable.Empty<Uri>()));
+        Assert.IsFalse(queue.EnqueueRange([]));
         Assert.IsTrue(queue.EnqueueRange(new[] { null, valid, null }));
         Assert.AreEqual(1, queue.PendingCount);
         Assert.IsTrue(queue.TryDequeue(out Uri dequeued));
@@ -84,10 +84,10 @@ public sealed class ExternalPlaylistImportQueueTests
     [TestMethod]
     public void QueueSummary_CountsOutcomesByKind()
     {
-        Uri imported = new Uri("https://example.com/imported");
-        Uri skipped = new Uri("https://example.com/skipped");
-        Uri failed = new Uri("https://example.com/failed");
-        ExternalPlaylistImportQueueSummary summary = new ExternalPlaylistImportQueueSummary(new[]
+        var imported = new Uri("https://example.com/imported");
+        var skipped = new Uri("https://example.com/skipped");
+        var failed = new Uri("https://example.com/failed");
+        var summary = new ExternalPlaylistImportQueueSummary(new[]
         {
             ExternalPlaylistImportOutcome.Imported(imported, "Imported"),
             ExternalPlaylistImportOutcome.SkippedDuplicateName(skipped, "Skipped", new InvalidOperationException("duplicate")),

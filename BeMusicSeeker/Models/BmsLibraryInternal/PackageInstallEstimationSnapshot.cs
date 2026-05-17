@@ -43,7 +43,7 @@ internal sealed class PackageChartDiscoverySnapshot
 {
     public string SourcePath { get; set; } = string.Empty;
 
-    public List<BMSFile> ChartFiles { get; set; } = new List<BMSFile>();
+    public List<BMSFile> ChartFiles { get; set; } = [];
 }
 
 internal sealed class PackageInstallEstimationSnapshot
@@ -89,7 +89,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
 {
     internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
     {
-        List<BMSFile> targetFileList = (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
         return new PackageInstallEstimationSnapshot
         {
             RepresentativeFile = SelectRepresentativeFile(targetFileList),
@@ -112,7 +112,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     internal static PackageInstallEstimationSnapshot BuildForLooseFiles(IEnumerable<BMSFile> targetFiles)
     {
-        List<BMSFile> targetFileList = (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
         BMSFile representativeFile = SelectRepresentativeFile(targetFileList);
         PackageInstallSurfaceSnapshot sourceSurfaceSnapshot = BuildSourceCandidateResourcesForLooseFiles(representativeFile);
         return new PackageInstallEstimationSnapshot
@@ -183,7 +183,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             return new PackageChartDiscoverySnapshot
             {
                 SourcePath = normalizedPath,
-                ChartFiles = CreatePendingChartsFromPaths(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>())
+                ChartFiles = CreatePendingChartsFromPaths(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? [])
             };
         }
 
@@ -191,8 +191,8 @@ internal static class PackageInstallEstimationSnapshotBuilder
         {
             SourcePath = normalizedPath,
             ChartFiles = File.Exists(normalizedPath) && PendingChartEntry.IsSupportedChartFilePath(normalizedPath)
-                ? new List<BMSFile> { CreatePendingChartFromPath(normalizedPath) }.Where((BMSFile file) => file != null).ToList()
-                : new List<BMSFile>()
+                ? [.. new List<BMSFile> { CreatePendingChartFromPath(normalizedPath) }.Where((BMSFile file) => file != null)]
+                : []
         };
     }
 
@@ -246,7 +246,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
             ? EnumerateSourceSurfaceWithFallback(sourceDirectory)
             : EnumerateSourceSurfaceFastOnly(sourceDirectory);
-        System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         DirectoryResourceLookupCache.Entry entry = CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
         stopwatch.Stop();
         return new PackageInstallSurfaceSnapshot
@@ -256,7 +256,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             BundledResources = entry,
             SourceCandidateResources = entry.Clone(),
             ScanMs = enumerationResult?.EnumerationMs ?? 0L,
-            ChartFileCount = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>()).Count,
+            ChartFileCount = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? []).Count,
             ResourceFileCount = CountDistinctPaths(
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
@@ -284,7 +284,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
             ? EnumerateSourceSurfaceWithFallback(sourceDirectory)
             : EnumerateSourceSurfaceFastOnly(sourceDirectory);
-        System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         DirectoryResourceLookupCache.Entry sourceCandidateResources = CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
         stopwatch.Stop();
         return new PackageInstallSurfaceSnapshot
@@ -294,7 +294,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             BundledResources = new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = sourceCandidateResources,
             ScanMs = enumerationResult?.EnumerationMs ?? 0L,
-            ChartFileCount = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>()).Count,
+            ChartFileCount = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? []).Count,
             ResourceFileCount = CountDistinctPaths(
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
                 enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
@@ -349,9 +349,9 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
         return ResourceSurfaceMaterializer.CreateSingleRootEntry(
             rootDirectory,
-            enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName) ?? Array.Empty<string>(),
-            enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName) ?? Array.Empty<string>(),
-            enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName) ?? Array.Empty<string>());
+            enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName) ?? [],
+            enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName) ?? [],
+            enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName) ?? []);
     }
 
     private static RootFileEnumerationResult EnumerateChartsOnlyWithFallback(string rootDirectory)
@@ -390,19 +390,18 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     private static List<BMSFile> CreatePendingChartsFromPaths(IEnumerable<string> chartPaths)
     {
-        return (chartPaths ?? Enumerable.Empty<string>())
+        return [.. (chartPaths ?? [])
             .Select(CreatePendingChartFromPath)
-            .Where((BMSFile file) => file != null)
-            .Cast<BMSFile>()
-            .ToList();
+            .Where(file => file != null)
+            .Cast<BMSFile>()];
     }
 
     private static int CountDistinctPaths(params IReadOnlyCollection<string>[] groups)
     {
-        return (groups ?? Array.Empty<IReadOnlyCollection<string>>())
-            .Where((IReadOnlyCollection<string> group) => group != null)
-            .SelectMany((IReadOnlyCollection<string> group) => group)
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+        return (groups ?? [])
+            .Where(group => group != null)
+            .SelectMany(group => group)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }
@@ -422,8 +421,8 @@ internal static class PackageInstallEstimationSnapshotBuilder
     private static BMSFile SelectRepresentativeFile(IReadOnlyCollection<BMSFile> targetFiles)
     {
         return targetFiles?
-            .Where((BMSFile file) => file != null)
-            .OrderByDescending((BMSFile file) => ChartResourceSnapshot.Create(file).TotalReferenceCount)
+            .Where(file => file != null)
+            .OrderByDescending(file => ChartResourceSnapshot.Create(file).TotalReferenceCount)
             .FirstOrDefault();
     }
 
@@ -452,8 +451,8 @@ internal static class PackageInstallEstimationSnapshotBuilder
     private static InstallEstimationMetadataProfile BuildTargetMetadataProfile(IEnumerable<BMSFile> targetFiles)
     {
         return InstallEstimationMetadataNormalizer.BuildProfile(
-            (targetFiles ?? Enumerable.Empty<BMSFile>())
-                .Where((BMSFile file) => file != null)
-                .Select((BMSFile file) => (file.Title ?? string.Empty, file.Artist ?? string.Empty, file.path ?? string.Empty)));
+            (targetFiles ?? [])
+                .Where(file => file != null)
+                .Select(file => (file.Title ?? string.Empty, file.Artist ?? string.Empty, file.path ?? string.Empty)));
     }
 }

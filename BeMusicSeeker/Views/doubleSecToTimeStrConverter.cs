@@ -8,11 +8,11 @@ internal class doubleSecToTimeStrConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (!(value is double))
+        if (value is not double)
         {
             return Binding.DoNothing;
         }
-        TimeSpan timeSpan = TimeSpan.FromSeconds((double)value);
+        var timeSpan = TimeSpan.FromSeconds((double)value);
         if (!(timeSpan.TotalHours > 1.0))
         {
             return timeSpan.ToString("mm\\:ss");

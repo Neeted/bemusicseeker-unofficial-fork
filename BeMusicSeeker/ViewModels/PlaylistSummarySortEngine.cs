@@ -21,7 +21,7 @@ internal static class PlaylistSummarySortEngine
     /// <returns>ソート済みリスト。</returns>
     internal static List<PlaylistSummaryRow> Sort(IEnumerable<PlaylistSummaryRow> source, MainWindowViewModel.cSortParameters sortParameters, bool useLegacyStringSort, out string sortProfile)
     {
-        IEnumerable<PlaylistSummaryRow> safeSource = source ?? Enumerable.Empty<PlaylistSummaryRow>();
+        IEnumerable<PlaylistSummaryRow> safeSource = source ?? [];
         string columnName = sortParameters?.ColumnsName;
         ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
         if (string.IsNullOrWhiteSpace(columnName))
@@ -33,40 +33,40 @@ internal static class PlaylistSummarySortEngine
         {
             case nameof(PlaylistSummaryRow.PlaylistId):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.PlaylistId, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.PlaylistId, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.Name):
                 sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, (PlaylistSummaryRow row) => row?.Name ?? string.Empty, direction, useLegacyStringSort);
+                return SortByString(safeSource, row => row?.Name ?? string.Empty, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.Symbol):
                 sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string" : "playlist_summary_string_fast_ordinal_ignore_case";
-                return SortByString(safeSource, (PlaylistSummaryRow row) => row?.Symbol ?? string.Empty, direction, useLegacyStringSort);
+                return SortByString(safeSource, row => row?.Symbol ?? string.Empty, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.LastUpdate):
                 sortProfile = "playlist_summary_date";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.LastUpdate ?? DateTime.MinValue, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.LastUpdate ?? DateTime.MinValue, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.TotalCharts):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.TotalCharts ?? 0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.TotalCharts ?? 0, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.OwnedCharts):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.OwnedCharts ?? 0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.OwnedCharts ?? 0, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.MissingCharts):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.MissingCharts ?? 0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.MissingCharts ?? 0, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.OwnedRatio):
                 sortProfile = "playlist_summary_numeric_double";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.OwnedRatio ?? 0.0, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.OwnedRatio ?? 0.0, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.IsExternalSync):
                 sortProfile = "playlist_summary_numeric_bool";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.IsExternalSync ?? false, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.IsExternalSync ?? false, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.StatusSortOrder):
                 sortProfile = "playlist_summary_numeric_int32";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.StatusSortOrder ?? int.MaxValue, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.StatusSortOrder ?? int.MaxValue, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.IsRootFolder):
                 sortProfile = "playlist_summary_numeric_bool";
-                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.IsRootFolder ?? false, direction, useLegacyStringSort);
+                return SortByTypedKey(safeSource, row => row?.IsRootFolder ?? false, direction, useLegacyStringSort);
             default:
                 sortProfile = useLegacyStringSort ? "playlist_summary_legacy_string_fallback" : "playlist_summary_string_fast_fallback";
-                return SortByString(safeSource, (PlaylistSummaryRow row) => row?.Name ?? string.Empty, direction, useLegacyStringSort);
+                return SortByString(safeSource, row => row?.Name ?? string.Empty, direction, useLegacyStringSort);
         }
     }
 
@@ -84,17 +84,17 @@ internal static class PlaylistSummarySortEngine
         {
             if (direction == ListSortDirection.Ascending)
             {
-                return source.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId).ToList();
+                return [.. source.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
             }
-            return source.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId).ToList();
+            return [.. source.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
         }
 
         StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
-            return source.OrderBy(keySelector, comparer).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId).ToList();
+            return [.. source.OrderBy(keySelector, comparer).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId)];
         }
-        return source.OrderByDescending(keySelector, comparer).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId).ToList();
+        return [.. source.OrderByDescending(keySelector, comparer).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId)];
     }
 
     /// <summary>
@@ -112,17 +112,17 @@ internal static class PlaylistSummarySortEngine
         {
             if (direction == ListSortDirection.Ascending)
             {
-                return source.OrderBy(keySelector).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId).ToList();
+                return [.. source.OrderBy(keySelector).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
             }
-            return source.OrderByDescending(keySelector).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId).ToList();
+            return [.. source.OrderByDescending(keySelector).ThenBy(GetTieBreakName, new NaturalComparer<string>()).ThenBy(GetTieBreakPlaylistId)];
         }
 
         StringComparer comparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
-            return source.OrderBy(keySelector).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId).ToList();
+            return [.. source.OrderBy(keySelector).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId)];
         }
-        return source.OrderByDescending(keySelector).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId).ToList();
+        return [.. source.OrderByDescending(keySelector).ThenBy(GetTieBreakName, comparer).ThenBy(GetTieBreakPlaylistId)];
     }
 
     /// <summary>

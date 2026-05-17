@@ -45,34 +45,28 @@ internal sealed class GridKeywordSearchQuery
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
     private static readonly string[] BaseChartFields =
-    {
+    [
         "level", "difficulty", "mainbpm", "maxbpm", "minbpm", "duration", "length", "judge", "judge%", "judgepct",
         "feature", "notes", "long", "ln", "scratch", "total", "tn", "t/n", "density", "peak", "peakdensity",
         "end", "enddensity", "soflan"
-    };
+    ];
 
     private static readonly string[] ScoreFields =
-    {
+    [
         "clear", "rank", "djlevel", "dj", "rate", "score", "combo", "bp"
-    };
+    ];
 
-    private static readonly string[] ChartListFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256" }
-        .Concat(BaseChartFields)
-        .Concat(ScoreFields)
-        .ToArray();
+    private static readonly string[] ChartListFields = ["title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", .. BaseChartFields, .. ScoreFields];
 
-    private static readonly string[] PlaylistDetailFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", "memo", "comment" }
-        .Concat(BaseChartFields)
-        .Concat(ScoreFields)
-        .ToArray();
+    private static readonly string[] PlaylistDetailFields = ["title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256", "memo", "comment", .. BaseChartFields, .. ScoreFields];
 
-    private static readonly string[] PlaylistSummaryFields = { "id", "name", "symbol" };
+    private static readonly string[] PlaylistSummaryFields = ["id", "name", "symbol"];
 
     private readonly SearchCondition[] conditions;
 
     private GridKeywordSearchQuery(SearchCondition[] conditions)
     {
-        this.conditions = conditions ?? Array.Empty<SearchCondition>();
+        this.conditions = conditions ?? [];
     }
 
     internal bool HasTokens => conditions.Length > 0;
@@ -85,24 +79,21 @@ internal sealed class GridKeywordSearchQuery
     /// <returns>利用可能な field 名一覧。</returns>
     internal static IReadOnlyList<string> GetKnownFields(GridKeywordSearchContext context)
     {
-        switch (context)
+        return context switch
         {
-            case GridKeywordSearchContext.PlaylistDetail:
-                return PlaylistDetailFields;
-            case GridKeywordSearchContext.PlaylistSummary:
-                return PlaylistSummaryFields;
-            default:
-                return ChartListFields;
-        }
+            GridKeywordSearchContext.PlaylistDetail => PlaylistDetailFields,
+            GridKeywordSearchContext.PlaylistSummary => PlaylistSummaryFields,
+            _ => ChartListFields,
+        };
     }
 
     internal IReadOnlyList<GridKeywordSearchDiagnostic> GetDiagnostics(GridKeywordSearchContext context)
     {
         if (!HasTokens)
         {
-            return Array.Empty<GridKeywordSearchDiagnostic>();
+            return [];
         }
-        List<GridKeywordSearchDiagnostic> diagnostics = new List<GridKeywordSearchDiagnostic>();
+        List<GridKeywordSearchDiagnostic> diagnostics = [];
         foreach (SearchCondition condition in conditions)
         {
             if (!string.IsNullOrEmpty(condition.Field) && !IsKnownField(context, condition.Field))
@@ -128,12 +119,11 @@ internal sealed class GridKeywordSearchQuery
     {
         if (string.IsNullOrWhiteSpace(keywordFilter))
         {
-            return new GridKeywordSearchQuery(Array.Empty<SearchCondition>());
+            return new GridKeywordSearchQuery([]);
         }
-        SearchCondition[] parsedConditions = Tokenize(keywordFilter)
+        SearchCondition[] parsedConditions = [.. Tokenize(keywordFilter)
             .Select(ParseCondition)
-            .OrderBy((SearchCondition condition) => condition.SortWeight)
-            .ToArray();
+            .OrderBy(condition => condition.SortWeight)];
         return new GridKeywordSearchQuery(parsedConditions);
     }
 
@@ -219,7 +209,7 @@ internal sealed class GridKeywordSearchQuery
 
     private static IEnumerable<string> Tokenize(string keywordFilter)
     {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         bool inQuote = false;
         bool escaping = false;
         foreach (char c in keywordFilter ?? string.Empty)
@@ -324,19 +314,18 @@ internal sealed class GridKeywordSearchQuery
         {
             return SearchCondition.Invalid(isNegated, field, field == null ? GridKeywordSearchDiagnosticKind.EmptyOr : GridKeywordSearchDiagnosticKind.EmptyFieldTerm, field ?? string.Empty);
         }
-        List<SearchAlternative> alternatives = SplitUnquoted(rawTerms, '|')
-            .Select((string rawAlternative) => CreateAlternative(rawAlternative, isRegex))
-            .Where((SearchAlternative alternative) => !alternative.IsEmpty)
-            .ToList();
+        List<SearchAlternative> alternatives = [.. SplitUnquoted(rawTerms, '|')
+            .Select(rawAlternative => CreateAlternative(rawAlternative, isRegex))
+            .Where(alternative => !alternative.IsEmpty)];
         if (alternatives.Count == 0)
         {
             return SearchCondition.Invalid(isNegated, field, GridKeywordSearchDiagnosticKind.EmptyOr, rawTerms);
         }
-        if (alternatives.All((SearchAlternative alternative) => alternative.IsInvalid))
+        if (alternatives.All(alternative => alternative.IsInvalid))
         {
-            return SearchCondition.Invalid(isNegated, field, GridKeywordSearchDiagnosticKind.None, string.Empty, isRegex, alternatives.ToArray());
+            return SearchCondition.Invalid(isNegated, field, GridKeywordSearchDiagnosticKind.None, string.Empty, isRegex, [.. alternatives]);
         }
-        return new SearchCondition(isNegated, field, isRegex, alternatives.ToArray(), isInvalid: false, diagnosticKind: GridKeywordSearchDiagnosticKind.None, diagnosticValue: string.Empty);
+        return new SearchCondition(isNegated, field, isRegex, [.. alternatives], isInvalid: false, diagnosticKind: GridKeywordSearchDiagnosticKind.None, diagnosticValue: string.Empty);
     }
 
     private static SearchAlternative CreateAlternative(string rawAlternative, bool isRegex)
@@ -352,7 +341,7 @@ internal sealed class GridKeywordSearchQuery
         }
         try
         {
-            Regex regex = new Regex(term, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeout);
+            var regex = new Regex(term, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeout);
             return new SearchAlternative(term, regex, isInvalid: false, isEmpty: false);
         }
         catch (ArgumentException)
@@ -379,7 +368,7 @@ internal sealed class GridKeywordSearchQuery
         }
         int start = 1;
         int end = term.Length > 1 && term[term.Length - 1] == '"' ? term.Length - 1 : term.Length;
-        StringBuilder builder = new StringBuilder(end - start);
+        var builder = new StringBuilder(end - start);
         bool escaping = false;
         for (int i = start; i < end; i++)
         {
@@ -414,7 +403,7 @@ internal sealed class GridKeywordSearchQuery
 
     private static IEnumerable<string> SplitUnquoted(string value, char separator)
     {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         bool inQuote = false;
         bool escaping = false;
         foreach (char c in value ?? string.Empty)
@@ -504,10 +493,10 @@ internal sealed class GridKeywordSearchQuery
             return false;
         }
         bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
-            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
+            ? condition.Alternatives.Any(alternative => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
             : IsScoreField(condition.Field) && !condition.IsRegex
-                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
-                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetLibraryChartRowValues(row, condition.Field)));
+                ? condition.Alternatives.Any(alternative => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
+                : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetLibraryChartRowValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -518,10 +507,10 @@ internal sealed class GridKeywordSearchQuery
             return false;
         }
         bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
-            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
+            ? condition.Alternatives.Any(alternative => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
             : IsScoreField(condition.Field) && !condition.IsRegex
-                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, row.Clear, row.Rank, row.RateDouble, row.Score, row.MaxCombo, row.MinBp))
-                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetChartListSourceRowValues(row, condition.Field)));
+                ? condition.Alternatives.Any(alternative => MatchesScoreAlternative(alternative, condition.Field, row.Clear, row.Rank, row.RateDouble, row.Score, row.MaxCombo, row.MinBp))
+                : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetChartListSourceRowValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -532,10 +521,10 @@ internal sealed class GridKeywordSearchQuery
             return false;
         }
         bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
-            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
+            ? condition.Alternatives.Any(alternative => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
             : IsScoreField(condition.Field) && !condition.IsRegex
-                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
-                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
+                ? condition.Alternatives.Any(alternative => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
+                : condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -545,7 +534,7 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        bool matched = condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistSummaryValues(row, condition.Field)));
+        bool matched = condition.Alternatives.Any(alternative => MatchesAlternative(alternative, GetPlaylistSummaryValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -555,7 +544,7 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        foreach (string value in values ?? Enumerable.Empty<string>())
+        foreach (string value in values ?? [])
         {
             if (alternative.Regex != null)
             {
@@ -596,15 +585,12 @@ internal sealed class GridKeywordSearchQuery
 
     private static bool IsKnownField(GridKeywordSearchContext context, string field)
     {
-        switch (context)
+        return context switch
         {
-            case GridKeywordSearchContext.PlaylistDetail:
-                return IsKnownPlaylistDetailField(field);
-            case GridKeywordSearchContext.PlaylistSummary:
-                return IsKnownPlaylistSummaryField(field);
-            default:
-                return IsKnownChartListField(field);
-        }
+            GridKeywordSearchContext.PlaylistDetail => IsKnownPlaylistDetailField(field),
+            GridKeywordSearchContext.PlaylistSummary => IsKnownPlaylistSummaryField(field),
+            _ => IsKnownChartListField(field),
+        };
     }
 
     private static bool IsChartInfoField(string field)
@@ -862,9 +848,9 @@ internal sealed class GridKeywordSearchQuery
     private static IEnumerable<string> SplitPlaylistReferenceNames(string names)
     {
         return (names ?? string.Empty)
-            .Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries)
-            .Select((string name) => name.Trim())
-            .Where((string name) => name.Length > 0);
+            .Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(name => name.Trim())
+            .Where(name => name.Length > 0);
     }
 
     private static bool MatchesScoreAlternative(SearchAlternative alternative, string field, ClearType clear, RankType rank, double? rate, int? score, int? combo, int? bp)
@@ -907,19 +893,14 @@ internal sealed class GridKeywordSearchQuery
 
     private static double? GetScoreNumericValue(string field, double? rate, int? score, int? combo, int? bp)
     {
-        switch (field)
+        return field switch
         {
-            case "rate":
-                return rate;
-            case "score":
-                return score;
-            case "combo":
-                return combo;
-            case "bp":
-                return bp;
-            default:
-                return null;
-        }
+            "rate" => rate,
+            "score" => score,
+            "combo" => combo,
+            "bp" => bp,
+            _ => null,
+        };
     }
 
     private static bool TryParseClearTerm(string term, out ClearType clear)
@@ -1017,7 +998,7 @@ internal sealed class GridKeywordSearchQuery
 
     private static string NormalizeEnumTerm(string term)
     {
-        StringBuilder builder = new StringBuilder();
+        var builder = new StringBuilder();
         foreach (char c in term ?? string.Empty)
         {
             if (!char.IsWhiteSpace(c) && c != '-' && c != '_')
@@ -1157,29 +1138,17 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        switch (field)
+        return field switch
         {
-            case "level":
-                return chartInfo.level.HasValue;
-            case "mainbpm":
-                return chartInfo.mainbpm.HasValue;
-            case "maxbpm":
-                return chartInfo.maxbpm.HasValue;
-            case "minbpm":
-                return chartInfo.minbpm.HasValue;
-            case "judge":
-            case "judge%":
-            case "judgepct":
-                return chartInfo.judge.HasValue;
-            case "difficulty":
-                return chartInfo.difficulty_defined;
-            case "total":
-            case "tn":
-            case "t/n":
-                return chartInfo.total_defined && chartInfo.total.HasValue;
-            default:
-                return true;
-        }
+            "level" => chartInfo.level.HasValue,
+            "mainbpm" => chartInfo.mainbpm.HasValue,
+            "maxbpm" => chartInfo.maxbpm.HasValue,
+            "minbpm" => chartInfo.minbpm.HasValue,
+            "judge" or "judge%" or "judgepct" => chartInfo.judge.HasValue,
+            "difficulty" => chartInfo.difficulty_defined,
+            "total" or "tn" or "t/n" => chartInfo.total_defined && chartInfo.total.HasValue,
+            _ => true,
+        };
     }
 
     private static double? GetChartFieldNumericValue(LR2SongDBExtended.chart_info chartInfo, string field)
@@ -1188,50 +1157,26 @@ internal sealed class GridKeywordSearchQuery
         {
             return null;
         }
-        switch (field)
+        return field switch
         {
-            case "level":
-                return chartInfo.level;
-            case "difficulty":
-                return chartInfo.difficulty;
-            case "mainbpm":
-                return chartInfo.mainbpm;
-            case "maxbpm":
-                return chartInfo.maxbpm;
-            case "minbpm":
-                return chartInfo.minbpm;
-            case "duration":
-            case "length":
-                return chartInfo.length / 1000.0;
-            case "judge":
-            case "judge%":
-            case "judgepct":
-                return chartInfo.judge;
-            case "notes":
-                return chartInfo.notes;
-            case "long":
-            case "ln":
-                return chartInfo.ln;
-            case "scratch":
-                return chartInfo.s + chartInfo.ls;
-            case "total":
-                return chartInfo.total;
-            case "tn":
-            case "t/n":
-                return ChartInfoDisplayFormatter.GetTotalPerNote(chartInfo);
-            case "density":
-                return chartInfo.density;
-            case "peak":
-            case "peakdensity":
-                return chartInfo.peakdensity;
-            case "end":
-            case "enddensity":
-                return chartInfo.enddensity;
-            case "soflan":
-                return chartInfo.speedchange_count;
-            default:
-                return null;
-        }
+            "level" => chartInfo.level,
+            "difficulty" => chartInfo.difficulty,
+            "mainbpm" => chartInfo.mainbpm,
+            "maxbpm" => chartInfo.maxbpm,
+            "minbpm" => chartInfo.minbpm,
+            "duration" or "length" => chartInfo.length / 1000.0,
+            "judge" or "judge%" or "judgepct" => chartInfo.judge,
+            "notes" => chartInfo.notes,
+            "long" or "ln" => chartInfo.ln,
+            "scratch" => chartInfo.s + chartInfo.ls,
+            "total" => chartInfo.total,
+            "tn" or "t/n" => ChartInfoDisplayFormatter.GetTotalPerNote(chartInfo),
+            "density" => chartInfo.density,
+            "peak" or "peakdensity" => chartInfo.peakdensity,
+            "end" or "enddensity" => chartInfo.enddensity,
+            "soflan" => chartInfo.speedchange_count,
+            _ => null,
+        };
     }
 
     private static bool MatchesNumericTerm(double? value, string term)
@@ -1243,7 +1188,7 @@ internal sealed class GridKeywordSearchQuery
         string trimmed = term.Trim();
         if (trimmed.Contains(".."))
         {
-            string[] parts = trimmed.Split(new[] { ".." }, StringSplitOptions.None);
+            string[] parts = trimmed.Split([".."], StringSplitOptions.None);
             if (parts.Length != 2)
             {
                 return false;
@@ -1258,7 +1203,7 @@ internal sealed class GridKeywordSearchQuery
             }
             return true;
         }
-        string[] operators = { ">=", "<=", ">", "<" };
+        string[] operators = [">=", "<=", ">", "<"];
         foreach (string op in operators)
         {
             if (!trimmed.StartsWith(op, StringComparison.Ordinal))
@@ -1356,28 +1301,18 @@ internal sealed class GridKeywordSearchQuery
 
     private static int? GetFeatureBit(string term)
     {
-        switch ((term ?? string.Empty).Trim().ToLowerInvariant())
+        return (term ?? string.Empty).Trim().ToLowerInvariant() switch
         {
-            case "ln":
-                return ChartInfoDisplayFormatter.FeatureUndefinedLongNote;
-            case "mine":
-                return ChartInfoDisplayFormatter.FeatureMineNote;
-            case "random":
-                return ChartInfoDisplayFormatter.FeatureRandom;
-            case "lnmode":
-            case "ln(#lnmode)":
-                return ChartInfoDisplayFormatter.FeatureLongNote;
-            case "cn":
-                return ChartInfoDisplayFormatter.FeatureChargeNote;
-            case "hcn":
-                return ChartInfoDisplayFormatter.FeatureHellChargeNote;
-            case "stop":
-                return ChartInfoDisplayFormatter.FeatureStopSequence;
-            case "scroll":
-                return ChartInfoDisplayFormatter.FeatureScroll;
-            default:
-                return null;
-        }
+            "ln" => ChartInfoDisplayFormatter.FeatureUndefinedLongNote,
+            "mine" => ChartInfoDisplayFormatter.FeatureMineNote,
+            "random" => ChartInfoDisplayFormatter.FeatureRandom,
+            "lnmode" or "ln(#lnmode)" => ChartInfoDisplayFormatter.FeatureLongNote,
+            "cn" => ChartInfoDisplayFormatter.FeatureChargeNote,
+            "hcn" => ChartInfoDisplayFormatter.FeatureHellChargeNote,
+            "stop" => ChartInfoDisplayFormatter.FeatureStopSequence,
+            "scroll" => ChartInfoDisplayFormatter.FeatureScroll,
+            _ => null,
+        };
     }
 
     private static IEnumerable<string> GetPlaylistSummaryValues(PlaylistSummaryRow row, string field)
@@ -1415,7 +1350,7 @@ internal sealed class GridKeywordSearchQuery
             IsNegated = isNegated;
             Field = field;
             IsRegex = isRegex;
-            Alternatives = alternatives ?? Array.Empty<SearchAlternative>();
+            Alternatives = alternatives ?? [];
             IsInvalid = isInvalid;
             DiagnosticKind = diagnosticKind;
             DiagnosticValue = diagnosticValue ?? string.Empty;
@@ -1435,17 +1370,17 @@ internal sealed class GridKeywordSearchQuery
 
         internal string DiagnosticValue { get; }
 
-        internal int SortWeight => IsInvalid ? 0 : (IsRegex ? 100000 : Alternatives.Where((SearchAlternative alternative) => !alternative.IsInvalid && !alternative.IsEmpty).Select((SearchAlternative alternative) => alternative.Term.Length).DefaultIfEmpty(0).Min());
+        internal int SortWeight => IsInvalid ? 0 : (IsRegex ? 100000 : Alternatives.Where(alternative => !alternative.IsInvalid && !alternative.IsEmpty).Select(alternative => alternative.Term.Length).DefaultIfEmpty(0).Min());
 
         internal static SearchCondition Invalid(bool isNegated, string field, GridKeywordSearchDiagnosticKind diagnosticKind, string diagnosticValue, bool isRegex = false, SearchAlternative[] alternatives = null)
         {
-            return new SearchCondition(isNegated, field, isRegex, alternatives ?? Array.Empty<SearchAlternative>(), isInvalid: true, diagnosticKind, diagnosticValue);
+            return new SearchCondition(isNegated, field, isRegex, alternatives ?? [], isInvalid: true, diagnosticKind, diagnosticValue);
         }
     }
 
     private readonly struct SearchAlternative
     {
-        internal static readonly SearchAlternative Empty = new SearchAlternative(string.Empty, regex: null, isInvalid: false, isEmpty: true);
+        internal static readonly SearchAlternative Empty = new(string.Empty, regex: null, isInvalid: false, isEmpty: true);
 
         internal SearchAlternative(string term, Regex regex, bool isInvalid, bool isEmpty)
         {

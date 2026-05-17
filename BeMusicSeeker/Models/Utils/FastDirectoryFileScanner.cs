@@ -10,10 +10,9 @@ public class FastDirectoryFileScanner : IBmsFileScanner
     {
         try
         {
-            List<string> roots = (rootDirectories ?? Enumerable.Empty<string>())
-                .Where((string p) => !string.IsNullOrWhiteSpace(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            List<string> roots = [.. (rootDirectories ?? [])
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
             RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(), verboseLog);
             if (!enumerationResult.Success)
             {

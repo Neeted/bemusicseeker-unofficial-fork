@@ -24,7 +24,7 @@ public sealed class BmtTableExportServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
-            BMSTable table = new BMSTable();
+            var table = new BMSTable();
             table.LoadHeaderJSON("{\"name\":\"Stella\",\"symbol\":\"sl\",\"tag\":\"st\",\"data_url\":\"data.json\",\"level_order\":[0],\"course\":[[{\"name\":\"段位\",\"constraint\":[\"grade_mirror\",\"gauge_lr2\",\"ln\"],\"trophy\":[{\"name\":\"drop\",\"missrate\":0,\"scorerate\":100},{\"name\":\"gold\",\"missrate\":1.5,\"scorerate\":99.9}],\"md5\":[\"" + Md5A + "\"],\"sha256\":[\"" + Sha256B + "\"]}]]}", new Uri("https://example.com/sl/"), new Uri("https://example.com/sl/header.json"));
             table.LoadDataJSON("[{\"title\":\"Song\",\"artist\":\"Artist\",\"md5\":\"" + Md5A + "\",\"level\":\"0\",\"url\":\"https://example.com/song.zip\"},{\"title\":\"Sha Only\",\"sha256\":\"" + Sha256A + "\",\"level\":\"0\"},{\"title\":\"No Hash\",\"level\":\"0\"}]");
 
@@ -38,7 +38,7 @@ public sealed class BmtTableExportServiceTests
             Assert.AreEqual("st0", json["folder"]![0]!.Value<string>("name"));
             Assert.AreEqual(2, json["folder"]![0]!["songs"]!.Count());
             Assert.AreEqual(Sha256A, json["folder"]![0]!["songs"]![1]!.Value<string>("sha256"));
-            CollectionAssert.AreEqual(new[] { "MIRROR", "GAUGE_LR2", "LN" }, json["course"]![0]!["constraint"]!.Select((JToken token) => token.ToString()).ToArray());
+            CollectionAssert.AreEqual(new[] { "MIRROR", "GAUGE_LR2", "LN" }, json["course"]![0]!["constraint"]!.Select(token => token.ToString()).ToArray());
             Assert.AreEqual(Md5A, json["course"]![0]!["hash"]![0]!.Value<string>("md5"));
             Assert.AreEqual(Sha256B, json["course"]![0]!["hash"]![1]!.Value<string>("sha256"));
             Assert.AreEqual(1, json["course"]![0]!["trophy"]!.Count());
@@ -49,15 +49,15 @@ public sealed class BmtTableExportServiceTests
     [TestCategory("Playlist")]
     public void BuildTableData_LocalPlaylistUsesPseudoUrlAndFolderNameAsIs()
     {
-        BMSTable table = new BMSTable
+        var table = new BMSTable
         {
             name = "Local Table",
             playlist_id = 42,
-            Folder_order = new List<string> { "Alpha" },
-            entries = new List<BMSTableEntry>
-            {
+            Folder_order = ["Alpha"],
+            entries =
+            [
                 new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Local Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
-            }
+            ]
         };
 
         JObject json = BmtTableExportService.BuildTableData(table);
@@ -72,15 +72,15 @@ public sealed class BmtTableExportServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
-            BMSTable table = new BMSTable
+            var table = new BMSTable
             {
                 name = "Local Table",
                 playlist_id = 7,
-                Folder_order = new List<string> { "Alpha" },
-                entries = new List<BMSTableEntry>
-                {
+                Folder_order = ["Alpha"],
+                entries =
+                [
                     new BMSTableEntry(DynamicJson.Parse("{\"title\":\"Local Song\",\"md5\":\"" + Md5A + "\",\"level\":\"Alpha\"}"))
-                }
+                ]
             };
             string managedFileName = BmtTableExportService.ExportTable(tempDirectory, table);
             string unmanagedPath = Path.Combine(tempDirectory, "unmanaged.bmt");
@@ -100,7 +100,7 @@ public sealed class BmtTableExportServiceTests
     {
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
-            JObject oldTableData = new JObject
+            var oldTableData = new JObject
             {
                 ["url"] = "bemusicseeker://playlist/7",
                 ["name"] = "Old",
@@ -115,7 +115,7 @@ public sealed class BmtTableExportServiceTests
                 }),
                 ["course"] = new JArray()
             };
-            JObject newTableData = (JObject)oldTableData.DeepClone();
+            var newTableData = (JObject)oldTableData.DeepClone();
             newTableData["url"] = "https://example.com/new-table";
 
             string oldFileName = BmtTableExportService.ExportTableData(tempDirectory, oldTableData, "7");
@@ -233,14 +233,14 @@ public sealed class BmtTableExportServiceTests
                 new[] { "bemusicseeker://playlist/2", "bemusicseeker://playlist/1" },
                 new[] { "bemusicseeker://playlist/old", "bemusicseeker://playlist/1" });
 
-            JObject config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
+            var config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
             CollectionAssert.AreEqual(new[]
             {
                 "https://external.example/table",
                 "https://keep.example/table",
                 "bemusicseeker://playlist/2",
                 "bemusicseeker://playlist/1"
-            }, config["tableURL"]!.Select((JToken token) => token.ToString()).ToArray());
+            }, config["tableURL"]!.Select(token => token.ToString()).ToArray());
         });
     }
 
@@ -267,9 +267,9 @@ public sealed class BmtTableExportServiceTests
 
     private static JObject ReadBmtJson(string path)
     {
-        using FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        using GZipStream gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
-        using StreamReader reader = new StreamReader(gzipStream, Encoding.UTF8);
+        using var fileStream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
+        using var reader = new StreamReader(gzipStream, Encoding.UTF8);
         return JObject.Parse(reader.ReadToEnd());
     }
 

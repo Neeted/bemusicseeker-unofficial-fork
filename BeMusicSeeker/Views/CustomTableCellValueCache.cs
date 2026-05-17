@@ -16,7 +16,7 @@ internal sealed class CustomTableCellValueCache
     internal CustomTableCellValueCache(int maxEntryCount = DefaultMaxEntryCount)
     {
         this.maxEntryCount = Math.Max(1, maxEntryCount);
-        cache = new Dictionary<Key, CustomTableCellValue>();
+        cache = [];
         highlightedRows = new Dictionary<object, bool>(ReferenceEqualityComparer<object>.Instance);
         insertionOrder = new Queue<Key>();
     }
@@ -30,7 +30,7 @@ internal sealed class CustomTableCellValueCache
             hit = false;
             return CustomTableCellValue.Empty;
         }
-        Key key = new Key(row, column.Id, rowGeneration, columnGeneration);
+        var key = new Key(row, column.Id, rowGeneration, columnGeneration);
         if (cache.TryGetValue(key, out CustomTableCellValue value))
         {
             hit = true;

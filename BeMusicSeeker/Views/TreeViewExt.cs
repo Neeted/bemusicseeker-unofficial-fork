@@ -15,8 +15,7 @@ public static class TreeViewExt
         for (int i = 0; i < parent.Items.Count; i++)
         {
             object item = parent.Items[i];
-            TreeViewItem treeViewItem = parent.ItemContainerGenerator.ContainerFromItem(item) as TreeViewItem;
-            if (treeViewItem == null)
+            if (parent.ItemContainerGenerator.ContainerFromItem(item) is not TreeViewItem treeViewItem)
             {
                 parent.UpdateLayout();
                 treeViewItem = parent.ItemContainerGenerator.ContainerFromItem(item) as TreeViewItem;

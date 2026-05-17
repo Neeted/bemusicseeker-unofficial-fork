@@ -5,7 +5,7 @@ namespace BeMusicSeeker.Models;
 
 public class BMSTableSimple : NotificationObject
 {
-    private BMSTable table = new BMSTable();
+    private readonly BMSTable table = new();
 
     public string symbol
     {

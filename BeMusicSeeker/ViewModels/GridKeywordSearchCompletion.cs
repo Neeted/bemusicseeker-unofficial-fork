@@ -104,13 +104,13 @@ internal readonly struct GridKeywordSearchCompletionResult
     /// <param name="items">候補一覧。</param>
     internal GridKeywordSearchCompletionResult(IReadOnlyList<KeywordSearchSuggestionItem> items)
     {
-        Items = items ?? Array.Empty<KeywordSearchSuggestionItem>();
+        Items = items ?? [];
     }
 
     /// <summary>
     /// 空の補完結果です。
     /// </summary>
-    internal static GridKeywordSearchCompletionResult Empty { get; } = new GridKeywordSearchCompletionResult(Array.Empty<KeywordSearchSuggestionItem>());
+    internal static GridKeywordSearchCompletionResult Empty { get; } = new GridKeywordSearchCompletionResult([]);
 
     /// <summary>
     /// 候補一覧です。
@@ -148,22 +148,20 @@ internal static class GridKeywordSearchCompletion
         {
             return GridKeywordSearchCompletionResult.Empty;
         }
-        string[] candidates = GridKeywordSearchQuery.GetKnownFields(context)
-            .Where((string field) => field.StartsWith(fieldPrefix, StringComparison.OrdinalIgnoreCase))
-            .OrderBy((string field) => field, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        string[] candidates = [.. GridKeywordSearchQuery.GetKnownFields(context)
+            .Where(field => field.StartsWith(fieldPrefix, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(field => field, StringComparer.OrdinalIgnoreCase)];
         if (candidates.Length == 0)
         {
             return GridKeywordSearchCompletionResult.Empty;
         }
-        KeywordSearchSuggestionItem[] items = candidates
-            .Select((string field) => new KeywordSearchSuggestionItem(
+        KeywordSearchSuggestionItem[] items = [.. candidates
+            .Select(field => new KeywordSearchSuggestionItem(
                 KeywordSearchSuggestionKind.Field,
                 (isNegated ? "-" : string.Empty) + field + ":",
                 field + ":",
                 fieldStart,
-                safeCaretIndex - fieldStart))
-            .ToArray();
+                safeCaretIndex - fieldStart))];
         return new GridKeywordSearchCompletionResult(items);
     }
 
@@ -182,25 +180,23 @@ internal static class GridKeywordSearchCompletion
             return GridKeywordSearchCompletionResult.Empty;
         }
         string valuePrefix = NormalizeValuePrefix(rawValuePrefix);
-        string[] candidates = (playlistNames ?? Enumerable.Empty<string>())
-            .Select((string name) => (name ?? string.Empty).Trim())
-            .Where((string name) => name.Length > 0)
+        string[] candidates = [.. (playlistNames ?? [])
+            .Select(name => (name ?? string.Empty).Trim())
+            .Where(name => name.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Where((string name) => valuePrefix.Length == 0 || name.StartsWith(valuePrefix, StringComparison.OrdinalIgnoreCase))
-            .OrderBy((string name) => name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+            .Where(name => valuePrefix.Length == 0 || name.StartsWith(valuePrefix, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
         if (candidates.Length == 0)
         {
             return GridKeywordSearchCompletionResult.Empty;
         }
-        KeywordSearchSuggestionItem[] items = candidates
-            .Select((string name) => new KeywordSearchSuggestionItem(
+        KeywordSearchSuggestionItem[] items = [.. candidates
+            .Select(name => new KeywordSearchSuggestionItem(
                 KeywordSearchSuggestionKind.Value,
                 name,
                 QuoteValueIfNeeded(name),
                 valueStart,
-                replacementLength))
-            .ToArray();
+                replacementLength))];
         return new GridKeywordSearchCompletionResult(items);
     }
 
@@ -273,7 +269,7 @@ internal static class GridKeywordSearchCompletion
         {
             return value.Trim();
         }
-        StringBuilder builder = new StringBuilder(value.Length);
+        var builder = new StringBuilder(value.Length);
         bool escaping = false;
         for (int i = 1; i < value.Length; i++)
         {
@@ -309,12 +305,12 @@ internal static class GridKeywordSearchCompletion
     private static string QuoteValueIfNeeded(string value)
     {
         string text = value ?? string.Empty;
-        bool needsQuote = text.Length == 0 || text.Any((char c) => char.IsWhiteSpace(c) || c == '"' || c == '\\' || c == '|');
+        bool needsQuote = text.Length == 0 || text.Any(c => char.IsWhiteSpace(c) || c == '"' || c == '\\' || c == '|');
         if (!needsQuote)
         {
             return text;
         }
-        StringBuilder builder = new StringBuilder(text.Length + 2);
+        var builder = new StringBuilder(text.Length + 2);
         builder.Append('"');
         foreach (char c in text)
         {
@@ -330,7 +326,7 @@ internal static class GridKeywordSearchCompletion
 
     private static TokenSpan FindCurrentToken(string text, int caretIndex)
     {
-        text = text ?? string.Empty;
+        text ??= string.Empty;
         int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
         int start = 0;
         bool inQuote = false;

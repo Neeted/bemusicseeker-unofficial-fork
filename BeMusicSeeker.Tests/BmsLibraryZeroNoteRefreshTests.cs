@@ -18,15 +18,15 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
-            TestableBmsFile file = new TestableBmsFile
+            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var file = new TestableBmsFile
             {
                 path = "C:\\charts\\normal.bms"
             };
             file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
             file.SetNotes(1200);
-            library.BMSFiles = new List<BMSFile> { file };
-            List<string> changedProperties = new List<string>();
+            library.BMSFiles = [file];
+            List<string> changedProperties = [];
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 changedProperties.Add(e.PropertyName);
@@ -47,16 +47,16 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
-            TestableBmsFile file = new TestableBmsFile
+            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var file = new TestableBmsFile
             {
                 path = chartPath
             };
             file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
             file.SetNotes(0);
             file.SetChartInfo(CreateChartInfo(file.hash, notes: 0));
-            library.BMSFiles = new List<BMSFile> { file };
-            List<string> changedProperties = new List<string>();
+            library.BMSFiles = [file];
+            List<string> changedProperties = [];
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 changedProperties.Add(e.PropertyName);
@@ -79,14 +79,14 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
-            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
-            TestableBmsFile file = new TestableBmsFile
+            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var file = new TestableBmsFile
             {
                 path = chartPath
             };
             file.SetNotes(0);
             file.SetChartInfo(CreateChartInfo(file.hash, notes: 0));
-            library.BMSFiles = new List<BMSFile> { file };
+            library.BMSFiles = [file];
 
             library.RecheckZeroNoteWarnings();
 
@@ -101,7 +101,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ZeroNoteRefreshTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, Array.Empty<byte>());
+        File.WriteAllBytes(songDbPath, []);
         try
         {
             testAction(songDbPath);

@@ -63,7 +63,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     {
         fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
         DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        foreach (string item in (directoryLookupCache?.Keys ?? Enumerable.Empty<string>()).Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
+        foreach (string item in (directoryLookupCache?.Keys ?? []).Where(f => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
         {
             string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
             mutationResult = mutationResult.Combine(directoryLookupCache.ReplaceDirWithResult(item, newKey));
@@ -82,13 +82,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
     {
-        LibraryRemovalResult result = new LibraryRemovalResult();
-        List<LibraryChartRef> currentLibraryCharts = (libraryCharts ?? Enumerable.Empty<LibraryChartRef>())
-            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
-            .ToList();
-        List<LibraryChartRef> inputCharts = (charts ?? Enumerable.Empty<LibraryChartRef>())
-            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
-            .ToList();
+        var result = new LibraryRemovalResult();
+        List<LibraryChartRef> currentLibraryCharts = [.. (libraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        List<LibraryChartRef> inputCharts = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         CanonicalChartResolveResult resolveResult = ResolveCanonicalCharts(inputCharts, currentLibraryCharts);
         result.InputChartCount = resolveResult.InputCount;
         result.CanonicalChartCount = resolveResult.CanonicalCharts.Count;
@@ -105,12 +101,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             });
         }
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
-        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in resolveResult.CanonicalCharts.GroupBy((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
+        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in resolveResult.CanonicalCharts.GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
                                                                    orderby groupedFiles.Key.Length descending
                                                                    select groupedFiles)
         {
-            HashSet<string> removedChartPaths = new HashSet<string>(result.RemovedCharts.Select((LibraryChartRef chart) => chart.Path), StringComparer.OrdinalIgnoreCase);
-            bool shouldDeleteWholeFolder = currentLibraryCharts.Where((LibraryChartRef chart) => chart.Path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !removedChartPaths.Contains(chart.Path)).Count() == folderGroup.Count()
+            var removedChartPaths = new HashSet<string>(result.RemovedCharts.Select(chart => chart.Path), StringComparer.OrdinalIgnoreCase);
+            bool shouldDeleteWholeFolder = currentLibraryCharts.Where(chart => chart.Path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !removedChartPaths.Contains(chart.Path)).Count() == folderGroup.Count()
                 && (confirmDeleteWholeFolder?.Invoke(folderGroup.Key) ?? false);
             if (shouldDeleteWholeFolder)
             {
@@ -133,7 +129,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                         IsDirectory = true
                     });
                 }
-                if (!result.Failures.Any((LibraryDeleteFailure failure) => failure.IsDirectory && string.Equals(failure.Path, folderGroup.Key, StringComparison.OrdinalIgnoreCase)))
+                if (!result.Failures.Any(failure => failure.IsDirectory && string.Equals(failure.Path, folderGroup.Key, StringComparison.OrdinalIgnoreCase)))
                 {
                     result.ResourceIndexMutation = result.ResourceIndexMutation.Combine(CleanupDeletedFolderIndexes(folderGroup.Key, directoryLookupCache));
                     ClearInstallDestinationsUnderDeletedFolder(folderGroup.Key, pendingPackages, currentLibraryCharts);
@@ -169,12 +165,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<LibraryChartRef> charts,
         IEnumerable<LibraryChartRef> libraryCharts)
     {
-        List<LibraryChartRef> currentLibraryCharts = (libraryCharts ?? Enumerable.Empty<LibraryChartRef>())
-            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
-            .ToList();
-        List<LibraryChartRef> inputCharts = (charts ?? Enumerable.Empty<LibraryChartRef>())
-            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
-            .ToList();
+        List<LibraryChartRef> currentLibraryCharts = [.. (libraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        List<LibraryChartRef> inputCharts = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         CanonicalChartResolveResult resolveResult = ResolveCanonicalCharts(inputCharts, currentLibraryCharts);
         return GetWholeFolderDeleteCandidatePaths(resolveResult.CanonicalCharts, currentLibraryCharts);
     }
@@ -183,13 +175,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<LibraryChartRef> canonicalCharts,
         List<LibraryChartRef> currentLibraryCharts)
     {
-        List<string> result = new List<string>();
-        HashSet<string> selectedChartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in (canonicalCharts ?? Enumerable.Empty<LibraryChartRef>()).GroupBy((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
+        List<string> result = [];
+        var selectedChartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in (canonicalCharts ?? []).GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
                                                                    orderby groupedFiles.Key.Length descending
                                                                    select groupedFiles)
         {
-            bool shouldConfirmWholeFolder = currentLibraryCharts.Where((LibraryChartRef chart) => chart.Path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !selectedChartPaths.Contains(chart.Path)).Count() == folderGroup.Count();
+            bool shouldConfirmWholeFolder = currentLibraryCharts.Where(chart => chart.Path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !selectedChartPaths.Contains(chart.Path)).Count() == folderGroup.Count();
             if (shouldConfirmWholeFolder)
             {
                 result.Add(folderGroup.Key);
@@ -206,24 +198,22 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<LibraryChartRef> inputCharts,
         IEnumerable<LibraryChartRef> currentLibraryCharts)
     {
-        CanonicalChartResolveResult result = new CanonicalChartResolveResult();
-        List<LibraryChartRef> currentCharts = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
-            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
-            .ToList();
-        Dictionary<BMSFile, LibraryChartRef> bmsByReference = currentCharts
-            .Where((LibraryChartRef chart) => chart.CompatibilityBmsFile != null)
-            .GroupBy((LibraryChartRef chart) => chart.CompatibilityBmsFile)
-            .ToDictionary((IGrouping<BMSFile, LibraryChartRef> group) => group.Key, (IGrouping<BMSFile, LibraryChartRef> group) => group.First());
-        Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference = currentCharts
-            .Where((LibraryChartRef chart) => chart.BmsonSong != null)
-            .GroupBy((LibraryChartRef chart) => chart.BmsonSong)
-            .ToDictionary((IGrouping<LR2SongDBExtended.bmson_song, LibraryChartRef> group) => group.Key, (IGrouping<LR2SongDBExtended.bmson_song, LibraryChartRef> group) => group.First());
-        Dictionary<string, LibraryChartRef> byPath = currentCharts
-            .GroupBy((LibraryChartRef chart) => CreatePathKey(chart.Path), StringComparer.OrdinalIgnoreCase)
-            .Where((IGrouping<string, LibraryChartRef> group) => !string.IsNullOrWhiteSpace(group.Key))
-            .ToDictionary((IGrouping<string, LibraryChartRef> group) => group.Key, (IGrouping<string, LibraryChartRef> group) => group.First(), StringComparer.OrdinalIgnoreCase);
-        HashSet<string> addedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (LibraryChartRef inputChart in inputCharts ?? Enumerable.Empty<LibraryChartRef>())
+        var result = new CanonicalChartResolveResult();
+        List<LibraryChartRef> currentCharts = [.. (currentLibraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        var bmsByReference = currentCharts
+            .Where(chart => chart.CompatibilityBmsFile != null)
+            .GroupBy(chart => chart.CompatibilityBmsFile)
+            .ToDictionary(group => group.Key, group => group.First());
+        var bmsonByReference = currentCharts
+            .Where(chart => chart.BmsonSong != null)
+            .GroupBy(chart => chart.BmsonSong)
+            .ToDictionary(group => group.Key, group => group.First());
+        var byPath = currentCharts
+            .GroupBy(chart => CreatePathKey(chart.Path), StringComparer.OrdinalIgnoreCase)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var addedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (LibraryChartRef inputChart in inputCharts ?? [])
         {
             result.InputCount++;
             if (inputChart.CompatibilityBmsFile == null && inputChart.BmsonSong == null)
@@ -296,7 +286,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         try
         {
             DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-            foreach (string indexedDirectoryPath in (directoryLookupCache?.Keys ?? Enumerable.Empty<string>()).Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
+            foreach (string indexedDirectoryPath in (directoryLookupCache?.Keys ?? []).Where(directoryPath => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
             {
                 mutationResult = mutationResult.Combine(directoryLookupCache.RemoveDirWithResult(indexedDirectoryPath));
             }
@@ -316,12 +306,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         try
         {
-            IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? Enumerable.Empty<ChartPackage>())
-                .Where((ChartPackage package) => package != null)
-                .SelectMany((ChartPackage package) => package.ChartFiles ?? new List<BMSFile>());
-            IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
-                .Select((LibraryChartRef chart) => chart.CompatibilityBmsFile)
-                .Where((BMSFile bmsInfo) => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
+            IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? [])
+                .Where(package => package != null)
+                .SelectMany(package => package.ChartFiles ?? []);
+            IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? [])
+                .Select(chart => chart.CompatibilityBmsFile)
+                .Where(bmsInfo => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
             foreach (BMSFile installLinkedBmsFile in pendingFiles.Concat(libraryFiles))
             {
                 if (!string.IsNullOrWhiteSpace(installLinkedBmsFile.instl_dst) && (installLinkedBmsFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -337,7 +327,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     private static void AddRemovedCharts(LibraryRemovalResult result, IEnumerable<LibraryChartRef> charts)
     {
-        foreach (LibraryChartRef chart in charts ?? Enumerable.Empty<LibraryChartRef>())
+        foreach (LibraryChartRef chart in charts ?? [])
         {
             AddRemovedChart(result, chart);
         }
@@ -367,13 +357,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         bool unregister,
         bool raiseBmsFilesChanged = true)
     {
-        LibraryMutationDelta delta = new LibraryMutationDelta();
-        List<BMSFile> targetFiles = (libraryFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path) && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        List<LR2SongDBExtended.bmson_song> targetBmsonSongs = (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        var delta = new LibraryMutationDelta();
+        List<BMSFile> targetFiles = [.. (libraryFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
+        List<LR2SongDBExtended.bmson_song> targetBmsonSongs = [.. (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
         if (unregister)
         {
             delta.FilesToUnregister.AddRange(targetFiles);
@@ -383,10 +369,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             return delta;
         }
-        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<ChartPackage>())
-            .Where((ChartPackage pkg) => pkg != null)
-            .SelectMany((ChartPackage pkg) => pkg.ChartFiles)
-            .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
+        foreach (BMSFile installLinkedFile in (pendingPackages ?? [])
+            .Where(pkg => pkg != null)
+            .SelectMany(pkg => pkg.ChartFiles)
+            .Concat((libraryFiles ?? []).Where(file => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
                 && (installLinkedFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -398,7 +384,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (ChartPackage installedPackage in installedPackages ?? Enumerable.Empty<ChartPackage>())
+        foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
                 && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -410,7 +396,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (IGrouping<string, BMSFile> group in targetFiles.GroupBy((BMSFile target) => Path.GetDirectoryName(target.path)))
+        foreach (IGrouping<string, BMSFile> group in targetFiles.GroupBy(target => Path.GetDirectoryName(target.path)))
         {
             string newFolderPath = group.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
             delta.FolderPathChanges.Add(new LibraryFolderPathChange
@@ -451,22 +437,22 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         bool renameRootFolder,
         Func<IEnumerable<BMSFile>, string, string, string> createFolderPath)
     {
-        List<string> sourceFolders = (from d in (selectedFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile f) => f != null).Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase)
+        List<string> sourceFolders = [.. (from d in (selectedFiles ?? []).Where(f => f != null).Select(f => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase)
                                       orderby d.Length
-                                      select d).ToList();
-        List<string> effectiveRootFolders = (rootFolders ?? Enumerable.Empty<string>()).Where((string folder) => !string.IsNullOrWhiteSpace(folder)).ToList();
-        List<string> targetFolders = new List<string>();
-        foreach (string folder in sourceFolders.Where((string folder) => renameRootFolder || !effectiveRootFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
+                                      select d)];
+        List<string> effectiveRootFolders = [.. (rootFolders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder))];
+        List<string> targetFolders = [];
+        foreach (string folder in sourceFolders.Where(folder => renameRootFolder || !effectiveRootFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
         {
-            if (!targetFolders.Any((string existingFolder) => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            if (!targetFolders.Any(existingFolder => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             {
                 targetFolders.Add(folder);
             }
         }
-        List<FolderAutoRenamePlan> plans = new List<FolderAutoRenamePlan>();
+        List<FolderAutoRenamePlan> plans = [];
         foreach (string folder in targetFolders)
         {
-            FolderAutoRenamePlan plan = new FolderAutoRenamePlan
+            var plan = new FolderAutoRenamePlan
             {
                 SourceDirectory = folder
             };
@@ -477,11 +463,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     plans.Add(plan);
                     continue;
                 }
-                List<BMSFile> directChildren = (from f in libraryFiles ?? Enumerable.Empty<BMSFile>()
-                                                where f != null
+                List<BMSFile> directChildren = [.. (from f in libraryFiles ?? []
+                                                    where f != null
                                                     && f.path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
                                                     && DirectoryExt.GetDirectoryNameSimple(f.path).Equals(folder, StringComparison.OrdinalIgnoreCase)
-                                                select f).ToList();
+                                                select f)];
                 string longestFileName = (from f in FastDirectoryEnumerator.GetFileNames(folder)
                                           orderby f.Length descending
                                           select f).FirstOrDefault() ?? string.Empty;
@@ -509,25 +495,24 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<LibraryChartRef> selectedCharts, string destinationRootDirectory)
     {
-        List<string> sourceFolders = (from d in (selectedCharts ?? Enumerable.Empty<LibraryChartRef>()).Where((LibraryChartRef chart) => chart != null).Select((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
+        List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
                                       orderby d.Length
-                                      select d).ToList();
-        List<string> targetFolders = new List<string>();
+                                      select d)];
+        List<string> targetFolders = [];
         foreach (string folder in sourceFolders)
         {
-            if (!targetFolders.Any((string existingFolder) => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            if (!targetFolders.Any(existingFolder => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             {
                 targetFolders.Add(folder);
             }
         }
-        return targetFolders
-            .Where((string folder) => !Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase) && Directory.Exists(folder))
-            .Select((string folder) => new FolderAutoRenamePlan
+        return [.. targetFolders
+            .Where(folder => !Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase) && Directory.Exists(folder))
+            .Select(folder => new FolderAutoRenamePlan
             {
                 SourceDirectory = folder,
                 DestinationDirectory = Path.Combine(destinationRootDirectory, Path.GetFileName(folder))
-            })
-            .ToList();
+            })];
     }
 
     public LibraryMergeResult PrepareMergeDirectory(
@@ -539,27 +524,27 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<ChartPackage> installedPackages,
         Func<IEnumerable<BMSFile>, HashSet<string>> createHashSnapshotExcluding)
     {
-        LibraryMergeResult result = new LibraryMergeResult();
+        var result = new LibraryMergeResult();
         if (!Directory.Exists(srcDir) || !Directory.Exists(dstDir) || srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
             return result;
         }
-        result.SourceFiles.AddRange((libraryFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
-        result.SourceFiles.AddRange((libraryBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        result.SourceFiles.AddRange((libraryFiles ?? [])
+            .Where(file => file != null && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+        result.SourceFiles.AddRange((libraryBmsonSongs ?? [])
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             .Select(PendingChartEntry.CreateFromBmsonSong)
-            .Where((PendingChartEntry file) => file != null));
+            .Where(file => file != null));
         result.Repackage = new ChartPackage(result.SourceFiles)
         {
             path = srcDir,
             delete_parent = false
         };
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<ChartPackage>())
-            .Where((ChartPackage pkg) => pkg != null)
-            .SelectMany((ChartPackage pkg) => pkg.ChartFiles)
-            .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
+        foreach (BMSFile installLinkedFile in (pendingPackages ?? [])
+            .Where(pkg => pkg != null)
+            .SelectMany(pkg => pkg.ChartFiles)
+            .Concat((libraryFiles ?? []).Where(file => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
                 && (installLinkedFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -571,7 +556,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (ChartPackage installedPackage in installedPackages ?? Enumerable.Empty<ChartPackage>())
+        foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
                 && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -596,15 +581,15 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         Func<ChartPackage, string, bool> movePackageFiles,
         Func<BMSFile, bool> confirmDuplicateRemoval)
     {
-        LibraryFixInstallationResult result = new LibraryFixInstallationResult();
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<BMSFile> files = (chartFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.instl_dst)).ToList();
+        var result = new LibraryFixInstallationResult();
+        var stopwatch = Stopwatch.StartNew();
+        List<BMSFile> files = [.. (chartFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.instl_dst))];
         result.RequestedCount = files.Count;
         foreach (BMSFile file in files)
         {
-            PendingChartEntry bmsonEntry = file as PendingChartEntry;
+            var bmsonEntry = file as PendingChartEntry;
             bool isBmson = bmsonEntry?.IsBmsonChart == true && bmsonEntry.BmsonSong != null;
-            ChartPackage installPackage = new ChartPackage(file)
+            var installPackage = new ChartPackage(file)
             {
                 delete_parent = false
             };
@@ -660,9 +645,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         bool unregister,
         Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
     {
-        LibraryMutationDelta delta = new LibraryMutationDelta();
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        foreach (BMSFile file in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && File.Exists(file.path)))
+        var delta = new LibraryMutationDelta();
+        var stopwatch = Stopwatch.StartNew();
+        foreach (BMSFile file in (bmsFiles ?? []).Where(file => file != null && File.Exists(file.path)))
         {
             string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + newExt);
             RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
@@ -711,7 +696,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo = null, Action<Exception, string> logWarn = null)
     {
-        RenameInvalidExtensionOutcome outcome = new RenameInvalidExtensionOutcome
+        var outcome = new RenameInvalidExtensionOutcome
         {
             Action = RenameInvalidExtensionAction.Skipped,
             FinalPath = requestedPath
@@ -767,7 +752,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public FileCollisionResolutionResult ResolveFileCollisionWithSuffix(string sourcePath, string requestedPath, string sourceHashHint = null, string logCategory = null, Action<string> logInfo = null)
     {
-        FileCollisionResolutionResult result = new FileCollisionResolutionResult
+        var result = new FileCollisionResolutionResult
         {
             FinalPath = requestedPath,
             SourceHash = sourceHashHint
@@ -854,13 +839,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         try
         {
-            using MD5 md5 = MD5.Create();
+            using var md5 = MD5.Create();
             byte[] hashBytes;
-            using (FileStream inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 hashBytes = md5.ComputeHash(inputStream);
             }
-            StringBuilder stringBuilder = new StringBuilder();
+            var stringBuilder = new StringBuilder();
             foreach (byte b in hashBytes)
             {
                 stringBuilder.Append(b.ToString("x2"));
@@ -879,9 +864,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<ChartPackage> pendingPackages, HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
     {
-        return (pendingPackages ?? Enumerable.Empty<ChartPackage>())
-            .Where((ChartPackage pkg) => pkg != null && pkg.ChartFiles.Count > 0 && pkg.ChartFiles.All((BMSFile file) => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))
-            .ToList();
+        return [.. (pendingPackages ?? []).Where(pkg => pkg != null && pkg.ChartFiles.Count > 0 && pkg.ChartFiles.All(file => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))];
     }
 
     public bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
@@ -925,8 +908,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
         public int PathOnlyInputCount { get; set; }
 
-        public List<LibraryChartRef> CanonicalCharts { get; } = new List<LibraryChartRef>();
+        public List<LibraryChartRef> CanonicalCharts { get; } = [];
 
-        public List<LibraryChartRef> UnresolvedCharts { get; } = new List<LibraryChartRef>();
+        public List<LibraryChartRef> UnresolvedCharts { get; } = [];
     }
 }

@@ -44,7 +44,7 @@ internal static class ChartFileContentReader
         using (algorithm)
         {
             byte[] hash = algorithm.ComputeHash(bytes);
-            StringBuilder builder = new StringBuilder(hash.Length * 2);
+            var builder = new StringBuilder(hash.Length * 2);
             foreach (byte value in hash)
             {
                 builder.Append(value.ToString("x2"));

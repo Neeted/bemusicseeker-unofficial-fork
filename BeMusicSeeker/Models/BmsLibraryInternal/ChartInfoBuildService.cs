@@ -124,7 +124,7 @@ internal sealed class ChartInfoBuildService
             return InlineChartInfoBuildResult.CreateFailureSkipped(snapshot.Length);
         }
 
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             // maintenance.encoding is for list/LR2 song display correction. chart_info must use
@@ -177,19 +177,21 @@ internal sealed class ChartInfoBuildService
         Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted,
         IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot)
     {
-        ChartInfoBackfillResult result = new ChartInfoBackfillResult();
-        result.Mode = string.IsNullOrWhiteSpace(mode) ? "full" : mode;
+        var result = new ChartInfoBackfillResult
+        {
+            Mode = string.IsNullOrWhiteSpace(mode) ? "full" : mode
+        };
         if (dbGateway == null)
         {
             return result;
         }
-        Stopwatch stopwatchTotal = Stopwatch.StartNew();
+        var stopwatchTotal = Stopwatch.StartNew();
         int commitChunkSize = ResolveCommitChunkSize();
         TimeSpan parseTimeout = ResolveParseTimeout();
-        List<BMSFile> fileList = (currentFiles ?? Enumerable.Empty<BMSFile>()).ToList();
-        List<LR2SongDBExtended.bmson_song> bmsonSongList = (currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).ToList();
+        List<BMSFile> fileList = [.. (currentFiles ?? [])];
+        List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (currentBmsonSongs ?? [])];
         dbGateway.EnsureChartInfoBackfillSchema();
-        Stopwatch existingRowsStopwatch = Stopwatch.StartNew();
+        var existingRowsStopwatch = Stopwatch.StartNew();
         string existingRowsSource;
         Dictionary<string, LR2SongDBExtended.chart_info> existingRows;
         if (existingRowsSnapshot != null)
@@ -212,7 +214,7 @@ internal sealed class ChartInfoBuildService
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(parseTimeout);
         existingRowsStopwatch.Stop();
         string existingRowsLogValue = existingRows.Count.ToString();
-        Stopwatch targetBuildStopwatch = Stopwatch.StartNew();
+        var targetBuildStopwatch = Stopwatch.StartNew();
         List<ChartInfoBuildTarget> targets = BuildTargets(fileList, bmsonSongList, existingRows, currentFailures, result);
         targetBuildStopwatch.Stop();
         result.TargetCount = targets.Count;
@@ -228,14 +230,14 @@ internal sealed class ChartInfoBuildService
             return result;
         }
 
-        BlockingCollection<QueuedChartBytes> queue = new BlockingCollection<QueuedChartBytes>(result.QueueCapacity);
-        BlockingCollection<ChartInfoBuildItemResult> itemResults = new BlockingCollection<ChartInfoBuildItemResult>();
-        BlockingCollection<ChartInfoCommitChunk> commitChunks = new BlockingCollection<ChartInfoCommitChunk>();
+        var queue = new BlockingCollection<QueuedChartBytes>(result.QueueCapacity);
+        BlockingCollection<ChartInfoBuildItemResult> itemResults = [];
+        BlockingCollection<ChartInfoCommitChunk> commitChunks = [];
         long readTicks = 0L;
         long parseTicks = 0L;
         int[] processedCount = new int[1];
 
-        Task commitWriter = Task.Run(delegate
+        var commitWriter = Task.Run(delegate
         {
             ConsumeCommitChunks(
                 dbGateway,
@@ -246,7 +248,7 @@ internal sealed class ChartInfoBuildService
                 chartInfoRowsCommitted);
         });
 
-        Task resultCollector = Task.Run(delegate
+        var resultCollector = Task.Run(delegate
         {
             try
             {
@@ -265,12 +267,12 @@ internal sealed class ChartInfoBuildService
             }
         });
 
-        List<Task> workers = Enumerable.Range(0, result.WorkerCount)
+        List<Task> workers = [.. Enumerable.Range(0, result.WorkerCount)
             .Select(_ => Task.Run(delegate
             {
                 foreach (QueuedChartBytes item in queue.GetConsumingEnumerable())
                 {
-                    Stopwatch parseStopwatch = Stopwatch.StartNew();
+                    var parseStopwatch = Stopwatch.StartNew();
                     ChartInfoBuildItemResult itemResult = ParseQueuedItem(item, existingRows, currentFailures, logInstallPerformance, logInstallPerformanceWarn, parseTimeout);
                     parseStopwatch.Stop();
                     Interlocked.Add(ref parseTicks, parseStopwatch.ElapsedTicks);
@@ -278,8 +280,7 @@ internal sealed class ChartInfoBuildService
                     itemResult.ByteCount = item.Bytes.LongLength;
                     itemResults.Add(itemResult);
                 }
-            }))
-            .ToList();
+            }))];
 
         try
         {
@@ -288,7 +289,7 @@ internal sealed class ChartInfoBuildService
                 try
                 {
                     reportProgress?.Invoke(result.TargetCount, Volatile.Read(ref processedCount[0]), target.Path);
-                    Stopwatch readStopwatch = Stopwatch.StartNew();
+                    var readStopwatch = Stopwatch.StartNew();
                     byte[] bytes = readAllBytes(target.Path);
                     readStopwatch.Stop();
                     Interlocked.Add(ref readTicks, readStopwatch.ElapsedTicks);
@@ -310,7 +311,7 @@ internal sealed class ChartInfoBuildService
         Exception workerException = null;
         try
         {
-            Task.WaitAll(workers.ToArray());
+            Task.WaitAll([.. workers]);
         }
         catch (Exception ex)
         {
@@ -335,7 +336,7 @@ internal sealed class ChartInfoBuildService
         }
         catch (Exception ex)
         {
-            pipelineException = pipelineException ?? ex;
+            pipelineException ??= ex;
         }
         if (workerException != null)
         {
@@ -410,9 +411,9 @@ internal sealed class ChartInfoBuildService
         Action<int, int, string> reportProgress,
         int[] processedCount)
     {
-        ChartInfoCommitBuffer commitBuffer = new ChartInfoCommitBuffer();
-        List<long> parseDurations = new List<long>();
-        List<SlowParseRecord> slowParseRecords = new List<SlowParseRecord>();
+        var commitBuffer = new ChartInfoCommitBuffer();
+        List<long> parseDurations = [];
+        List<SlowParseRecord> slowParseRecords = [];
         int parseSucceededCount = 0;
         foreach (ChartInfoBuildItemResult itemResult in itemResults)
         {
@@ -535,7 +536,7 @@ internal sealed class ChartInfoBuildService
     {
         int chunkNumber = result.CommitChunks + 1;
         logInstallPerformance?.Invoke(BuildCommitStartLogMessage(chunkNumber, commitChunk));
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             dbGateway.UpsertChartInfoBackfillChunk(commitChunk.DigestEntries, commitChunk.ChartInfoRows, commitChunk.ParseFailureRows, commitChunk.ParseFailureDeleteMd5s);
@@ -600,8 +601,8 @@ internal sealed class ChartInfoBuildService
         }
         int rank = 1;
         foreach (SlowParseRecord record in slowParseRecords
-            .OrderByDescending((SlowParseRecord item) => item.ElapsedMs)
-            .ThenBy((SlowParseRecord item) => item.Path, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(item => item.ElapsedMs)
+            .ThenBy(item => item.Path, StringComparer.OrdinalIgnoreCase)
             .Take(10))
         {
             logInstallPerformance("chart_info_backfill slow_parse_top"
@@ -644,8 +645,8 @@ internal sealed class ChartInfoBuildService
         IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
         ChartInfoBackfillResult result)
     {
-        Dictionary<string, ChartInfoBuildTarget> targets = new Dictionary<string, ChartInfoBuildTarget>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in currentFiles ?? Enumerable.Empty<BMSFile>())
+        var targets = new Dictionary<string, ChartInfoBuildTarget>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile file in currentFiles ?? [])
         {
             if (file == null || string.IsNullOrWhiteSpace(file.path))
             {
@@ -681,7 +682,7 @@ internal sealed class ChartInfoBuildService
                 result.DigestTargetCount++;
             }
         }
-        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? [])
         {
             if (song == null || string.IsNullOrWhiteSpace(song.path))
             {
@@ -709,7 +710,7 @@ internal sealed class ChartInfoBuildService
                 target.AddBmsonSong(song);
             }
         }
-        return targets.Values.ToList();
+        return [.. targets.Values];
     }
 
     private static string BuildTargetKey(string sha256, string md5, string path)
@@ -793,8 +794,8 @@ internal sealed class ChartInfoBuildService
     {
         using (algorithm)
         {
-            byte[] hash = algorithm.ComputeHash(bytes ?? Array.Empty<byte>());
-            StringBuilder builder = new StringBuilder(hash.Length * 2);
+            byte[] hash = algorithm.ComputeHash(bytes ?? []);
+            var builder = new StringBuilder(hash.Length * 2);
             foreach (byte value in hash)
             {
                 builder.Append(value.ToString("x2"));
@@ -984,17 +985,11 @@ internal sealed class ChartInfoBuildService
         return (int)milliseconds;
     }
 
-    private sealed class QueuedChartBytes
+    private sealed class QueuedChartBytes(ChartInfoBuildService.ChartInfoBuildTarget target, byte[] bytes)
     {
-        public QueuedChartBytes(ChartInfoBuildTarget target, byte[] bytes)
-        {
-            Target = target;
-            Bytes = bytes ?? Array.Empty<byte>();
-        }
+        public ChartInfoBuildTarget Target { get; } = target;
 
-        public ChartInfoBuildTarget Target { get; }
-
-        public byte[] Bytes { get; }
+        public byte[] Bytes { get; } = bytes ?? [];
     }
 
     internal sealed class InlineChartInfoBuildResult
@@ -1104,55 +1099,40 @@ internal sealed class ChartInfoBuildService
         }
     }
 
-    private sealed class ChartInfoBuildItemResult
+    private sealed class ChartInfoBuildItemResult(
+ChartInfoBuildService.ChartInfoBuildTarget target,
+        string sha256,
+        LR2SongDBExtended.chart_info row,
+        bool reusedExistingRow,
+        bool parseFailed,
+        bool timeoutFailed = false,
+        bool readFailed = false,
+        bool skippedPersistedFailure = false,
+        string failureExceptionType = null,
+        string failureMessage = null,
+        int? parseTimeoutMs = null)
     {
-        public ChartInfoBuildItemResult(
-            ChartInfoBuildTarget target,
-            string sha256,
-            LR2SongDBExtended.chart_info row,
-            bool reusedExistingRow,
-            bool parseFailed,
-            bool timeoutFailed = false,
-            bool readFailed = false,
-            bool skippedPersistedFailure = false,
-            string failureExceptionType = null,
-            string failureMessage = null,
-            int? parseTimeoutMs = null)
-        {
-            Target = target;
-            Sha256 = sha256;
-            Row = row;
-            ReusedExistingRow = reusedExistingRow;
-            ParseFailed = parseFailed;
-            TimeoutFailed = timeoutFailed;
-            ReadFailed = readFailed;
-            SkippedPersistedFailure = skippedPersistedFailure;
-            FailureExceptionType = failureExceptionType;
-            FailureMessage = failureMessage;
-            ParseTimeoutMs = parseTimeoutMs;
-        }
+        public ChartInfoBuildTarget Target { get; } = target;
 
-        public ChartInfoBuildTarget Target { get; }
+        public string Sha256 { get; } = sha256;
 
-        public string Sha256 { get; }
+        public LR2SongDBExtended.chart_info Row { get; } = row;
 
-        public LR2SongDBExtended.chart_info Row { get; }
+        public bool ReusedExistingRow { get; } = reusedExistingRow;
 
-        public bool ReusedExistingRow { get; }
+        public bool ParseFailed { get; } = parseFailed;
 
-        public bool ParseFailed { get; }
+        public bool TimeoutFailed { get; } = timeoutFailed;
 
-        public bool TimeoutFailed { get; }
+        public bool ReadFailed { get; } = readFailed;
 
-        public bool ReadFailed { get; }
+        public bool SkippedPersistedFailure { get; } = skippedPersistedFailure;
 
-        public bool SkippedPersistedFailure { get; }
+        public string FailureExceptionType { get; } = failureExceptionType;
 
-        public string FailureExceptionType { get; }
+        public string FailureMessage { get; } = failureMessage;
 
-        public string FailureMessage { get; }
-
-        public int? ParseTimeoutMs { get; }
+        public int? ParseTimeoutMs { get; } = parseTimeoutMs;
 
         public long ParseMs { get; set; }
 
@@ -1192,17 +1172,17 @@ internal sealed class ChartInfoBuildService
 
     private sealed class ChartInfoCommitBuffer
     {
-        public List<ChartDigestBackfillEntry> DigestEntries { get; } = new List<ChartDigestBackfillEntry>();
+        public List<ChartDigestBackfillEntry> DigestEntries { get; } = [];
 
-        public List<PendingDigestApplication> DigestApplications { get; } = new List<PendingDigestApplication>();
+        public List<PendingDigestApplication> DigestApplications { get; } = [];
 
-        public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+        public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = [];
 
-        public List<PendingChartInfoApplication> ChartInfoApplications { get; } = new List<PendingChartInfoApplication>();
+        public List<PendingChartInfoApplication> ChartInfoApplications { get; } = [];
 
-        public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = new List<LR2SongDBExtended.chart_info_parse_failure>();
+        public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = [];
 
-        public List<string> ParseFailureDeleteMd5s { get; } = new List<string>();
+        public List<string> ParseFailureDeleteMd5s { get; } = [];
 
         public int TargetCount { get; set; }
 
@@ -1284,97 +1264,64 @@ internal sealed class ChartInfoBuildService
         }
     }
 
-    private sealed class ChartInfoCommitChunk
+    private sealed class ChartInfoCommitChunk(
+        int targetCount,
+        IReadOnlyList<ChartDigestBackfillEntry> digestEntries,
+        IReadOnlyList<ChartInfoBuildService.PendingDigestApplication> digestApplications,
+        IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows,
+        IReadOnlyList<ChartInfoBuildService.PendingChartInfoApplication> chartInfoApplications,
+        IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows,
+        IReadOnlyList<string> parseFailureDeleteMd5s)
     {
-        public ChartInfoCommitChunk(
-            int targetCount,
-            IReadOnlyList<ChartDigestBackfillEntry> digestEntries,
-            IReadOnlyList<PendingDigestApplication> digestApplications,
-            IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows,
-            IReadOnlyList<PendingChartInfoApplication> chartInfoApplications,
-            IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows,
-            IReadOnlyList<string> parseFailureDeleteMd5s)
-        {
-            TargetCount = targetCount;
-            DigestEntries = digestEntries ?? Array.Empty<ChartDigestBackfillEntry>();
-            DigestApplications = digestApplications ?? Array.Empty<PendingDigestApplication>();
-            ChartInfoRows = chartInfoRows ?? Array.Empty<LR2SongDBExtended.chart_info>();
-            ChartInfoApplications = chartInfoApplications ?? Array.Empty<PendingChartInfoApplication>();
-            ParseFailureRows = parseFailureRows ?? Array.Empty<LR2SongDBExtended.chart_info_parse_failure>();
-            ParseFailureDeleteMd5s = parseFailureDeleteMd5s ?? Array.Empty<string>();
-        }
+        public int TargetCount { get; } = targetCount;
 
-        public int TargetCount { get; }
+        public IReadOnlyList<ChartDigestBackfillEntry> DigestEntries { get; } = digestEntries ?? [];
 
-        public IReadOnlyList<ChartDigestBackfillEntry> DigestEntries { get; }
+        public IReadOnlyList<PendingDigestApplication> DigestApplications { get; } = digestApplications ?? [];
 
-        public IReadOnlyList<PendingDigestApplication> DigestApplications { get; }
+        public IReadOnlyList<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = chartInfoRows ?? [];
 
-        public IReadOnlyList<LR2SongDBExtended.chart_info> ChartInfoRows { get; }
+        public IReadOnlyList<PendingChartInfoApplication> ChartInfoApplications { get; } = chartInfoApplications ?? [];
 
-        public IReadOnlyList<PendingChartInfoApplication> ChartInfoApplications { get; }
+        public IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = parseFailureRows ?? [];
 
-        public IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; }
-
-        public IReadOnlyList<string> ParseFailureDeleteMd5s { get; }
+        public IReadOnlyList<string> ParseFailureDeleteMd5s { get; } = parseFailureDeleteMd5s ?? [];
     }
 
-    private sealed class PendingDigestApplication
+    private sealed class PendingDigestApplication(ChartInfoBuildService.ChartInfoBuildTarget target, string sha256)
     {
-        public PendingDigestApplication(ChartInfoBuildTarget target, string sha256)
-        {
-            Target = target;
-            Sha256 = sha256 ?? string.Empty;
-        }
+        public ChartInfoBuildTarget Target { get; } = target;
 
-        public ChartInfoBuildTarget Target { get; }
-
-        public string Sha256 { get; }
+        public string Sha256 { get; } = sha256 ?? string.Empty;
     }
 
-    private sealed class PendingChartInfoApplication
+    private sealed class PendingChartInfoApplication(ChartInfoBuildService.ChartInfoBuildTarget target, LR2SongDBExtended.chart_info row)
     {
-        public PendingChartInfoApplication(ChartInfoBuildTarget target, LR2SongDBExtended.chart_info row)
-        {
-            Target = target;
-            Row = row;
-        }
+        public ChartInfoBuildTarget Target { get; } = target;
 
-        public ChartInfoBuildTarget Target { get; }
-
-        public LR2SongDBExtended.chart_info Row { get; }
+        public LR2SongDBExtended.chart_info Row { get; } = row;
     }
 
-    private sealed class SlowParseRecord
+    private sealed class SlowParseRecord(long elapsedMs, string status, long byteCount, string path, string md5, string sha256)
     {
-        public SlowParseRecord(long elapsedMs, string status, long byteCount, string path, string md5, string sha256)
-        {
-            ElapsedMs = elapsedMs;
-            Status = status ?? string.Empty;
-            ByteCount = byteCount;
-            Path = path ?? string.Empty;
-            Md5 = md5 ?? string.Empty;
-            Sha256 = sha256 ?? string.Empty;
-        }
+        public long ElapsedMs { get; } = elapsedMs;
 
-        public long ElapsedMs { get; }
+        public string Status { get; } = status ?? string.Empty;
 
-        public string Status { get; }
+        public long ByteCount { get; } = byteCount;
 
-        public long ByteCount { get; }
+        public string Path { get; } = path ?? string.Empty;
 
-        public string Path { get; }
+        public string Md5 { get; } = md5 ?? string.Empty;
 
-        public string Md5 { get; }
-
-        public string Sha256 { get; }
+        public string Sha256 { get; } = sha256 ?? string.Empty;
     }
 
     private sealed class ChartInfoBuildTarget
     {
-        private readonly List<BMSFile> bmsFiles = new List<BMSFile>();
+        private readonly List<BMSFile> bmsFiles = [];
 
-        private readonly List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
+        private readonly List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
 
         private ChartInfoBuildTarget(string path, string md5, string sha256)
         {
@@ -1389,15 +1336,15 @@ internal sealed class ChartInfoBuildService
 
         public string Sha256 { get; }
 
-        public bool NeedsDigest => bmsFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.sha256));
+        public bool NeedsDigest => bmsFiles.Any(file => file != null && string.IsNullOrWhiteSpace(file.sha256));
 
-        public int MissingDigestOwnerCount => bmsFiles.Count((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.sha256));
+        public int MissingDigestOwnerCount => bmsFiles.Count(file => file != null && string.IsNullOrWhiteSpace(file.sha256));
 
         public int OwnerCount => bmsFiles.Count + bmsonSongs.Count;
 
         public static ChartInfoBuildTarget FromBmsFile(BMSFile file)
         {
-            ChartInfoBuildTarget target = new ChartInfoBuildTarget(
+            var target = new ChartInfoBuildTarget(
                 file.path,
                 file.hash,
                 file.sha256);
@@ -1407,7 +1354,7 @@ internal sealed class ChartInfoBuildService
 
         public static ChartInfoBuildTarget FromBmsonSong(LR2SongDBExtended.bmson_song song)
         {
-            ChartInfoBuildTarget target = new ChartInfoBuildTarget(
+            var target = new ChartInfoBuildTarget(
                 song.path,
                 song.md5,
                 song.sha256);

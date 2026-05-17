@@ -18,24 +18,24 @@ internal static class ResourceSurfaceMaterializer
             return new DirectoryResourceLookupCache.Entry();
         }
 
-        HashSet<uint> audioRelativePathHashes = new HashSet<uint>();
-        HashSet<uint> imageRelativePathHashes = new HashSet<uint>();
-        HashSet<uint> movieRelativePathHashes = new HashSet<uint>();
+        HashSet<uint> audioRelativePathHashes = [];
+        HashSet<uint> imageRelativePathHashes = [];
+        HashSet<uint> movieRelativePathHashes = [];
 
         AddResourceHashes(rootDirectory, audioFilePaths, audioRelativePathHashes);
         AddResourceHashes(rootDirectory, imageFilePaths, imageRelativePathHashes);
         AddResourceHashes(rootDirectory, movieFilePaths, movieRelativePathHashes);
 
         return new DirectoryResourceLookupCache.Entry(
-            audioRelativePathHashes.OrderBy((uint hash) => hash).ToArray(),
-            imageRelativePathHashes.OrderBy((uint hash) => hash).ToArray(),
-            movieRelativePathHashes.OrderBy((uint hash) => hash).ToArray());
+            audioRelativePathHashes.OrderBy(hash => hash).ToArray(),
+            imageRelativePathHashes.OrderBy(hash => hash).ToArray(),
+            movieRelativePathHashes.OrderBy(hash => hash).ToArray());
     }
 
     private static void AddResourceHashes(string rootDirectory, IEnumerable<string> absolutePaths, ISet<uint> categoryRelativePathHashes)
     {
-        foreach (string absolutePath in (absolutePaths ?? Enumerable.Empty<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+        foreach (string absolutePath in (absolutePaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {

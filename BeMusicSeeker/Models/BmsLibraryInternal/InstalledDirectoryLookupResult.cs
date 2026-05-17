@@ -14,5 +14,5 @@ internal sealed class InstalledDirectoryLookupResult
 
     public int CandidateDirectoryCount { get; set; }
 
-    public List<string> CandidateDirectories { get; } = new List<string>();
+    public List<string> CandidateDirectories { get; } = [];
 }

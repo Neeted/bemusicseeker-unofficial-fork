@@ -135,13 +135,13 @@ public sealed class CustomTableView : Grid
     private readonly ToolTip cellToolTip;
     private readonly Popup editSuggestionPopup;
     private readonly ListBox editSuggestionListBox;
-    private readonly CustomTableSelectionModel selectionModel = new CustomTableSelectionModel();
-    private readonly CustomTableCellValueCache cellValueCache = new CustomTableCellValueCache();
+    private readonly CustomTableSelectionModel selectionModel = new();
+    private readonly CustomTableCellValueCache cellValueCache = new();
     private readonly CustomTableRowChangeTracker rowChangeTracker;
-    private readonly CustomTableRowInvalidationQueue pendingRowInvalidations = new CustomTableRowInvalidationQueue();
+    private readonly CustomTableRowInvalidationQueue pendingRowInvalidations = new();
     private readonly CustomTableRedrawScheduler rowPropertyChangedRedrawScheduler;
-    private readonly List<INotifyPropertyChanged> subscribedColumnLayouts = new List<INotifyPropertyChanged>();
-    private readonly HashSet<string> loggedRenderReasons = new HashSet<string>();
+    private readonly List<INotifyPropertyChanged> subscribedColumnLayouts = [];
+    private readonly HashSet<string> loggedRenderReasons = [];
     private CustomTableColumnLayoutSnapshot columnLayoutSnapshot;
     private INotifyCollectionChanged itemsCollectionChanged;
     private string pendingRedrawReason = "initial";
@@ -436,7 +436,7 @@ public sealed class CustomTableView : Grid
 
     internal double HorizontalOffset => Math.Max(0d, horizontalScrollBar.Value);
 
-    internal IReadOnlyList<CustomTableColumn> VisibleColumns => Columns as IReadOnlyList<CustomTableColumn> ?? Columns?.ToArray() ?? Array.Empty<CustomTableColumn>();
+    internal IReadOnlyList<CustomTableColumn> VisibleColumns => Columns as IReadOnlyList<CustomTableColumn> ?? Columns?.ToArray() ?? [];
 
     internal int RowCount => ItemsSource?.Count ?? 0;
 
@@ -473,7 +473,7 @@ public sealed class CustomTableView : Grid
 
     private static void OnItemsSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.ClearPendingItemsSourceSwapColumnRedrawSuppression();
@@ -490,7 +490,7 @@ public sealed class CustomTableView : Grid
 
     private static void OnColumnsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.InvalidateColumnLayoutSnapshot();
@@ -505,7 +505,7 @@ public sealed class CustomTableView : Grid
 
     private static void OnColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.DetachColumnLayoutHandlers();
@@ -515,7 +515,7 @@ public sealed class CustomTableView : Grid
 
     private static void OnPlaylistSummaryColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.DetachColumnLayoutHandlers();
@@ -525,7 +525,7 @@ public sealed class CustomTableView : Grid
 
     private static void OnLayoutMetricChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.InvalidateColumnLayoutSnapshot();
         view.UpdateScrollBars();
@@ -535,7 +535,7 @@ public sealed class CustomTableView : Grid
 
     private static void OnSelectedIndexChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         if (!view.updatingSelectedIndexFromSelection)
         {
             int selectedIndex = (int)e.NewValue;
@@ -550,14 +550,14 @@ public sealed class CustomTableView : Grid
 
     private static void OnSortStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.RequestRedraw("sort_state");
     }
 
     private static void OnScoreFontFamilyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        CustomTableView view = (CustomTableView)d;
+        var view = (CustomTableView)d;
         view.surface?.ClearTextLayoutCache();
         view.RequestRedraw("layout_metric_changed");
     }
@@ -632,7 +632,7 @@ public sealed class CustomTableView : Grid
     {
         Columns = PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()
-            : CustomTableColumnFactory.CreateMainColumns(ColumnsSettings).ToArray();
+            : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings)];
         InvalidateColumnLayoutSnapshot();
         InvalidateColumnCellValues();
         if (markItemsApplied && !suppressColumnRedrawUntilItemsSourceChanged)
@@ -822,7 +822,7 @@ public sealed class CustomTableView : Grid
 
     private void UpdateVisibleRowSubscriptions(string reason, bool logAlways = false)
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         int firstIndex = 0;
         int requestedCount = 0;
         if (IsVisible)
@@ -878,7 +878,7 @@ public sealed class CustomTableView : Grid
         IList rows = ItemsSource;
         if (rows == null || rows.Count == 0)
         {
-            return Array.Empty<object>();
+            return [];
         }
         return selectionModel.SelectedIndices
             .Where(index => index >= 0 && index < rows.Count)
@@ -906,7 +906,7 @@ public sealed class CustomTableView : Grid
 
     public void PrepareForItemsSourceSwap()
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         long commitStartMs = stopwatch.ElapsedMilliseconds;
         CommitActiveEdit();
         long commitActiveEditMs = stopwatch.ElapsedMilliseconds - commitStartMs;
@@ -1061,16 +1061,12 @@ public sealed class CustomTableView : Grid
         {
             return false;
         }
-        switch (hit.Column.CellKind)
+        return hit.Column.CellKind switch
         {
-            case CustomTableCellKind.DownloadIcon:
-            case CustomTableCellKind.ActionText:
-                return !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row));
-            case CustomTableCellKind.CheckBox:
-                return hit.Column.GetChecked(hit.Row).HasValue;
-            default:
-                return false;
-        }
+            CustomTableCellKind.DownloadIcon or CustomTableCellKind.ActionText => !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row)),
+            CustomTableCellKind.CheckBox => hit.Column.GetChecked(hit.Row).HasValue,
+            _ => false,
+        };
     }
 
     private void CustomTableViewPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -1288,17 +1284,13 @@ public sealed class CustomTableView : Grid
 
     internal static CustomTableKeyboardCommand ResolveKeyboardCommand(Key key, ModifierKeys modifiers)
     {
-        switch (key)
+        return key switch
         {
-            case Key.A when modifiers == ModifierKeys.Control:
-                return CustomTableKeyboardCommand.SelectAllRows;
-            case Key.C when modifiers == ModifierKeys.Control:
-                return CustomTableKeyboardCommand.CopyCurrentCell;
-            case Key.C when modifiers == (ModifierKeys.Control | ModifierKeys.Shift):
-                return CustomTableKeyboardCommand.CopySelectedRowsTsv;
-            default:
-                return CustomTableKeyboardCommand.None;
-        }
+            Key.A when modifiers == ModifierKeys.Control => CustomTableKeyboardCommand.SelectAllRows,
+            Key.C when modifiers == ModifierKeys.Control => CustomTableKeyboardCommand.CopyCurrentCell,
+            Key.C when modifiers == (ModifierKeys.Control | ModifierKeys.Shift) => CustomTableKeyboardCommand.CopySelectedRowsTsv,
+            _ => CustomTableKeyboardCommand.None,
+        };
     }
 
     private void CustomTableViewPreviewTextInput(object sender, TextCompositionEventArgs e)
@@ -1469,8 +1461,10 @@ public sealed class CustomTableView : Grid
         }
         DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows);
         CloseCellToolTip();
-        rowDragAdorner = new DragAdorner(this, CreateRowDragGhost(rows.Count), new Vector(12d, 12d));
-        rowDragAdorner.Position = WPFUtil.GetMousePosition(this);
+        rowDragAdorner = new DragAdorner(this, CreateRowDragGhost(rows.Count), new Vector(12d, 12d))
+        {
+            Position = WPFUtil.GetMousePosition(this)
+        };
         ClearDragState();
         try
         {
@@ -1672,7 +1666,7 @@ public sealed class CustomTableView : Grid
             return false;
         }
         CommitActiveEdit();
-        CustomTableCellEditBeginningEventArgs beginningArgs = new CustomTableCellEditBeginningEventArgs(hit, hit.Column.EditPropertyName);
+        var beginningArgs = new CustomTableCellEditBeginningEventArgs(hit, hit.Column.EditPropertyName);
         CellEditBeginning?.Invoke(this, beginningArgs);
         if (beginningArgs.Cancel)
         {
@@ -1684,7 +1678,7 @@ public sealed class CustomTableView : Grid
             return false;
         }
         Rect editorRect = CreateEditorRect(hit.Column, rect);
-        TextBox textBox = new TextBox
+        var textBox = new TextBox
         {
             Text = replacementText ?? hit.Column.GetEditText(hit.Row),
             TextAlignment = hit.Column.CellKind == CustomTableCellKind.DownloadIcon ? TextAlignment.Left : hit.Column.Alignment,
@@ -1778,7 +1772,7 @@ public sealed class CustomTableView : Grid
 
     private void UpdateEditSuggestions()
     {
-        IReadOnlyList<string> suggestions = activeEditHit?.Column?.GetEditSuggestions(activeEditHit.Row) ?? Array.Empty<string>();
+        IReadOnlyList<string> suggestions = activeEditHit?.Column?.GetEditSuggestions(activeEditHit.Row) ?? [];
         editSuggestionListBox.ItemsSource = suggestions;
         editSuggestionListBox.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
         if (activeEditor == null || suggestions.Count == 0)
@@ -1843,8 +1837,7 @@ public sealed class CustomTableView : Grid
 
     private void EditSuggestionListBoxPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        DependencyObject source = e.OriginalSource as DependencyObject;
-        ListBoxItem item = source == null ? null : FindVisualParent<ListBoxItem>(source);
+        ListBoxItem item = e.OriginalSource is not DependencyObject source ? null : FindVisualParent<ListBoxItem>(source);
         if (item != null)
         {
             editSuggestionListBox.SelectedItem = item.DataContext;
@@ -2270,7 +2263,7 @@ internal static class CustomTableColumnLayout
 internal sealed class CustomTableSurface : FrameworkElement
 {
     private readonly CustomTableView owner;
-    private readonly CustomTableTextLayoutCache textLayoutCache = new CustomTableTextLayoutCache();
+    private readonly CustomTableTextLayoutCache textLayoutCache = new();
     private int renderTextCacheHits;
     private int renderTextCacheMisses;
 
@@ -2288,7 +2281,7 @@ internal sealed class CustomTableSurface : FrameworkElement
 
     protected override void OnRender(DrawingContext drawingContext)
     {
-        Stopwatch renderStopwatch = Stopwatch.StartNew();
+        var renderStopwatch = Stopwatch.StartNew();
         renderTextCacheHits = 0;
         renderTextCacheMisses = 0;
         double width = ActualWidth;
@@ -2390,7 +2383,7 @@ internal sealed class CustomTableSurface : FrameworkElement
                     : (rowIndex & 1) == 1
                         ? palette.AlternatingRowBackground
                         : palette.RowBackground;
-            Rect rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
+            var rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
             drawingContext.DrawRectangle(rowBackground, null, rowRect);
             DrawRowCells(drawingContext, layout, rowIndex, row, width, y, rowHeight);
             drawingContext.DrawLine(palette.CellBorder, new Point(0d, y + rowHeight - 0.5d), new Point(width, y + rowHeight - 0.5d));
@@ -2498,7 +2491,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         double top = cellRect.Top + Math.Max(1d, (cellRect.Height - size) / 2d);
         double bottom = top + size;
         double trayY = bottom - 2d;
-        Pen pen = new Pen(iconBrush, 1.7d)
+        var pen = new Pen(iconBrush, 1.7d)
         {
             StartLineCap = PenLineCap.Square,
             EndLineCap = PenLineCap.Square
@@ -2507,7 +2500,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         {
             pen.Freeze();
         }
-        StreamGeometry arrow = new StreamGeometry();
+        var arrow = new StreamGeometry();
         using (StreamGeometryContext context = arrow.Open())
         {
             context.BeginFigure(new Point(centerX, top), isFilled: false, isClosed: false);
@@ -2538,8 +2531,8 @@ internal sealed class CustomTableSurface : FrameworkElement
         double size = Math.Max(7d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
         double left = cellRect.Left + (cellRect.Width - size) / 2d;
         double top = cellRect.Top + (cellRect.Height - size) / 2d;
-        Rect iconRect = new Rect(left, top, size, size);
-        Pen pen = new Pen(iconBrush, 1.5d)
+        var iconRect = new Rect(left, top, size, size);
+        var pen = new Pen(iconBrush, 1.5d)
         {
             StartLineCap = PenLineCap.Round,
             EndLineCap = PenLineCap.Round,
@@ -2588,7 +2581,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         double size = Math.Max(8d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
         double left = cellRect.Left + (cellRect.Width - size) / 2d;
         double top = cellRect.Top + (cellRect.Height - size) / 2d;
-        Rect rect = new Rect(left, top, size, size);
+        var rect = new Rect(left, top, size, size);
         CustomTablePalette palette = CustomTablePalette.Current;
         drawingContext.DrawRectangle(palette.CheckBoxBackground, palette.CheckBoxBorder, rect);
         if (isChecked.Value)
@@ -2603,9 +2596,9 @@ internal sealed class CustomTableSurface : FrameworkElement
 
     private static void DrawRefreshIcon(DrawingContext drawingContext, Brush brush, Pen pen, Rect rect)
     {
-        Point start = new Point(rect.Right - 2d, rect.Top + rect.Height * 0.45d);
-        Point end = new Point(rect.Left + 2d, rect.Top + rect.Height * 0.58d);
-        StreamGeometry arc = new StreamGeometry();
+        var start = new Point(rect.Right - 2d, rect.Top + rect.Height * 0.45d);
+        var end = new Point(rect.Left + 2d, rect.Top + rect.Height * 0.58d);
+        var arc = new StreamGeometry();
         using (StreamGeometryContext context = arc.Open())
         {
             context.BeginFigure(start, isFilled: false, isClosed: false);
@@ -2633,7 +2626,7 @@ internal sealed class CustomTableSurface : FrameworkElement
 
     private static void DrawTriangle(DrawingContext drawingContext, Brush brush, Point p1, Point p2, Point p3)
     {
-        StreamGeometry geometry = new StreamGeometry();
+        var geometry = new StreamGeometry();
         using (StreamGeometryContext context = geometry.Open())
         {
             context.BeginFigure(p1, isFilled: true, isClosed: true);
@@ -2657,7 +2650,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         Point p1 = ascending ? new Point(centerX, top) : new Point(centerX, bottom);
         Point p2 = ascending ? new Point(centerX - 3d, bottom) : new Point(centerX - 3d, top);
         Point p3 = ascending ? new Point(centerX + 3d, bottom) : new Point(centerX + 3d, top);
-        StreamGeometry geometry = new StreamGeometry();
+        var geometry = new StreamGeometry();
         using (StreamGeometryContext context = geometry.Open())
         {
             context.BeginFigure(p1, isFilled: true, isClosed: true);

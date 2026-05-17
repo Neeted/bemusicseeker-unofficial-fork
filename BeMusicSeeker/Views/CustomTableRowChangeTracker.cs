@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Views;
 
 internal sealed class CustomTableRowChangeTracker
 {
-    private readonly Dictionary<INotifyPropertyChanged, int> subscribedRows = new Dictionary<INotifyPropertyChanged, int>(ReferenceEqualityComparer<INotifyPropertyChanged>.Instance);
+    private readonly Dictionary<INotifyPropertyChanged, int> subscribedRows = new(ReferenceEqualityComparer<INotifyPropertyChanged>.Instance);
     private readonly Action<INotifyPropertyChanged, PropertyChangedEventArgs> rowChanged;
 
     internal CustomTableRowChangeTracker(Action<INotifyPropertyChanged, PropertyChangedEventArgs> rowChanged)
@@ -35,7 +35,7 @@ internal sealed class CustomTableRowChangeTracker
             return;
         }
         int endIndex = Math.Min(rows.Count, startIndex + count);
-        Dictionary<INotifyPropertyChanged, int> targetRows = new Dictionary<INotifyPropertyChanged, int>(ReferenceEqualityComparer<INotifyPropertyChanged>.Instance);
+        var targetRows = new Dictionary<INotifyPropertyChanged, int>(ReferenceEqualityComparer<INotifyPropertyChanged>.Instance);
         for (int i = startIndex; i < endIndex; i++)
         {
             if (rows[i] is INotifyPropertyChanged row)
@@ -148,8 +148,8 @@ internal sealed class CustomTableRedrawScheduler
 
 internal sealed class CustomTableRowInvalidationQueue
 {
-    private readonly object syncRoot = new object();
-    private readonly HashSet<object> rows = new HashSet<object>(ReferenceEqualityComparer<object>.Instance);
+    private readonly object syncRoot = new();
+    private readonly HashSet<object> rows = new(ReferenceEqualityComparer<object>.Instance);
 
     internal int Count
     {
@@ -180,9 +180,9 @@ internal sealed class CustomTableRowInvalidationQueue
         {
             if (rows.Count == 0)
             {
-                return Array.Empty<object>();
+                return [];
             }
-            object[] drainedRows = rows.ToArray();
+            object[] drainedRows = [.. rows];
             rows.Clear();
             return drainedRows;
         }
@@ -199,7 +199,7 @@ internal sealed class CustomTableRowInvalidationQueue
 
 internal sealed class ReferenceEqualityComparer<T> : IEqualityComparer<T> where T : class
 {
-    internal static readonly ReferenceEqualityComparer<T> Instance = new ReferenceEqualityComparer<T>();
+    internal static readonly ReferenceEqualityComparer<T> Instance = new();
 
     private ReferenceEqualityComparer()
     {

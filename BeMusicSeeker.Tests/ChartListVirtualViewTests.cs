@@ -27,7 +27,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(0, view.RealizedRowCount);
         Assert.AreEqual(0, getCreatedCount());
 
-        LibraryChartRow row = (LibraryChartRow)view[0];
+        var row = (LibraryChartRow)view[0];
 
         Assert.AreEqual("Alpha", row.Title);
         Assert.AreEqual(1, view.RealizedRowCount);
@@ -63,7 +63,7 @@ public sealed class ChartListVirtualViewTests
     public void SummaryConverter_UsesMetadataWithoutEnumeratingRows()
     {
         ChartListVirtualView view = CreateView(out Func<int> getCreatedCount);
-        ChartRowsViewToSummaryTextConverter converter = new ChartRowsViewToSummaryTextConverter();
+        var converter = new ChartRowsViewToSummaryTextConverter();
 
         object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
 
@@ -78,7 +78,7 @@ public sealed class ChartListVirtualViewTests
     public void SummaryConverter_UsesSuppliedFolderCountWithoutEnumeratingRows()
     {
         ChartListVirtualView view = CreateView(out Func<int> getCreatedCount, distinctFolderCount: 2);
-        ChartRowsViewToSummaryTextConverter converter = new ChartRowsViewToSummaryTextConverter();
+        var converter = new ChartRowsViewToSummaryTextConverter();
 
         object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
 
@@ -92,12 +92,12 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void Constructor_DoesNotReadFolderCountFromSourceRows()
     {
-        ThrowingFolderBmsFile file = new ThrowingFolderBmsFile();
+        var file = new ThrowingFolderBmsFile();
         file.Apply(@"folder-a\alpha.bms", "Alpha");
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, null);
-        ChartListOrder order = ChartListOrder.CreateTitleAscending(sourceRows);
+        var order = ChartListOrder.CreateTitleAscending(sourceRows);
 
-        ChartListVirtualView view = new ChartListVirtualView(sourceRows, order, row => LibraryChartRow.FromBmsFile(row.BmsFile));
+        var view = new ChartListVirtualView(sourceRows, order, row => LibraryChartRow.FromBmsFile(row.BmsFile));
 
         Assert.AreEqual(1, view.Count);
         Assert.AreEqual(-1, view.DistinctFolderCount);
@@ -174,7 +174,7 @@ public sealed class ChartListVirtualViewTests
     public void AdditionalSupportedOrders_MatchExistingDefaultLibraryChartRowSort()
     {
         string[] columns =
-        {
+        [
             nameof(LibraryChartRow.Artist),
             nameof(LibraryChartRow.genre),
             nameof(LibraryChartRow.mode),
@@ -190,7 +190,7 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.InstallDestinationTitle),
             nameof(LibraryChartRow.InstallDestinationArtist),
             nameof(LibraryChartRow.RefTablesSymbols)
-        };
+        ];
 
         foreach (string column in columns)
         {
@@ -202,12 +202,12 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PathDescendingOrder_KeepsTitleAscendingSecondaryKey()
     {
-        List<BMSFile> files = new List<BMSFile>
-        {
+        List<BMSFile> files =
+        [
             CreateFile(@"folder-z\same.bms", "Gamma", "folder-z"),
             CreateFile(@"folder-z\same.bms", "Alpha", "folder-z"),
             CreateFile(@"folder-a\other.bms", "Beta", "folder-a")
-        };
+        ];
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
 
         bool created = ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder order);
@@ -235,12 +235,12 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder pathOrder));
         int createdCount = 0;
 
-        ChartListVirtualView titleView = new ChartListVirtualView(sourceRows, titleOrder, row =>
+        var titleView = new ChartListVirtualView(sourceRows, titleOrder, row =>
         {
             createdCount++;
             return LibraryChartRow.FromBmsFile(row.BmsFile);
         });
-        ChartListVirtualView pathView = new ChartListVirtualView(sourceRows, pathOrder, row =>
+        var pathView = new ChartListVirtualView(sourceRows, pathOrder, row =>
         {
             createdCount++;
             return LibraryChartRow.FromBmsFile(row.BmsFile);
@@ -262,15 +262,15 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void NormalLibraryFilters_ReuseFullOrderSubsetWithoutRealizingRows()
     {
-        List<BMSFile> files = new List<BMSFile>
-        {
+        List<BMSFile> files =
+        [
             CreateFile(@"FOLDER-Z\delta.bms", "Delta", "folder-z", artist: "Target Artist", mode: 7),
             CreateFile(@"folder-z\bravo.bms", "Bravo", "folder-z", artist: "Target Artist", mode: 5),
             CreateFile(@"folder-y\charlie.bms", "Charlie", "folder-y", artist: "Other Artist", mode: 7),
             CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a", artist: "Target Artist", mode: 7)
-        };
-        List<LR2SongDBExtended.bmson_song> bmsons = new List<LR2SongDBExtended.bmson_song>
-        {
+        ];
+        List<LR2SongDBExtended.bmson_song> bmsons =
+        [
             new LR2SongDBExtended.bmson_song
             {
                 path = @"folder-z\echo.bmson",
@@ -282,11 +282,11 @@ public sealed class ChartListVirtualViewTests
                 md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                 sha256 = "6666666666666666666666666666666666666666666666666666666666666666"
             }
-        };
+        ];
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, bmsons);
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
-        int[] existingOrderIndexes = fullOrder.Indexes.Reverse().ToArray();
-        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
+        int[] existingOrderIndexes = [.. fullOrder.Indexes.Reverse()];
+        var keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
         Func<ChartListSourceRow, bool> folderFilter = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
             MainWindowViewModel.FolderFilterType.DirectoryFilter,
             "folder-z",
@@ -303,7 +303,7 @@ public sealed class ChartListVirtualViewTests
             out int modeCount);
         ChartListOrder filteredOrder = fullOrder.WithIndexes(filteredIndexes);
         int createdCount = 0;
-        ChartListVirtualView view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
+        var view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
         {
             createdCount++;
             return LibraryChartRow.FromBmsFile(row.BmsFile);
@@ -346,16 +346,16 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualChartSubsetFilters_ReuseFullOrderSubsetWithoutRealizingRows()
     {
-        List<BMSFile> files = new List<BMSFile>
-        {
+        List<BMSFile> files =
+        [
             CreateFile(@"folder-z\delta.bms", "Delta", "folder-z", artist: "Target Artist", mode: 7),
             CreateFile(@"folder-z\bravo.bms", "Bravo", "folder-z", artist: "Target Artist", mode: 5),
             CreateFile(@"folder-y\charlie.bms", "Charlie", "folder-y", artist: "Other Artist", mode: 7),
             CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a", artist: "Target Artist", mode: 7)
-        };
+        ];
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
-        GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
+        var keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
 
         int[] filteredIndexes = MainWindowViewModel.ApplyVirtualChartSubsetFiltersForTest(
             sourceRows,
@@ -366,7 +366,7 @@ public sealed class ChartListVirtualViewTests
             out int modeCount);
         ChartListOrder filteredOrder = fullOrder.WithIndexes(filteredIndexes);
         int createdCount = 0;
-        ChartListVirtualView view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
+        var view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
         {
             createdCount++;
             return LibraryChartRow.FromBmsFile(row.BmsFile);
@@ -388,13 +388,13 @@ public sealed class ChartListVirtualViewTests
     public void VirtualChartSubsetSortCacheKey_UsesSubsetSignatureAndDependencyGeneration()
     {
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
-        List<ChartListSourceRow> reorderedRows = sourceRows.AsEnumerable().Reverse().ToList();
+        List<ChartListSourceRow> reorderedRows = [.. sourceRows.AsEnumerable().Reverse()];
         long signature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(sourceRows);
         long sameSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null));
         long reorderedSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(reorderedRows);
         int treeMode = (int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected;
 
-        VirtualChartSubsetSortCacheKey current = new VirtualChartSubsetSortCacheKey(
+        var current = new VirtualChartSubsetSortCacheKey(
             7,
             11,
             1,
@@ -406,7 +406,7 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.rateDouble),
             ListSortDirection.Ascending,
             sourceRows.Count);
-        VirtualChartSubsetSortCacheKey same = new VirtualChartSubsetSortCacheKey(
+        var same = new VirtualChartSubsetSortCacheKey(
             7,
             11,
             1,
@@ -448,7 +448,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualSortRegistryMetadata_DescribesSupportedColumnsAndDependencies()
     {
-        ChartListOrderColumnMetadata[] metadata = ChartListOrder.GetVirtualSortColumnMetadata().ToArray();
+        ChartListOrderColumnMetadata[] metadata = [.. ChartListOrder.GetVirtualSortColumnMetadata()];
 
         CollectionAssert.AreEqual(
             CreateExpectedVirtualSortColumnNames(),
@@ -479,12 +479,11 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_FollowVisibleColumnsAndPriorities()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
-        string[] columns = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
+        string[] columns = [.. MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
             .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
-            .Select(descriptor => descriptor.ColumnName)
-            .ToArray();
+            .Select(descriptor => descriptor.ColumnName)];
 
         CollectionAssert.Contains(columns, nameof(LibraryChartRow.Title));
         CollectionAssert.Contains(columns, nameof(LibraryChartRow.rateDouble));
@@ -495,10 +494,9 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.maxcombo));
 
         settings.Combo.Visibility = Visibility.Visible;
-        columns = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
+        columns = [.. MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
             .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
-            .Select(descriptor => descriptor.ColumnName)
-            .ToArray();
+            .Select(descriptor => descriptor.ColumnName)];
 
         CollectionAssert.Contains(columns, nameof(LibraryChartRow.maxcombo));
     }
@@ -525,7 +523,7 @@ public sealed class ChartListVirtualViewTests
         foreach (VirtualNormalLibrarySortDescriptor descriptor in MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest())
         {
             Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, descriptor.ColumnName, descriptor.Direction, out ChartListOrder order));
-            ChartListVirtualView view = new ChartListVirtualView(sourceRows, order, row =>
+            var view = new ChartListVirtualView(sourceRows, order, row =>
             {
                 createdCount++;
                 return LibraryChartRow.FromBmsFile(row.BmsFile);
@@ -568,21 +566,19 @@ public sealed class ChartListVirtualViewTests
     public void VirtualNormalLibraryRequestModes_CoverRootAndFullScanTrees()
     {
         MainWindowViewModel.viewUpdateMode[] treeModes =
-        {
+        [
             MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
             MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected
-        };
+        ];
         MainWindowViewModel.viewUpdateMode[] refreshModes =
-        {
+        [
             MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
             MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
             MainWindowViewModel.viewUpdateMode.ModeFilterUpdated,
             MainWindowViewModel.viewUpdateMode.SortUpdated
-        };
+        ];
 
-        MainWindowViewModel.viewUpdateMode[] allModes = Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode))
-            .Cast<MainWindowViewModel.viewUpdateMode>()
-            .ToArray();
+        MainWindowViewModel.viewUpdateMode[] allModes = [.. Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode)).Cast<MainWindowViewModel.viewUpdateMode>()];
         foreach (MainWindowViewModel.viewUpdateMode treeMode in allModes)
         {
             bool expectedTreeSupport = treeModes.Contains(treeMode);
@@ -613,7 +609,7 @@ public sealed class ChartListVirtualViewTests
     public void VirtualChartSubsetRequestModes_CoverFilterAndSortUpdates()
     {
         MainWindowViewModel.viewUpdateMode[] treeModes =
-        {
+        [
             MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected,
             MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected,
             MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
@@ -624,18 +620,16 @@ public sealed class ChartListVirtualViewTests
             MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected,
             MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected,
             MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected
-        };
+        ];
         MainWindowViewModel.viewUpdateMode[] refreshModes =
-        {
+        [
             MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
             MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
             MainWindowViewModel.viewUpdateMode.ModeFilterUpdated,
             MainWindowViewModel.viewUpdateMode.SortUpdated
-        };
+        ];
 
-        MainWindowViewModel.viewUpdateMode[] allModes = Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode))
-            .Cast<MainWindowViewModel.viewUpdateMode>()
-            .ToArray();
+        MainWindowViewModel.viewUpdateMode[] allModes = [.. Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode)).Cast<MainWindowViewModel.viewUpdateMode>()];
         foreach (MainWindowViewModel.viewUpdateMode treeMode in allModes)
         {
             bool expectedTreeSupport = treeModes.Contains(treeMode);
@@ -696,13 +690,13 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void NormalLibrarySortCacheKey_UsesSortKeyGenerationForOrderIdentity()
     {
-        NormalLibrarySortCacheKey current = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey same = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey changedSourceGeneration = new NormalLibrarySortCacheKey(8, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey changedSortKeyGeneration = new NormalLibrarySortCacheKey(7, 12, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey changedColumn = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Artist), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey changedDirection = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Descending, 3);
-        NormalLibrarySortCacheKey changedRowCount = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 4);
+        var current = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        var same = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        var changedSourceGeneration = new NormalLibrarySortCacheKey(8, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        var changedSortKeyGeneration = new NormalLibrarySortCacheKey(7, 12, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
+        var changedColumn = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Artist), ListSortDirection.Ascending, 3);
+        var changedDirection = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Descending, 3);
+        var changedRowCount = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 4);
 
         Assert.AreEqual(current, same);
         Assert.AreNotEqual(current, changedSourceGeneration);
@@ -711,11 +705,11 @@ public sealed class ChartListVirtualViewTests
         Assert.AreNotEqual(current, changedDirection);
         Assert.AreNotEqual(current, changedRowCount);
 
-        NormalLibrarySortCacheKey scoreAware = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey scoreAwareSame = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey changedScoreGeneration = new NormalLibrarySortCacheKey(7, 11, 2, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey changedChartInfoGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 3, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        NormalLibrarySortCacheKey changedMaintenanceGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 4, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        var scoreAware = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        var scoreAwareSame = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        var changedScoreGeneration = new NormalLibrarySortCacheKey(7, 11, 2, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        var changedChartInfoGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 3, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        var changedMaintenanceGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 4, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
 
         Assert.AreEqual(scoreAware, scoreAwareSame);
         Assert.AreNotEqual(scoreAware, changedScoreGeneration);
@@ -726,9 +720,9 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void MainSummaryCacheKey_UsesGenerationsForIdentity()
     {
-        MainViewSummaryCacheKey current = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
-        MainViewSummaryCacheKey same = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
-        MainViewSummaryCacheKey changedSortKeyGeneration = new MainViewSummaryCacheKey(7, 12, 3, includeBmsonRows: true, "normal_default");
+        var current = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
+        var same = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
+        var changedSortKeyGeneration = new MainViewSummaryCacheKey(7, 12, 3, includeBmsonRows: true, "normal_default");
 
         Assert.AreEqual(current, same);
         Assert.AreNotEqual(current, changedSortKeyGeneration);
@@ -739,7 +733,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void LibraryChartSortMetrics_CarriesVirtualOrderTimingBreakdown()
     {
-        LibraryChartSortMetrics metrics = new LibraryChartSortMetrics(
+        var metrics = new LibraryChartSortMetrics(
             3,
             nameof(LibraryChartRow.path),
             ListSortDirection.Descending,
@@ -761,7 +755,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void SourceRow_ReadsCurrentBmsFileSortKeys()
     {
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, null);
 
@@ -800,14 +794,14 @@ public sealed class ChartListVirtualViewTests
     public void SourceRow_AndLibraryRowUsePlaylistReferenceProjectionForBmson()
     {
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
-        BMSTable table = new BMSTable
+        var table = new BMSTable
         {
             symbol = "BMSN",
             name = "Bmson Table",
-            entries = new List<BMSTableEntry>
-            {
+            entries =
+            [
                 new TestablePlaylistEntry(null, bmson.sha256)
-            }
+            ]
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
         index.ReplaceTable(table, table.entries);
@@ -816,7 +810,7 @@ public sealed class ChartListVirtualViewTests
             new[] { bmson },
             null,
             row => index.Find(row.Hash, row.Sha256));
-        LibraryChartRow chartRow = LibraryChartRow.FromBmsonSong(bmson);
+        var chartRow = LibraryChartRow.FromBmsonSong(bmson);
         chartRow.SetPlaylistReferenceDisplayProvider(row => index.Find(row.hash, row.sha256));
 
         Assert.AreEqual("BMSN", sourceRows[0].RefTablesSymbols);
@@ -847,7 +841,7 @@ public sealed class ChartListVirtualViewTests
         file.InstallDestinationTitle = "Installed Title";
         file.InstallDestinationArtist = "Installed Artist";
         file.AddRefTable(new BMSTable { symbol = "BMS", name = "BMS Table" });
-        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        var bmson = new LR2SongDBExtended.bmson_song
         {
             path = @"folder-b\bmson.bmson",
             folder = "folder-b",
@@ -878,7 +872,7 @@ public sealed class ChartListVirtualViewTests
             hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file.SetWarning(ChartWarningKind.ResourceWavMissing, "stale resource warning");
         file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
-        ResourceHealthWarningProjection projection = new ResourceHealthWarningProjection(
+        var projection = new ResourceHealthWarningProjection(
             1,
             new[] { ChartWarning.Create(ChartWarningKind.ResourceBgaMissing, "projected resource warning") },
             isIgnored: false);
@@ -886,7 +880,7 @@ public sealed class ChartListVirtualViewTests
             new[] { file },
             null,
             _ => projection);
-        LibraryChartRow chartRow = LibraryChartRow.FromBmsFile(file);
+        var chartRow = LibraryChartRow.FromBmsFile(file);
         chartRow.SetResourceHealthProjectionProvider(_ => projection);
 
         Assert.AreEqual(chartRow.WarningDigestText, sourceRows[0].WarningDigestText);
@@ -933,16 +927,16 @@ public sealed class ChartListVirtualViewTests
 
     private static ChartListVirtualView CreateView(out Func<int> getCreatedCount, int distinctFolderCount = -1)
     {
-        List<BMSFile> files = new List<BMSFile>
-        {
+        List<BMSFile> files =
+        [
             CreateFile(@"folder-b\charlie.bms", "Charlie", "folder-b"),
             CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a"),
             CreateFile(@"folder-a\bravo.bms", "Bravo", "folder-a")
-        };
+        ];
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
-        ChartListOrder order = ChartListOrder.CreateTitleAscending(sourceRows);
+        var order = ChartListOrder.CreateTitleAscending(sourceRows);
         int localCreatedCount = 0;
-        ChartListVirtualView view = new ChartListVirtualView(
+        var view = new ChartListVirtualView(
             sourceRows,
             order,
             row =>
@@ -962,13 +956,13 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, bmsons);
         bool created = ChartListOrder.TryCreate(sourceRows, columnName, direction, out ChartListOrder order);
         Assert.IsTrue(created);
-        ChartListVirtualView view = new ChartListVirtualView(
+        var view = new ChartListVirtualView(
             sourceRows,
             order,
             row => row.BmsFile != null
                 ? LibraryChartRow.FromBmsFile(row.BmsFile)
                 : LibraryChartRow.FromBmsonSong(row.BmsonSong));
-        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = columnName,
             Direction = direction
@@ -989,8 +983,8 @@ public sealed class ChartListVirtualViewTests
 
     private static List<BMSFile> CreateSampleSortFiles()
     {
-        return new List<BMSFile>
-        {
+        return
+        [
             CreateFile(
                 @"folder-a\z_item10.bms",
                 "item10",
@@ -1048,13 +1042,13 @@ public sealed class ChartListVirtualViewTests
                 chartSeed: 2,
                 maintenanceSeed: 2,
                 warningSeed: 2)
-        };
+        ];
     }
 
     private static List<LR2SongDBExtended.bmson_song> CreateSampleSortBmsons()
     {
-        return new List<LR2SongDBExtended.bmson_song>
-        {
+        return
+        [
             new LR2SongDBExtended.bmson_song
             {
                 path = @"folder-c\bmson-beta.bmson",
@@ -1083,7 +1077,7 @@ public sealed class ChartListVirtualViewTests
                 ChartInfo = CreateChartInfo("5555555555555555555555555555555555555555555555555555555555555555", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 2, difficulty: 0, mainBpm: 90.0, total: 180.0),
                 MaintenanceInfo = CreateMaintenanceInfo(@"folder-d\bmson-alpha.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", 5)
             }
-        };
+        ];
     }
 
     private static BMSFile CreateFile(
@@ -1106,7 +1100,7 @@ public sealed class ChartListVirtualViewTests
         int? maintenanceSeed = null,
         int? warningSeed = null)
     {
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.Apply(path, title, folder, artist, genre, level, mode, tag, hash, sha256);
         file.instl_dst = installDestination;
         file.InstallDestinationTitle = installDestinationTitle;
@@ -1162,13 +1156,12 @@ public sealed class ChartListVirtualViewTests
 
     private static VirtualNormalLibrarySortDescriptor[] CreateExpectedDefaultPrewarmDescriptors()
     {
-        return CreateExpectedDefaultPrewarmColumnNames()
+        return [.. CreateExpectedDefaultPrewarmColumnNames()
             .SelectMany(column => new[]
             {
                 new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Ascending, GetPrewarmPriority(column)),
                 new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Descending, GetPrewarmPriority(column))
-            })
-            .ToArray();
+            })];
     }
 
     private static int GetPrewarmPriority(string columnName)
@@ -1179,8 +1172,8 @@ public sealed class ChartListVirtualViewTests
 
     private static string[] CreateExpectedDefaultPrewarmColumnNames()
     {
-        return new[]
-        {
+        return
+        [
             nameof(LibraryChartRow.Title),
             nameof(LibraryChartRow.Folder),
             nameof(LibraryChartRow.path),
@@ -1208,13 +1201,13 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.ChartLevelSortKey),
             nameof(LibraryChartRow.ChartDifficultySortKey),
             nameof(LibraryChartRow.ChartFeatureSortKey)
-        };
+        ];
     }
 
     private static string[] CreateExpectedVirtualSortColumnNames()
     {
-        return new[]
-        {
+        return
+        [
             nameof(LibraryChartRow.Title),
             nameof(LibraryChartRow.path),
             nameof(LibraryChartRow.Folder),
@@ -1260,7 +1253,7 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.ChartPeakDensitySortKey),
             nameof(LibraryChartRow.ChartEndDensitySortKey),
             nameof(LibraryChartRow.ChartSoflanCount)
-        };
+        ];
     }
 
     private static void AssertRegistryDependency(IEnumerable<ChartListOrderColumnMetadata> metadata, MainViewDataDependency dependency, string columnName)

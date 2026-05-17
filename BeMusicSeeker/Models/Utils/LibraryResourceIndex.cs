@@ -21,8 +21,8 @@ internal sealed class LibraryResourceIndex
 
     public static LibraryResourceIndex CreateFromScanResult(BmsScanResult scanResult)
     {
-        LibraryResourceIndex index = new LibraryResourceIndex();
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var index = new LibraryResourceIndex();
+        var stopwatch = Stopwatch.StartNew();
         index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromScanResult(scanResult);
         stopwatch.Stop();
         index.ResourceLookupMs = stopwatch.ElapsedMilliseconds;
@@ -42,8 +42,8 @@ internal sealed class LibraryResourceIndex
         Dictionary<uint, string[]> imageRelativeReverseDirectories,
         Dictionary<uint, string[]> movieRelativeReverseDirectories)
     {
-        LibraryResourceIndex index = new LibraryResourceIndex();
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var index = new LibraryResourceIndex();
+        var stopwatch = Stopwatch.StartNew();
         index.Source = "native_canonical";
         index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
             chartDirectories,

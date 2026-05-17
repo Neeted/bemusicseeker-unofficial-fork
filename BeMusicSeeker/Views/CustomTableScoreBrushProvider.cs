@@ -25,94 +25,59 @@ internal static class CustomTableScoreBrushProvider
 
     internal static object ConvertDifficulty(string key)
     {
-        switch (key)
+        return key switch
         {
-            case "Beginner":
-                return GreenBrush;
-            case "Normal":
-                return BlueBrush;
-            case "Hyper":
-                return YellowOrangeBrush;
-            case "Another":
-                return RedBrush;
-            case "Insane":
-                return PurpleBrush;
-            default:
-                return Binding.DoNothing;
-        }
+            "Beginner" => GreenBrush,
+            "Normal" => BlueBrush,
+            "Hyper" => YellowOrangeBrush,
+            "Another" => RedBrush,
+            "Insane" => PurpleBrush,
+            _ => Binding.DoNothing,
+        };
     }
 
     internal static object ConvertJudge(string key)
     {
-        switch (key)
+        return key switch
         {
-            case "VeryHard":
-                return VeryHardBrush;
-            case "Hard":
-                return RedBrush;
-            case "Normal":
-                return BlueBrush;
-            case "Easy":
-                return GreenBrush;
-            case "VeryEasy":
-                return VeryEasyBrush;
-            default:
-                return Binding.DoNothing;
-        }
+            "VeryHard" => VeryHardBrush,
+            "Hard" => RedBrush,
+            "Normal" => BlueBrush,
+            "Easy" => GreenBrush,
+            "VeryEasy" => VeryEasyBrush,
+            _ => Binding.DoNothing,
+        };
     }
 
     internal static object ConvertClear(ClearType clear)
     {
-        switch (clear)
+        return clear switch
         {
-            case ClearType.NO_SONG:
-                return GrayBrush;
-            case ClearType.NO_PLAY:
-                return BlackBrush;
-            case ClearType.FAILED:
-                return DarkBrownBrush;
-            case ClearType.EASY:
-                return GreenBrush;
-            case ClearType.INVALID:
-                return PurpleBrush;
-            case ClearType.L_ASSIST:
-                return LightPurpleBrush;
-            case ClearType.CLEAR:
-                return BlueBrush;
-            case ClearType.HARD:
-                return RedBrush;
-            case ClearType.EX_HARD:
-                return YellowBrush;
-            case ClearType.FC:
-                return DeepSkyBlueBrush;
-            case ClearType.PA:
-                return HotPinkBrush;
-            case ClearType.MAX:
-                return YellowOrangeBrush;
-            default:
-                return Binding.DoNothing;
-        }
+            ClearType.NO_SONG => GrayBrush,
+            ClearType.NO_PLAY => BlackBrush,
+            ClearType.FAILED => DarkBrownBrush,
+            ClearType.EASY => GreenBrush,
+            ClearType.INVALID => PurpleBrush,
+            ClearType.L_ASSIST => LightPurpleBrush,
+            ClearType.CLEAR => BlueBrush,
+            ClearType.HARD => RedBrush,
+            ClearType.EX_HARD => YellowBrush,
+            ClearType.FC => DeepSkyBlueBrush,
+            ClearType.PA => HotPinkBrush,
+            ClearType.MAX => YellowOrangeBrush,
+            _ => Binding.DoNothing,
+        };
     }
 
     internal static object ConvertRank(RankType rank)
     {
-        switch (rank)
+        return rank switch
         {
-            case RankType.F:
-            case RankType.E:
-            case RankType.D:
-            case RankType.C:
-            case RankType.B:
-            case RankType.AA:
-                return GrayBrush;
-            case RankType.A:
-                return GreenBrush;
-            case RankType.AAA:
-            case RankType.MAX:
-                return YellowOrangeBrush;
-            default:
-                return Binding.DoNothing;
-        }
+            RankType.F or RankType.E or RankType.D or RankType.C or RankType.B or RankType.AA => GrayBrush,
+            RankType.A => GreenBrush,
+            RankType.AAA or RankType.MAX => YellowOrangeBrush,
+            _ => Binding.DoNothing,
+        };
     }
 
     internal static Brush ResolveBrush(object candidate, Brush fallback)
@@ -122,7 +87,7 @@ internal static class CustomTableScoreBrushProvider
 
     private static Brush CreateBrush(Color color)
     {
-        SolidColorBrush brush = new SolidColorBrush(color);
+        var brush = new SolidColorBrush(color);
         brush.Freeze();
         return brush;
     }

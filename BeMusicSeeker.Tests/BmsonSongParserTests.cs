@@ -40,7 +40,7 @@ public sealed class BmsonSongParserTests
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
-            var parsed = BmsonSongParser.Parse(filePath);
+            Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
 
             Assert.AreEqual(Path.GetFullPath(filePath), parsed.path);
             Assert.AreEqual("Main", parsed.title);
@@ -88,8 +88,8 @@ public sealed class BmsonSongParserTests
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
-            var parsed = BmsonSongParser.Parse(filePath);
-            PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(parsed);
+            Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
+            var pending = PendingChartEntry.CreateFromBmsonSong(parsed);
             pending.SetHealthStatus(forceUpdate: false, memClear: false);
 
             CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, pending.WAVfiles.ToArray());
@@ -136,7 +136,7 @@ public sealed class BmsonSongParserTests
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
-            var parsed = BmsonSongParser.Parse(filePath);
+            Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
 
             CollectionAssert.AreEquivalent(
                 new[] { "preview.wav", Path.Combine("sounds", "keysound.wav"), Path.Combine("keys", "hidden.wav"), Path.Combine("mines", "mine.wav") },
@@ -188,11 +188,11 @@ public sealed class BmsonSongParserTests
                 + "\"bpm_events\":[],"
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
-            DateTime lastWriteTimeUtc = new DateTime(2026, 5, 2, 4, 5, 6, DateTimeKind.Utc);
+            var lastWriteTimeUtc = new DateTime(2026, 5, 2, 4, 5, 6, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
 
-            var expected = BmsonSongParser.Parse(filePath);
-            var actual = BmsonSongParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
+            Models.LR2.LR2SongDBExtended.bmson_song expected = BmsonSongParser.Parse(filePath);
+            Models.LR2.LR2SongDBExtended.bmson_song actual = BmsonSongParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
 
             AssertBmsonEqual(expected, actual);
             Assert.IsTrue(expected.HasFreshResourceReferences);
@@ -232,7 +232,7 @@ public sealed class BmsonSongParserTests
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
-            var actual = BmsonSongParser.ParseSnapshot(snapshot);
+            Models.LR2.LR2SongDBExtended.bmson_song actual = BmsonSongParser.ParseSnapshot(snapshot);
 
             Assert.AreEqual("Before", actual.title);
             Assert.AreEqual(snapshot.Md5, actual.md5);
@@ -295,7 +295,7 @@ public sealed class BmsonSongParserTests
     [TestMethod]
     public void PendingChartEntry_UpdateFromBmsonSong_ReusesRowAndUpdatesDisplayFields()
     {
-        PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(new BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song
+        var row = PendingChartEntry.CreateFromBmsonSong(new BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song
         {
             path = @"C:\Songs\OldFolder\chart.bmson",
             folder = @"C:\Songs\OldFolder",

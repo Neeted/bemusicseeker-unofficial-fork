@@ -46,10 +46,7 @@ public partial class ProgressDialog : Window, IComponentConnector
     public ProgressDialog(ProgressDialogSettings settings)
     {
         InitializeComponent();
-        if (settings == null)
-        {
-            settings = ProgressDialogSettings.WithLabelOnly;
-        }
+        settings ??= ProgressDialogSettings.WithLabelOnly;
         if (settings.ShowSubLabel)
         {
             base.Height = 140.0;
@@ -74,9 +71,11 @@ public partial class ProgressDialog : Window, IComponentConnector
         }
         ProgressDialogResult result = null;
         _isBusy = true;
-        _worker = new BackgroundWorker();
-        _worker.WorkerReportsProgress = true;
-        _worker.WorkerSupportsCancellation = true;
+        _worker = new BackgroundWorker
+        {
+            WorkerReportsProgress = true,
+            WorkerSupportsCancellation = true
+        };
         _worker.DoWork += delegate (object s, DoWorkEventArgs e)
         {
             try
@@ -88,7 +87,7 @@ public partial class ProgressDialog : Window, IComponentConnector
                 }
                 else
                 {
-                    if (!(operation is Func<object>))
+                    if (operation is not Func<object>)
                     {
                         throw new InvalidOperationException("Operation type is not supoorted");
                     }
@@ -187,8 +186,10 @@ public partial class ProgressDialog : Window, IComponentConnector
 
     internal static ProgressDialogResult ExecuteInternal(Window owner, string title, string label, object operation, ProgressDialogSettings settings)
     {
-        ProgressDialog progressDialog = new ProgressDialog(settings);
-        progressDialog.Owner = owner;
+        var progressDialog = new ProgressDialog(settings)
+        {
+            Owner = owner
+        };
         if (!string.IsNullOrEmpty(title))
         {
             progressDialog.Title = title;

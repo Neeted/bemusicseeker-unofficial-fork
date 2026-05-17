@@ -3,92 +3,64 @@ using System.Globalization;
 
 namespace BeMusicSeeker.Diagnostics;
 
-internal readonly struct TableFirstVisibleTiming
+internal readonly struct TableFirstVisibleTiming(int requestVersion, long requestToBuildStartMs, long requestToBuildCompleteMs, long requestToVisibleRenderMs, long buildToVisibleRenderMs, int viewCount)
 {
-    public TableFirstVisibleTiming(int requestVersion, long requestToBuildStartMs, long requestToBuildCompleteMs, long requestToVisibleRenderMs, long buildToVisibleRenderMs, int viewCount)
-    {
-        RequestVersion = requestVersion;
-        RequestToBuildStartMs = requestToBuildStartMs;
-        RequestToBuildCompleteMs = requestToBuildCompleteMs;
-        RequestToVisibleRenderMs = requestToVisibleRenderMs;
-        BuildToVisibleRenderMs = buildToVisibleRenderMs;
-        ViewCount = viewCount;
-    }
+    public int RequestVersion { get; } = requestVersion;
 
-    public int RequestVersion { get; }
+    public long RequestToBuildStartMs { get; } = requestToBuildStartMs;
 
-    public long RequestToBuildStartMs { get; }
+    public long RequestToBuildCompleteMs { get; } = requestToBuildCompleteMs;
 
-    public long RequestToBuildCompleteMs { get; }
+    public long RequestToVisibleRenderMs { get; } = requestToVisibleRenderMs;
 
-    public long RequestToVisibleRenderMs { get; }
+    public long BuildToVisibleRenderMs { get; } = buildToVisibleRenderMs;
 
-    public long BuildToVisibleRenderMs { get; }
-
-    public int ViewCount { get; }
+    public int ViewCount { get; } = viewCount;
 }
 
-internal readonly struct TableFirstVisibleMetrics
+internal readonly struct TableFirstVisibleMetrics(
+    string controlType,
+    string trigger,
+    long sourceGenerationId,
+    long viewGenerationId,
+    int rowCount,
+    int visibleRowCount,
+    int visibleColumnCount,
+    int visibleCellCount,
+    long firstRenderMs,
+    long renderWorkMs,
+    double textCacheHitRate,
+    long stateLogMs,
+    TableFirstVisibleTiming timing,
+    bool isPreparationRender = false)
 {
-    public TableFirstVisibleMetrics(
-        string controlType,
-        string trigger,
-        long sourceGenerationId,
-        long viewGenerationId,
-        int rowCount,
-        int visibleRowCount,
-        int visibleColumnCount,
-        int visibleCellCount,
-        long firstRenderMs,
-        long renderWorkMs,
-        double textCacheHitRate,
-        long stateLogMs,
-        TableFirstVisibleTiming timing,
-        bool isPreparationRender = false)
-    {
-        ControlType = controlType ?? string.Empty;
-        Trigger = trigger ?? string.Empty;
-        SourceGenerationId = sourceGenerationId;
-        ViewGenerationId = viewGenerationId;
-        RowCount = rowCount;
-        VisibleRowCount = visibleRowCount;
-        VisibleColumnCount = visibleColumnCount;
-        VisibleCellCount = visibleCellCount;
-        FirstRenderMs = firstRenderMs;
-        RenderWorkMs = renderWorkMs;
-        TextCacheHitRate = textCacheHitRate;
-        StateLogMs = stateLogMs;
-        Timing = timing;
-        IsPreparationRender = isPreparationRender;
-    }
+    public string ControlType { get; } = controlType ?? string.Empty;
 
-    public string ControlType { get; }
+    public string Trigger { get; } = trigger ?? string.Empty;
 
-    public string Trigger { get; }
+    public long SourceGenerationId { get; } = sourceGenerationId;
 
-    public long SourceGenerationId { get; }
+    public long ViewGenerationId { get; } = viewGenerationId;
 
-    public long ViewGenerationId { get; }
+    public int RowCount { get; } = rowCount;
 
-    public int RowCount { get; }
+    public int VisibleRowCount { get; } = visibleRowCount;
 
-    public int VisibleRowCount { get; }
+    public int VisibleColumnCount { get; } = visibleColumnCount;
 
-    public int VisibleColumnCount { get; }
+    public int VisibleCellCount { get; } = visibleCellCount;
 
-    public int VisibleCellCount { get; }
+    public long FirstRenderMs { get; } = firstRenderMs;
 
-    public long FirstRenderMs { get; }
+    public long RenderWorkMs { get; } = renderWorkMs;
 
-    public long RenderWorkMs { get; }
+    public double TextCacheHitRate { get; } = textCacheHitRate;
 
-    public double TextCacheHitRate { get; }
+    public long StateLogMs { get; } = stateLogMs;
 
-    public long StateLogMs { get; }
+    public TableFirstVisibleTiming Timing { get; } = timing;
 
-    public TableFirstVisibleTiming Timing { get; }
-
-    public bool IsPreparationRender { get; }
+    public bool IsPreparationRender { get; } = isPreparationRender;
 
     public static int CalculateVisibleCellCount(int visibleRowCount, int visibleColumnCount)
     {

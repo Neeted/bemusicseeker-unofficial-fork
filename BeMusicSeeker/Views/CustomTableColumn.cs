@@ -22,7 +22,7 @@ public enum CustomTableCellKind
 
 internal sealed class CustomTableTextStyle
 {
-    private static readonly FontFamily DefaultFontFamily = new FontFamily("Meiryo UI");
+    private static readonly FontFamily DefaultFontFamily = new("Meiryo UI");
 
     private CustomTableTextStyle(string cacheKey, FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
     {
@@ -253,8 +253,8 @@ public sealed class CustomTableColumn
     internal IReadOnlyList<string> GetEditSuggestions(object row)
     {
         return EditSuggestionsSelector == null
-            ? Array.Empty<string>()
-            : EditSuggestionsSelector(row)?.Where(item => !string.IsNullOrWhiteSpace(item)).ToArray() ?? Array.Empty<string>();
+            ? []
+            : EditSuggestionsSelector(row)?.Where(item => !string.IsNullOrWhiteSpace(item)).ToArray() ?? [];
     }
 
     internal int ClampWidth(double width)
@@ -276,7 +276,7 @@ internal static class CustomTableColumnFactory
     {
         if (settings == null)
         {
-            return Array.Empty<CustomTableColumn>();
+            return [];
         }
         CustomTableColumn[] columns = CreateAllMainColumns(settings);
         return columns
@@ -305,7 +305,7 @@ internal static class CustomTableColumnFactory
     {
         if (settings == null)
         {
-            return Array.Empty<CustomTableColumn>();
+            return [];
         }
         CustomTableColumn[] columns = CreateAllPlaylistSummaryColumns(settings);
         return columns
@@ -332,8 +332,8 @@ internal static class CustomTableColumnFactory
 
     private static CustomTableColumn[] CreateAllMainColumns(CustomTableColumnSettings settings)
     {
-        return new[]
-        {
+        return
+        [
             new CustomTableColumn("Status", "♬", settings.Status, 0, null, TextAlignment.Center, row => GetStatusIconText(row), tooltipSelector: GetStatusTooltip, minWidth: 18, maxWidth: 18, canResize: false, canReorder: false, cellKind: CustomTableCellKind.StatusIcon, autoTrimTooltip: false),
             new CustomTableColumn("EntryLevel", "ENTRY LEVEL", settings.EntryLevel, 1, "EntryLevelSortKey", TextAlignment.Right, row => GetString(row, "Level"), editPropertyName: "Level"),
             new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(LibraryChartRow.Title), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Title))),
@@ -386,13 +386,13 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("RankingLastupdate", "RANK UPDATE", settings.RankingLastupdate, 49, "rankingLastupdate", TextAlignment.Center, row => FormatShortDate(GetValue(row, "rankingLastupdate"))),
             new CustomTableColumn("TScore", "T-SCORE", settings.TScore, 50, "stddevVal", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "stddevVal"))),
             new CustomTableColumn("ScoreDifficulty", "ΔMAX", settings.ScoreDifficulty, 51, "scoreDifficulty", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "scoreDifficulty")))
-        };
+        ];
     }
 
     private static CustomTableColumn[] CreateAllPlaylistSummaryColumns(PlaylistSummaryColumnSettings settings)
     {
-        return new[]
-        {
+        return
+        [
             new CustomTableColumn("PlaylistId", "ID", settings.PlaylistId, 0, nameof(PlaylistSummaryRow.PlaylistId), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.PlaylistId)), autoTrimTooltip: false),
             new CustomTableColumn("Name", "NAME", settings.Name, 1, nameof(PlaylistSummaryRow.Name), TextAlignment.Left, row => GetString(row, nameof(PlaylistSummaryRow.Name))),
             new CustomTableColumn("Symbol", "SYMBOL", settings.Symbol, 2, nameof(PlaylistSummaryRow.Symbol), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Symbol)), autoTrimTooltip: false),
@@ -405,7 +405,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 9, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
             new CustomTableColumn("Status", Resources.Playlist_summary_status_header, settings.Status, 10, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail))),
             new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 11, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
-        };
+        ];
     }
 
     private static string GetString(object row, string propertyName)
@@ -414,37 +414,23 @@ internal static class CustomTableColumnFactory
         {
             return string.Empty;
         }
-        switch (propertyName)
+        return propertyName switch
         {
-            case nameof(LibraryChartRow.Title):
-                return GetTitle(row);
-            case nameof(LibraryChartRow.Artist):
-                return GetArtist(row);
-            case "path":
-                return GetPath(row);
-            case nameof(LibraryChartRow.DisplayWarning):
-                return GetDisplayWarning(row);
-            case nameof(LibraryChartRow.WarningDigestText):
-                return GetWarningDigestText(row);
-            case nameof(LibraryChartRow.WarningTooltipText):
-                return GetWarningTooltipText(row);
-            case nameof(LibraryChartRow.RefTablesSymbols):
-                return GetRefTablesSymbols(row);
-            case nameof(LibraryChartRow.RefTablesNames):
-                return GetRefTablesNames(row);
-            case nameof(LibraryChartRow.ClearDisplayText):
-                return GetClearDisplayText(row);
-            case nameof(LibraryChartRow.RankDisplayText):
-                return GetRankDisplayText(row);
-            case nameof(LibraryChartRow.ChartLevelText):
-                return GetChartLevelText(row);
-            case nameof(LibraryChartRow.ChartDifficultyText):
-                return GetChartDifficultyText(row);
-            case nameof(LibraryChartRow.ChartJudgeText):
-                return GetChartJudgeText(row);
-            default:
-                return GetReflectionString(row, propertyName);
-        }
+            nameof(LibraryChartRow.Title) => GetTitle(row),
+            nameof(LibraryChartRow.Artist) => GetArtist(row),
+            "path" => GetPath(row),
+            nameof(LibraryChartRow.DisplayWarning) => GetDisplayWarning(row),
+            nameof(LibraryChartRow.WarningDigestText) => GetWarningDigestText(row),
+            nameof(LibraryChartRow.WarningTooltipText) => GetWarningTooltipText(row),
+            nameof(LibraryChartRow.RefTablesSymbols) => GetRefTablesSymbols(row),
+            nameof(LibraryChartRow.RefTablesNames) => GetRefTablesNames(row),
+            nameof(LibraryChartRow.ClearDisplayText) => GetClearDisplayText(row),
+            nameof(LibraryChartRow.RankDisplayText) => GetRankDisplayText(row),
+            nameof(LibraryChartRow.ChartLevelText) => GetChartLevelText(row),
+            nameof(LibraryChartRow.ChartDifficultyText) => GetChartDifficultyText(row),
+            nameof(LibraryChartRow.ChartJudgeText) => GetChartJudgeText(row),
+            _ => GetReflectionString(row, propertyName),
+        };
     }
 
     private static IEnumerable<string> GetInstallDestinationSuggestions(object row)

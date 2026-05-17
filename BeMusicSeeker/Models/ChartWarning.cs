@@ -63,7 +63,7 @@ internal sealed class ChartWarning
     /// <returns>構造化 warning。</returns>
     internal static ChartWarning Create(ChartWarningKind kind, string message)
     {
-        ChartWarningDefinition definition = ChartWarningDefinition.ForKind(kind);
+        var definition = ChartWarningDefinition.ForKind(kind);
         return new ChartWarning(
             kind,
             definition.Category,
@@ -181,47 +181,26 @@ internal sealed class ChartWarningDefinition
     /// <returns>既定表示属性。</returns>
     internal static ChartWarningDefinition ForKind(ChartWarningKind kind)
     {
-        switch (kind)
+        return kind switch
         {
-            case ChartWarningKind.NestedChartFileInPackage:
-                return new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 10, Resources.WarningDigest_NestedChart, highlightRow: false);
-            case ChartWarningKind.ZeroNoteMismatch:
-                return new ChartWarningDefinition(ChartWarningCategory.ChartContent, 20, Resources.WarningDigest_ZeroNoteMismatch, highlightRow: true);
-            case ChartWarningKind.ChartInfoParseFailure:
-                return new ChartWarningDefinition(ChartWarningCategory.ChartMetadata, 15, Resources.WarningDigest_ChartInfoParseFailure, highlightRow: true);
-            case ChartWarningKind.Lr2PathEncodingUnsupported:
-                return new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 18, Resources.WarningDigest_Lr2PathEncodingUnsupported, highlightRow: true);
-            case ChartWarningKind.DuplicateChart:
-                return new ChartWarningDefinition(ChartWarningCategory.Duplicate, 30, Resources.WarningDigest_DuplicateChart, highlightRow: true);
-            case ChartWarningKind.InstallEstimationAmbiguous:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 40, Resources.WarningDigest_InstallEstimationAmbiguous, highlightRow: true);
-            case ChartWarningKind.InstallEstimationMetadataMismatch:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 41, Resources.WarningDigest_InstallEstimationMetadataMismatch, highlightRow: true);
-            case ChartWarningKind.InstallEstimationReinstallNotImproved:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 42, Resources.WarningDigest_InstallEstimationReinstallNotImproved, highlightRow: true);
-            case ChartWarningKind.InstalledDestinationAmbiguous:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 43, Resources.WarningDigest_InstalledDestinationAmbiguous, highlightRow: true);
-            case ChartWarningKind.InstalledDestinationResolveFailed:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 44, Resources.WarningDigest_InstalledDestinationResolveFailed, highlightRow: false);
-            case ChartWarningKind.InstallEstimationLowConfidence:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 45, Resources.WarningDigest_InstallEstimationLowConfidence, highlightRow: true);
-            case ChartWarningKind.AlreadyInstalled:
-                return new ChartWarningDefinition(ChartWarningCategory.InstalledState, 50, Resources.WarningDigest_AlreadyInstalled, highlightRow: false);
-            case ChartWarningKind.SingleBmsFile:
-                return new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 60, Resources.WarningDigest_SingleBmsFile, highlightRow: false);
-            case ChartWarningKind.SingleBmsonFile:
-                return new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 60, Resources.WarningDigest_SingleBmsonFile, highlightRow: false);
-            case ChartWarningKind.ResourceWavMissing:
-            case ChartWarningKind.ResourceBgaMissing:
-            case ChartWarningKind.ResourceMovieMissing:
-                return new ChartWarningDefinition(ChartWarningCategory.ResourceHealth, 80, Resources.WarningDigest_ResourceMissing, highlightRow: false);
-            case ChartWarningKind.ResourceStagefileMissing:
-            case ChartWarningKind.ResourceBackbmpMissing:
-            case ChartWarningKind.ResourceBannerMissing:
-                return new ChartWarningDefinition(ChartWarningCategory.ResourceHealth, 83, Resources.WarningDigest_ImageMissing, highlightRow: false, showInDigest: false);
-            default:
-                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
-        }
+            ChartWarningKind.NestedChartFileInPackage => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 10, Resources.WarningDigest_NestedChart, highlightRow: false),
+            ChartWarningKind.ZeroNoteMismatch => new ChartWarningDefinition(ChartWarningCategory.ChartContent, 20, Resources.WarningDigest_ZeroNoteMismatch, highlightRow: true),
+            ChartWarningKind.ChartInfoParseFailure => new ChartWarningDefinition(ChartWarningCategory.ChartMetadata, 15, Resources.WarningDigest_ChartInfoParseFailure, highlightRow: true),
+            ChartWarningKind.Lr2PathEncodingUnsupported => new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 18, Resources.WarningDigest_Lr2PathEncodingUnsupported, highlightRow: true),
+            ChartWarningKind.DuplicateChart => new ChartWarningDefinition(ChartWarningCategory.Duplicate, 30, Resources.WarningDigest_DuplicateChart, highlightRow: true),
+            ChartWarningKind.InstallEstimationAmbiguous => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 40, Resources.WarningDigest_InstallEstimationAmbiguous, highlightRow: true),
+            ChartWarningKind.InstallEstimationMetadataMismatch => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 41, Resources.WarningDigest_InstallEstimationMetadataMismatch, highlightRow: true),
+            ChartWarningKind.InstallEstimationReinstallNotImproved => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 42, Resources.WarningDigest_InstallEstimationReinstallNotImproved, highlightRow: true),
+            ChartWarningKind.InstalledDestinationAmbiguous => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 43, Resources.WarningDigest_InstalledDestinationAmbiguous, highlightRow: true),
+            ChartWarningKind.InstalledDestinationResolveFailed => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 44, Resources.WarningDigest_InstalledDestinationResolveFailed, highlightRow: false),
+            ChartWarningKind.InstallEstimationLowConfidence => new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 45, Resources.WarningDigest_InstallEstimationLowConfidence, highlightRow: true),
+            ChartWarningKind.AlreadyInstalled => new ChartWarningDefinition(ChartWarningCategory.InstalledState, 50, Resources.WarningDigest_AlreadyInstalled, highlightRow: false),
+            ChartWarningKind.SingleBmsFile => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 60, Resources.WarningDigest_SingleBmsFile, highlightRow: false),
+            ChartWarningKind.SingleBmsonFile => new ChartWarningDefinition(ChartWarningCategory.PackageLayout, 60, Resources.WarningDigest_SingleBmsonFile, highlightRow: false),
+            ChartWarningKind.ResourceWavMissing or ChartWarningKind.ResourceBgaMissing or ChartWarningKind.ResourceMovieMissing => new ChartWarningDefinition(ChartWarningCategory.ResourceHealth, 80, Resources.WarningDigest_ResourceMissing, highlightRow: false),
+            ChartWarningKind.ResourceStagefileMissing or ChartWarningKind.ResourceBackbmpMissing or ChartWarningKind.ResourceBannerMissing => new ChartWarningDefinition(ChartWarningCategory.ResourceHealth, 83, Resources.WarningDigest_ImageMissing, highlightRow: false, showInDigest: false),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+        };
     }
 }
 
@@ -232,7 +211,7 @@ internal sealed class ChartWarningDefinition
 internal sealed class ChartWarningCollection
 {
     private readonly BMSFile owner;
-    private readonly Dictionary<ChartWarningKind, ChartWarning> structuredWarnings = new Dictionary<ChartWarningKind, ChartWarning>();
+    private readonly Dictionary<ChartWarningKind, ChartWarning> structuredWarnings = [];
 
     /// <summary>
     /// 指定した譜面行に紐付く collection を作成します。
@@ -300,7 +279,7 @@ internal sealed class ChartWarningCollection
             structuredWarnings.Remove(kind);
             changed = true;
         }
-        foreach (ChartWarning warning in warnings ?? Enumerable.Empty<ChartWarning>())
+        foreach (ChartWarning warning in warnings ?? [])
         {
             if (warning == null || warning.Category != category)
             {
@@ -322,7 +301,7 @@ internal sealed class ChartWarningCollection
     internal void ReplaceAll(IEnumerable<ChartWarning> warnings)
     {
         structuredWarnings.Clear();
-        foreach (ChartWarning warning in warnings ?? Enumerable.Empty<ChartWarning>())
+        foreach (ChartWarning warning in warnings ?? [])
         {
             if (warning != null)
             {
@@ -376,19 +355,18 @@ internal sealed class ChartWarningCollection
 
     internal static string BuildDigestText(IEnumerable<ChartWarning> sourceWarnings, string installDestination)
     {
-        List<ChartWarning> warnings = EnumerateEffectiveWarnings(sourceWarnings).ToList();
+        List<ChartWarning> warnings = [.. EnumerateEffectiveWarnings(sourceWarnings)];
         if (warnings.Count == 0)
         {
             return string.Empty;
         }
 
-        string[] labels = warnings
+        string[] labels = [.. warnings
             .Where(warning => warning.ShowInDigest && ShouldShowInDigest(warning, installDestination))
             .OrderBy(warning => warning.Priority)
             .Select(warning => warning.DigestLabel)
             .Where(label => !string.IsNullOrWhiteSpace(label))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
+            .Distinct(StringComparer.Ordinal)];
         if (labels.Length == 0)
         {
             return string.Empty;
@@ -409,13 +387,12 @@ internal sealed class ChartWarningCollection
     {
         return string.Join(
             Environment.NewLine,
-            EnumerateEffectiveWarnings(sourceWarnings)
+            [.. EnumerateEffectiveWarnings(sourceWarnings)
                 .Where(warning => warning.ShowInTooltip)
                 .OrderBy(warning => warning.Priority)
                 .Select(warning => warning.Message)
                 .Where(message => !string.IsNullOrWhiteSpace(message))
-                .Distinct(StringComparer.Ordinal)
-                .ToArray());
+                .Distinct(StringComparer.Ordinal)]);
     }
 
     /// <summary>
@@ -453,7 +430,7 @@ internal sealed class ChartWarningCollection
 
     private IEnumerable<ChartWarning> EnumerateEffectiveWarnings()
     {
-        Dictionary<ChartWarningKind, ChartWarning> effective = new Dictionary<ChartWarningKind, ChartWarning>();
+        Dictionary<ChartWarningKind, ChartWarning> effective = [];
         foreach (ChartWarning warning in structuredWarnings.Values)
         {
             effective[warning.Kind] = warning;
@@ -464,8 +441,8 @@ internal sealed class ChartWarningCollection
 
     private static IEnumerable<ChartWarning> EnumerateEffectiveWarnings(IEnumerable<ChartWarning> sourceWarnings)
     {
-        Dictionary<ChartWarningKind, ChartWarning> effective = new Dictionary<ChartWarningKind, ChartWarning>();
-        foreach (ChartWarning warning in sourceWarnings ?? Enumerable.Empty<ChartWarning>())
+        Dictionary<ChartWarningKind, ChartWarning> effective = [];
+        foreach (ChartWarning warning in sourceWarnings ?? [])
         {
             if (warning != null)
             {

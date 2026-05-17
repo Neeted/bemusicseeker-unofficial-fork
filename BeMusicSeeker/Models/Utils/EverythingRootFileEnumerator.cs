@@ -7,7 +7,7 @@ namespace BeMusicSeeker.Models.Utils;
 
 internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 {
-    private static readonly Dictionary<string, uint> StableGroupIds = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, uint> StableGroupIds = new(StringComparer.OrdinalIgnoreCase)
     {
         { ChartDirectoryScanBuilder.ChartGroupName, 1u },
         { ChartDirectoryScanBuilder.AudioGroupName, 2u },
@@ -18,15 +18,13 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 
     public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
     {
-        RootFileEnumerationResult result = new RootFileEnumerationResult
+        var result = new RootFileEnumerationResult
         {
             BackendName = EverythingNative.GroupedEnumerationBackendName
         };
 
         List<string> roots = NormalizeRoots(rootDirectories);
-        List<RootFileEnumerationGroup> groupList = (groups ?? Enumerable.Empty<RootFileEnumerationGroup>())
-            .Where((RootFileEnumerationGroup group) => group != null && !string.IsNullOrWhiteSpace(group.Name))
-            .ToList();
+        List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         foreach (RootFileEnumerationGroup group in groupList)
         {
             result.PathsByGroup[group.Name] = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -40,18 +38,18 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             return result;
         }
 
-        System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            List<EverythingNative.BridgeGroupedQuery> groupedQueries = new List<EverythingNative.BridgeGroupedQuery>(groupList.Count);
-            Dictionary<uint, string> groupNamesById = new Dictionary<uint, string>();
+            var groupedQueries = new List<EverythingNative.BridgeGroupedQuery>(groupList.Count);
+            Dictionary<uint, string> groupNamesById = [];
             foreach (RootFileEnumerationGroup group in groupList)
             {
                 uint groupId = GetStableGroupId(group.Name);
                 groupNamesById[groupId] = group.Name;
                 string query = group.IncludeAllFiles
-                    ? EverythingNative.BuildAllFilesQuery(roots.ToArray())
-                    : EverythingNative.BuildFilesQuery(roots.ToArray(), Array.ConvertAll(group.Extensions, (string extension) => extension.TrimStart('.')));
+                    ? EverythingNative.BuildAllFilesQuery([.. roots])
+                    : EverythingNative.BuildFilesQuery([.. roots], Array.ConvertAll(group.Extensions, extension => extension.TrimStart('.')));
                 groupedQueries.Add(new EverythingNative.BridgeGroupedQuery(groupId, query));
             }
 
@@ -81,7 +79,7 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
             }
             else
             {
-                result.TotalFileCount = groupedResult?.TotalFileCount ?? result.PathsByGroup.Values.SelectMany((HashSet<string> paths) => paths).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+                result.TotalFileCount = groupedResult?.TotalFileCount ?? result.PathsByGroup.Values.SelectMany(paths => paths).Distinct(StringComparer.OrdinalIgnoreCase).Count();
             }
 
             if (result.TotalFileCount == 0)
@@ -103,11 +101,10 @@ internal sealed class EverythingRootFileEnumerator : IRootFileEnumerator
 
     private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories)
     {
-        return (rootDirectories ?? Enumerable.Empty<string>())
-            .Where((string path) => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
+        return [.. (rootDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && Directory.Exists(path))
             .Select(Path.GetFullPath)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static uint GetStableGroupId(string groupName)

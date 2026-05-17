@@ -19,8 +19,8 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
         Func<ChartListSourceRow, LibraryChartRow> rowFactory,
         int distinctFolderCount = -1)
     {
-        this.sourceRows = sourceRows ?? Array.Empty<ChartListSourceRow>();
-        orderedIndexes = order?.Indexes ?? Array.Empty<int>();
+        this.sourceRows = sourceRows ?? [];
+        orderedIndexes = order?.Indexes ?? [];
         this.rowFactory = rowFactory ?? throw new ArgumentNullException(nameof(rowFactory));
         realizedRows = new LibraryChartRow[orderedIndexes.Length];
         this.distinctFolderCount = distinctFolderCount;

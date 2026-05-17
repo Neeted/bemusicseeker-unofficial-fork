@@ -11,9 +11,9 @@ internal class modeFilterConverter : IValueConverter
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        MainWindowViewModel.ModeFilterType modeFilterType = (MainWindowViewModel.ModeFilterType)value;
+        var modeFilterType = (MainWindowViewModel.ModeFilterType)value;
         string value2 = parameter as string;
-        MainWindowViewModel.ModeFilterType modeFilterType2 = (MainWindowViewModel.ModeFilterType)Enum.Parse(typeof(MainWindowViewModel.ModeFilterType), value2);
+        var modeFilterType2 = (MainWindowViewModel.ModeFilterType)Enum.Parse(typeof(MainWindowViewModel.ModeFilterType), value2);
         flags = modeFilterType;
         return (modeFilterType & modeFilterType2) == modeFilterType2;
     }
@@ -22,7 +22,7 @@ internal class modeFilterConverter : IValueConverter
     {
         bool num = (bool)value;
         string value2 = parameter as string;
-        MainWindowViewModel.ModeFilterType modeFilterType = (MainWindowViewModel.ModeFilterType)Enum.Parse(typeof(MainWindowViewModel.ModeFilterType), value2);
+        var modeFilterType = (MainWindowViewModel.ModeFilterType)Enum.Parse(typeof(MainWindowViewModel.ModeFilterType), value2);
         if (num)
         {
             flags |= modeFilterType;

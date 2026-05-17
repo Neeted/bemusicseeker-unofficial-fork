@@ -42,17 +42,17 @@ internal static class JavaDoubleParserJdk17
     private static readonly BigInteger BigTwoPow52 = BigInteger.One << 52;
     private static readonly BigInteger BigTwoPow53 = BigInteger.One << 53;
 
-    private static readonly double[] Small10Pow = new double[]
-    {
+    private static readonly double[] Small10Pow =
+    [
         1.0e0,
         1.0e1, 1.0e2, 1.0e3, 1.0e4, 1.0e5,
         1.0e6, 1.0e7, 1.0e8, 1.0e9, 1.0e10,
         1.0e11, 1.0e12, 1.0e13, 1.0e14, 1.0e15,
         1.0e16, 1.0e17, 1.0e18, 1.0e19, 1.0e20,
         1.0e21, 1.0e22
-    };
+    ];
 
-    private static readonly object Pow10Lock = new object();
+    private static readonly object Pow10Lock = new();
     private static BigInteger[] Pow10Cache = BuildInitialPow10Cache();
 
     [ThreadStatic]
@@ -70,8 +70,7 @@ internal static class JavaDoubleParserJdk17
         if (s == null)
             throw new ArgumentNullException("s");
 
-        ulong bits;
-        if (!TryParseDoubleBits(s, out bits))
+        if (!TryParseDoubleBits(s, out ulong bits))
             throw new FormatException("For input string: \"" + JavaTrimForMessage(s) + "\"");
 
         return LongBitsToDouble(bits);
@@ -79,8 +78,7 @@ internal static class JavaDoubleParserJdk17
 
     public static bool TryParseDouble(string s, out double value)
     {
-        ulong bits;
-        if (TryParseDoubleBits(s, out bits))
+        if (TryParseDoubleBits(s, out ulong bits))
         {
             value = LongBitsToDouble(bits);
             return true;
@@ -95,8 +93,7 @@ internal static class JavaDoubleParserJdk17
         if (s == null)
             throw new ArgumentNullException("s");
 
-        ulong bits;
-        if (!TryParseDoubleBits(s, out bits))
+        if (!TryParseDoubleBits(s, out ulong bits))
             throw new FormatException("For input string: \"" + JavaTrimForMessage(s) + "\"");
 
         return bits;
@@ -108,8 +105,7 @@ internal static class JavaDoubleParserJdk17
         if (s == null)
             return false;
 
-        int start, end;
-        JavaTrimBounds(s, out start, out end);
+        JavaTrimBounds(s, out int start, out int end);
         if (start == end)
             return false;
 
@@ -315,8 +311,7 @@ internal static class JavaDoubleParserJdk17
 
         if (nDigits <= MaxDecimalDigits)
         {
-            ulong fastBits;
-            if (TryFastDecimal(isNegative, smallValue, nDigits, decExp, out fastBits))
+            if (TryFastDecimal(isNegative, smallValue, nDigits, decExp, out ulong fastBits))
             {
                 bits = fastBits;
                 return true;
@@ -693,8 +688,7 @@ internal static class JavaDoubleParserJdk17
 
     private static BigInteger RoundQuotient(BigInteger numerator, BigInteger denominator)
     {
-        BigInteger remainder;
-        BigInteger quotient = BigInteger.DivRem(numerator, denominator, out remainder);
+        var quotient = BigInteger.DivRem(numerator, denominator, out BigInteger remainder);
         int cmp = (remainder << 1).CompareTo(denominator);
 
         if (cmp > 0 || (cmp == 0 && !quotient.IsEven))
@@ -775,7 +769,7 @@ internal static class JavaDoubleParserJdk17
                 while (newLength <= n)
                     newLength *= 2;
 
-                BigInteger[] expanded = new BigInteger[newLength];
+                var expanded = new BigInteger[newLength];
                 Array.Copy(cache, expanded, cache.Length);
                 for (int i = cache.Length; i < expanded.Length; i++)
                     expanded[i] = expanded[i - 1] * 10;
@@ -789,7 +783,7 @@ internal static class JavaDoubleParserJdk17
 
     private static BigInteger[] BuildInitialPow10Cache()
     {
-        BigInteger[] a = new BigInteger[32];
+        var a = new BigInteger[32];
         a[0] = BigInteger.One;
         for (int i = 1; i < a.Length; i++)
             a[i] = a[i - 1] * 10;
@@ -847,22 +841,25 @@ internal static class JavaDoubleParserJdk17
 
     private static string JavaTrimForMessage(string s)
     {
-        int start, end;
-        JavaTrimBounds(s, out start, out end);
+        JavaTrimBounds(s, out int start, out int end);
         return s.Substring(start, end - start);
     }
 
     private static double LongBitsToDouble(ulong bits)
     {
-        DoubleLongUnion u = new DoubleLongUnion();
-        u.LongValue = unchecked((long)bits);
+        var u = new DoubleLongUnion
+        {
+            LongValue = unchecked((long)bits)
+        };
         return u.DoubleValue;
     }
 
     private static ulong DoubleToRawLongBits(double value)
     {
-        DoubleLongUnion u = new DoubleLongUnion();
-        u.DoubleValue = value;
+        var u = new DoubleLongUnion
+        {
+            DoubleValue = value
+        };
         return unchecked((ulong)u.LongValue);
     }
 }

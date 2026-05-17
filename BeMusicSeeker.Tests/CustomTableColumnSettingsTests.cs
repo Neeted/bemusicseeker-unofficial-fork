@@ -102,7 +102,7 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void Constructor_AssignsSharedAdjustedDefaultWidths()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
         Assert.AreEqual(50, settings.Mode.Width);
         Assert.AreEqual(60, settings.Rate.Width);
@@ -113,7 +113,7 @@ public sealed class CustomTableColumnSettingsTests
     public void Constructor_InstallAndFullScanDefaultsMatchInitialColumnOrder()
     {
         string[] expected =
-        {
+        [
             "Status",
             "PlaylistSymbols",
             "WavHealth",
@@ -129,7 +129,7 @@ public sealed class CustomTableColumnSettingsTests
             "Folder",
             "Path",
             "Hash"
-        };
+        ];
 
         AssertVisibleColumnOrder(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL), expected);
         AssertVisibleColumnOrder(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN), expected);
@@ -210,8 +210,8 @@ public sealed class CustomTableColumnSettingsTests
     {
         foreach (CustomTableColumnSettings.ViewKind ViewKind in Enum.GetValues(typeof(CustomTableColumnSettings.ViewKind)))
         {
-            CustomTableColumnSettings settings = new CustomTableColumnSettings(ViewKind);
-            int[] displayIndexes = GetLayouts(settings).Select((item) => item.Layout.DisplayIndex).ToArray();
+            var settings = new CustomTableColumnSettings(ViewKind);
+            int[] displayIndexes = [.. GetLayouts(settings).Select((item) => item.Layout.DisplayIndex)];
 
             Assert.AreEqual(displayIndexes.Length, displayIndexes.Distinct().Count(), ViewKind.ToString());
         }
@@ -227,7 +227,7 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void EnsureChartInfoColumnDefaults_CompletesMissingLayoutsWithoutOverwritingExistingChoices()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
         settings.EntryLevel.Visibility = Visibility.Visible;
         settings.EntryLevel.DisplayIndex = 77;
         settings.Level.Visibility = Visibility.Visible;
@@ -249,7 +249,7 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void EnsureChartInfoColumnDefaults_RecreatesMissingStatusLayout()
     {
-        CustomTableColumnSettings settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
         {
             Status = null
         };
@@ -264,11 +264,10 @@ public sealed class CustomTableColumnSettingsTests
 
     private static void AssertVisibleColumnOrder(CustomTableColumnSettings settings, params string[] expectedNames)
     {
-        string[] actualNames = GetLayouts(settings)
+        string[] actualNames = [.. GetLayouts(settings)
             .Where((item) => item.Layout.Visibility == Visibility.Visible)
             .OrderBy((item) => item.Layout.DisplayIndex)
-            .Select((item) => item.Name)
-            .ToArray();
+            .Select((item) => item.Name)];
 
         CollectionAssert.AreEqual(expectedNames, actualNames);
     }

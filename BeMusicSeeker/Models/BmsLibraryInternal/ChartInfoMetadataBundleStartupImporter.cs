@@ -79,7 +79,7 @@ internal static class ChartInfoMetadataBundleStartupImporter
     {
         string archiveSha256 = BMSFile.GetSHA256Hash(archivePath);
         logInstallPerformance?.Invoke("chart_info_metadata_import start bundleType=7z archivePath=\"" + archivePath + "\" bundleSha256=" + archiveSha256);
-        Stopwatch importHistoryStopwatch = Stopwatch.StartNew();
+        var importHistoryStopwatch = Stopwatch.StartNew();
         if (dbGateway.IsChartInfoMetadataBundleImportRecorded(archiveSha256))
         {
             importHistoryStopwatch.Stop();
@@ -107,7 +107,7 @@ internal static class ChartInfoMetadataBundleStartupImporter
         try
         {
             tempDirectoryPath = createTempDirectory != null ? createTempDirectory() : CreateDefaultTempDirectory();
-            Stopwatch stopwatch = Stopwatch.StartNew();
+            var stopwatch = Stopwatch.StartNew();
             (extractArchiveEntries ?? DefaultExtractArchiveEntries)(archivePath, tempDirectoryPath);
             stopwatch.Stop();
             extractMs = stopwatch.ElapsedMilliseconds;
@@ -142,9 +142,7 @@ internal static class ChartInfoMetadataBundleStartupImporter
             throw new DirectoryNotFoundException("chart_info metadata bundle extract directory was not found.");
         }
 
-        string[] candidates = Directory.GetFiles(tempDirectoryPath, MetadataDbFileName, SearchOption.TopDirectoryOnly)
-            .Where((string path) => string.Equals(Path.GetFileName(path), MetadataDbFileName, StringComparison.OrdinalIgnoreCase))
-            .ToArray();
+        string[] candidates = [.. Directory.GetFiles(tempDirectoryPath, MetadataDbFileName, SearchOption.TopDirectoryOnly).Where(path => string.Equals(Path.GetFileName(path), MetadataDbFileName, StringComparison.OrdinalIgnoreCase))];
         if (candidates.Length == 1)
         {
             return candidates[0];

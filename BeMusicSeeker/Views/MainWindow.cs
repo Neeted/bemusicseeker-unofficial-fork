@@ -89,7 +89,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
-    private PropertyChangedEventListener settingsDefaultEventListnener;
+    private readonly PropertyChangedEventListener settingsDefaultEventListnener;
 
     private static readonly string clearlampUri = "http://xyzzz.net/bms/clearlamp";
 
@@ -105,13 +105,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private Task changeSubmenuOpenSearchLinkTask;
 
-    private static Regex dropBoxRegex = new Regex("https?://(?:(?:www|dl)\\.dropbox\\.com|dl\\.dropboxusercontent\\.com)/(sh?)/([^?]*)\\.([^?]*)(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex dropBoxRegex = new("https?://(?:(?:www|dl)\\.dropbox\\.com|dl\\.dropboxusercontent\\.com)/(sh?)/([^?]*)\\.([^?]*)(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static Regex gdriveRegex = new Regex("https?://drive\\.google\\.com/(file/d/|open\\?id=)([^/]*)(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex gdriveRegex = new("https?://drive\\.google\\.com/(file/d/|open\\?id=)([^/]*)(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static Regex odriveRegex = new Regex("https?://onedrive\\.live\\.com/redir\\?(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex odriveRegex = new("https?://onedrive\\.live\\.com/redir\\?(.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private Storyboard treeViewItemInstantStoryBoardPlaylistTable = new Storyboard();
+    private readonly Storyboard treeViewItemInstantStoryBoardPlaylistTable = new();
 
     private static DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
 
@@ -127,7 +127,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
-    private readonly Dictionary<BMSFile, PendingInstallDestinationEditState> _pendingInstallDestinationEditStates = new Dictionary<BMSFile, PendingInstallDestinationEditState>();
+    private readonly Dictionary<BMSFile, PendingInstallDestinationEditState> _pendingInstallDestinationEditStates = [];
 
     private sealed class PendingInstallDestinationEditState
     {
@@ -152,7 +152,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     try
                     {
-                        MemoryStream memoryStream = new MemoryStream(File.ReadAllBytes(Settings.Default.StagefilePath));
+                        var memoryStream = new MemoryStream(File.ReadAllBytes(Settings.Default.StagefilePath));
                         _panelImage = new WriteableBitmap(BitmapFrame.Create(memoryStream));
                         memoryStream.Close();
                         return _panelImage;
@@ -309,8 +309,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && viewModel.IsStartupUiInteractionBlocked)
+        if (base.DataContext is MainWindowViewModel viewModel && viewModel.IsStartupUiInteractionBlocked)
         {
             QueueStartupInitialSelectionUntilOperable(viewModel);
             return;
@@ -371,7 +370,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return 0;
         }
         int count = 0;
-        Queue<DependencyObject> pending = new Queue<DependencyObject>();
+        var pending = new Queue<DependencyObject>();
         pending.Enqueue(root);
         while (pending.Count > 0 && count < maxCount)
         {
@@ -416,8 +415,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Data.GetData(DataFormats.FileDrop) is string[] filePaths)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-            string[] pathSnapshot = filePaths.ToArray();
+            var viewModel = base.DataContext as MainWindowViewModel;
+            string[] pathSnapshot = [.. filePaths];
             if (pathSnapshot.Length > 0)
             {
                 viewModel?.EnqueueDroppedInstallPaths(pathSnapshot);
@@ -485,8 +484,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (webBrowser != null)
         {
             object value = typeof(WebBrowser).GetProperty("AxIWebBrowser2", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(webBrowser, null);
-            value.GetType().InvokeMember("Silent", BindingFlags.SetProperty, null, value, new object[1] { true });
-            value.GetType().InvokeMember("RegisterAsDropTarget", BindingFlags.SetProperty, null, value, new object[1] { false });
+            value.GetType().InvokeMember("Silent", BindingFlags.SetProperty, null, value, [true]);
+            value.GetType().InvokeMember("RegisterAsDropTarget", BindingFlags.SetProperty, null, value, [false]);
         }
         try
         {
@@ -510,7 +509,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     protected override void OnClosing(CancelEventArgs e)
     {
         _isClosingOrClosed = true;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && _startupInitialSelectionReadyHandler != null)
         {
             viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
@@ -533,7 +532,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         try
         {
-            Win32API.WINDOWPLACEMENT lpwndpl = default(Win32API.WINDOWPLACEMENT);
+            Win32API.WINDOWPLACEMENT lpwndpl = default;
             Win32API.GetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
             Settings.Default.WindowPlacement = lpwndpl;
         }
@@ -565,8 +564,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             LogStartupUiBlocked(action, "closing");
             return true;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && viewModel.IsStartupUiInteractionBlocked)
+        if (base.DataContext is MainWindowViewModel viewModel && viewModel.IsStartupUiInteractionBlocked)
         {
             LogStartupUiBlocked(action, "startup");
             return true;
@@ -585,8 +583,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        Stopwatch stateLogStopwatch = Stopwatch.StartNew();
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var stateLogStopwatch = Stopwatch.StartNew();
+        var viewModel = base.DataContext as MainWindowViewModel;
         long sourceGenerationId = viewModel?.PlaylistSourceGenerationId ?? 0L;
         long viewGenerationId = viewModel?.PlaylistAdoptedViewGenerationId ?? 0L;
         TableFirstVisibleTiming timing = default;
@@ -596,7 +594,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             timing = new TableFirstVisibleTiming(-1, -1L, -1L, e.FirstRenderMs, -1L, e.RowCount);
         }
         long stateLogMs = stateLogStopwatch.ElapsedMilliseconds;
-        TableFirstVisibleMetrics metrics = new TableFirstVisibleMetrics(
+        var metrics = new TableFirstVisibleMetrics(
             "CustomTableView",
             "custom_onrender",
             sourceGenerationId,
@@ -624,7 +622,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!(base.DataContext is MainWindowViewModel viewModel) || string.IsNullOrWhiteSpace(e.SortMemberPath))
+        if (base.DataContext is not MainWindowViewModel viewModel || string.IsNullOrWhiteSpace(e.SortMemberPath))
         {
             return;
         }
@@ -640,7 +638,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!(base.DataContext is MainWindowViewModel viewModel) || string.IsNullOrWhiteSpace(e.SortMemberPath))
+        if (base.DataContext is not MainWindowViewModel viewModel || string.IsNullOrWhiteSpace(e.SortMemberPath))
         {
             return;
         }
@@ -672,7 +670,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!(base.DataContext is MainWindowViewModel viewModel))
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -783,7 +781,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Cancel = true;
             return;
         }
-        if (!(base.DataContext is MainWindowViewModel viewModel) || string.IsNullOrWhiteSpace(e.EditPropertyName))
+        if (base.DataContext is not MainWindowViewModel viewModel || string.IsNullOrWhiteSpace(e.EditPropertyName))
         {
             e.Cancel = true;
             return;
@@ -866,7 +864,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void customTableView_CellEditEnded(object sender, CustomTableCellEditEndedEventArgs e)
     {
-        if (!(base.DataContext is MainWindowViewModel viewModel))
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -1042,7 +1040,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     public void PrepareMainTableSwap()
     {
-        Stopwatch stopwatch = Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
         customTableView?.PrepareForItemsSourceSwap();
         stopwatch.Stop();
         if (installPerformanceLoggingEnabled)
@@ -1097,7 +1095,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (value == null)
         {
-            return (T _) => { };
+            return _ => { };
         }
         Type type = value.GetType();
         PropertyInfo propertyInfo = null;
@@ -1109,13 +1107,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (propertyInfo == null)
             {
                 Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Property '{name}' not found on type '{type.Name}' in path '{path}'");
-                return (T _) => { };
+                return _ => { };
             }
             firstArgument = value;
             value = propertyInfo.GetValue(value, null);
             if (value == null && name != array.Last())
             {
-                return (T _) => { };
+                return _ => { };
             }
             type = propertyInfo.PropertyType;
         }
@@ -1123,7 +1121,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (setMethod == null)
         {
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Set method for property '{propertyInfo?.Name}' not found in path '{path}'");
-            return (T _) => { };
+            return _ => { };
         }
         return Delegate.CreateDelegate(typeof(Action<T>), firstArgument, setMethod) as Action<T>;
     }
@@ -1135,11 +1133,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         try
         {
-            return customTableView?.GetSelectedRowsSnapshot().Where((object row) => row != null).ToList() ?? new List<object>();
+            return customTableView?.GetSelectedRowsSnapshot().Where(row => row != null).ToList() ?? [];
         }
         catch
         {
-            return new List<object>();
+            return [];
         }
     }
 
@@ -1148,20 +1146,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ChartOperationSourceScope sourceScope = isPendingSection
             ? ChartOperationSourceScope.PendingPackage
             : GetCurrentChartOperationSourceScope();
-        return GetSelectedGridRowsSnapshot()
+        return [.. GetSelectedGridRowsSnapshot()
             .Select(delegate (object row)
             {
                 return GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) ? target : null;
             })
-            .Where((ChartOperationTarget target) => target != null)
-            .ToList();
+            .Where(target => target != null)];
     }
 
     private List<ChartOperationTarget> GetSelectedChartTargets(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
-        return GetSelectedChartTargets(isPendingSection)
-            .Where((ChartOperationTarget target) => HasRequiredCapability(target, capability))
-            .ToList();
+        return [.. GetSelectedChartTargets(isPendingSection).Where(target => HasRequiredCapability(target, capability))];
     }
 
     private ChartOperationSourceScope GetCurrentChartOperationSourceScope()
@@ -1223,19 +1218,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private List<BMSFile> GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
-        return GetSelectedChartTargets(capability, isPendingSection)
+        return [.. GetSelectedChartTargets(capability, isPendingSection)
             .Select(GetChartCompatibilityAdapterFromTarget)
-            .Where((BMSFile file) => file != null)
-            .ToList();
+            .Where(file => file != null)];
     }
 
     private List<BMSFile> GetSelectedBmsChartFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
-        return GetSelectedChartTargets(isPendingSection)
-            .Where((ChartOperationTarget target) => HasRequiredCapability(target, capability) && target.Chart.Kind == ChartFileKind.Bms)
+        return [.. GetSelectedChartTargets(isPendingSection)
+            .Where(target => HasRequiredCapability(target, capability) && target.Chart.Kind == ChartFileKind.Bms)
             .Select(GetChartCompatibilityAdapterFromTarget)
-            .Where(PendingChartEntry.IsBmsChartFile)
-            .ToList();
+            .Where(PendingChartEntry.IsBmsChartFile)];
     }
 
     private List<BMSFile> GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities capability)
@@ -1246,38 +1239,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private List<string> GetSelectedGridHashTargets()
     {
         ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
-        return GetSelectedGridRowsSnapshot()
-            .Where((object row) => GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
+        return [.. GetSelectedGridRowsSnapshot()
+            .Where(row => GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
             .Select(GridRowResolver.GetHash)
-            .Where((string hash) => !string.IsNullOrWhiteSpace(hash))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .Where(hash => !string.IsNullOrWhiteSpace(hash))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private List<string> GetSelectedChartInfoParseFailureMd5s()
     {
-        return GetSelectedChartTargets()
-            .Select((ChartOperationTarget target) => target.Chart?.Md5)
-            .Where((string md5) => !string.IsNullOrWhiteSpace(md5))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return [.. GetSelectedChartTargets()
+            .Select(target => target.Chart?.Md5)
+            .Where(md5 => !string.IsNullOrWhiteSpace(md5))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     internal static bool ShouldShowChartInfoParseFailureRemovalMenuForTest(bool isChartInfoParseErrorSection, IEnumerable<string> selectedMd5s)
     {
-        return isChartInfoParseErrorSection && (selectedMd5s ?? Enumerable.Empty<string>()).Any((string md5) => !string.IsNullOrWhiteSpace(md5));
+        return isChartInfoParseErrorSection && (selectedMd5s ?? []).Any(md5 => !string.IsNullOrWhiteSpace(md5));
     }
 
     internal static bool ShouldShowResourceHealthContextMenu(bool isPlaylistContext, IEnumerable<ChartOperationTarget> selectedTargets)
     {
         return !isPlaylistContext
-            && (selectedTargets ?? Enumerable.Empty<ChartOperationTarget>())
-                .Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+            && (selectedTargets ?? [])
+                .Any(target => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
     }
 
     private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
     {
-        return GetSelectedGridRowsSnapshot().Select(TryCreateScoreViewerTarget).Where((ScoreViewerTarget target) => target != null).ToList();
+        return [.. GetSelectedGridRowsSnapshot().Select(TryCreateScoreViewerTarget).Where(target => target != null)];
     }
 
     private ScoreViewerTarget TryCreateScoreViewerTarget(object row)
@@ -1296,7 +1287,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
     {
-        return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetPlaylistEntry).Where((BMSTableEntry entry) => entry != null).ToList();
+        return [.. GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetPlaylistEntry).Where(entry => entry != null)];
     }
 
     private static ContextMenu GetOwningContextMenu(object source)
@@ -1400,7 +1391,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             string text = ((string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.stagefile)) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.stagefile));
             if (!string.IsNullOrWhiteSpace(text) && File.Exists(text))
             {
-                MemoryStream memoryStream = new MemoryStream(File.ReadAllBytes(text));
+                var memoryStream = new MemoryStream(File.ReadAllBytes(text));
                 writeableBitmap = new WriteableBitmap(BitmapFrame.Create(memoryStream));
                 memoryStream.Close();
                 gridBMSPlayerImage.Source = writeableBitmap;
@@ -1419,9 +1410,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             string text2 = ((string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.banner)) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.banner));
             if (!string.IsNullOrWhiteSpace(text2) && File.Exists(text2))
             {
-                ImageBrush imageBrush = new ImageBrush();
-                MemoryStream memoryStream2 = new MemoryStream(File.ReadAllBytes(text2));
-                WriteableBitmap imageSource = new WriteableBitmap(BitmapFrame.Create(memoryStream2));
+                var imageBrush = new ImageBrush();
+                var memoryStream2 = new MemoryStream(File.ReadAllBytes(text2));
+                var imageSource = new WriteableBitmap(BitmapFrame.Create(memoryStream2));
                 memoryStream2.Close();
                 imageBrush.ImageSource = imageSource;
                 imageBrush.Stretch = Stretch.Fill;
@@ -1494,7 +1485,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void keywordSearchWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
-        DependencyObject clickedElement = e.OriginalSource as DependencyObject;
+        var clickedElement = e.OriginalSource as DependencyObject;
         CloseKeywordSearchSuggestionsIfOutside(clickedElement, false);
         CloseKeywordSearchSuggestionsIfOutside(clickedElement, true);
     }
@@ -1507,7 +1498,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void keywordSearchBoxPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (!(sender is TextBox textBox))
+        if (sender is not TextBox textBox)
         {
             return;
         }
@@ -1552,11 +1543,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void keywordSearchSuggestionPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!(sender is ListBox listBox))
+        if (sender is not ListBox listBox)
         {
             return;
         }
-        ListBoxItem listBoxItem = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+        var listBoxItem = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
         KeywordSearchSuggestionItem suggestion = listBoxItem?.DataContext as KeywordSearchSuggestionItem ?? listBox.SelectedItem as KeywordSearchSuggestionItem;
         TextBox textBox = ReferenceEquals(listBox, PlaylistSummaryKeywordSearchSuggestionListBox) ? KeywordSearchBoxPlaylistSummary : KeywordSearchBox;
         if (suggestion != null && ApplyKeywordSearchSuggestion(textBox, suggestion))
@@ -1567,7 +1558,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void keywordSearchSuggestionPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (!(sender is ListBox listBox))
+        if (sender is not ListBox listBox)
         {
             return;
         }
@@ -1591,7 +1582,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void RefreshKeywordSearchSuggestions(TextBox textBox, bool forceHistory)
     {
-        if (!(base.DataContext is MainWindowViewModel viewModel) || textBox == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || textBox == null)
         {
             return;
         }
@@ -1607,7 +1598,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void CommitKeywordSearchHistory(TextBox textBox)
     {
-        if (!(base.DataContext is MainWindowViewModel viewModel) || textBox == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || textBox == null)
         {
             return;
         }
@@ -1625,7 +1616,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         bool isPlaylistSummary = IsPlaylistSummaryKeywordSearchBox(textBox);
         ListBox listBox = GetKeywordSearchSuggestionListBox(isPlaylistSummary);
-        KeywordSearchSuggestionItem suggestion = listBox?.SelectedItem as KeywordSearchSuggestionItem;
+        var suggestion = listBox?.SelectedItem as KeywordSearchSuggestionItem;
         if (suggestion == null && listBox?.Items.Count > 0)
         {
             suggestion = listBox.Items[0] as KeywordSearchSuggestionItem;
@@ -1711,7 +1702,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void CloseKeywordSearchSuggestions(bool isPlaylistSummary)
     {
-        if (!(base.DataContext is MainWindowViewModel viewModel))
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -1772,7 +1763,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             InstallDestinationTitle = bmsFile.InstallDestinationTitle,
             InstallDestinationArtist = bmsFile.InstallDestinationArtist,
             Warnings = bmsFile.Warnings.ToStructuredList(),
-            Suggestions = (bmsFile.InstallDestinationSuggestions ?? Array.Empty<string>()).ToArray()
+            Suggestions = (bmsFile.InstallDestinationSuggestions ?? []).ToArray()
         };
     }
 
@@ -1807,8 +1798,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bmsFile.instl_dst = state.InstallDestination;
         bmsFile.InstallDestinationTitle = state.InstallDestinationTitle;
         bmsFile.InstallDestinationArtist = state.InstallDestinationArtist;
-        bmsFile.ReplaceStructuredWarnings(state.Warnings ?? Array.Empty<ChartWarning>());
-        bmsFile.InstallDestinationSuggestions = state.Suggestions ?? Array.Empty<string>();
+        bmsFile.ReplaceStructuredWarnings(state.Warnings ?? []);
+        bmsFile.InstallDestinationSuggestions = state.Suggestions ?? [];
         bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
         ClearPendingInstallDestinationEditState(bmsFile);
     }
@@ -1823,8 +1814,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         FrameworkElement current = source;
         while (current != null)
         {
-            T found = current.FindName(elementName) as T;
-            if (found != null)
+            if (current.FindName(elementName) is T found)
             {
                 return found;
             }
@@ -1838,8 +1828,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        T foundByName = root.FindName(elementName) as T;
-        if (foundByName != null)
+        if (root.FindName(elementName) is T foundByName)
         {
             return foundByName;
         }
@@ -1927,7 +1916,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (e.Source is TreeViewItem)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            var viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
                 viewModel.SelectPlaylistSummary();
@@ -1942,12 +1931,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewLeftClick(object sender, MouseButtonEventArgs e)
     {
-        if (!(sender is TreeView treeViewControl))
+        if (sender is not TreeView treeViewControl)
         {
             return;
         }
         // スクロールバーやExpanderトグルのクリックではフォーカス移譲や更新を行わない
-        DependencyObject source = e.OriginalSource as DependencyObject;
+        var source = e.OriginalSource as DependencyObject;
         if (FindAncestor<System.Windows.Controls.Primitives.ScrollBar>(source) != null ||
             FindAncestor<System.Windows.Controls.Primitives.ToggleButton>(source) != null)
         {
@@ -1967,7 +1956,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             ForceRefreshPlaylistTreeSelection(treeViewItem);
         }
-        else if (treeViewControl == this.treeView)
+        else if (treeViewControl == treeView)
         {
             ForceRefreshMainTreeSelection(treeViewItem);
         }
@@ -2055,8 +2044,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         for (int i = 0; i < parent.Items.Count; i++)
         {
-            TreeViewItem treeViewItem = parent.ItemContainerGenerator.ContainerFromIndex(i) as TreeViewItem;
-            if (treeViewItem == null)
+            if (parent.ItemContainerGenerator.ContainerFromIndex(i) is not TreeViewItem treeViewItem)
             {
                 continue;
             }
@@ -2119,16 +2107,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return false;
         }
-        TreeViewItem treeViewItem = rootTreeViewItem.ItemContainerGenerator.ContainerFromItem(targetDataContext) as TreeViewItem;
-        if (treeViewItem == null)
+        if (rootTreeViewItem.ItemContainerGenerator.ContainerFromItem(targetDataContext) is not TreeViewItem treeViewItem)
         {
             rootTreeViewItem.UpdateLayout();
             treeViewItem = rootTreeViewItem.ItemContainerGenerator.ContainerFromItem(targetDataContext) as TreeViewItem;
         }
-        if (treeViewItem == null)
-        {
-            treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(rootTreeViewItem, targetDataContext);
-        }
+        treeViewItem ??= WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(rootTreeViewItem, targetDataContext);
         if (treeViewItem == null)
         {
             NLogWrapper.FileLogger?.Info(logScope + " selection_fallback reason=container_not_realized root=" + rootTreeViewItem.Header + " target=" + targetDataContext);
@@ -2197,8 +2181,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void ForceRefreshPlaylistTreeSelection(TreeViewItem selectedItem)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || selectedItem == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || selectedItem == null)
         {
             return;
         }
@@ -2226,7 +2209,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             folderName = GetPlaylistFolderSelectionKey(folderNode);
             type = GetPlaylistFilterType(folderNode);
             TreeViewItem ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(selectedItem));
-            while (ancestor != null && !(ancestor.DataContext is BMSTable))
+            while (ancestor != null && ancestor.DataContext is not BMSTable)
             {
                 ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(ancestor));
             }
@@ -2276,8 +2259,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        TreeViewItem ownerTreeViewItem = contentPresenter.TemplatedParent as TreeViewItem;
-        if (ownerTreeViewItem == null || !ownerTreeViewItem.IsSelected)
+        if (contentPresenter.TemplatedParent is not TreeViewItem ownerTreeViewItem || !ownerTreeViewItem.IsSelected)
         {
             return;
         }
@@ -2306,7 +2288,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void playlistTableFolderNameChanged(object sender, RoutedEventArgs e)
     {
-        if (!(sender is EditableTextBlock editableTextBlock) || !editableTextBlock.IsTextChanged())
+        if (sender is not EditableTextBlock editableTextBlock || !editableTextBlock.IsTextChanged())
         {
             return;
         }
@@ -2315,7 +2297,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         DependencyObject parent = VisualTreeHelper.GetParent(templatedParent);
-        while (!(parent is TreeViewItem) && !(parent is TreeView) && parent != null)
+        while (parent is not TreeViewItem && parent is not TreeView && parent != null)
         {
             parent = VisualTreeHelper.GetParent(parent);
         }
@@ -2323,13 +2305,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSTable bmsTable = (parent as TreeViewItem).DataContext as BMSTable;
-        if (bmsTable == null)
+        if ((parent as TreeViewItem).DataContext is not BMSTable bmsTable)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             if (!TryGetPlaylistFolderNode(templatedParent.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsEditable)
             {
@@ -2346,23 +2326,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void playlistTableSelected(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        TreeViewItem treeViewItem = sender as TreeViewItem;
-        TreeViewItem treeViewItem2 = e.Source as TreeViewItem;
-        TreeViewItem treeViewItem3 = e.OriginalSource as TreeViewItem;
-        if (viewModel == null || treeViewItem == null)
+        var treeViewItem3 = e.OriginalSource as TreeViewItem;
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not TreeViewItem treeViewItem)
         {
             return;
         }
-        BMSTable bmsTable = treeViewItem.DataContext as BMSTable;
-        if (bmsTable == null)
+        if (treeViewItem.DataContext is not BMSTable bmsTable)
         {
             return;
         }
         e.Handled = true;
         MainWindowViewModel.PlaylistFilterType type = MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
         string folderName;
-        if (treeViewItem2 != null)
+        if (e.Source is TreeViewItem treeViewItem2)
         {
             folderName = null;
         }
@@ -2387,7 +2363,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (e.OriginalSource is TextBlock reference)
         {
             DependencyObject parent = VisualTreeHelper.GetParent(reference);
-            while (!(parent is TreeViewItem) && !(parent is TreeView) && parent != null)
+            while (parent is not TreeViewItem && parent is not TreeView && parent != null)
             {
                 parent = VisualTreeHelper.GetParent(parent);
             }
@@ -2449,16 +2425,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private List<PlaylistSummaryRow> getSelectedPlaylistSummaryRows(PlaylistSummaryRow fallback = null)
     {
-        List<PlaylistSummaryRow> list = new List<PlaylistSummaryRow>();
+        List<PlaylistSummaryRow> list = [];
         if (customTablePlaylistSummary != null && customTablePlaylistSummary.IsVisible)
         {
-            list = customTablePlaylistSummary.GetSelectedRowsSnapshot().OfType<PlaylistSummaryRow>().Where((PlaylistSummaryRow r) => r != null).ToList();
+            list = [.. customTablePlaylistSummary.GetSelectedRowsSnapshot().OfType<PlaylistSummaryRow>().Where(r => r != null)];
         }
         if ((list == null || list.Count == 0) && fallback != null)
         {
-            list = new List<PlaylistSummaryRow> { fallback };
+            list = [fallback];
         }
-        return list ?? new List<PlaylistSummaryRow>();
+        return list ?? [];
     }
 
     private PlaylistSummaryRow resolvePlaylistSummaryRowFromSender(object sender)
@@ -2467,8 +2443,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return contextRow;
         }
-        PlaylistSummaryRow playlistSummaryRow = (sender as FrameworkElement)?.DataContext as PlaylistSummaryRow;
-        if (playlistSummaryRow != null)
+        if ((sender as FrameworkElement)?.DataContext is PlaylistSummaryRow playlistSummaryRow)
         {
             return playlistSummaryRow;
         }
@@ -2505,9 +2480,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=target_not_found table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader);
             return false;
         }
-        bool usedVirtualizationFallback;
-        bool realizeByIndexAvailable;
-        bool selected = TrySelectPlaylistTreeItem(selectionTarget, out usedVirtualizationFallback, out realizeByIndexAvailable);
+        bool selected = TrySelectPlaylistTreeItem(selectionTarget, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable);
         if (!selected)
         {
             NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=container_not_realized table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader + " realize_by_index_available=" + realizeByIndexAvailable);
@@ -2588,8 +2561,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        TreeViewItem playlistTreeViewItem = treeViewItemPlaylist.ItemContainerGenerator.ContainerFromIndex(playlistIndex) as TreeViewItem;
-        if (playlistTreeViewItem != null)
+        if (treeViewItemPlaylist.ItemContainerGenerator.ContainerFromIndex(playlistIndex) is TreeViewItem playlistTreeViewItem)
         {
             return playlistTreeViewItem;
         }
@@ -2632,7 +2604,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             // NOTE:
             // TreeView の仮想化が有効だと、画面外のトップレベル項目は ContainerFromIndex で null のままになります。
             // 公開 API にはインデックス単位で実体化を促す手段がないため、WPF 内部の BringIndexIntoView を局所的に利用します。
-            playlistTreeBringIndexIntoViewMethod.Invoke(playlistItemsHostPanel, new object[1] { playlistIndex });
+            playlistTreeBringIndexIntoViewMethod.Invoke(playlistItemsHostPanel, [playlistIndex]);
             treeViewPlaylist.UpdateLayout();
             treeViewItemPlaylist.UpdateLayout();
             return true;
@@ -2672,7 +2644,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        return treeViewItemPlaylist.Items.OfType<BMSTable>().FirstOrDefault((BMSTable playlistTable) => playlistTable != null && string.Equals(playlistTable.name, playlistName, StringComparison.Ordinal));
+        return treeViewItemPlaylist.Items.OfType<BMSTable>().FirstOrDefault(playlistTable => playlistTable != null && string.Equals(playlistTable.name, playlistName, StringComparison.Ordinal));
     }
 
     private async void playlistSummaryLinkClick(object sender, RoutedEventArgs e)
@@ -2714,15 +2686,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        ConfirmationMessage confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+        var confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
         (base.DataContext as MainWindowViewModel)?.Messenger.Raise(confirmationMessage);
         if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
         {
             checkBox.IsChecked = !flag;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -2739,15 +2710,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        ConfirmationMessage confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+        var confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
         (base.DataContext as MainWindowViewModel)?.Messenger.Raise(confirmationMessage);
         if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
         {
             customTablePlaylistSummary?.RefreshDisplay();
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -2768,8 +2738,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -2786,8 +2755,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -2804,8 +2772,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && selectedPlaylistSummaryRows.Count > 0)
+        if (base.DataContext is MainWindowViewModel viewModel && selectedPlaylistSummaryRows.Count > 0)
         {
             await viewModel.ResyncPlaylistsAsync(selectedPlaylistSummaryRows).Logging("playlistSummaryContextMenuResyncClick");
         }
@@ -2833,8 +2800,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-        if (mainWindowViewModel != null && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
         {
             mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, playlistSummaryRow.TableRef);
             playlistPropertyDialog.Visibility = Visibility.Visible;
@@ -2857,8 +2823,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -2881,9 +2846,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        TreeViewItem treeRoot = sender as TreeViewItem;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && treeRoot != null)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeRoot)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -2901,9 +2864,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        TreeViewItem treeViewItem = sender as TreeViewItem;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && treeViewItem != null)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeViewItem)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -2920,9 +2881,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        TreeViewItem treeViewItem = sender as TreeViewItem;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && treeViewItem != null)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeViewItem)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -2939,10 +2898,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        TreeViewItem treeRoot = sender as TreeViewItem;
-        TreeViewItem treeViewItem = e.OriginalSource as TreeViewItem;
-        if (viewModel == null || treeRoot == null || treeViewItem == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not TreeViewItem treeRoot || e.OriginalSource is not TreeViewItem treeViewItem)
         {
             return;
         }
@@ -2967,7 +2923,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            if (!(treeViewItem.DataContext is List<BMSFile>))
+            if (treeViewItem.DataContext is not List<BMSFile>)
             {
                 return;
             }
@@ -2986,9 +2942,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        TreeViewItem treeRoot = sender as TreeViewItem;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && treeRoot != null)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeRoot)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -3006,9 +2960,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        TreeViewItem treeRoot = sender as TreeViewItem;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && treeRoot != null)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeRoot)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -3026,7 +2978,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await Task.Run(delegate
         {
@@ -3041,7 +2993,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await Task.Run(delegate
         {
@@ -3056,7 +3008,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await Task.Run(delegate
         {
@@ -3066,8 +3018,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewZeroNoteContextMenuItemRecheckClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             Task.Run(delegate
             {
@@ -3083,10 +3034,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        TreeViewItem treeRoot = sender as TreeViewItem;
-        TreeViewItem treeViewItem = e.OriginalSource as TreeViewItem;
-        if (viewModel == null || treeRoot == null || treeViewItem == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not TreeViewItem treeRoot || e.OriginalSource is not TreeViewItem treeViewItem)
         {
             return;
         }
@@ -3100,8 +3048,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             treeRoot.IsExpanded = true;
             return;
         }
-        ChartPackage package = treeViewItem.DataContext as ChartPackage;
-        if (package != null)
+        if (treeViewItem.DataContext is ChartPackage package)
         {
             await Task.Run(delegate
             {
@@ -3117,10 +3064,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        TreeViewItem treeRoot = sender as TreeViewItem;
-        TreeViewItem treeViewItem = e.OriginalSource as TreeViewItem;
-        if (viewModel == null || treeRoot == null || treeViewItem == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not TreeViewItem treeRoot || e.OriginalSource is not TreeViewItem treeViewItem)
         {
             return;
         }
@@ -3134,8 +3078,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             treeRoot.IsExpanded = true;
             return;
         }
-        ChartPackage package = treeViewItem.DataContext as ChartPackage;
-        if (package != null)
+        if (treeViewItem.DataContext is ChartPackage package)
         {
             await Task.Run(delegate
             {
@@ -3151,7 +3094,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuOpend(object sender, RoutedEventArgs e)
     {
-        if (!(sender is ContextMenu contextMenu) || !(base.DataContext is MainWindowViewModel mainWindowViewModel))
+        if (sender is not ContextMenu contextMenu || base.DataContext is not MainWindowViewModel mainWindowViewModel)
         {
             return;
         }
@@ -3166,7 +3109,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 menuItem = item as MenuItem;
             }
-            if (!(item is MenuItem))
+            if (item is not MenuItem)
             {
                 continue;
             }
@@ -3210,8 +3153,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || !(sender is MenuItem) || viewModel.IsWriteLockHeldBMSTablesInitializeMin || viewModel.IsWriteLockHeldBMSTables || viewModel.IsWriteLockHeldAnyBMSTable)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem || viewModel.IsWriteLockHeldBMSTablesInitializeMin || viewModel.IsWriteLockHeldBMSTables || viewModel.IsWriteLockHeldAnyBMSTable)
         {
             return;
         }
@@ -3247,13 +3189,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (!(sender is MenuItem menuItem))
+        if (sender is not MenuItem menuItem)
         {
             return;
         }
-        BMSTableSimple dataContext = menuItem.DataContext as BMSTableSimple;
-        if (viewModel != null && dataContext != null && !(dataContext.url == null) && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
+        if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is BMSTableSimple dataContext && !(dataContext.url == null) && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
             viewModel.EnqueueExternalPlaylistBMSTableImport(dataContext.url);
         }
@@ -3265,10 +3205,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && sender is MenuItem menuItem && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem menuItem && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
-            Uri uri = new Uri((string)menuItem.Tag);
+            var uri = new Uri((string)menuItem.Tag);
             viewModel.EnqueueExternalPlaylistBMSTableImport(uri);
         }
     }
@@ -3279,12 +3218,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || !(sender is MenuItem menuItem) || viewModel.IsWriteLockHeldBMSTablesInitializeMin)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem || viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
             return;
         }
-        Uri uri = new Uri((string)menuItem.Tag);
+        var uri = new Uri((string)menuItem.Tag);
         if (viewModel.LR2ID == 0)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
@@ -3311,7 +3249,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableContextMenuOpend(object sender, RoutedEventArgs e)
     {
-        if (!(sender is ContextMenu contextMenu) || !(base.DataContext is MainWindowViewModel mainWindowViewModel) || !(contextMenu.PlacementTarget is TreeViewItem { DataContext: BMSTable dataContext }))
+        if (sender is not ContextMenu contextMenu || base.DataContext is not MainWindowViewModel mainWindowViewModel || !(contextMenu.PlacementTarget is TreeViewItem { DataContext: BMSTable dataContext }))
         {
             return;
         }
@@ -3366,8 +3304,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistTableContextMenuItemReloadClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || !(sender is MenuItem { DataContext: BMSTable table }))
+        if (base.DataContext is not MainWindowViewModel viewModel || !(sender is MenuItem { DataContext: BMSTable table }))
         {
             return;
         }
@@ -3387,9 +3324,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=target_not_found");
             return;
         }
-        bool usedVirtualizationFallback;
-        bool realizeByIndexAvailable;
-        bool restored = TrySelectPlaylistTreeItem(selectionTarget, out usedVirtualizationFallback, out realizeByIndexAvailable);
+        bool restored = TrySelectPlaylistTreeItem(selectionTarget, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable);
         if (!restored)
         {
             NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=false reason=container_not_realized table=" + selectionTarget.name + " realize_by_index_available=" + realizeByIndexAvailable);
@@ -3403,7 +3338,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         IEnumerable<BMSTable> source = treeViewItemPlaylist.Items.OfType<BMSTable>();
         if (tableBeforeReload.playlist_id.HasValue)
         {
-            BMSTable byId = source.FirstOrDefault((BMSTable t) => t != null && t.playlist_id.HasValue && t.playlist_id.Value == tableBeforeReload.playlist_id.Value);
+            BMSTable byId = source.FirstOrDefault(t => t != null && t.playlist_id.HasValue && t.playlist_id.Value == tableBeforeReload.playlist_id.Value);
             if (byId != null)
             {
                 return byId;
@@ -3425,7 +3360,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return byUrl;
         }
-        return source.FirstOrDefault((BMSTable t) => t != null && string.Equals(t.name, tableBeforeReload.name, StringComparison.Ordinal));
+        return source.FirstOrDefault(t => t != null && string.Equals(t.name, tableBeforeReload.name, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -3435,7 +3370,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableContextMenuItemOpenPageURIClick(object sender, RoutedEventArgs e)
     {
-        if (!(base.DataContext is MainWindowViewModel mainWindowViewModel) || !(sender is MenuItem { DataContext: BMSTable dataContext }))
+        if (base.DataContext is not MainWindowViewModel mainWindowViewModel || !(sender is MenuItem { DataContext: BMSTable dataContext }))
         {
             return;
         }
@@ -3475,13 +3410,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistTableContextMenuItemCreateNewFolderClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || !(sender is MenuItem menuItem))
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem)
         {
             return;
         }
-        BMSTable bmsTable = menuItem.DataContext as BMSTable;
-        if (bmsTable != null && !bmsTable.is_external_sync)
+        if (menuItem.DataContext is BMSTable bmsTable && !bmsTable.is_external_sync)
         {
             await Task.Run(delegate
             {
@@ -3497,18 +3430,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistTableContextMenuItemExportTableClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || !(sender is MenuItem menuItem))
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem)
         {
             return;
         }
-        BMSTable bmsTable = menuItem.DataContext as BMSTable;
-        if (bmsTable == null)
+        if (menuItem.DataContext is not BMSTable bmsTable)
         {
             return;
         }
-        SaveFileDialog fileDialogHeader = new SaveFileDialog();
-        SaveFileDialog fileDialogData = new SaveFileDialog();
+        var fileDialogHeader = new SaveFileDialog();
+        var fileDialogData = new SaveFileDialog();
         fileDialogHeader.Title = BeMusicSeeker.Properties.Resources.Save_header_file;
         fileDialogData.Title = BeMusicSeeker.Properties.Resources.Save_data_file;
         fileDialogHeader.FileName = ((!string.IsNullOrWhiteSpace(bmsTable.header_url)) ? Path.GetFileName(bmsTable.Header_url.ToString()) : "header.json");
@@ -3536,13 +3467,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || !(sender is MenuItem menuItem))
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem)
         {
             return;
         }
-        BMSTable bmsTable = menuItem.DataContext as BMSTable;
-        if (bmsTable == null)
+        if (menuItem.DataContext is not BMSTable bmsTable)
         {
             return;
         }
@@ -3566,13 +3495,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || !(sender is MenuItem menuItem))
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem)
         {
             return;
         }
-        BMSTable bmsTable = menuItem.DataContext as BMSTable;
-        if (bmsTable == null || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (menuItem.DataContext is not BMSTable bmsTable || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -3596,9 +3523,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-        MenuItem menuItem = sender as MenuItem;
-        if (mainWindowViewModel != null && menuItem != null && menuItem.DataContext is BMSTable table && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && sender is MenuItem menuItem && menuItem.DataContext is BMSTable table && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
         {
             mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, table);
             playlistPropertyDialog.Visibility = Visibility.Visible;
@@ -3612,7 +3537,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableFolderContextMenuOpend(object sender, RoutedEventArgs e)
     {
-        if (!(sender is ContextMenu contextMenu) || !(base.DataContext is MainWindowViewModel))
+        if (sender is not ContextMenu contextMenu || base.DataContext is not MainWindowViewModel)
         {
             return;
         }
@@ -3664,12 +3589,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        if (!(contextMenu.PlacementTarget is TreeViewItem reference))
+        if (contextMenu.PlacementTarget is not TreeViewItem reference)
         {
             return null;
         }
         DependencyObject parent = VisualTreeHelper.GetParent(reference);
-        while ((!(parent is TreeViewItem) || !((parent as TreeViewItem).DataContext is BMSTable)) && parent != null)
+        while ((parent is not TreeViewItem || (parent as TreeViewItem).DataContext is not BMSTable) && parent != null)
         {
             parent = VisualTreeHelper.GetParent(parent);
         }
@@ -3693,7 +3618,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        if (!(contextMenu.PlacementTarget is TreeViewItem treeViewItem))
+        if (contextMenu.PlacementTarget is not TreeViewItem treeViewItem)
         {
             return null;
         }
@@ -3702,12 +3627,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static Type _findTypeFromVisualChildren<Type>(IEnumerable<DependencyObject> _objs) where Type : class
     {
-        IEnumerable<DependencyObject> enumerable = _objs.SelectMany((DependencyObject obj) => _getVisualChildren(obj));
+        IEnumerable<DependencyObject> enumerable = _objs.SelectMany(obj => _getVisualChildren(obj));
         if (enumerable.Count() == 0)
         {
             return null;
         }
-        DependencyObject dependencyObject = enumerable.FirstOrDefault((DependencyObject c) => c is Type);
+        DependencyObject dependencyObject = enumerable.FirstOrDefault(c => c is Type);
         if (dependencyObject == null)
         {
             return _findTypeFromVisualChildren<Type>(enumerable);
@@ -3729,8 +3654,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -3802,7 +3726,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = placementTarget.Header.ToString();
-        if (!(base.DataContext is MainWindowViewModel))
+        if (base.DataContext is not MainWindowViewModel)
         {
             return;
         }
@@ -3820,8 +3744,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = placementTarget.Header.ToString();
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && Directory.Exists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && Directory.Exists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -3839,8 +3762,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstalledContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_installed, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_installed, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -3851,8 +3773,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPendingContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
@@ -3863,8 +3784,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -3888,7 +3808,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }).Logging("treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
             return;
         }
-        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+        var cancellationTokenSource = new CancellationTokenSource();
         int processedCount = 0;
         int total = list.Count;
         Task task = Task.Run(delegate
@@ -3923,8 +3843,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -3948,7 +3867,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }).Logging("treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
             return;
         }
-        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+        var cancellationTokenSource = new CancellationTokenSource();
         int processedCount = 0;
         int total = list.Count;
         Task task = Task.Run(delegate
@@ -3983,8 +3902,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -4010,7 +3928,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+            var cancellationTokenSource = new CancellationTokenSource();
             int processedCount = 0;
             int total = list.Count;
             Task<PendingInstalledOnlyResourceOverwriteResult> task = Task.Run(delegate
@@ -4089,13 +4007,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
-        if (pkg == null)
+        if (placementTarget.DataContext is not ChartPackage pkg)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + ((pkg.ChartFiles.Count > 1) ? pkg.ChartFiles[0].title : pkg.ChartFiles[0].Title), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (base.DataContext is not MainWindowViewModel viewModel || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + ((pkg.ChartFiles.Count > 1) ? pkg.ChartFiles[0].title : pkg.ChartFiles[0].Title), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4119,13 +4035,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
-        if (pkg == null)
+        if (placementTarget.DataContext is not ChartPackage pkg)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -4145,17 +4059,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
         }
-        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
-        if (pkg == null)
+        if (placementTarget.DataContext is not ChartPackage pkg)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             Task.Run(delegate
             {
@@ -4166,17 +4078,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPackageContextMenuForceInstallClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
         }
-        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
-        if (pkg == null)
+        if (placementTarget.DataContext is not ChartPackage pkg)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -4196,17 +4106,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void treeViewInstallPackageContextMenuManualInstallClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
         }
-        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
-        if (pkg == null)
+        if (placementTarget.DataContext is not ChartPackage pkg)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || (Settings.Default.ShowDiffBMSInstallConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK))
+        if (base.DataContext is not MainWindowViewModel viewModel || (Settings.Default.ShowDiffBMSInstallConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK))
         {
             return;
         }
@@ -4226,17 +4134,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuSearchInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
         }
-        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
-        if (pkg == null)
+        if (placementTarget.DataContext is not ChartPackage pkg)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             Task.Run(delegate
             {
@@ -4247,17 +4153,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuSearchMergeDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
         {
             return;
         }
-        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
-        if (pkg == null || !ConfirmMergeDestinationSearch())
+        if (placementTarget.DataContext is not ChartPackage pkg || !ConfirmMergeDestinationSearch())
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             Task.Run(delegate
             {
@@ -4277,8 +4181,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        DuplicateGroup duplicateGroup = treeViewItem.DataContext as DuplicateGroup;
-        if (duplicateGroup == null)
+        if (treeViewItem.DataContext is not DuplicateGroup duplicateGroup)
         {
             return;
         }
@@ -4293,8 +4196,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem != null)
         {
-            List<string> list = duplicateGroup.Folders.Except(new string[1] { dataContext }, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            List<string> list = [.. duplicateGroup.Folders.Except(new string[1] { dataContext }, StringComparer.OrdinalIgnoreCase)];
             menuItem.IsEnabled = list.Count > 0;
             if (menuItem.IsEnabled)
             {
@@ -4336,7 +4238,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         // 親DuplicateGroupを取得
         TreeViewItem groupTreeItem = WPFUtil.FindVisualParent<TreeViewItem>(tag);
-        DuplicateGroup duplicateGroup = groupTreeItem?.DataContext as DuplicateGroup;
+        var duplicateGroup = groupTreeItem?.DataContext as DuplicateGroup;
         ExecuteDuplicateFolderMerge(srcPath, dstPath, duplicateGroup);
     }
 
@@ -4346,8 +4248,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -4429,7 +4330,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         int requestVersion = Interlocked.Increment(ref _duplicateGroupAutoSelectRequestVersion);
         bool completed = false;
         PropertyChangedEventHandler handler = null;
-        Action completeSelection = () =>
+        void completeSelection()
         {
             if (completed)
             {
@@ -4445,7 +4346,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 _duplicateGroupAutoSelectHandler = null;
                 _duplicateGroupAutoSelectHandlerOwner = null;
             }
-        };
+        }
         async Task AttemptAutoSelectAsync(string trigger)
         {
             try
@@ -4455,7 +4356,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return;
                 }
                 string lastReason = string.Empty;
-                DispatcherPriority[] priorities = new DispatcherPriority[3]
+                var priorities = new DispatcherPriority[3]
                 {
                     DispatcherPriority.Loaded,
                     DispatcherPriority.Render,
@@ -4543,7 +4444,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return false;
         }
 
-        var duplicatedList = viewModel.DuplicateChartGroups;
+        List<DuplicateGroup> duplicatedList = viewModel.DuplicateChartGroups;
         if (duplicatedList == null)
         {
             failReason = "duplicated_list_null";
@@ -4574,7 +4475,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         duplicateRootItem.UpdateLayout();
 
         // 仮想化パネルのBringIndexIntoViewPublicでコンテナ生成を強制
-        var panel = WPFUtil.FindVisualChild<VirtualizingStackPanel>(duplicateRootItem);
+        VirtualizingStackPanel panel = WPFUtil.FindVisualChild<VirtualizingStackPanel>(duplicateRootItem);
         if (panel != null)
         {
             try
@@ -4590,8 +4491,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         // コンテナを取得して選択
-        TreeViewItem targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
-        if (targetItem != null)
+        if (duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) is TreeViewItem targetItem)
         {
             targetItem.IsSelected = true;
             targetItem.IsExpanded = true;
@@ -4613,8 +4513,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
-        TreeViewItem folderItem = sender as TreeViewItem;
-        if (folderItem == null)
+        if (sender is not TreeViewItem folderItem)
         {
             return;
         }
@@ -4627,8 +4526,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         // 親TreeViewItemからDuplicateGroupを取得
         TreeViewItem groupItem = WPFUtil.FindVisualParent<TreeViewItem>(folderItem);
-        DuplicateGroup duplicateGroup = groupItem?.DataContext as DuplicateGroup;
-        if (duplicateGroup == null)
+        if (groupItem?.DataContext is not DuplicateGroup duplicateGroup)
         {
             return;
         }
@@ -4666,8 +4564,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void ExecuteDuplicateHashCleanup(DuplicateGroup duplicateGroup, string folderPath)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -4787,7 +4684,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void calcelAllContextMenuTasks()
     {
-        if (new Task[4] { getSongInfoCacheTask, changeSubmenuOpenVideoTask, changeSubmenuOpenDocumentTask, changeSubmenuOpenSearchLinkTask }.Where((Task t) => t != null).Any((Task t) => !t.IsCompleted) && tableContextMenuTaskTokenSource != null)
+        if (new Task[4] { getSongInfoCacheTask, changeSubmenuOpenVideoTask, changeSubmenuOpenDocumentTask, changeSubmenuOpenSearchLinkTask }.Where(t => t != null).Any(t => !t.IsCompleted) && tableContextMenuTaskTokenSource != null)
         {
             tableContextMenuTaskTokenSource.Cancel();
             NLogWrapper.DebuggerLogger?.Trace("Cancel data grid context menu async tasks");
@@ -4816,7 +4713,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
         }
-        if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
+        if (base.DataContext is not MainWindowViewModel mainWindowViewModel)
         {
             return;
         }
@@ -4847,10 +4744,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             selectedTargets.Add(rowTarget);
         }
-        List<BMSFile> list = selectedTargets.Select(GetChartCompatibilityAdapterFromTarget).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> list = [.. selectedTargets.Select(GetChartCompatibilityAdapterFromTarget).Where(file => file != null)];
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
-        bool hasBmsonSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == ChartFileKind.Bmson);
-        bool hasBmsSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == ChartFileKind.Bms);
+        bool hasBmsonSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bmson);
+        bool hasBmsSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bms);
         string rowHash = rowTarget?.Chart?.Md5 ?? GridRowResolver.GetHash(row);
         if (songInfoCache == null || songInfoCache.md5 != rowHash)
         {
@@ -5070,7 +4967,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     }
                     try
                     {
-                        List<string> list2 = Directory.EnumerateFiles(directoryNameSimple, "*.txt").Concat(Directory.EnumerateFiles(directoryNameSimple, "*.htm?")).ToList();
+                        List<string> list2 = [.. Directory.EnumerateFiles(directoryNameSimple, "*.txt"), .. Directory.EnumerateFiles(directoryNameSimple, "*.htm?")];
                         if (list2.Count > 0)
                         {
                             base.Dispatcher.BeginInvoke((Action)delegate
@@ -5103,11 +5000,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         bool flag = false;
-        bool hasScoreViewerTarget = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
+        bool hasScoreViewerTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
         if (menuItem18 != null && list.Count > 1)
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Register_chart_with_viewer;
-            flag = (menuItem18.IsEnabled = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UseScoreViewer) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
+            flag = (menuItem18.IsEnabled = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
         }
         else if (menuItem18 != null)
         {
@@ -5146,7 +5043,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem7 != null)
         {
-            bool hasRankingTarget = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UpdateRanking));
+            bool hasRankingTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UpdateRanking));
             menuItem7.Visibility = hasRankingTarget ? Visibility.Visible : Visibility.Collapsed;
             if (mainWindowViewModel.LR2ID == 0 || !hasRankingTarget)
             {
@@ -5157,7 +5054,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItem7.IsEnabled = true;
             }
         }
-        MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault((MenuItem item) => item.Name == "tableContextMenuItemDeleteInstallPackages");
+        MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
         if (menuItemRemoveChartInfoParseFailure != null)
         {
@@ -5188,7 +5085,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             bool canMoveSelectedFiles = !isPendingSelected;
             menuItem13.Visibility = ((!canMoveSelectedFiles) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem13.IsEnabled = canMoveSelectedFiles && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path));
+            menuItem13.IsEnabled = canMoveSelectedFiles && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path));
         }
         if (menuItem14 != null)
         {
@@ -5197,13 +5094,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem15 != null)
         {
-            bool canDeleteFiles = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary))
-                || (isPendingSelected && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)));
+            bool canDeleteFiles = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary))
+                || (isPendingSelected && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)));
             menuItem15.Visibility = ((!canDeleteFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem15.IsEnabled = canDeleteFiles;
             if (menuItemRenameInvalidExt != null)
             {
-                bool canRenameInvalidExt = canDeleteFiles && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
+                bool canRenameInvalidExt = canDeleteFiles && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
                 menuItemRenameInvalidExt.Visibility = canRenameInvalidExt ? Visibility.Visible : Visibility.Collapsed;
                 menuItemRenameInvalidExt.IsEnabled = canRenameInvalidExt;
             }
@@ -5230,19 +5127,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             bool isInstalledLocationFixVisible = IsFullScanMainViewSection(effectiveSection) && !isPlaylistContext;
             menuItem9.Visibility = ((!isInstalledLocationFixVisible) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem9.IsEnabled = isInstalledLocationFixVisible && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+            menuItem9.IsEnabled = isInstalledLocationFixVisible && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         }
         if (menuItem11 != null)
         {
             bool isSelected = treeViewItemFullScanCheck.IsSelected;
-            bool hasResourceHealthTarget = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+            bool hasResourceHealthTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
             menuItem11.Visibility = ((!isSelected) ? Visibility.Collapsed : Visibility.Visible);
             menuItem11.IsEnabled = isSelected && hasResourceHealthTarget;
         }
         if (menuItem12 != null)
         {
             bool isSelected2 = treeViewItemFullScanCheckIgnored.IsSelected;
-            bool hasResourceHealthTarget = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+            bool hasResourceHealthTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
             menuItem12.Visibility = ((!isSelected2) ? Visibility.Collapsed : Visibility.Visible);
             menuItem12.IsEnabled = isSelected2 && hasResourceHealthTarget;
         }
@@ -5260,7 +5157,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Visibility visibility = (menuItem19.Visibility = ((!canConvertToAudio) ? Visibility.Collapsed : Visibility.Visible));
             convertSeparator.Visibility = visibility;
             Separator convertSeparator2 = separator2;
-            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.ConvertToAudio) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
+            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.ConvertToAudio) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
             convertSeparator2.IsEnabled = isEnabled;
         }
         if (hasBmsonSelection)
@@ -5402,7 +5299,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         _lastOpenedContextMenu = contextMenu;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
@@ -5411,7 +5307,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
         bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
         bool canOpenScoreViewer = rowTarget?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true;
-        bool canUpdateRanking = rowTarget?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true && viewModel != null && viewModel.LR2ID != 0;
+        bool canUpdateRanking = rowTarget?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true && base.DataContext is MainWindowViewModel viewModel && viewModel.LR2ID != 0;
         bool canOpenLr2Ir = rowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
@@ -5496,8 +5392,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             reason = string.Format(BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found, bmsFile.instl_dst);
             return false;
         }
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-        if (mainWindowViewModel != null && mainWindowViewModel.TryGetInstalledDirectoryByHash(bmsFile.hash, out var installDir2))
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && mainWindowViewModel.TryGetInstalledDirectoryByHash(bmsFile.hash, out string installDir2))
         {
             installDir = installDir2;
             return true;
@@ -5515,7 +5410,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
             return false;
         }
-        foreach (BMSFile item in pkg.ChartFiles.Where((BMSFile f) => f != null))
+        foreach (BMSFile item in pkg.ChartFiles.Where(f => f != null))
         {
             if (TryResolveInstallDestination(item, out installDir, out reason))
             {
@@ -5546,7 +5441,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(base.DataContext is MainWindowViewModel) || !IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
+        if (base.DataContext is not MainWindowViewModel || !IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
         {
             return;
         }
@@ -5559,7 +5454,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK);
         }
-        if (!TryResolveInstallDestination(list[0], out var installDir, out var reason))
+        if (!TryResolveInstallDestination(list[0], out string installDir, out string reason))
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
@@ -5573,7 +5468,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!TryResolveInstallDestination(dataContext, out var installDir, out var reason))
+        if (!TryResolveInstallDestination(dataContext, out string installDir, out string reason))
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
@@ -5728,7 +5623,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (!(sender is MenuItem menuItem) || !TryGetContextMenuRow(sender, out object row))
+        if (sender is not MenuItem menuItem || !TryGetContextMenuRow(sender, out object row))
         {
             return;
         }
@@ -5736,8 +5631,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -5784,9 +5678,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenVideoTask");
             CancellationToken token = tableContextMenuTaskTokenSource.Token;
-            if (getSongInfoCacheTask == null)
-            {
-                getSongInfoCacheTask = Task.Run(delegate
+            getSongInfoCacheTask ??= Task.Run(delegate
                 {
                     NLogWrapper.DebuggerLogger?.Trace("Test starts: getSongInfoCacheTask");
                     try
@@ -5801,7 +5693,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                     }
                 }, token);
-            }
             getSongInfoCacheTask.Wait();
             if (!token.IsCancellationRequested)
             {
@@ -5866,7 +5757,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenVideoSubmenuClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(base.DataContext is MainWindowViewModel mainWindowViewModel) || webBrowser == null)
+        if (e.Source is not MenuItem menuItem || base.DataContext is not MainWindowViewModel mainWindowViewModel || webBrowser == null)
         {
             return;
         }
@@ -5929,21 +5820,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (songInfoCache != null)
         {
-            urls = (from s in songInfoCache.url.Split(' ')
+            urls = [.. (from s in songInfoCache.url.Split(' ')
                     where !string.IsNullOrWhiteSpace(s)
                     let normalized = NormalizeDownloadUrlString(s)
                     where !string.IsNullOrWhiteSpace(normalized)
-                    select new Uri(normalized, UriKind.Absolute)).ToList();
-            urls_diff = (from s in songInfoCache.url_diff.Split(' ')
+                    select new Uri(normalized, UriKind.Absolute))];
+            urls_diff = [.. (from s in songInfoCache.url_diff.Split(' ')
                          where !string.IsNullOrWhiteSpace(s)
                          let normalized = NormalizeDownloadUrlString(s)
                          where !string.IsNullOrWhiteSpace(normalized)
-                         select new Uri(normalized, UriKind.Absolute)).ToList();
+                         select new Uri(normalized, UriKind.Absolute))];
         }
         else
         {
-            urls = new List<Uri>();
-            urls_diff = new List<Uri>();
+            urls = [];
+            urls_diff = [];
         }
         if (original != null && original.IsAbsoluteUri)
         {
@@ -5962,8 +5853,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MenuItem menuItem = sender as MenuItem;
-        if (menuItem == null || !TryGetContextMenuRow(sender, out object row))
+        if (sender is not MenuItem menuItem || !TryGetContextMenuRow(sender, out object row))
         {
             return;
         }
@@ -5971,8 +5861,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -5982,7 +5871,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         menuItem.Items.Clear();
-        MenuItem menuItemStatus = new MenuItem
+        var menuItemStatus = new MenuItem
         {
             Header = BeMusicSeeker.Properties.Resources.Now_searching,
             IsEnabled = false,
@@ -5993,9 +5882,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenSearchLinkTask");
             CancellationToken token = tableContextMenuTaskTokenSource.Token;
-            if (getSongInfoCacheTask == null)
-            {
-                getSongInfoCacheTask = Task.Run(delegate
+            getSongInfoCacheTask ??= Task.Run(delegate
                 {
                     NLogWrapper.DebuggerLogger?.Trace("Test starts: getSongInfoCacheTask");
                     try
@@ -6010,24 +5897,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                     }
                 }, token);
-            }
             getSongInfoCacheTask.Wait();
             if (!token.IsCancellationRequested)
             {
-                List<Func<MenuItem>> subMenuItemCreateFuncs = new List<Func<MenuItem>>();
-                songInfoCacheToUrlLists(songInfoCache, GridRowResolver.GetUrl(row), GridRowResolver.GetUrlDiff(row), out var urls, out var urls_diff);
+                List<Func<MenuItem>> subMenuItemCreateFuncs = [];
+                songInfoCacheToUrlLists(songInfoCache, GridRowResolver.GetUrl(row), GridRowResolver.GetUrlDiff(row), out List<Uri> urls, out List<Uri> urls_diff);
                 foreach (Uri url in urls)
                 {
-                    Func<MenuItem> item = delegate
+                    MenuItem item()
                     {
                         try
                         {
-                            MenuItem menuItem2 = new MenuItem();
-                            menuItem2.Header = BeMusicSeeker.Properties.Resources.Original_URL;
-                            menuItem2.IsEnabled = true;
-                            menuItem2.Visibility = Visibility.Visible;
-                            menuItem2.Tag = url;
-                            menuItem2.ToolTip = url.ToString();
+                            var menuItem2 = new MenuItem
+                            {
+                                Header = BeMusicSeeker.Properties.Resources.Original_URL,
+                                IsEnabled = true,
+                                Visibility = Visibility.Visible,
+                                Tag = url,
+                                ToolTip = url.ToString()
+                            };
                             menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
                             return menuItem2;
                         }
@@ -6035,23 +5923,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         {
                             return (MenuItem)null;
                         }
-                    };
+                    }
                     subMenuItemCreateFuncs.Add(item);
                 }
                 foreach (Uri url2 in urls_diff)
                 {
                     if (!url2.ToString().StartsWith("http://absolute.pv.land.to/", StringComparison.OrdinalIgnoreCase) && !url2.ToString().Equals("http://gnqg.rosx.net/upload/", StringComparison.OrdinalIgnoreCase) && !url2.ToString().Equals("http://gnqg.rosx.net/upload/upload.cgi", StringComparison.OrdinalIgnoreCase) && (!url2.ToString().StartsWith("http://www.ribbit.xyz/bms/mirror/", StringComparison.OrdinalIgnoreCase) || !url2.ToString().EndsWith("/")))
                     {
-                        Func<MenuItem> item2 = delegate
+                        MenuItem item2()
                         {
                             try
                             {
-                                MenuItem menuItem2 = new MenuItem();
-                                menuItem2.Header = ((url2.ToString().StartsWith("http://www.ribbit.xyz/bms/mirror/", StringComparison.OrdinalIgnoreCase) || url2.ToString().StartsWith("http://gnqg.rosx.net/upload/", StringComparison.OrdinalIgnoreCase)) ? "Uploader" : BeMusicSeeker.Properties.Resources.Diff_URL);
-                                menuItem2.IsEnabled = true;
-                                menuItem2.Visibility = Visibility.Visible;
-                                menuItem2.Tag = url2;
-                                menuItem2.ToolTip = url2.ToString();
+                                var menuItem2 = new MenuItem
+                                {
+                                    Header = ((url2.ToString().StartsWith("http://www.ribbit.xyz/bms/mirror/", StringComparison.OrdinalIgnoreCase) || url2.ToString().StartsWith("http://gnqg.rosx.net/upload/", StringComparison.OrdinalIgnoreCase)) ? "Uploader" : BeMusicSeeker.Properties.Resources.Diff_URL),
+                                    IsEnabled = true,
+                                    Visibility = Visibility.Visible,
+                                    Tag = url2,
+                                    ToolTip = url2.ToString()
+                                };
                                 menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
                                 return menuItem2;
                             }
@@ -6059,7 +5949,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                             {
                                 return (MenuItem)null;
                             }
-                        };
+                        }
                         subMenuItemCreateFuncs.Add(item2);
                     }
                 }
@@ -6074,17 +5964,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         if (match.Success)
                         {
                             int temp = num;
-                            Func<MenuItem> item3 = delegate
+                            MenuItem item3()
                             {
                                 try
                                 {
-                                    Uri uri = new Uri("h" + match.Groups[1].Value.Trim('\''), UriKind.Absolute);
-                                    MenuItem menuItem2 = new MenuItem();
-                                    menuItem2.Header = BeMusicSeeker.Properties.Resources.Remarks_URL + (temp + 1);
-                                    menuItem2.IsEnabled = true;
-                                    menuItem2.Visibility = Visibility.Visible;
-                                    menuItem2.Tag = uri;
-                                    menuItem2.ToolTip = uri.ToString();
+                                    var uri = new Uri("h" + match.Groups[1].Value.Trim('\''), UriKind.Absolute);
+                                    var menuItem2 = new MenuItem
+                                    {
+                                        Header = BeMusicSeeker.Properties.Resources.Remarks_URL + (temp + 1),
+                                        IsEnabled = true,
+                                        Visibility = Visibility.Visible,
+                                        Tag = uri,
+                                        ToolTip = uri.ToString()
+                                    };
                                     menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
                                     return menuItem2;
                                 }
@@ -6092,7 +5984,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                                 {
                                     return (MenuItem)null;
                                 }
-                            };
+                            }
                             subMenuItemCreateFuncs.Add(item3);
                         }
                     }
@@ -6103,17 +5995,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                         if (!token.IsCancellationRequested && !_isClosingOrClosed)
                         {
-                            List<MenuItem> list = (from f in subMenuItemCreateFuncs
+                            List<MenuItem> list = [.. (from f in subMenuItemCreateFuncs
                                                    select f() into i
                                                    where i != null
-                                                   select i).ToList();
+                                                   select i)];
                             if (list.Count > 0)
                             {
                                 menuItem.Items.Clear();
                                 {
                                     foreach (MenuItem item4 in list)
                                     {
-                                        if (!menuItem.Items.Cast<MenuItem>().Any((MenuItem i) => i.Tag.ToString().Equals(item4.Tag.ToString(), StringComparison.OrdinalIgnoreCase)))
+                                        if (!menuItem.Items.Cast<MenuItem>().Any(i => i.Tag.ToString().Equals(item4.Tag.ToString(), StringComparison.OrdinalIgnoreCase)))
                                         {
                                             menuItem.Items.Add(item4);
                                         }
@@ -6159,7 +6051,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     }
                 }
                 string fileName = ResolveDownloadedArchiveFileName(normalizedUri, response);
-                if (BMSFile.bmsExtensions.Concat(new string[4] { ".zip", ".7z", ".rar", "lzh" }).All((string e) => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+                if (BMSFile.bmsExtensions.Concat(new string[4] { ".zip", ".7z", ".rar", "lzh" }).All(e => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
                 {
                     return;
                 }
@@ -6219,18 +6111,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         long num = 0L;
         try
         {
-            using (FileStream fileStream = File.Create(destinationPath))
+            using FileStream fileStream = File.Create(destinationPath);
+            int count;
+            while ((count = source.Read(array, 0, array.Length)) > 0)
             {
-                int count;
-                while ((count = source.Read(array, 0, array.Length)) > 0)
+                num += count;
+                if (num > maxBytes)
                 {
-                    num += count;
-                    if (num > maxBytes)
-                    {
-                        return false;
-                    }
-                    fileStream.Write(array, 0, count);
+                    return false;
                 }
+                fileStream.Write(array, 0, count);
             }
             return true;
         }
@@ -6291,16 +6181,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="filePaths">インストール対象の一連のファイルシステムパス群。</param>
     private async void installBMSFiles(IEnumerable<string> filePaths)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         int progIdx = 0;
         int failNum = 0;
-        List<string> installs = filePaths.ToList();
+        List<string> installs = [.. filePaths];
         int total = installs.Count;
         if (total == 0)
         {
             return;
         }
-        CancellationTokenSource cancelTokenSource = new CancellationTokenSource();
+        var cancelTokenSource = new CancellationTokenSource();
         Task task = Task.Run(delegate
         {
             viewModel.InstallChartPackages(installs, cancelTokenSource.Token, delegate (bool s)
@@ -6351,7 +6241,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void tableContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem))
+        if (e.Source is not MenuItem menuItem)
         {
             return;
         }
@@ -6361,7 +6251,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 try
                 {
-                    Uri uri = (Uri)menuItem.Tag;
+                    var uri = (Uri)menuItem.Tag;
                     if (!uri.ToString().EndsWith("/") && !uri.ToString().EndsWith(".htm") && !uri.ToString().EndsWith(".html"))
                     {
                         switch (await downloadAndInstall(uri))
@@ -6398,7 +6288,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<string> hashes = GetSelectedGridHashTargets();
         if (hashes != null && hashes.Count != 0)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            var viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
                 viewModel.GetLR2IRCacheHashes(hashes);
@@ -6419,7 +6309,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         Task.Run(delegate
         {
@@ -6446,7 +6336,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<BMSFile> chartFiles = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck);
         if (chartFiles != null && chartFiles.Count() != 0)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            var viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
                 viewModel.ForceResourceHealthCheckCharts(chartFiles);
@@ -6470,7 +6360,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             : GetSelectedPendingChartCompatibilityAdapters(capability);
         if (chartFiles != null && chartFiles.Count() != 0)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            var viewModel = base.DataContext as MainWindowViewModel;
             e.Handled = true;
             Task.Run(delegate
             {
@@ -6495,7 +6385,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<BMSFile> chartFiles = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RepairInstalledLocation);
         if (chartFiles != null && chartFiles.Count() != 0)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            var viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
                 viewModel.SearchCorrectInstallationDirectoryCharts(chartFiles);
@@ -6515,9 +6405,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        if (!chartFiles.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
+        if (!chartFiles.Any(f => !string.IsNullOrWhiteSpace(f.instl_dst)))
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
@@ -6533,7 +6423,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void tableContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
     {
         List<BMSTableEntry> list2 = GetSelectedGridPlaylistEntries();
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         if (list2.Count <= 0)
         {
             return;
@@ -6565,7 +6455,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         viewModel?.StartRescanAllOwnedChartMaintenance();
         e.Handled = true;
     }
@@ -6577,8 +6467,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<string> md5s = GetSelectedChartInfoParseFailureMd5s();
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || md5s.Count == 0)
+        if (base.DataContext is not MainWindowViewModel viewModel || md5s.Count == 0)
         {
             return;
         }
@@ -6596,7 +6485,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
         List<BMSFile> chartFiles = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None);
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         if (chartFiles.Count > 0)
         {
             Task.Run(delegate
@@ -6616,7 +6505,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
         List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension);
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
         if (bmsFiles.Count <= 0 || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
@@ -6624,8 +6513,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         Task.Run(delegate
         {
-            List<BMSFile> list = bmsFiles.Where((BMSFile f) => Path.GetExtension(f.path).StartsWith(".b", StringComparison.OrdinalIgnoreCase)).ToList();
-            List<BMSFile> list2 = bmsFiles.Where((BMSFile f) => Path.GetExtension(f.path).StartsWith(".p", StringComparison.OrdinalIgnoreCase)).ToList();
+            List<BMSFile> list = [.. bmsFiles.Where(f => Path.GetExtension(f.path).StartsWith(".b", StringComparison.OrdinalIgnoreCase))];
+            List<BMSFile> list2 = [.. bmsFiles.Where(f => Path.GetExtension(f.path).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
             if (list.Count > 0)
             {
                 if (isPendingSelected)
@@ -6653,7 +6542,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
         bool isPendingSelected = IsPendingMainViewSection(section);
         List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
@@ -6669,7 +6557,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 + " targetCount=" + resolution.Targets.Count
                 + " droppedMixedScope=" + resolution.MixedScopeDroppedCount);
         }
-        if (viewModel == null || resolution.Targets.Count == 0)
+        if (base.DataContext is not MainWindowViewModel viewModel || resolution.Targets.Count == 0)
         {
             return;
         }
@@ -6696,7 +6584,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<string> approvedWholeFolderDeletePaths = null;
         if (resolution.Route == ChartDeleteRoute.Library)
         {
-            approvedWholeFolderDeletePaths = new List<string>();
+            approvedWholeFolderDeletePaths = [];
             foreach (string folderPath in viewModel.GetLibraryWholeFolderDeleteConfirmationPaths(resolution.Targets))
             {
                 bool approved = DispatcherMessageBox.Show(
@@ -6731,7 +6619,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool ShowPendingDeleteConfirmDialog(out bool deleteContainingPackageFoldersWhenNoBms)
     {
-        PendingDeleteConfirmDialog pendingDeleteConfirmDialog = new PendingDeleteConfirmDialog
+        var pendingDeleteConfirmDialog = new PendingDeleteConfirmDialog
         {
             Owner = this
         };
@@ -6742,16 +6630,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void tableContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
-        List<ChartOperationTarget> targets = GetSelectedChartTargets()
-            .Where((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart?.Path))
-            .ToList();
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (!(sender is MenuItem menuItem))
+        List<ChartOperationTarget> targets = [.. GetSelectedChartTargets().Where(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart?.Path))];
+        if (sender is not MenuItem menuItem)
         {
             return;
         }
-        string dstDir = menuItem.DataContext as string;
-        if (viewModel != null && dstDir != null && targets.Count > 0 && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is string dstDir && targets.Count > 0 && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             await Task.Run(delegate
             {
@@ -6810,7 +6694,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         ClearMainGridSelection();
         if (!treeViewItemInstallPending.IsSelected)
@@ -6841,7 +6725,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         if (Settings.Default.ShowDiffBMSInstallConfirmMsg && DispatcherMessageBox.Show(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK)
         {
@@ -6867,7 +6751,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<BMSFile> chartFiles = GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities.UpdateInstallDestination);
         if (chartFiles != null && chartFiles.Count() != 0)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            var viewModel = base.DataContext as MainWindowViewModel;
             e.Handled = true;
             await Task.Run(delegate
             {
@@ -6896,8 +6780,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -6950,7 +6833,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await Task.Run(delegate
         {
@@ -6965,18 +6848,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio)
-            .Where((BMSFile f) => File.Exists(f.path))
-            .ToArray();
+        BMSFile[] bmsFiles = [.. GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio).Where(f => File.Exists(f.path))];
         if (bmsFiles.Length == 0)
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        CancellationTokenSource cancelTokenSource = new CancellationTokenSource();
+        var viewModel = base.DataContext as MainWindowViewModel;
+        var cancelTokenSource = new CancellationTokenSource();
         int progIdx = 0;
         int failNum = 0;
-        CommonOpenFileDialog commonOpenFileDialog = new CommonOpenFileDialog
+        var commonOpenFileDialog = new CommonOpenFileDialog
         {
             Title = BeMusicSeeker.Properties.Resources.Save_to,
             IsFolderPicker = true
@@ -7025,13 +6906,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         treeViewItemInstantStoryBoardPlaylistTable.Stop(this);
         treeViewItemInstantStoryBoardPlaylistTable.Children.Clear();
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (!(sender is TreeViewItem treeViewItem))
+        var viewModel = base.DataContext as MainWindowViewModel;
+        if (sender is not TreeViewItem treeViewItem)
         {
             return;
         }
-        BMSTable table = treeViewItem.DataContext as BMSTable;
-        if (table == null || table.is_external_sync)
+        if (treeViewItem.DataContext is not BMSTable table || table.is_external_sync)
         {
             return;
         }
@@ -7085,13 +6965,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void playlistTableDragEnter(object sender, DragEventArgs e)
     {
         e.Handled = true;
-        TreeViewItem tviTable = sender as TreeViewItem;
-        if (tviTable == null)
+        if (sender is not TreeViewItem tviTable)
         {
             return;
         }
         TreeViewItem treeViewItem = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
-        if (treeViewItem == null || !(tviTable.DataContext is BMSTable bMSTable))
+        if (treeViewItem == null || tviTable.DataContext is not BMSTable bMSTable)
         {
             return;
         }
@@ -7101,7 +6980,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out _))
         {
-            BooleanAnimationUsingKeyFrames booleanAnimationUsingKeyFrames = new BooleanAnimationUsingKeyFrames();
+            var booleanAnimationUsingKeyFrames = new BooleanAnimationUsingKeyFrames();
             Storyboard.SetTargetProperty(booleanAnimationUsingKeyFrames, new PropertyPath(TreeViewItem.IsExpandedProperty));
             Storyboard.SetTarget(booleanAnimationUsingKeyFrames, tviTable);
             booleanAnimationUsingKeyFrames.KeyFrames.Add(new DiscreteBooleanKeyFrame(!tviTable.IsExpanded, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(1.0))));
@@ -7118,7 +6997,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void playlistTableDragLeave(object sender, DragEventArgs e)
     {
         e.Handled = true;
-        if (!(sender is TreeViewItem treeViewItem))
+        if (sender is not TreeViewItem treeViewItem)
         {
             return;
         }
@@ -7143,8 +7022,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void gridBMSPlayerControlsNextButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7159,15 +7037,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void gridBMSPlayerControlsPreviousButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (gridBMSPlayerControlsPreviousButtonClickTimer == null)
-        {
-            gridBMSPlayerControlsPreviousButtonClickTimer = new DispatcherTimer(new TimeSpan(0, 0, 0, 0, 500), DispatcherPriority.Background, gridBMSPlayerControlsPreviousButtonSingleClicked, Dispatcher.CurrentDispatcher);
-        }
+        gridBMSPlayerControlsPreviousButtonClickTimer ??= new DispatcherTimer(new TimeSpan(0, 0, 0, 0, 500), DispatcherPriority.Background, gridBMSPlayerControlsPreviousButtonSingleClicked, Dispatcher.CurrentDispatcher);
         e.Handled = true;
         if (e.ClickCount >= 2)
         {
@@ -7185,8 +7059,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsPreviousButtonSingleClicked(object sender, EventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
             await Task.Run(delegate
@@ -7202,8 +7075,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void gridBMSPlayerControlsPlayStartButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             e.Handled = true;
             if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
@@ -7223,8 +7095,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -7236,8 +7107,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsFastForwardButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7248,7 +7118,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        var viewModel = base.DataContext as MainWindowViewModel;
         await Task.Run(delegate
         {
             viewModel.FastForwardPlayingBMSfileEnd();
@@ -7261,8 +7131,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7273,8 +7142,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsFastBackwardButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7285,8 +7153,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsFastBackwardButtonReleased(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7301,8 +7168,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7315,8 +7181,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (Settings.Default.UsePlayeruBMplay)
         {
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-            if (viewModel != null)
+            if (base.DataContext is MainWindowViewModel viewModel)
             {
                 await Task.Run(delegate
                 {
@@ -7332,8 +7197,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsShowEffectButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7344,8 +7208,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsChangePlaysideButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             await Task.Run(delegate
             {
@@ -7356,8 +7219,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsIncreaseHighSpeedButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -7369,8 +7231,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsDecreaseHighSpeedButtonClicked(object sender, RoutedEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             e.Handled = true;
             await Task.Run(delegate
@@ -7612,9 +7473,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void gridTreePane_TreeViewItemSelected(object sender, RoutedEventArgs e)
     {
-        TreeViewItem tvi = e.OriginalSource as TreeViewItem;
-        if (tvi == null) tvi = e.Source as TreeViewItem;
-
+        var tvi = e.OriginalSource as TreeViewItem ?? e.Source as TreeViewItem;
         if (tvi != null && tvi.IsSelected)
         {
             if (_lastSelectedTreeViewItem != null && _lastSelectedTreeViewItem != tvi)
@@ -7642,14 +7501,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 _currentTreeSelectionSection = TreeSelectionSection.None;
             }
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            var viewModel = base.DataContext as MainWindowViewModel;
             bool isManualInteraction = treeView.IsKeyboardFocusWithin || treeView.IsMouseOver;
             if (!_isCrossTreeDeselecting && e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable
                 && (viewModel?.IsPlaylistUpdating ?? false) && !isManualInteraction)
             {
                 if (!treeView.SelectTreeViewItemSearchedByDataContext(e.OldValue))
                 {
-                    BMSTable table = (BMSTable)e.OldValue;
+                    var table = (BMSTable)e.OldValue;
                     bool restoredByHeader = treeView.SelectTreeViewItemSearchedByHeader(table.name);
                     NLogWrapper.FileLogger?.Info("playlist_selection_restore fallback_by_header=" + restoredByHeader + " table=" + table.name);
                 }
@@ -7710,12 +7569,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        Slider slider = (Slider)sender;
+        var slider = (Slider)sender;
         Point position = e.GetPosition(slider);
         double value = slider.Maximum * Math.Max(0.0, Math.Min(1.0, (position.X - 5.0) / (slider.ActualWidth - 10.0)));
         slider.Value = value;
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -7731,8 +7589,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void sliderPlayerMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
@@ -7752,8 +7609,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }

@@ -14,7 +14,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class PlaylistDetailRow : NotificationObject
 {
-    private static readonly Regex levelParseRegex = new Regex("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
+    private static readonly Regex levelParseRegex = new("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
     private string level;
 

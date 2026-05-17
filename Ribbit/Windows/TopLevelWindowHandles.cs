@@ -19,7 +19,7 @@ public sealed class TopLevelWindowHandles : WindowHandles
 
     public TopLevelWindowHandles()
     {
-        handles = new List<IntPtr>();
+        handles = [];
         NativeMethods.EnumWindows(base.EnumWindowProc, (IntPtr)0);
     }
 }

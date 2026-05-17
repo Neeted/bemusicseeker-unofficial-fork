@@ -59,8 +59,8 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★★").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
 
-        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(file);
-        PlaylistDetailSourceRow playlistRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+        var libraryRow = LibraryChartRow.FromBmsFile(file);
+        var playlistRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesLibraryChartRow(libraryRow));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Second Table\"").MatchesPlaylistDetail(playlistRow));
     }
@@ -74,9 +74,9 @@ public sealed class GridKeywordSearchQueryTests
             CreateTable("Satellite sl", "★"),
             CreateTable("GENOSIDE", "▽")
         });
-        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsFile(file);
+        var sourceRow = ChartListSourceRow.FromBmsFile(file);
 
-        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
+        var query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
 
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)), query.MatchesChartListSourceRow(sourceRow));
@@ -85,7 +85,7 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void MatchesChartListSourceRow_UsesBmsonFallbackValues()
     {
-        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        var song = new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Songs\Bmson\chart.bmson",
             folder = "BmsonFolder",
@@ -96,9 +96,9 @@ public sealed class GridKeywordSearchQueryTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         };
-        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsonSong(song);
+        var sourceRow = ChartListSourceRow.FromBmsonSong(song);
 
-        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("title:BmsonTitle artist:BmsonArtist genre:BmsonGenre path:bmson md5:bbbb sha256:cccc");
+        var query = GridKeywordSearchQuery.Parse("title:BmsonTitle artist:BmsonArtist genre:BmsonGenre path:bmson md5:bbbb sha256:cccc");
 
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsonSong(song)), query.MatchesChartListSourceRow(sourceRow));
@@ -110,10 +110,10 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = CreateFile();
         file.SetChartInfo(CreateChartInfo());
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsFile(file);
-        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(file);
+        var sourceRow = ChartListSourceRow.FromBmsFile(file);
+        var libraryRow = LibraryChartRow.FromBmsFile(file);
 
-        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000 clear:HC rank:AA score:>=1800 bp:<10");
+        var query = GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000 clear:HC rank:AA score:>=1800 bp:<10");
 
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
@@ -125,10 +125,10 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = CreateFile();
         file.SetChartInfo(CreateChartInfo());
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        ChartListSourceRow sourceRow = ChartListSourceRow.FromBmsFile(file);
-        LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(file);
+        var sourceRow = ChartListSourceRow.FromBmsFile(file);
+        var libraryRow = LibraryChartRow.FromBmsFile(file);
 
-        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("feature:re:RANDOM judge:re:EASY clear:re:HARD rank:re:^AA$ score:re:^1800$ bp:re:^8$");
+        var query = GridKeywordSearchQuery.Parse("feature:re:RANDOM judge:re:EASY clear:re:HARD rank:re:^AA$ score:re:^1800$ bp:re:^8$");
 
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
@@ -150,9 +150,9 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = CreateFile();
         file.path = @"D:\BMS\Alpha\chart.bms";
 
-        GridKeywordSearchQuery drivePathQuery = GridKeywordSearchQuery.Parse(@"D:\BMS\");
-        GridKeywordSearchQuery driveRelativeQuery = GridKeywordSearchQuery.Parse("D:");
-        GridKeywordSearchQuery lowerDrivePathQuery = GridKeywordSearchQuery.Parse(@"d:\bms\");
+        var drivePathQuery = GridKeywordSearchQuery.Parse(@"D:\BMS\");
+        var driveRelativeQuery = GridKeywordSearchQuery.Parse("D:");
+        var lowerDrivePathQuery = GridKeywordSearchQuery.Parse(@"d:\bms\");
 
         Assert.IsTrue(drivePathQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
         Assert.IsTrue(driveRelativeQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
@@ -166,7 +166,7 @@ public sealed class GridKeywordSearchQueryTests
     public void MatchesChartList_QuoteSearchTreatsPhraseAsSingleToken()
     {
         TestableBmsFile file = CreateFile();
-        TestableBmsFile quotedFile = new TestableBmsFile();
+        var quotedFile = new TestableBmsFile();
         quotedFile.SetTitleForTest("Alpha \"Quoted\"");
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
@@ -180,7 +180,7 @@ public sealed class GridKeywordSearchQueryTests
     public void MatchesChartList_NegationExcludesMatchingRows()
     {
         TestableBmsFile file = CreateFile();
-        TestableBmsFile hyphenatedFile = new TestableBmsFile();
+        var hyphenatedFile = new TestableBmsFile();
         hyphenatedFile.SetTitleForTest("foo-bar");
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha -artist:other").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
@@ -214,7 +214,7 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void GetDiagnostics_ReportsContextSpecificWarnings()
     {
-        GridKeywordSearchQuery memoQuery = GridKeywordSearchQuery.Parse("memo:alpha");
+        var memoQuery = GridKeywordSearchQuery.Parse("memo:alpha");
 
         Assert.AreEqual(0, memoQuery.GetDiagnostics(GridKeywordSearchContext.PlaylistDetail).Count);
         Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.ChartList)[0].Kind);
@@ -225,10 +225,8 @@ public sealed class GridKeywordSearchQueryTests
     public void GetDiagnostics_ReportsInvalidConditionsWithoutChangingMatchSemantics()
     {
         TestableBmsFile file = CreateFile();
-        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("unknown:alpha title: - | title:re:[");
-        GridKeywordSearchDiagnosticKind[] kinds = query.GetDiagnostics(GridKeywordSearchContext.ChartList)
-            .Select((GridKeywordSearchDiagnostic diagnostic) => diagnostic.Kind)
-            .ToArray();
+        var query = GridKeywordSearchQuery.Parse("unknown:alpha title: - | title:re:[");
+        GridKeywordSearchDiagnosticKind[] kinds = [.. query.GetDiagnostics(GridKeywordSearchContext.ChartList).Select(diagnostic => diagnostic.Kind)];
 
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.UnknownField);
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyFieldTerm);
@@ -241,7 +239,7 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void GetDiagnostics_DoesNotReportValidAdvancedSyntax()
     {
-        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("title:\"Alpha Title\" -artist:other title:alpha|beta title:re:^alpha");
+        var query = GridKeywordSearchQuery.Parse("title:\"Alpha Title\" -artist:other title:alpha|beta title:re:^alpha");
 
         Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
     }
@@ -328,7 +326,7 @@ public sealed class GridKeywordSearchQueryTests
     public void CreateFromBmsonSong_ExposesChartInfoForDisplayAndSearch()
     {
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
-        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        var song = new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Songs\Alpha\chart.bmson",
             title = "Alpha Bmson",
@@ -340,7 +338,7 @@ public sealed class GridKeywordSearchQueryTests
             ChartInfo = chartInfo
         };
 
-        PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(song);
+        var row = PendingChartEntry.CreateFromBmsonSong(song);
 
         Assert.AreSame(chartInfo, row.ChartInfo);
         Assert.AreEqual("12", row.ChartLevelText);
@@ -352,7 +350,7 @@ public sealed class GridKeywordSearchQueryTests
     public void LibraryChartRow_FromBmsonSong_ExposesChartInfoForDisplayAndSearch()
     {
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
-        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        var song = new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Songs\Alpha\chart.bmson",
             title = "Alpha Bmson",
@@ -365,7 +363,7 @@ public sealed class GridKeywordSearchQueryTests
             ChartInfo = chartInfo
         };
 
-        LibraryChartRow row = LibraryChartRow.FromBmsonSong(song);
+        var row = LibraryChartRow.FromBmsonSong(song);
 
         Assert.IsNotInstanceOfType(row, typeof(PendingChartEntry));
         Assert.AreSame(chartInfo, row.ChartInfo);
@@ -380,7 +378,7 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromBmsFile(file);
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC rank:AA score:>=1800 bp:<10").MatchesLibraryChartRow(row));
     }
@@ -390,7 +388,7 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        PlaylistDetailSourceRow row = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+        var row = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\" score:>=1800 bp:0..10").MatchesPlaylistDetail(row));
     }
@@ -407,16 +405,16 @@ public sealed class GridKeywordSearchQueryTests
         GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult tableResult = GridKeywordSearchCompletion.CreateFieldCompletion("tab", 3, GridKeywordSearchContext.ChartList);
 
-        Assert.IsTrue(bmsResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "title:"));
-        Assert.IsTrue(negatedResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "-artist:"));
-        Assert.IsTrue(detailResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "memo:"));
-        Assert.IsTrue(summaryResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "name:"));
-        Assert.IsTrue(clearResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "clear:"));
-        Assert.IsTrue(djResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "dj:"));
-        Assert.IsTrue(djResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "djlevel:"));
-        Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rank:"));
-        Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rate:"));
-        Assert.IsTrue(tableResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "table:"));
+        Assert.IsTrue(bmsResult.Items.Any(item => item.DisplayText == "title:"));
+        Assert.IsTrue(negatedResult.Items.Any(item => item.DisplayText == "-artist:"));
+        Assert.IsTrue(detailResult.Items.Any(item => item.DisplayText == "memo:"));
+        Assert.IsTrue(summaryResult.Items.Any(item => item.DisplayText == "name:"));
+        Assert.IsTrue(clearResult.Items.Any(item => item.DisplayText == "clear:"));
+        Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "dj:"));
+        Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "djlevel:"));
+        Assert.IsTrue(rateRankResult.Items.Any(item => item.DisplayText == "rank:"));
+        Assert.IsTrue(rateRankResult.Items.Any(item => item.DisplayText == "rate:"));
+        Assert.IsTrue(tableResult.Items.Any(item => item.DisplayText == "table:"));
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.ChartList).Items.Count);
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("D:", 2, GridKeywordSearchContext.ChartList).Items.Count);
     }
@@ -433,32 +431,32 @@ public sealed class GridKeywordSearchQueryTests
     public void CreatePlaylistValueCompletion_CompletesPlaylistNames()
     {
         string[] names =
-        {
+        [
             "Satellite sl",
             "NoSpace",
             "A \"Quote\" \\ Path",
             "Pipe|Name",
             "Satellite sl"
-        };
+        ];
 
         KeywordSearchSuggestionItem spaced = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.ChartList, names)
             .Items
-            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Satellite sl");
+            .Single(item => item.DisplayText == "Satellite sl");
         KeywordSearchSuggestionItem noSpace = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("ref:No", "ref:No".Length, GridKeywordSearchContext.PlaylistDetail, names)
             .Items
-            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "NoSpace");
+            .Single(item => item.DisplayText == "NoSpace");
         KeywordSearchSuggestionItem table = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("table:No", "table:No".Length, GridKeywordSearchContext.ChartList, names)
             .Items
-            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "NoSpace");
+            .Single(item => item.DisplayText == "NoSpace");
         KeywordSearchSuggestionItem escaped = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:A", "playlist:A".Length, GridKeywordSearchContext.ChartList, names)
             .Items
-            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "A \"Quote\" \\ Path");
+            .Single(item => item.DisplayText == "A \"Quote\" \\ Path");
         KeywordSearchSuggestionItem pipe = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Pipe", "playlist:Pipe".Length, GridKeywordSearchContext.ChartList, names)
             .Items
-            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Pipe|Name");
+            .Single(item => item.DisplayText == "Pipe|Name");
         KeywordSearchSuggestionItem quotedPrefix = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:\"Satellite s", "playlist:\"Satellite s".Length, GridKeywordSearchContext.ChartList, names)
             .Items
-            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Satellite sl");
+            .Single(item => item.DisplayText == "Satellite sl");
 
         Assert.AreEqual("playlist:\"Satellite sl\"", spaced.Apply("playlist:Sat", out int spacedCaret));
         Assert.AreEqual("playlist:\"Satellite sl\"".Length, spacedCaret);
@@ -481,7 +479,7 @@ public sealed class GridKeywordSearchQueryTests
     {
         KeywordSearchSuggestionItem suggestion = GridKeywordSearchCompletion.CreateFieldCompletion("foo tit bar", 7, GridKeywordSearchContext.ChartList)
             .Items
-            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "title:");
+            .Single(item => item.DisplayText == "title:");
 
         string applied = suggestion.Apply("foo tit bar", out int caretIndex);
 
@@ -492,12 +490,10 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void KeywordSearchHistoryStore_RoundTripsDistinctCappedHistory()
     {
-        string[] entries = Enumerable.Range(0, KeywordSearchHistoryStore.MaxHistoryCount + 5)
-            .Select((int index) => "title:" + index)
-            .ToArray();
+        string[] entries = [.. Enumerable.Range(0, KeywordSearchHistoryStore.MaxHistoryCount + 5).Select(index => "title:" + index)];
         string serialized = KeywordSearchHistoryStore.Serialize(entries);
 
-        string[] restored = KeywordSearchHistoryStore.Deserialize(serialized).ToArray();
+        string[] restored = [.. KeywordSearchHistoryStore.Deserialize(serialized)];
 
         Assert.AreEqual(KeywordSearchHistoryStore.MaxHistoryCount, restored.Length);
         Assert.AreEqual("title:0", restored[0]);
@@ -507,15 +503,14 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void KeywordSearchHistoryStore_AddEntryMovesDuplicateToFront()
     {
-        string[] updated = KeywordSearchHistoryStore.AddEntry(new[] { "alpha", "beta", "gamma" }, " BETA ")
-            .ToArray();
+        string[] updated = [.. KeywordSearchHistoryStore.AddEntry(new[] { "alpha", "beta", "gamma" }, " BETA ")];
 
         CollectionAssert.AreEqual(new[] { "BETA", "alpha", "gamma" }, updated);
     }
 
     private static TestableBmsFile CreateFile()
     {
-        TestableBmsFile file = new TestableBmsFile();
+        var file = new TestableBmsFile();
         file.ApplySnapshot();
         return file;
     }

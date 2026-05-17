@@ -177,7 +177,7 @@ internal static class Lr2SongFolderParentNormalizer
 
     internal sealed class Lr2FolderParentHashCache
     {
-        private readonly ConcurrentDictionary<string, DirectoryHashPair> hashesByDirectory = new ConcurrentDictionary<string, DirectoryHashPair>(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<string, DirectoryHashPair> hashesByDirectory = new(StringComparer.OrdinalIgnoreCase);
 
         public bool TryCompute(string chartPath, out string folder, out string parent)
         {
@@ -218,16 +218,10 @@ internal static class Lr2SongFolderParentNormalizer
         }
     }
 
-    private readonly struct DirectoryHashPair
+    private readonly struct DirectoryHashPair(string folder, string parent)
     {
-        public DirectoryHashPair(string folder, string parent)
-        {
-            Folder = folder;
-            Parent = parent;
-        }
+        public string Folder { get; } = folder;
 
-        public string Folder { get; }
-
-        public string Parent { get; }
+        public string Parent { get; } = parent;
     }
 }

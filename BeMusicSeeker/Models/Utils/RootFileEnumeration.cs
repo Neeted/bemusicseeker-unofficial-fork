@@ -4,24 +4,16 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
 
-internal sealed class RootFileEnumerationGroup
+internal sealed class RootFileEnumerationGroup(string name, IEnumerable<string> extensions, bool includeAllFiles = false)
 {
-    public RootFileEnumerationGroup(string name, IEnumerable<string> extensions, bool includeAllFiles = false)
-    {
-        Name = name ?? string.Empty;
-        Extensions = (extensions ?? Enumerable.Empty<string>())
-            .Where((string extension) => !string.IsNullOrWhiteSpace(extension))
-            .Select((string extension) => extension.StartsWith(".") ? extension : "." + extension)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        IncludeAllFiles = includeAllFiles;
-    }
+    public string Name { get; } = name ?? string.Empty;
 
-    public string Name { get; }
+    public string[] Extensions { get; } = [.. (extensions ?? [])
+            .Where(extension => !string.IsNullOrWhiteSpace(extension))
+            .Select(extension => extension.StartsWith(".") ? extension : "." + extension)
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    public string[] Extensions { get; }
-
-    public bool IncludeAllFiles { get; }
+    public bool IncludeAllFiles { get; } = includeAllFiles;
 }
 
 internal sealed class RootFileEnumerationResult
@@ -48,7 +40,7 @@ internal sealed class RootFileEnumerationResult
         {
             return paths;
         }
-        return Array.Empty<string>();
+        return [];
     }
 
     public long GetQueryMs(string groupName)
@@ -73,9 +65,7 @@ internal static class RootFileEnumerationService
 
     internal static RootFileEnumerationResult EnumerateFilesWithFallback(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
     {
-        List<RootFileEnumerationGroup> groupList = (groups ?? Enumerable.Empty<RootFileEnumerationGroup>())
-            .Where((RootFileEnumerationGroup group) => group != null && !string.IsNullOrWhiteSpace(group.Name))
-            .ToList();
+        List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         if (groupList.Count == 0)
         {
             return new RootFileEnumerationResult
