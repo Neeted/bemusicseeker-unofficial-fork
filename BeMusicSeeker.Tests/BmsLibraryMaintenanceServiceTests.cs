@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryMaintenanceServiceTests
 {
     [TestMethod]
-    public void ApplyNeedToBeFixedWarnings_SetsStructuredMissingResourceWarnings()
+    public void ApplyResourceHealthWarnings_SetsStructuredMissingResourceWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
@@ -31,7 +31,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        bool needsFix = service.ApplyNeedToBeFixedWarnings(file, info);
+        bool needsFix = service.ApplyResourceHealthWarnings(file, info);
 
         Assert.IsTrue(needsFix);
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -408,7 +408,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void ApplyNeedToBeFixedWarnings_ReplacesOnlyResourceHealthWarnings()
+    public void ApplyResourceHealthWarnings_ReplacesOnlyResourceHealthWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
@@ -426,7 +426,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        bool needsFix = service.ApplyNeedToBeFixedWarnings(file, info);
+        bool needsFix = service.ApplyResourceHealthWarnings(file, info);
 
         Assert.IsTrue(needsFix);
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -478,7 +478,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }, suppressPropertyChanged: true, registerEventHandlers: false);
         SetNotes(bmsonRow, 0);
 
-        Assert.IsTrue(service.ApplyNeedToBeFixedWarnings(bmsonRow));
+        Assert.IsTrue(service.ApplyResourceHealthWarnings(bmsonRow));
         Assert.AreEqual(0, service.GetGarbledFiles([bmsonRow], isInFixedList: false).Count);
         Assert.AreEqual(0, service.GetZeroNoteFiles([bmsonRow]).Count);
         Assert.AreEqual(1, service.SetFilesWarningIgnored([bmsonRow], unset: false).Count);

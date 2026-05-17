@@ -2674,7 +2674,7 @@ public sealed class BmsLibraryInitializationServiceTests
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
                 file => false,
-                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.PendingPackages.Count);
             Assert.AreEqual(2, result.PendingPackages[0].ChartFiles.Count);

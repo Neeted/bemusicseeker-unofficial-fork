@@ -292,7 +292,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 初回空DBでは `maintenance` が空のため、`setMaintenanceInfo` が全譜面を未チェックとして処理する。bmson は file diff で一度 `ParseSnapshot()` されているが、maintenance 側で resource references のため再度 `BmsonSongParser.Parse()` される。
 
-2回目以降は `maintenance` が埋まるため heavy health 再計算対象は減る。ただし `setMaintenanceInfo()` の最後で全 `maintenanceTargets` に `ApplyNeedToBeFixedWarnings()` を行うため、全件 warning 再構築の固定費が残る。
+2回目以降は `maintenance` が埋まるため heavy health 再計算対象は減る。ただし `setMaintenanceInfo()` の最後で全 `maintenanceTargets` に `ApplyResourceHealthWarnings()` を行うため、全件 warning 再構築の固定費が残る。
 
 ### 修正方針
 
@@ -393,7 +393,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - `ResourceHealthIndexSnapshot` を runtime-only で作成し、欠損あり / 無視リストの所属は index から返す。
 - `ChartFilesNeedResourceFix` / `ChartFilesNeedResourceFixIgnored` の取得では、全件 `ResourceHealth` warning 再構築を行わない。
 - `LibraryChartRow` は source `BMSFile` の non-resource warning と、resource health index 由来の projection を合成して WARNING 列を表示する。
-- `setMaintenanceInfo()` 後の全件 `ApplyNeedToBeFixedWarnings()` loop を廃止した。
+- `setMaintenanceInfo()` 後の全件 `ApplyResourceHealthWarnings()` loop を廃止した。
 - `lazy` は主戦略にしない。欠損一覧は membership 判定で全件評価が必要なため、速度面では side-effect-free index を一度作る方を正とする。
 - `resource_health_index_build` / `resource_health_projection` log を追加し、`maintenance_update` / `installable_maintenance_deferred` には `resourceHealthIndexMs`, `warningReapplyTargets=0`, `warningChanged=0` を出す。
 

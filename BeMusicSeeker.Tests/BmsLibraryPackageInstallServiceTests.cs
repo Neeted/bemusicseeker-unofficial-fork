@@ -476,7 +476,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 _ => false,
                 0.6,
-                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
@@ -517,7 +517,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 _ => false,
                 0.6,
-                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
@@ -560,7 +560,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 _ => false,
                 0.6,
-                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
@@ -601,7 +601,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 _ => false,
                 0.6,
-                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
@@ -634,7 +634,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 _ => false,
                 0.6,
-                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
@@ -667,7 +667,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 _ => false,
                 0.6,
-                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.DiscoveredPackages[0].path, StringComparison.OrdinalIgnoreCase));

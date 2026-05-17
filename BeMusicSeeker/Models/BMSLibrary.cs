@@ -7056,7 +7056,7 @@ reportProgress,
 
     private bool ApplyChartResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo mtInfo = null, bool strictCheck = false)
     {
-        return maintenanceService.ApplyNeedToBeFixedWarnings(bmsFile, mtInfo, strictCheck);
+        return maintenanceService.ApplyResourceHealthWarnings(bmsFile, mtInfo, strictCheck);
     }
 
     public List<BMSFile> GetChartsNeedResourceFix(IEnumerable<BMSFile> chartFiles, bool forceUpdate = false, bool isInIgnoredList = false)

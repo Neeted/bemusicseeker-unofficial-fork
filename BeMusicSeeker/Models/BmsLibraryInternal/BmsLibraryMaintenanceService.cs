@@ -50,7 +50,7 @@ internal sealed class BmsLibraryMaintenanceService
             .Where(file => file != null && (PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)));
     }
 
-    public bool ApplyNeedToBeFixedWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
+    public bool ApplyResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
     {
         IReadOnlyList<ChartWarning> warnings = BuildResourceHealthWarnings(bmsFile, maintenanceInfo, strictCheck);
         bmsFile?.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, warnings);
