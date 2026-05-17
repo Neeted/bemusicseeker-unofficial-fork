@@ -315,7 +315,7 @@ playlist detail 表示時の `BMSFilesView` 実体は `PlaylistDetailVirtualView
 - bmson library row は `ChartOperationTarget` / `LibraryChartRef` 経由で `PendingChartEntry` に変換する。
 - playlist row は通常 folder 追加では `BMSTableEntry.Duplicate()` を優先し、既存 playlist metadata を保つ。
 
-folder table root への追加では、BMS は従来の同一ディレクトリ md5 group を使う。所持 BMS playlist row は実体 `BMSFile` へ解決されるため、root folder 自動振り分けでは新しい `BMSTableEntry(file)` を作る。missing row や bmson row など実体 BMS へ解決できない playlist row は `BMSTableEntry.Duplicate()` で既存 metadata を保つ。bmson は sha256 identity を保ち、`Org_md5` は空にする。
+folder table root への追加では、BMS は従来の同一ディレクトリ md5 group を使う。所持 playlist row は BMS / bmson とも `ResolvePlaylistDropChartAdapter(...)` で chart adapter へ解決され、root folder 自動振り分けでは新しい `BMSTableEntry(file)` を作る。missing row など chart adapter を作れない playlist row は `BMSTableEntry.Duplicate()` で既存 metadata を保つ。bmson は sha256 identity を保ち、`Org_md5` は空にする。
 
 ## File read pipeline
 

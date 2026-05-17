@@ -1338,6 +1338,37 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void RootFolderDropEntryPolicy_PreservesOnlyMissingPlaylistRows()
+    {
+        var bms = new TestableBmsFile();
+        bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
+        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), bms).CreateViewRow();
+
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Owned Bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        var bmsonEntry = new TestablePlaylistEntry();
+        bmsonEntry.SetMd5(bmson.md5);
+        bmsonEntry.SetSha256(bmson.sha256);
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+
+        var missingEntry = new TestablePlaylistEntry();
+        missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
+        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null).CreateViewRow();
+
+        Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsRow));
+        Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsonRow));
+        Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingRow));
+        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(MainWindowViewModel.ResolvePlaylistDropChartAdapter(ownedBmsonRow)));
+        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChartAdapter(missingRow));
+    }
+
+    [TestMethod]
     public void PlaylistDetailSourceRow_AfterBmsRemoval_RematerializesEntryAsMissingNoSong()
     {
         var file = new TestableBmsFile();

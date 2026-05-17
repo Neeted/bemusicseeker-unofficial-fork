@@ -20760,7 +20760,7 @@ public class MainWindowViewModel : ViewModel
         List<BeMusicSeeker.Models.BMSFile> resolvedFiles = [.. sourceRows.Select(ResolvePlaylistDropChartAdapter).Where(file => file != null)];
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
-            List<object> playlistEntryRows = [.. sourceRows.Where(row => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null)];
+            List<object> playlistEntryRows = [.. sourceRows.Where(ShouldPreservePlaylistEntryForRootFolderDrop)];
             List<BeMusicSeeker.Models.BMSFile> source = [.. sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChartAdapter).Where(file => file != null)];
             tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where(entry => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
@@ -20819,6 +20819,16 @@ public class MainWindowViewModel : ViewModel
         files.AddReferenceBMSTables(bmsTable, resolvedFiles);
         tables.FreeReaderLockBMSTables();
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+    }
+
+    /// <summary>
+    /// root folder drop 時に playlist entry をそのまま複製すべき行かどうかを返します。
+    /// 実体 chart adapter が作れる行は BMS / bmson を問わず chart として再追加し、未所持 playlist entry だけを entry 複製として残します。
+    /// </summary>
+    internal static bool ShouldPreservePlaylistEntryForRootFolderDrop(object row)
+    {
+        return GridRowResolver.GetPlaylistEntry(row) != null
+            && ResolvePlaylistDropChartAdapter(row) == null;
     }
 
     internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropChartAdapter(object row)
