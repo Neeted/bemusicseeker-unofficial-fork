@@ -7883,11 +7883,6 @@ public class BMSLibrary : NotificationObject
         return registeredPackages;
     }
 
-    private static ComponentMoveDecision DecideComponentMove(string srcFilePath, string dstFilePath)
-    {
-        return new BmsLibraryPackageInstallService().DecideComponentMove(srcFilePath, dstFilePath);
-    }
-
     private static bool IsSamePath(string path1, string path2)
     {
         return new BmsLibraryPackageInstallService().IsSamePath(path1, path2);
