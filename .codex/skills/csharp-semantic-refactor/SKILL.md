@@ -12,7 +12,7 @@ Use this skill for C#/.NET refactoring, especially BeMusicSeeker work that moves
 Do not use text replacement as the primary method for C# symbol changes.
 
 Semantic tools first:
-1. Repo-local `dotnet roslynator rename-symbol`, when the target can be safely expressed with a narrow `--match` and verified with `--dry-run`.
+1. Repo-local `dotnet roslynator rename-symbol`, when the target can be safely expressed with a narrow `--match` and verified by target-list output plus immediate `git diff` audit.
 2. Other callable Roslyn or LSP rename tool, if configured.
 3. VS Code F2 Rename Symbol / C# Dev Kit, applied by the user for location-specific single-symbol renames or when CLI matching is not safe.
 4. Compiler-driven edits for API/signature refactors.
@@ -86,19 +86,30 @@ Resume only after the user confirms the F2 rename has been applied.
 
 Use Roslynator only when a symbol set can be selected precisely enough by `--match`, `--match-from`, `--scope`, project, and optional include/exclude filters.
 
-Start with a dry run:
+Start with a target-list pass:
 
 ```powershell
-dotnet roslynator rename-symbol BeMusicSeeker.csproj --scope type --match "<predicate>" --new-name "<expression>" --dry-run -v minimal
+dotnet roslynator rename-symbol BeMusicSeeker.csproj --scope type --match "<predicate>" --new-name "<expression>" --dry-run -v detailed
 ```
+
+Known repo-local behavior:
+
+- With `roslynator.dotnet.cli` 0.12.0, `rename-symbol --dry-run` lists the matched symbols but then may throw a `NullReferenceException` in `MSBuildWorkspace.TryApplyChanges(...)`.
+- Treat this as a known dry-run bug, not by itself as a failed target-selection check.
+- The useful output is the symbol list printed before the exception. Continue only if that list is exact and narrow.
+- Immediately after the dry-run attempt, run `git status --short` and confirm that no files changed.
+- If the target list is wrong, or any file changed unexpectedly, do not run the write step. Prefer VS Code F2 for cursor-specific renames.
 
 Rules:
 
-- Prefer `--dry-run` first, then `--ask` or a narrow non-interactive run.
-- Inspect the dry-run target list before allowing disk writes.
+- Prefer the target-list pass first, then a narrow non-interactive run using the same `--match` and `--new-name`.
+- Inspect the target list before allowing disk writes. For `roslynator.dotnet.cli` 0.12.0, the command can exit non-zero after printing the useful list.
+- Run from a clean worktree whenever possible, so an unexpected result can be discarded with ordinary git file restore.
 - Keep `--match` specific enough to avoid prefix-wide or namespace-wide surprises.
 - Do not use Roslynator for a cursor-position-specific rename that cannot be described safely in `--match`; ask the user to use VS Code F2 instead.
-- Inspect `git diff` immediately after any Roslynator write.
+- Inspect `git diff --name-only` and `git diff` immediately after any Roslynator write.
+- If the diff contains unintended semantic scope, unrelated symbols, generated/persisted artifacts, or string/config changes that were not planned, discard the Roslynator write and switch to VS Code F2 or a more precise approach.
+- After a successful write, continue with the non-symbol artifact audit; Roslynator will not reliably update XAML strings, resource keys, settings names, docs, DB/schema strings, or serialized names.
 
 ## During editing
 
