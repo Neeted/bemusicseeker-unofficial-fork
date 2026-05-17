@@ -20985,11 +20985,11 @@ public class MainWindowViewModel : ViewModel
                 tables.RemoveEntriesBMSTable(list.Except(second), bmsTable, commitFlag: false);
             }
         }
-        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(ResolvePlaylistDropCompatibilityBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(ResolvePlaylistDropChartAdapter).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
             List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetPlaylistEntry(row) != null && GridRowResolver.GetRealBmsFile(row) == null).ToList();
-            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropCompatibilityBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChartAdapter).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
             tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
@@ -21036,7 +21036,7 @@ public class MainWindowViewModel : ViewModel
         {
             ParallelQuery<BMSTableEntry> bmsEntries = from row in sourceRows.AsParallel()
                                                       let entry = GridRowResolver.GetPlaylistEntry(row)
-                                                      let file = ResolvePlaylistDropCompatibilityBmsFile(row)
+                                                      let file = ResolvePlaylistDropChartAdapter(row)
                                                       where entry != null || file != null
                                                       select (entry != null) ? entry.Duplicate() : new BMSTableEntry(file)
                                                       {
@@ -21052,7 +21052,7 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
-    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropCompatibilityBmsFile(object row)
+    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropChartAdapter(object row)
     {
         BeMusicSeeker.Models.BMSFile realFile = GridRowResolver.GetRealBmsFile(row);
         if (realFile != null)

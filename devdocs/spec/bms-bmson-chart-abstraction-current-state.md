@@ -307,7 +307,7 @@ playlist detail 表示時の `BMSFilesView` 実体は `PlaylistDetailVirtualView
 
 `MainWindowViewModel.AddChartRowsToFolderBMSTable(...)` は、playlist table 概念として `BMSTable` 名を残しつつ、追加元の一覧 row は Chart として解決する。
 
-通常 folder への追加では、row から `ResolvePlaylistDropCompatibilityBmsFile(...)` を通して `BMSFile` 互換 chart を作る。
+通常 folder への追加では、row から `ResolvePlaylistDropChartAdapter(...)` を通して既存 playlist entry API 用の chart adapter を作る。
 
 - BMS row は実体 `BMSFile` を使う。
 - bmson library row は `ChartOperationTarget` / `LibraryChartRef` 経由で `PendingChartEntry` に変換する。
