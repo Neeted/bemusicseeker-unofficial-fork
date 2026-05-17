@@ -17922,7 +17922,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="installPaths">インストールの対象となるファイルまたはディレクトリパスのコレクション。</param>
     /// <param name="token">処理を中止するためのキャンセレーショントークン。</param>
     /// <param name="onEachCompleted">インストール処理完了時に呼ばれるコールバック。</param>
-    public void InstallBMSFiles(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null, Action onEachPathProcessed = null)
+    public void InstallChartPackages(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null, Action onEachPathProcessed = null)
     {
         if (files == null)
         {
@@ -17987,7 +17987,7 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         int completedPathCount = 0;
-        InstallBMSFiles(request.Paths, token, null, delegate
+        InstallChartPackages(request.Paths, token, null, delegate
         {
             completedPathCount++;
             dropInstallQueueProcessor?.ReportActiveBatchProgress(completedPathCount);

@@ -6305,7 +6305,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         CancellationTokenSource cancelTokenSource = new CancellationTokenSource();
         Task task = Task.Run(delegate
         {
-            viewModel.InstallBMSFiles(installs, cancelTokenSource.Token, delegate (bool s)
+            viewModel.InstallChartPackages(installs, cancelTokenSource.Token, delegate (bool s)
             {
                 progIdx++;
                 if (!s)
