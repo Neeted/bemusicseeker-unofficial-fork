@@ -1046,7 +1046,7 @@ public class BMSLibrary : NotificationObject
 
     public List<BMSFile> BMSFilesUnregistered => BMSFiles.Where((BMSFile f) => string.IsNullOrWhiteSpace(f.parent)).ToList();
 
-    public IEnumerable<BMSFile> BMSFilesNeedToBeFixed => GetBMSFilesNeedToBeFixed(null);
+    public IEnumerable<BMSFile> BMSFilesNeedToBeFixed => GetChartsNeedResourceFix(null);
 
     public List<LR2SongDBExtended.bmson_song> BmsonSongs
     {
@@ -1076,7 +1076,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetBMSFilesNeedToBeFixed(null, forceUpdate: false, isInIgnoredList: true);
+    public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetChartsNeedResourceFix(null, forceUpdate: false, isInIgnoredList: true);
 
     /// <summary>
     /// 重複検出済みの chart group 一覧です。重複検出処理の結果が格納されます。
@@ -7084,14 +7084,6 @@ public class BMSLibrary : NotificationObject
         return maintenanceService.ApplyNeedToBeFixedWarnings(bmsFile, mtInfo, strictCheck);
     }
 
-    /// <summary>
-    /// ファイルが欠損・破損等で修復が必要な BMS ファイルの一覧を取得します。
-    /// </summary>
-    public List<BMSFile> GetBMSFilesNeedToBeFixed(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool isInIgnoredList = false)
-    {
-        return GetChartsNeedResourceFix(bmsFiles, forceUpdate, isInIgnoredList);
-    }
-
     public List<BMSFile> GetChartsNeedResourceFix(IEnumerable<BMSFile> chartFiles, bool forceUpdate = false, bool isInIgnoredList = false)
     {
         bool includeInstalledBmson = chartFiles == null;
@@ -7164,14 +7156,6 @@ public class BMSLibrary : NotificationObject
         CancellationToken cancellationToken = default)
     {
         return RescanResourceHealthCharts(BMSFiles, includeInstalledBmson: true, progressReporter, cancellationToken);
-    }
-
-    /// <summary>
-    /// 指定された BMS ファイル群の保守警告を無視リストに追加（または解除）し、DB に反映します。
-    /// </summary>
-    public void SetBMSFilesToBeFixedIgnored(IEnumerable<BMSFile> bmsFiles, bool unset = false)
-    {
-        SetChartResourceWarningsIgnored(bmsFiles, unset);
     }
 
     public void SetChartResourceWarningsIgnored(IEnumerable<BMSFile> chartFiles, bool unset = false)
