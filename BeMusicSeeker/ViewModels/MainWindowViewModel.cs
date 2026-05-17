@@ -20637,16 +20637,6 @@ public class MainWindowViewModel : ViewModel
         base.Messenger.Raise(new ConfirmationMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
     }
 
-    internal void RegistrateExternalPlaylistBMSTable(Uri uri)
-    {
-        ImportExternalPlaylistBMSTableAsync(uri, showFailureDialog: true, skipDuplicateName: false).GetAwaiter().GetResult();
-    }
-
-    internal async Task RegistrateExternalPlaylistBMSTableAsync(Uri uri)
-    {
-        await ImportExternalPlaylistBMSTableAsync(uri, showFailureDialog: true, skipDuplicateName: false);
-    }
-
     internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)
     {
         EnqueueExternalPlaylistBMSTableImports(new[] { uri });
@@ -20670,7 +20660,7 @@ public class MainWindowViewModel : ViewModel
             while (externalPlaylistImportQueue.TryDequeue(out Uri uri))
             {
                 UpdateExternalPlaylistImportQueueProgress(completedCount, uri, string.Empty, hasActiveImport: true);
-                ExternalPlaylistImportOutcome outcome = await ImportExternalPlaylistBMSTableCoreAsync(uri, showFailureDialog: false, skipDuplicateName: true).Logging("ImportExternalPlaylistBMSTableAsync");
+                ExternalPlaylistImportOutcome outcome = await ImportExternalPlaylistBMSTableCoreAsync(uri, showFailureDialog: false, skipDuplicateName: true).Logging("ImportExternalPlaylistBMSTableCoreAsync");
                 outcomes.Add(outcome);
                 completedCount++;
                 UpdateExternalPlaylistImportQueueProgress(completedCount, uri, outcome?.TableName ?? string.Empty, hasActiveImport: false);
@@ -20702,35 +20692,6 @@ public class MainWindowViewModel : ViewModel
         int normalizedCompletedCount = Math.Max(0, completedCount);
         int normalizedPendingCount = Math.Max(0, pendingCount);
         return Math.Max(normalizedCompletedCount + (hasActiveImport ? 1 : 0) + normalizedPendingCount, normalizedCompletedCount);
-    }
-
-    private async Task<ExternalPlaylistImportOutcome> ImportExternalPlaylistBMSTableAsync(Uri uri, bool showFailureDialog, bool skipDuplicateName)
-    {
-        BeginPlaylistSyncProgressOperation();
-        try
-        {
-            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
-            {
-                IsActive = true,
-                TotalTableCount = 1,
-                CompletedTableCount = 0,
-                CurrentTableName = string.Empty,
-                CurrentUri = uri
-            });
-            return await ImportExternalPlaylistBMSTableCoreAsync(uri, showFailureDialog, skipDuplicateName);
-        }
-        finally
-        {
-            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
-            {
-                IsActive = true,
-                TotalTableCount = 1,
-                CompletedTableCount = 1,
-                CurrentTableName = string.Empty,
-                CurrentUri = uri
-            });
-            EndPlaylistSyncProgressOperation();
-        }
     }
 
     private async Task<ExternalPlaylistImportOutcome> ImportExternalPlaylistBMSTableCoreAsync(Uri uri, bool showFailureDialog, bool skipDuplicateName)
@@ -21504,47 +21465,6 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 選択された BMS ファイル群について、LR2IR (Lunatic Rave 2 Internet Ranking) サーバーから
-    /// その BMS ファイルのランキングデータ・キャッシュ情報をダウンロード・更新します。
-    /// </summary>
-    /// <param name="bmsFiles">LR2IR キャッシュ取得の対象となる BMS ファイルのリスト。</param>
-    public void GetLR2IRCacheBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        lock (lockCopyFile)
-        {
-            if (bmsFiles == null)
-            {
-                throw new ArgumentNullException("bmsFiles");
-            }
-            try
-            {
-                List<string> list = bmsFiles.Select((BeMusicSeeker.Models.BMSFile f) => f.hash).ToList();
-                List<BMSLibrary.IRDataCacheInfo> iRDataNeedUpdates = files.GetIRDataNeedUpdates(list);
-                if (iRDataNeedUpdates.Count > 0)
-                {
-                    if (DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Download + ": " + iRDataNeedUpdates.Count + Environment.NewLine + BeMusicSeeker.Properties.Resources.Skip + ": " + (list.Count - iRDataNeedUpdates.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Size + ": " + FileSizeHelper.GetReadableFileSize(iRDataNeedUpdates.Select((BMSLibrary.IRDataCacheInfo c) => c.size).Sum()), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk, MessageBoxResult.OK) == MessageBoxResult.OK)
-                    {
-                        List<BMSLibrary.IRDataCacheInfo> list2 = files.DownloadIRData(iRDataNeedUpdates);
-                        DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_completed + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (iRDataNeedUpdates.Count - list2.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + list2.Count, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
-                    }
-                }
-                else
-                {
-                    DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_warn_cache_download, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            }
-            catch (Exception ex2)
-            {
-                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_cache_download + Environment.NewLine + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            }
-        }
-    }
-
-    /// <summary>
     /// 指定されたハッシュ群をキーに LR2IR キャッシュを更新します。
     /// 実ファイル未所持の playlist 行でもランキングデータ更新を行えるようにします。
     /// </summary>
@@ -21673,25 +21593,6 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("id");
         }
         BrowserHtml = "\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<!DOCTYPE html\r\n     PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\"\r\n    \"DTD/xhtml1-strict.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"en\" lang=\"en\">\r\n  <head>\r\n  <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"/>\r\n  </head>\r\n  <body style=\"margin:0px;padding:0px;overflow:hidden;\">\r\n    <div style=\"padding:0;background-color:black;margin:0 auto;text-align: center;\"><script type=\"text/javascript\" src=\"http://ext.nicovideo.jp/thumb_watch/" + id + "?h=256\"></script></div>\r\n  </body>\r\n</html>\r\n";
-    }
-
-    /// <summary>
-    /// 選択された複数のBMSファイルをスコアビューワー（外部連携サイト、通常は BMS Score Viewer）に登録・アップロードします。
-    /// 既に登録済みの場合はスキップし、未登録の場合はファイルをアップロードして閲覧可能な状態にします。
-    /// 複数ファイルの一括登録時にはユーザーに確認ダイアログを表示します。
-    /// </summary>
-    /// <param name="bmsFiles">登録対象となるBMSファイルのリスト。</param>
-    /// <returns>
-    /// 最後に処理されたファイルが正しく登録（または取得）できた場合、そのスコアビューワーの閲覧用URLを返します。
-    /// キャンセル時や、対象ファイル全てで処理に失敗した場合は null を返します。
-    /// </returns>
-    public string RegisterBMSFilesToScoreViewer(List<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        if (bmsFiles == null)
-        {
-            throw new ArgumentNullException(nameof(bmsFiles));
-        }
-        return RegisterScoreViewerTargets(bmsFiles.Select((BeMusicSeeker.Models.BMSFile bmsFile) => new ScoreViewerTarget(bmsFile.hash, bmsFile.path, bmsFile.Title)).ToList());
     }
 
     /// <summary>

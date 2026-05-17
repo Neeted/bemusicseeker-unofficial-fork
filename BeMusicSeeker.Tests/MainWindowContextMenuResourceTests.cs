@@ -235,8 +235,6 @@ public sealed class MainWindowContextMenuResourceTests
             StringAssert.Contains(languageJson, "\"Playlist_uri_input_no_valid_uri\"");
             StringAssert.Contains(languageJson, "\"Playlist_uri_input_invalid_lines_format\"");
         }
-        Assert.IsFalse(code.Contains("await viewModel.RegistrateExternalPlaylistBMSTableAsync(dataContext.url)"));
-        Assert.IsFalse(dialogCode.Contains("await viewModel.RegistrateExternalPlaylistBMSTableAsync(targetURI)"));
     }
 
     [TestMethod]
