@@ -344,7 +344,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void VirtualBmsFileSubsetFilters_ReuseFullOrderSubsetWithoutRealizingRows()
+    public void VirtualChartSubsetFilters_ReuseFullOrderSubsetWithoutRealizingRows()
     {
         List<BMSFile> files = new List<BMSFile>
         {
@@ -357,7 +357,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
         GridKeywordSearchQuery keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
 
-        int[] filteredIndexes = MainWindowViewModel.ApplyVirtualBmsFileSubsetFiltersForTest(
+        int[] filteredIndexes = MainWindowViewModel.ApplyVirtualChartSubsetFiltersForTest(
             sourceRows,
             fullOrder.Indexes,
             keywordQuery,
@@ -385,16 +385,16 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void VirtualBmsFileSubsetSortCacheKey_UsesSubsetSignatureAndDependencyGeneration()
+    public void VirtualChartSubsetSortCacheKey_UsesSubsetSignatureAndDependencyGeneration()
     {
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
         List<ChartListSourceRow> reorderedRows = sourceRows.AsEnumerable().Reverse().ToList();
-        long signature = MainWindowViewModel.ComputeVirtualBmsFileSubsetSourceRowsSignatureForTest(sourceRows);
-        long sameSignature = MainWindowViewModel.ComputeVirtualBmsFileSubsetSourceRowsSignatureForTest(ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null));
-        long reorderedSignature = MainWindowViewModel.ComputeVirtualBmsFileSubsetSourceRowsSignatureForTest(reorderedRows);
+        long signature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(sourceRows);
+        long sameSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null));
+        long reorderedSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(reorderedRows);
         int treeMode = (int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected;
 
-        VirtualBmsFileSubsetSortCacheKey current = new VirtualBmsFileSubsetSortCacheKey(
+        VirtualChartSubsetSortCacheKey current = new VirtualChartSubsetSortCacheKey(
             7,
             11,
             1,
@@ -406,7 +406,7 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.rateDouble),
             ListSortDirection.Ascending,
             sourceRows.Count);
-        VirtualBmsFileSubsetSortCacheKey same = new VirtualBmsFileSubsetSortCacheKey(
+        VirtualChartSubsetSortCacheKey same = new VirtualChartSubsetSortCacheKey(
             7,
             11,
             1,
@@ -422,17 +422,17 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(signature, sameSignature);
         Assert.AreNotEqual(signature, reorderedSignature);
         Assert.AreEqual(current, same);
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(8, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 12, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 2, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 3, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 4, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "duplicate_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", reorderedSignature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Descending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualBmsFileSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count + 1));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(8, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 12, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 2, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 3, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 4, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "duplicate_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", reorderedSignature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Descending, sourceRows.Count));
+        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count + 1));
     }
 
     [TestMethod]
@@ -546,22 +546,22 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void VirtualBmsFileSubsetTreeModes_AreLimitedToBmsFileCollections()
+    public void VirtualChartSubsetTreeModes_AreLimitedToChartCollections()
     {
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.GarbledFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.GarbleFixedFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.GarbledFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.GarbleFixedFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.UnregisteredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ZeroNoteFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
 
-        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected));
     }
 
     [TestMethod]
@@ -610,7 +610,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void VirtualBmsFileSubsetRequestModes_CoverFilterAndSortUpdates()
+    public void VirtualChartSubsetRequestModes_CoverFilterAndSortUpdates()
     {
         MainWindowViewModel.viewUpdateMode[] treeModes =
         {
@@ -641,7 +641,7 @@ public sealed class ChartListVirtualViewTests
             bool expectedTreeSupport = treeModes.Contains(treeMode);
             Assert.AreEqual(
                 expectedTreeSupport,
-                MainWindowViewModel.IsVirtualBmsFileSubsetTreeModeSupportedForTest((int)treeMode),
+                MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)treeMode),
                 treeMode + " tree support");
             foreach (MainWindowViewModel.viewUpdateMode requestMode in allModes)
             {
@@ -649,7 +649,7 @@ public sealed class ChartListVirtualViewTests
                     && (requestMode == treeMode || refreshModes.Contains(requestMode));
                 Assert.AreEqual(
                     expectedRequestSupport,
-                    MainWindowViewModel.IsVirtualBmsFileSubsetRequestModeSupportedForTest((int)requestMode, (int)treeMode),
+                    MainWindowViewModel.IsVirtualChartSubsetRequestModeSupportedForTest((int)requestMode, (int)treeMode),
                     treeMode + " request " + requestMode);
             }
         }
@@ -679,7 +679,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void VirtualBmsFileSubsetResourceHealthProjection_MatchesMaterializedModes()
+    public void VirtualChartSubsetResourceHealthProjection_MatchesMaterializedModes()
     {
         Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
         Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected));

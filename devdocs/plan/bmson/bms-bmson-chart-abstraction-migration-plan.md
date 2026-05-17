@@ -353,12 +353,13 @@ Phase F-3 に進む前に、DataGrid sort engine を整理する。
 
 Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の chart 名化を進める。
 
-F-3 で進める候補:
+F-3 で進める候補 / 進捗:
 
-- `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は、型がすでに `LibraryChartRow` なので `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ寄せる
-- `SetBMSFilesView()` は private helper なので、`SetChartRowsView()` を主 API にし、旧名は必要なら shim にする
+- `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。public binding の `BMSFilesView` は維持する
+- `SetBMSFilesView()` は private helper だったため `SetChartRowsView()` へ移行済み。production 参照のない旧名 shim は残さない
 - 旧 grid selection helper 群は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedCompatibilityBmsFiles` / `GetSelectedPendingCompatibilityBmsFiles` に寄せる
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
+- subset view の仮想 filter / sort cache / test helper は `VirtualChartSubset*` へ移行し、BMS / bmson を含む chart row subset として扱う。ログ検索互換のため、既存 performance log scope は当面 `bms_file_subset` のまま維持する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:
