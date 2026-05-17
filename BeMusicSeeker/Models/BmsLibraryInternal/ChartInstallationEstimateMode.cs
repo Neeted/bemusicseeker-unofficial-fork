@@ -1,6 +1,6 @@
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal enum BmsInstallationEstimateMode
+internal enum ChartInstallationEstimateMode
 {
     Normal,
     ReinstallCorrection,

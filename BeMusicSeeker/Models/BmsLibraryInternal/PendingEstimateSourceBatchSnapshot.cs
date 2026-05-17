@@ -46,7 +46,7 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
 
-    public BmsInstallationEstimateMode EstimateMode { get; set; }
+    public ChartInstallationEstimateMode EstimateMode { get; set; }
 
     public InstalledDirectoryLookupResult PreparationInstalledResolution { get; set; }
 

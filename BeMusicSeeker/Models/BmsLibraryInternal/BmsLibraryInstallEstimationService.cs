@@ -554,22 +554,22 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         return EstimateInstallationDirectory(BuildLooseFileSnapshot(chartFiles, installedHashes, estimateMode), directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         return EstimateInstallationDirectory(snapshot, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
-    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         return EstimateInstallationDirectoryForCandidateDirectories(snapshot, candidateDirectories, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver);
     }
 
-    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         return EstimateInstallationDirectory(
             snapshot,
@@ -581,12 +581,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             candidateDirectoryOverride: candidateDirectories);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         return EstimateInstallationDirectory(BuildLooseFileSnapshot(chartFiles, installedHashes, estimateMode), directoryLookupCache, candidateEvaluationDegree, estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         return EstimateInstallationDirectory(
             snapshot,
@@ -598,13 +598,13 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             candidateDirectoryOverride: null);
     }
 
-    private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, IReadOnlyCollection<string> candidateDirectoryOverride)
+    private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, IReadOnlyCollection<string> candidateDirectoryOverride)
     {
         var result = new InstallEstimationResult();
         int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
         result.CandidateEvaluationDegree = effectiveCandidateEvaluationDegree;
-        bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
-        bool isReinstallCorrectionMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection;
+        bool isMergeMode = estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
+        bool isReinstallCorrectionMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection;
         bool useBundledResources = !(isMergeMode || isReinstallCorrectionMode);
         if (snapshot?.RepresentativeFile == null)
         {
@@ -1089,14 +1089,14 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         result.ShouldAutoApplyDestination = false;
     }
 
-    private static PackageInstallEstimationSnapshot BuildLooseFileSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode)
+    private static PackageInstallEstimationSnapshot BuildLooseFileSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, ChartInstallationEstimateMode estimateMode)
     {
         List<BMSFile> targetFiles = [.. (chartFiles ?? []).Where(file => file != null)];
         if (targetFiles.Count == 0 || targetFiles.Any(chartFile => !string.IsNullOrWhiteSpace(chartFile.instl_dst)))
         {
             return null;
         }
-        bool isCorrectionLikeMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection || estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
+        bool isCorrectionLikeMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection || estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
             targetFiles = [.. targetFiles.Where(file => !installedHashes.Contains(file.hash))];

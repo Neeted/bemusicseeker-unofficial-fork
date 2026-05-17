@@ -47,19 +47,19 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
         InstallEstimationResult defaultParallel = service.EstimateInstallationDirectory(
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: true,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
         InstallEstimationResult explicitDegree = service.EstimateInstallationDirectory(
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             candidateEvaluationDegree: 16,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(1, sequential.CandidateEvaluationDegree);
         Assert.AreEqual(BmsLibraryInstallEstimationService.ResolveDefaultCandidateEvaluationDegree(), defaultParallel.CandidateEvaluationDegree);
@@ -241,7 +241,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 [candidateDir],
                 directoryLookupCache: null,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.IsFalse(result.HasViableDestination);
             Assert.IsFalse(result.ShouldAutoApplyDestination);
@@ -288,7 +288,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.MergeCandidateOnly);
+                ChartInstallationEstimateMode.MergeCandidateOnly);
 
             Assert.AreEqual(mergeDir, result.DestinationDirectory);
             Assert.AreEqual(1, result.CandidateDirectoryCount);
@@ -320,7 +320,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             string debugSummary = (result.ResourceSummary ?? string.Empty) + " || " + (result.TopCandidateSummary ?? string.Empty) + " || " + (result.SelectedCandidateSummary ?? string.Empty);
             Assert.AreEqual(1, result.CandidateDirectoryCount, debugSummary);
@@ -353,7 +353,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(0, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
@@ -397,7 +397,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
@@ -434,7 +434,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
@@ -469,7 +469,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(0, result.AudioMinimumMatchRequired);
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
@@ -504,7 +504,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
@@ -546,13 +546,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             InstallEstimationResult mergeResult = service.EstimateInstallationDirectory(
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.MergeCandidateOnly);
+                ChartInstallationEstimateMode.MergeCandidateOnly);
 
             Assert.AreEqual(1, normalResult.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(candidateDir, normalResult.DestinationDirectory);
@@ -602,7 +602,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
@@ -648,7 +648,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
@@ -692,7 +692,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
             Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
@@ -722,7 +722,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(candidateDir, result.DestinationDirectory);
         Assert.AreEqual(1, result.CandidateDirectoryCount);
@@ -747,7 +747,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
@@ -1020,7 +1020,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             string debugSummary = (result.ResourceSummary ?? string.Empty) + " || " + (result.TopCandidateSummary ?? string.Empty) + " || " + (result.SelectedCandidateSummary ?? string.Empty);
             Assert.AreEqual(expectedDir, result.DestinationDirectory, debugSummary);
@@ -1064,7 +1064,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.IsFalse(result.ShouldAutoApplyDestination, result.SelectedCandidateSummary);
             Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory), result.SelectedCandidateSummary);
@@ -1105,7 +1105,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
             Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
@@ -1178,7 +1178,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.ReinstallCorrection);
+            ChartInstallationEstimateMode.ReinstallCorrection);
 
         Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
         Assert.AreEqual("reinstall_single_improved_candidate", result.ConfidenceReason);
@@ -1207,7 +1207,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.ReinstallCorrection);
+            ChartInstallationEstimateMode.ReinstallCorrection);
 
         Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
         Assert.AreEqual(InstallEstimationLowConfidenceKind.ReinstallNotImproved, result.LowConfidenceKind);
@@ -1235,7 +1235,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.ReinstallCorrection);
+            ChartInstallationEstimateMode.ReinstallCorrection);
 
         Assert.IsFalse(result.ShouldAutoApplyDestination);
         Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
@@ -1265,7 +1265,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.ReinstallCorrection);
+                ChartInstallationEstimateMode.ReinstallCorrection);
 
             Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
             Assert.AreEqual(InstallEstimationLowConfidenceKind.AmbiguousCandidates, result.LowConfidenceKind);
@@ -1302,7 +1302,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.ReinstallCorrection,
+                ChartInstallationEstimateMode.ReinstallCorrection,
                 null,
                 delegate (string directoryPath)
                 {
@@ -1369,7 +1369,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(candidateDir, result.DestinationDirectory);
         });
@@ -1433,7 +1433,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             string debugSummary = (result.ResourceSummary ?? string.Empty) + " || " + (result.TopCandidateSummary ?? string.Empty) + " || " + (result.SelectedCandidateSummary ?? string.Empty);
             Assert.AreEqual(candidateDir, result.DestinationDirectory, debugSummary);
@@ -1464,7 +1464,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
         Assert.IsFalse(result.ShouldAutoApplyDestination);
@@ -1510,7 +1510,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     lookupCache,
                     asParallel: false,
-                    BmsInstallationEstimateMode.Normal,
+                    ChartInstallationEstimateMode.Normal,
                     null,
                     delegate (string directoryPath)
                     {
@@ -1592,7 +1592,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal,
+                ChartInstallationEstimateMode.Normal,
                 null,
                 delegate (string directoryPath)
                 {
@@ -1642,7 +1642,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
             Assert.IsTrue(result.ShouldAutoApplyDestination);
@@ -1684,7 +1684,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     lookupCache,
                     asParallel: false,
-                    BmsInstallationEstimateMode.Normal,
+                    ChartInstallationEstimateMode.Normal,
                     null,
                     delegate (string directoryPath)
                     {
@@ -1737,7 +1737,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
             Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
@@ -1796,7 +1796,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(otherCandidateDir, result.SelectedCandidate?.DirectoryPath);
             Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
@@ -1824,7 +1824,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal,
+            ChartInstallationEstimateMode.Normal,
             delegate (string directoryPath)
             {
                 return string.Equals(directoryPath, candidateDir, StringComparison.OrdinalIgnoreCase)
@@ -1863,7 +1863,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(1, result.TargetPathAwareHashCount);
         Assert.AreEqual(1, result.TargetPathAwareAudioHashCount);
@@ -1889,7 +1889,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual("resource_index_unavailable", result.ConfidenceReason);
         Assert.AreEqual("resource_index_unavailable", result.CandidateMode);
@@ -1921,7 +1921,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(1, result.TargetPathAwareVisualHashCount);
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
@@ -1950,7 +1950,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(1, result.TargetPathAwareOptionalImageHashCount);
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
@@ -1977,7 +1977,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(pathAwareCandidateDir, result.SelectedCandidate?.DirectoryPath);
@@ -2019,7 +2019,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(parentDir, result.SelectedCandidate?.DirectoryPath);
@@ -2062,7 +2062,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(0, result.CandidateDirectoryCountAfterBroadFilter);
@@ -2094,7 +2094,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
@@ -2125,7 +2125,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(2, result.TargetResourceCount);
@@ -2153,7 +2153,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
@@ -2199,13 +2199,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.Normal);
+                ChartInstallationEstimateMode.Normal);
 
             InstallEstimationResult mergeResult = service.EstimateInstallationDirectory(
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.MergeCandidateOnly);
+                ChartInstallationEstimateMode.MergeCandidateOnly);
 
             Assert.AreEqual(1, normalResult.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(candidateDir, normalResult.DestinationDirectory);
@@ -2235,14 +2235,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
@@ -2270,14 +2270,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
@@ -2326,14 +2326,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal);
+            ChartInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.IsNull(unavailableResult.DestinationDirectory);
