@@ -197,19 +197,19 @@
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.File_scan, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rescan, Mode=OneWay}" Click="tableContextMenuItemForceFileScanCheckSelectedBMS" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rescan, Mode=OneWay}" Click="tableContextMenuItemForceFileScanCheckSelectedCharts" />
           <MenuItem Name="tableContextMenuItemFullScanCheckAllCharts" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rescan_all_charts, Mode=OneWay}" Click="tableContextMenuItemForceFileScanCheckAllCharts" />
-          <MenuItem Name="tableContextMenuItemIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_ignore, Mode=OneWay}" Click="ignoreFileScanCheckSelectedBMS" />
-          <MenuItem Name="tableContextMenuItemNotIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_ignore, Mode=OneWay}" Click="notIgnoredFileScanCheckSelectedBMS" />
+          <MenuItem Name="tableContextMenuItemIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_ignore, Mode=OneWay}" Click="ignoreFileScanCheckSelectedCharts" />
+          <MenuItem Name="tableContextMenuItemNotIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_ignore, Mode=OneWay}" Click="notIgnoredFileScanCheckSelectedCharts" />
         </MenuItem>
         <MenuItem Name="tableContextMenuItemInstall">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" Click="searchInstallationDirectorySelectedBMS" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" Click="searchInstallDestinationSelectedPendingCharts" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_merge_loc, Mode=OneWay}" Click="searchMergeDestinationSelectedPendingCharts" />
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" Click="manualInstallSelectedBMS" />
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Force_install, Mode=OneWay}" Click="forceInstallSelectedBMS" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" Click="manualInstallSelectedPendingCharts" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Force_install, Mode=OneWay}" Click="forceInstallSelectedPendingCharts" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" Click="tableContextMenuRemoveInstallDestinationClick" />
         </MenuItem>
         <MenuItem Name="tableContextMenuItemFixInstall">

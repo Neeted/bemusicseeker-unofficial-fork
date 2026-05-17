@@ -380,7 +380,7 @@ View の control 名、menu item 名、event handler 名、ログ名にも BMS �
 - UI operation: `ChartOperationTarget` + `ChartOperationCapabilities`
 - UI operation target 解決: `GridRowResolver.TryGetChartOperationTarget(...)`
 - context menu / command selection helper: `GetSelectedChartTargets(...)`
-- 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedCompatibilityBmsFiles(...)` / `GetSelectedPendingCompatibilityBmsFiles(...)`
+- 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedChartCompatibilityAdapters(...)` / `GetSelectedPendingChartCompatibilityAdapters(...)`
 - BMS 専用 operation helper: `GetSelectedBmsChartFiles(...)`
 - model mutation reference: `LibraryChartRef`
 - installed directory lookup: BMSFile + bmson_song の両方を hash / path で登録

@@ -357,7 +357,7 @@ F-3 で進める候補 / 進捗:
 
 - `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。public binding の `BMSFilesView` は維持する
 - `SetBMSFilesView()` は private helper だったため `SetChartRowsView()` へ移行済み。production 参照のない旧名 shim は残さない
-- 旧 grid selection helper 群は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedCompatibilityBmsFiles` / `GetSelectedPendingCompatibilityBmsFiles` に寄せる
+- 旧 grid selection helper 群は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedChartCompatibilityAdapters` / `GetSelectedPendingChartCompatibilityAdapters` に寄せる
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
 - subset view の仮想 filter / sort cache / test helper は `VirtualChartSubset*` へ移行し、BMS / bmson を含む chart row subset として扱う。ログ検索互換のため、既存 performance log scope は当面 `bms_file_subset` のまま維持する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
@@ -365,7 +365,7 @@ F-3 で進める候補 / 進捗:
 F-3 の実装境界:
 
 - 通常一覧の内部 cache / setter は chart row 名へ寄せるが、public binding の `BMSFilesView` は XAML / settings 互換のため維持する
-- BMS 専用 handler は `GetSelectedBmsChartFiles`、既存 API が `BMSFile` adapter を要求する共通 handler は `GetSelectedCompatibilityBmsFiles`、pending/package 互換 handler は `GetSelectedPendingCompatibilityBmsFiles` を使う
+- BMS 専用 handler は `GetSelectedBmsChartFiles`、既存 API が `BMSFile` adapter を要求する共通 handler は `GetSelectedChartCompatibilityAdapters`、pending/package 互換 handler は `GetSelectedPendingChartCompatibilityAdapters` を使う
 - `BMSFileSortEngine` は残さず、通常一覧 sort の正本を `LibraryChartRowSortEngine` に一本化する
 
 F-3 では後回しにするもの:

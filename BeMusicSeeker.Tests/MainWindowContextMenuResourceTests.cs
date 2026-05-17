@@ -794,7 +794,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()",
             "public void AutoRenameBMSFolder");
 
-        StringAssert.Contains(autoRenameClick, "GetSelectedCompatibilityBmsFiles(ChartOperationCapabilities.None)");
+        StringAssert.Contains(autoRenameClick, "GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None)");
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
         StringAssert.Contains(autoRenameAll, "GetLibraryChartFilesForFolderOperations()");
