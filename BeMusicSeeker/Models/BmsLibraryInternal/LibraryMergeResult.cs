@@ -8,7 +8,7 @@ internal sealed class LibraryMergeResult
 
     public List<BMSFile> SourceFiles { get; } = new List<BMSFile>();
 
-    public BMSPackage Repackage { get; set; }
+    public ChartPackage Repackage { get; set; }
 
     public HashSet<string> ExistingHashes { get; set; } = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 

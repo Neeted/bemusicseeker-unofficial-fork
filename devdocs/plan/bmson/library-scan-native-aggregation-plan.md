@@ -36,7 +36,7 @@ relative-path 対応後の library build 性能悪化は、relative path その�
   - managed 側は `ManagedDecodeMs` / `ManagedMaterializeMs` / `BridgeRawBufferBytes` で unpack 残差を追える
 - **Phase 3 の実装は投入済み**
   - source-side mainline は `EBridge_ScanSourceRoots` を使う 4-query native surface に切り替えた
-  - `BMSPackage.ChartFiles` は `PackageChartDiscoverySnapshot` だけを見る
+  - `ChartPackage.ChartFiles` は `PackageChartDiscoverySnapshot` だけを見る
   - install estimation 用の source surface は `PackageInstallSurfaceSnapshot` に分離した
   - source-side mainline から `__all__` query を外し、`tracked/chart/resource` count を canonical telemetry にした
   - source-side で Everything を使うかどうかは user setting で切り替える
@@ -151,7 +151,7 @@ Step 0 で重要だったのは、source-side evaluation 本体だけでなく�
 Phase 3 ではここを次で是正した。
 
 - `PackageSourceScanSnapshot` を廃止し、`PackageChartDiscoverySnapshot` と `PackageInstallSurfaceSnapshot` に分離した
-- `BMSPackage.ChartFiles` は chart discovery snapshot だけを参照する
+- `ChartPackage.ChartFiles` は chart discovery snapshot だけを参照する
 - `PrepareAutoInstallWorkflow(...)` では discovery 時点で得た chart list を package に埋め込み、installed check / warning classification で再利用する
 - install estimation 用の source surface は必要になった時点でだけ build する
 
@@ -162,7 +162,7 @@ Phase 3 ではここを次で是正した。
 library build mainline はすでに fixed 4-query native scan に戻っていた。  
 一方、Step 0 時点の source-side は次の経路を mainline にしていた。
 
-- 当時の旧 `BMSPackage.BMSFiles`
+- 当時の旧 `ChartPackage.BMSFiles`
   - `GetOrBuildPackageSourceScanSnapshot(...)`
   - `PackageInstallEstimationSnapshotBuilder.BuildPackageSourceScanSnapshot(...)`
   - `RootFileEnumerationService.EnumerateFilesWithFallback(...)`
@@ -341,7 +341,7 @@ package source directory / loose-file source 側も、full-path grouped enumerat
   - `resourceFileCount`
   - query / pack diagnostics
 
-- `BMSPackage` の cache を 2 系統に分離した
+- `ChartPackage` の cache を 2 系統に分離した
   - `PackageChartDiscoverySnapshot`
   - `PackageInstallSurfaceSnapshot`
 
@@ -377,11 +377,11 @@ package source directory / loose-file source 側も、full-path grouped enumerat
 ### Managed impact
 
 - `PackageInstallEstimationSnapshotBuilder`
-- `BMSPackage`
+- `ChartPackage`
 
 は grouped full-path 群から `ResourceSurfaceMaterializer` を作るのを mainline ではやめ、native の single-root result をそのまま使う。
 
-- `BMSPackage.ChartFiles` は chart query result または discovery snapshot を再利用し、source-side surface build と分離する
+- `ChartPackage.ChartFiles` は chart query result または discovery snapshot を再利用し、source-side surface build と分離する
 - `GetOrBuildPackageSourceScanSnapshot(...)` は廃止し、「chart list」と「resource surface」を別 cache に整理する
 - `ResourceSurfaceMaterializer.CreateSingleRootEntry(...)` は fallback 用の位置づけに下げる
 

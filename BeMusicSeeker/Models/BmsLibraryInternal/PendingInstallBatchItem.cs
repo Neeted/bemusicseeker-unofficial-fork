@@ -4,9 +4,9 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PendingInstallBatchItem
 {
-    public BMSPackage OriginalPackage { get; set; }
+    public ChartPackage OriginalPackage { get; set; }
 
-    public BMSPackage InstallWorkPackage { get; set; }
+    public ChartPackage InstallWorkPackage { get; set; }
 
     public string DestinationDirectory { get; set; }
 

@@ -154,9 +154,9 @@ internal sealed class BmsLibraryDbGateway
         });
     }
 
-    public void UpsertInstallRows(IEnumerable<BMSPackage> packages)
+    public void UpsertInstallRows(IEnumerable<ChartPackage> packages)
     {
-        List<BMSPackage> items = (packages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage package) => package != null && !string.IsNullOrWhiteSpace(package.path)).ToList();
+        List<ChartPackage> items = (packages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage package) => package != null && !string.IsNullOrWhiteSpace(package.path)).ToList();
         if (items.Count == 0)
         {
             return;
@@ -336,10 +336,10 @@ internal sealed class BmsLibraryDbGateway
         return result;
     }
 
-    public List<BMSPackage> LoadInstallPackages()
+    public List<ChartPackage> LoadInstallPackages()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
-        return songDb.Table<BMSPackage>().ToList();
+        return songDb.Table<ChartPackage>().ToList();
     }
 
     public PlaylistEntriesHydrationLoadResult LoadStartupPlaylistEntries()

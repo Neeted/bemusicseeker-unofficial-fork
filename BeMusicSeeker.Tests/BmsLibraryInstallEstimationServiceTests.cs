@@ -82,7 +82,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
         TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
         TestableBmsFile pendingC = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\c.bms");
-        BMSPackage package = new BMSPackage(new BMSFile[] { pendingA, pendingB, pendingC })
+        ChartPackage package = new ChartPackage(new BMSFile[] { pendingA, pendingB, pendingC })
         {
             path = "C:\\Pending",
             delete_parent = false
@@ -126,7 +126,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('c', 64)
         });
-        BMSPackage package = new BMSPackage(new BMSFile[] { pendingA, pendingB, pendingBmson })
+        ChartPackage package = new ChartPackage(new BMSFile[] { pendingA, pendingB, pendingBmson })
         {
             path = "C:\\Pending",
             delete_parent = false
@@ -158,7 +158,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
         TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
         TestableBmsFile pendingMissing = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\missing.bms", "sound.wav");
-        BMSPackage package = new BMSPackage(new BMSFile[] { pendingA, pendingB, pendingMissing })
+        ChartPackage package = new ChartPackage(new BMSFile[] { pendingA, pendingB, pendingMissing })
         {
             path = "C:\\Pending",
             delete_parent = false
@@ -200,7 +200,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = new string('b', 64)
         });
-        BMSPackage package = new BMSPackage(new BMSFile[] { pendingBms, pendingBmson })
+        ChartPackage package = new ChartPackage(new BMSFile[] { pendingBms, pendingBmson })
         {
             path = "C:\\Pending",
             delete_parent = false
@@ -229,7 +229,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Directory.CreateDirectory(candidateDir);
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -273,7 +273,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), Path.Combine("sound", "00.wav"), Path.Combine("sound", "01.wav"));
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -531,7 +531,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -587,7 +587,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             file.BGAfiles = new HashSet<string>(new[] { "title.png" }, StringComparer.OrdinalIgnoreCase);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 71), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -781,7 +781,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             primary.SetMaintenanceInfo(CreateMaintenanceInfo(primary, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
             secondary.SetMaintenanceInfo(CreateMaintenanceInfo(secondary, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { primary, secondary })
+            ChartPackage package = new ChartPackage(new BMSFile[] { primary, secondary })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -821,7 +821,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), Path.Combine("sound", "00.wav"));
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -857,7 +857,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             BMSFile primary = BMSFile.CreateBMSFileFromFile(primaryPath);
             BMSFile secondary = BMSFile.CreateBMSFileFromFile(secondaryPath);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { primary, secondary })
+            ChartPackage package = new ChartPackage(new BMSFile[] { primary, secondary })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -886,7 +886,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = file.path,
                 delete_parent = false
@@ -903,7 +903,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void BMSPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartFilesAreRequested()
+    public void ChartPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartFilesAreRequested()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithPendingPackageSourceScanSetting(enabled: false, delegate
@@ -918,7 +918,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(Path.Combine(sourceDir, "chart3.bmson"), "{}");
                 File.WriteAllText(Path.Combine(soundDir, "00.wav"), "audio");
 
-                BMSPackage package = new BMSPackage
+                ChartPackage package = new ChartPackage
                 {
                     path = sourceDir,
                     delete_parent = true
@@ -944,7 +944,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void BMSPackage_PathPackage_InvalidatesChartDiscoveryAndSourceSurfaceSnapshots_WhenPathChanges()
+    public void ChartPackage_PathPackage_InvalidatesChartDiscoveryAndSourceSurfaceSnapshots_WhenPathChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithPendingPackageSourceScanSetting(enabled: false, delegate
@@ -959,7 +959,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(Path.Combine(sourceDirB, "b.bms"), "#PLAYER 1");
                 File.WriteAllText(Path.Combine(sourceDirB, "01.wav"), "audio");
 
-                BMSPackage package = new BMSPackage
+                ChartPackage package = new ChartPackage
                 {
                     path = sourceDirA,
                     delete_parent = true
@@ -1005,7 +1005,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -1049,7 +1049,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -1090,7 +1090,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -1127,7 +1127,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Directory.CreateDirectory(pendingDirectoryPath);
             Directory.CreateDirectory(installDirectoryPath);
             TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(pendingDirectoryPath, "chart.bms"));
-            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+            ChartPackage pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
             {
                 path = pendingDirectoryPath,
                 delete_parent = false
@@ -1627,7 +1627,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true
@@ -1722,7 +1722,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav", "01.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 2), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = chartPath,
                 delete_parent = false
@@ -2184,7 +2184,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound\\00.wav", "sound\\01.wav", "sound\\02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            ChartPackage package = new ChartPackage(new BMSFile[] { file })
             {
                 path = sourceDir,
                 delete_parent = true

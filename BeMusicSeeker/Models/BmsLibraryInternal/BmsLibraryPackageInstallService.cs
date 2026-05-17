@@ -234,12 +234,12 @@ internal sealed class BmsLibraryPackageInstallService
         return Path.Combine(destinationDirectory, Path.GetFileName(chartPath));
     }
 
-    public List<BMSPackage> DeduplicatePackagesByPathOrReference(IEnumerable<BMSPackage> packages)
+    public List<ChartPackage> DeduplicatePackagesByPathOrReference(IEnumerable<ChartPackage> packages)
     {
-        List<BMSPackage> deduplicated = new List<BMSPackage>();
+        List<ChartPackage> deduplicated = new List<ChartPackage>();
         HashSet<string> paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSPackage> references = new HashSet<BMSPackage>();
-        foreach (BMSPackage package in packages ?? Enumerable.Empty<BMSPackage>())
+        HashSet<ChartPackage> references = new HashSet<ChartPackage>();
+        foreach (ChartPackage package in packages ?? Enumerable.Empty<ChartPackage>())
         {
             if (package == null)
             {
@@ -288,10 +288,10 @@ internal sealed class BmsLibraryPackageInstallService
         return deduplicated;
     }
 
-    public List<BMSPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<BMSPackage> pendingPackages, Func<BMSFile, bool> isInstalledChart)
+    public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<ChartPackage> pendingPackages, Func<BMSFile, bool> isInstalledChart)
     {
-        List<BMSPackage> result = new List<BMSPackage>();
-        foreach (BMSPackage package in pendingPackages ?? Enumerable.Empty<BMSPackage>())
+        List<ChartPackage> result = new List<ChartPackage>();
+        foreach (ChartPackage package in pendingPackages ?? Enumerable.Empty<ChartPackage>())
         {
             List<BMSFile> files = (package?.ChartFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
             if (files.Count == 0)
@@ -315,20 +315,20 @@ internal sealed class BmsLibraryPackageInstallService
             && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
-    public List<BMSFile> GetPendingBmsFormatChartFilesSnapshot(IEnumerable<BMSPackage> pendingPackages)
+    public List<BMSFile> GetPendingBmsFormatChartFilesSnapshot(IEnumerable<ChartPackage> pendingPackages)
     {
-        return DeduplicateFilesByPathOrReference((pendingPackages ?? Enumerable.Empty<BMSPackage>())
-            .Where((BMSPackage package) => package != null)
-            .SelectMany((BMSPackage package) => package.ChartFiles)
+        return DeduplicateFilesByPathOrReference((pendingPackages ?? Enumerable.Empty<ChartPackage>())
+            .Where((ChartPackage package) => package != null)
+            .SelectMany((ChartPackage package) => package.ChartFiles)
             .Where(IsBmsFormatChartFile));
     }
 
     /// <summary>
     /// ディレクトリ探索で見つかった譜面パッケージと、再統合候補ディレクトリをまとめて返します。
     /// </summary>
-    internal BmsPackageDiscoveryResult SearchChartPackagesRecursivelyWithMetadata(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
+    internal ChartPackageDiscoveryResult SearchChartPackagesRecursivelyWithMetadata(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
     {
-        BmsPackageDiscoveryResult result = new BmsPackageDiscoveryResult();
+        ChartPackageDiscoveryResult result = new ChartPackageDiscoveryResult();
         IEnumerable<string> fileSystemEntries;
         try
         {
@@ -384,7 +384,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             foreach (string dir in directories)
             {
-                BmsPackageDiscoveryResult childResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg, recursive: true);
+                ChartPackageDiscoveryResult childResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg, recursive: true);
                 result.Packages.AddRange(childResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(childResult.RegroupEligibleSourceDirectories);
             }
@@ -426,7 +426,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
-    private static BMSPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<BMSFile> knownCharts)
+    private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<BMSFile> knownCharts)
     {
         List<BMSFile> knownChartList = (knownCharts ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
         if (Directory.Exists(packagePath))
@@ -444,14 +444,14 @@ internal sealed class BmsLibraryPackageInstallService
 
         if (knownChartList.Count == 0)
         {
-            return new BMSPackage
+            return new ChartPackage
             {
                 path = packagePath,
                 delete_parent = deleteParent
             };
         }
 
-        return new BMSPackage(knownChartList)
+        return new ChartPackage(knownChartList)
         {
             path = packagePath,
             delete_parent = deleteParent
@@ -463,7 +463,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// </summary>
     /// <param name="package">判定対象の保留パッケージ。</param>
     /// <returns>入れ子譜面の警告を付与または維持した場合は true。</returns>
-    internal static bool ApplyNestedChartFileWarnings(BMSPackage package)
+    internal static bool ApplyNestedChartFileWarnings(ChartPackage package)
     {
         if (package == null || string.IsNullOrWhiteSpace(package.path) || !Directory.Exists(package.path))
         {
@@ -687,7 +687,7 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     public bool MovePackageFiles(
-        BMSPackage package,
+        ChartPackage package,
         string installationDirectory,
         BmsLibraryOptionsSnapshot options,
         Func<IEnumerable<BMSFile>, string, string, string> createFolderPath,
@@ -1056,7 +1056,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
         IEnumerable<string> installPaths,
-        IEnumerable<BMSPackage> currentPendingPackages,
+        IEnumerable<ChartPackage> currentPendingPackages,
         IEnumerable<string> knownChartDirectories,
         Func<BMSFile, bool> isInstalledChart,
         double dupRateThreshInOnePkg,
@@ -1078,7 +1078,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
         IEnumerable<IGrouping<string, string>> groupedPaths = from file in normalizedInstallPaths
                                                               group file by Path.GetDirectoryName(file)?.ToUpperInvariant();
-        List<BMSPackage> discoveredPackages = new List<BMSPackage>();
+        List<ChartPackage> discoveredPackages = new List<ChartPackage>();
         foreach (IGrouping<string, string> paths in groupedPaths)
         {
             if (string.IsNullOrWhiteSpace(paths.Key) || !Directory.Exists(paths.Key))
@@ -1091,7 +1091,7 @@ internal sealed class BmsLibraryPackageInstallService
             string[] topEntries = Directory.GetFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly);
             if (files.Count + directories.Count == topEntries.Length)
             {
-                BmsPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
+                ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
                 discoveredPackages.AddRange(discoveryResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
@@ -1103,19 +1103,19 @@ internal sealed class BmsLibraryPackageInstallService
             bool anyChartHasExistingResources = parsedCharts.Any((PendingChartEntry entry) => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
             if (chartFiles.Count > 0 && anyChartHasExistingResources)
             {
-                BmsPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
+                ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
                 discoveredPackages.AddRange(discoveryResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
             }
             Dictionary<string, PendingChartEntry> entryByPath = parsedCharts.ToDictionary((PendingChartEntry entry) => entry.path, StringComparer.OrdinalIgnoreCase);
-            List<BMSPackage> singleFilePackages = chartFiles
+            List<ChartPackage> singleFilePackages = chartFiles
                 .Select((string filePath) => CreatePackageWithKnownCharts(filePath, deleteParent: false, entryByPath.TryGetValue(filePath, out PendingChartEntry entry) ? new[] { entry } : null))
                 .ToList();
-            List<BMSPackage> directoryPackages = new List<BMSPackage>();
+            List<ChartPackage> directoryPackages = new List<ChartPackage>();
             foreach (string dir in directories)
             {
-                BmsPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg);
+                ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg);
                 directoryPackages.AddRange(discoveryResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
             }
@@ -1125,11 +1125,11 @@ internal sealed class BmsLibraryPackageInstallService
         result.DiscoveryMs = discoveryStopwatch.ElapsedMilliseconds;
 
         List<string> libraryDirectories = (knownChartDirectories ?? Enumerable.Empty<string>()).Where((string dir) => !string.IsNullOrWhiteSpace(dir)).ToList();
-        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null).ToList();
         discoveredPackages = discoveredPackages
-            .Where((BMSPackage pkg) => pkg != null && !libraryDirectories.Any((string dir) => pkg.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-            .Where((BMSPackage newPkg) => !pendingPackages.Any((BMSPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
-            .Where((BMSPackage newPkg) => !pendingPackages.Any((BMSPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && Directory.Exists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            .Where((ChartPackage pkg) => pkg != null && !libraryDirectories.Any((string dir) => pkg.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            .Where((ChartPackage newPkg) => !pendingPackages.Any((ChartPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
+            .Where((ChartPackage newPkg) => !pendingPackages.Any((ChartPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && Directory.Exists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             .ToList();
         List<string> distinctWorkflowRegroupEligibleSourceDirectories = result.RegroupEligibleSourceDirectories
             .Where((string sourceDirectoryPath) => !string.IsNullOrWhiteSpace(sourceDirectoryPath))
@@ -1145,11 +1145,11 @@ internal sealed class BmsLibraryPackageInstallService
             return result;
         }
 
-        if (discoveredPackages.Any((BMSPackage newPkg) => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path)))
+        if (discoveredPackages.Any((ChartPackage newPkg) => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path)))
         {
-            List<BMSPackage> pendingPackagesToRemove = pendingPackages.Where(delegate (BMSPackage oldPkg)
+            List<ChartPackage> pendingPackagesToRemove = pendingPackages.Where(delegate (ChartPackage oldPkg)
             {
-                IEnumerable<BMSPackage> sourcePackages = discoveredPackages.Where((BMSPackage newPkg) => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path));
+                IEnumerable<ChartPackage> sourcePackages = discoveredPackages.Where((ChartPackage newPkg) => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path));
                 string dir;
                 if (Directory.Exists(oldPkg.path))
                 {
@@ -1163,15 +1163,15 @@ internal sealed class BmsLibraryPackageInstallService
                     }
                     dir = oldPkg.path;
                 }
-                return sourcePackages.Any((BMSPackage newPkg) => dir.StartsWith(newPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                return sourcePackages.Any((ChartPackage newPkg) => dir.StartsWith(newPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             }).ToList();
             result.PendingPackagesToRemove.AddRange(pendingPackagesToRemove);
         }
 
         Stopwatch classificationStopwatch = Stopwatch.StartNew();
         Stopwatch installedCheckStopwatch = Stopwatch.StartNew();
-        Dictionary<BMSPackage, bool> pendingByPackage = new Dictionary<BMSPackage, bool>();
-        foreach (BMSPackage pkg in discoveredPackages)
+        Dictionary<ChartPackage, bool> pendingByPackage = new Dictionary<ChartPackage, bool>();
+        foreach (ChartPackage pkg in discoveredPackages)
         {
             bool hasInstalledChart = false;
             foreach (BMSFile bmsFile in pkg.ChartFiles.Where((BMSFile file) => file != null))
@@ -1189,7 +1189,7 @@ internal sealed class BmsLibraryPackageInstallService
         result.InstalledCheckMs = installedCheckStopwatch.ElapsedMilliseconds;
 
         Stopwatch warningClassificationStopwatch = Stopwatch.StartNew();
-        foreach (BMSPackage pkg in discoveredPackages)
+        foreach (ChartPackage pkg in discoveredPackages)
         {
             if (pendingByPackage[pkg])
             {
@@ -1221,7 +1221,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
         warningClassificationStopwatch.Stop();
         result.WarningClassificationMs = warningClassificationStopwatch.ElapsedMilliseconds;
-        foreach (BMSPackage discoveredPackage in discoveredPackages)
+        foreach (ChartPackage discoveredPackage in discoveredPackages)
         {
             bool isPending = pendingByPackage.TryGetValue(discoveredPackage, out bool pendingValue) && pendingValue;
             if (ApplyNestedChartFileWarnings(discoveredPackage))
@@ -1249,7 +1249,7 @@ internal sealed class BmsLibraryPackageInstallService
         AutoInstallWorkflowResult workflow,
         bool keepInstallablePackagesPending,
         bool canAutoInstallImmediately,
-        Func<IEnumerable<BMSPackage>, List<BMSPackage>> installPackages,
+        Func<IEnumerable<ChartPackage>, List<ChartPackage>> installPackages,
         CancellationToken token = default(CancellationToken))
     {
         AutoInstallApplyResult result = new AutoInstallApplyResult();
@@ -1261,14 +1261,14 @@ internal sealed class BmsLibraryPackageInstallService
         Stopwatch installStopwatch = Stopwatch.StartNew();
         if (workflow.PendingPackagesToRemove.Count > 0)
         {
-            result.PendingPackagesToRemove.AddRange(workflow.PendingPackagesToRemove.Where((BMSPackage pkg) => pkg != null));
+            result.PendingPackagesToRemove.AddRange(workflow.PendingPackagesToRemove.Where((ChartPackage pkg) => pkg != null));
             result.InstallRowsToDelete.AddRange(
                 workflow.PendingPackagesToRemove
-                    .Where((BMSPackage pkg) => pkg != null && !string.IsNullOrWhiteSpace(pkg.path))
-                    .Select((BMSPackage pkg) => pkg.path)
+                    .Where((ChartPackage pkg) => pkg != null && !string.IsNullOrWhiteSpace(pkg.path))
+                    .Select((ChartPackage pkg) => pkg.path)
                     .Distinct(StringComparer.OrdinalIgnoreCase));
         }
-        List<BMSPackage> pendingPackagesToAdd = workflow.PendingPackagesToAdd.Where((BMSPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> pendingPackagesToAdd = workflow.PendingPackagesToAdd.Where((ChartPackage pkg) => pkg != null).ToList();
         if (workflow.AutoInstallCandidates.Count > 0)
         {
             if (token.IsCancellationRequested)
@@ -1281,15 +1281,15 @@ internal sealed class BmsLibraryPackageInstallService
             }
             if (!keepInstallablePackagesPending && canAutoInstallImmediately)
             {
-                List<BMSPackage> failedPackages = installPackages?.Invoke(workflow.AutoInstallCandidates) ?? new List<BMSPackage>();
-                HashSet<BMSPackage> failedSet = new HashSet<BMSPackage>(failedPackages);
-                result.AutoInstallFailures.AddRange(failedPackages.Where((BMSPackage pkg) => pkg != null));
-                result.AutoInstalledPackages.AddRange(workflow.AutoInstallCandidates.Where((BMSPackage pkg) => pkg != null && !failedSet.Contains(pkg)));
+                List<ChartPackage> failedPackages = installPackages?.Invoke(workflow.AutoInstallCandidates) ?? new List<ChartPackage>();
+                HashSet<ChartPackage> failedSet = new HashSet<ChartPackage>(failedPackages);
+                result.AutoInstallFailures.AddRange(failedPackages.Where((ChartPackage pkg) => pkg != null));
+                result.AutoInstalledPackages.AddRange(workflow.AutoInstallCandidates.Where((ChartPackage pkg) => pkg != null && !failedSet.Contains(pkg)));
                 pendingPackagesToAdd = pendingPackagesToAdd.Concat(failedPackages).ToList();
             }
             else
             {
-                pendingPackagesToAdd = pendingPackagesToAdd.Concat(workflow.AutoInstallCandidates.Where((BMSPackage pkg) => pkg != null)).ToList();
+                pendingPackagesToAdd = pendingPackagesToAdd.Concat(workflow.AutoInstallCandidates.Where((ChartPackage pkg) => pkg != null)).ToList();
             }
         }
         installStopwatch.Stop();
@@ -1297,7 +1297,7 @@ internal sealed class BmsLibraryPackageInstallService
 
         Stopwatch applyStopwatch = Stopwatch.StartNew();
         result.PendingPackagesToAdd.AddRange(pendingPackagesToAdd);
-        result.InstallRowsToUpsert.AddRange(pendingPackagesToAdd.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)));
+        result.InstallRowsToUpsert.AddRange(pendingPackagesToAdd.Where((ChartPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)));
         result.EstimateTargets.AddRange(pendingPackagesToAdd);
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
@@ -1306,24 +1306,24 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<BMSPackage> pendingPackages, IEnumerable<BMSPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, bool clearAll = false)
+    public PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<ChartPackage> pendingPackages, IEnumerable<ChartPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, bool clearAll = false)
     {
-        List<BMSPackage> currentPending = (pendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> currentPending = (pendingPackages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null).ToList();
         PendingPackageMutationDelta delta = new PendingPackageMutationDelta();
         if (clearAll)
         {
             delta.HasChanges = currentPending.Count > 0;
-            delta.InstallPathsToDelete = currentPending.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            delta.InstallPathsToDelete = currentPending.Where((ChartPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((ChartPackage pkg) => pkg.path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             return delta;
         }
-        HashSet<BMSPackage> removedPackages = new HashSet<BMSPackage>((packagesToRemove ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null));
-        HashSet<string> removedPackagePaths = new HashSet<string>((packagesToRemove ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null && !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path), StringComparer.OrdinalIgnoreCase);
+        HashSet<ChartPackage> removedPackages = new HashSet<ChartPackage>((packagesToRemove ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null));
+        HashSet<string> removedPackagePaths = new HashSet<string>((packagesToRemove ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null && !string.IsNullOrWhiteSpace(pkg.path)).Select((ChartPackage pkg) => pkg.path), StringComparer.OrdinalIgnoreCase);
         List<BMSFile> removedFileList = (filesToRemove ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
         HashSet<string> removedPaths = new HashSet<string>(removedFileList.Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path)).Select((BMSFile file) => file.path), StringComparer.OrdinalIgnoreCase);
         HashSet<BMSFile> removedFileRefs = new HashSet<BMSFile>(removedFileList);
         bool removeFiles = removedFileList.Count > 0;
         HashSet<string> installPathsToDelete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSPackage package in currentPending)
+        foreach (ChartPackage package in currentPending)
         {
             if (removedPackages.Contains(package) || (!string.IsNullOrWhiteSpace(package.path) && removedPackagePaths.Contains(package.path)))
             {
@@ -1368,14 +1368,14 @@ internal sealed class BmsLibraryPackageInstallService
         return delta;
     }
 
-    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<BMSPackage> requestedPackages, IEnumerable<BMSPackage> currentPendingPackages, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs, bool deletePendingPackageSourceAfterInstall, Func<BMSPackage, string, ISet<string>, int> countComponentMoveTargets)
+    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<ChartPackage> requestedPackages, IEnumerable<ChartPackage> currentPendingPackages, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs, bool deletePendingPackageSourceAfterInstall, Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets)
     {
         Stopwatch planStopwatch = Stopwatch.StartNew();
         PendingInstallBatchPlan plan = new PendingInstallBatchPlan();
         Stopwatch filterStopwatch = Stopwatch.StartNew();
-        List<BMSPackage> pendingSnapshot = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
-        HashSet<BMSPackage> pendingPackageSet = new HashSet<BMSPackage>(pendingSnapshot);
-        plan.SelectedPendingPackages.AddRange(DeduplicatePackagesByPathOrReference(requestedPackages).Where((BMSPackage pkg) => pendingPackageSet.Contains(pkg)));
+        List<ChartPackage> pendingSnapshot = (currentPendingPackages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null).ToList();
+        HashSet<ChartPackage> pendingPackageSet = new HashSet<ChartPackage>(pendingSnapshot);
+        plan.SelectedPendingPackages.AddRange(DeduplicatePackagesByPathOrReference(requestedPackages).Where((ChartPackage pkg) => pendingPackageSet.Contains(pkg)));
         filterStopwatch.Stop();
         plan.FilterMs = filterStopwatch.ElapsedMilliseconds;
         plan.SelectedPendingCount = plan.SelectedPendingPackages.Count;
@@ -1401,7 +1401,7 @@ internal sealed class BmsLibraryPackageInstallService
         HashSet<string> moveGuardHashes = new HashSet<string>(installedHashes, StringComparer.OrdinalIgnoreCase);
         HashSet<string> reservedHashes = new HashSet<string>(moveGuardHashes, StringComparer.OrdinalIgnoreCase);
         Dictionary<string, PendingInstallBatchGroup> groupsByDestination = new Dictionary<string, PendingInstallBatchGroup>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSPackage originalPackage in plan.SelectedPendingPackages)
+        foreach (ChartPackage originalPackage in plan.SelectedPendingPackages)
         {
             List<BMSFile> packageFiles = (originalPackage.ChartFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
             if (packageFiles.Count == 0)
@@ -1470,7 +1470,7 @@ internal sealed class BmsLibraryPackageInstallService
                     continue;
                 }
             }
-            BMSPackage installWorkPackage = new BMSPackage(installWorkPackageFiles)
+            ChartPackage installWorkPackage = new ChartPackage(installWorkPackageFiles)
             {
                 path = originalPackage.path,
                 delete_parent = originalPackage.delete_parent
@@ -1546,9 +1546,9 @@ internal sealed class BmsLibraryPackageInstallService
     public PendingInstallBatchResult ExecuteEstimatedInstallBatchPlan(
         PendingInstallBatchPlan plan,
         bool deletePendingPackageSourceAfterInstall,
-        Func<IEnumerable<BMSPackage>, string, List<BMSFile>, List<BMSPackage>, Dictionary<BMSPackage, HashSet<string>>, HashSet<string>, bool, bool, List<BMSPackage>> installPackages,
-        Func<BMSPackage, string, BMSPackage> createInstalledDisplayPackage,
-        Func<BMSPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
+        Func<IEnumerable<ChartPackage>, string, List<BMSFile>, List<ChartPackage>, Dictionary<ChartPackage, HashSet<string>>, HashSet<string>, bool, bool, List<ChartPackage>> installPackages,
+        Func<ChartPackage, string, ChartPackage> createInstalledDisplayPackage,
+        Func<ChartPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
         Action<string> logInfo = null)
     {
         PendingInstallBatchResult result = new PendingInstallBatchResult();
@@ -1559,13 +1559,13 @@ internal sealed class BmsLibraryPackageInstallService
         foreach (PendingInstallBatchGroup groupEntry in plan.Groups)
         {
             Stopwatch groupStopwatch = Stopwatch.StartNew();
-            List<BMSPackage> destinationPackages = groupEntry.Items.Select((PendingInstallBatchItem item) => item.OriginalPackage).Where((BMSPackage pkg) => pkg != null).ToList();
-            List<BMSPackage> installWorkPackages = groupEntry.Items.Select((PendingInstallBatchItem item) => item.InstallWorkPackage).Where((BMSPackage pkg) => pkg != null).ToList();
-            Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByWorkPackage = groupEntry.Items
+            List<ChartPackage> destinationPackages = groupEntry.Items.Select((PendingInstallBatchItem item) => item.OriginalPackage).Where((ChartPackage pkg) => pkg != null).ToList();
+            List<ChartPackage> installWorkPackages = groupEntry.Items.Select((PendingInstallBatchItem item) => item.InstallWorkPackage).Where((ChartPackage pkg) => pkg != null).ToList();
+            Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByWorkPackage = groupEntry.Items
                 .Where((PendingInstallBatchItem item) => item.ExcludedComponentPaths != null && item.InstallWorkPackage != null)
                 .ToDictionary((PendingInstallBatchItem item) => item.InstallWorkPackage, (PendingInstallBatchItem item) => item.ExcludedComponentPaths);
             Stopwatch installStopwatch = Stopwatch.StartNew();
-            List<BMSPackage> failedInstallWorkPackages = installPackages?.Invoke(
+            List<ChartPackage> failedInstallWorkPackages = installPackages?.Invoke(
                 installWorkPackages,
                 groupEntry.DestinationDirectory,
                 result.DeferredMaintenanceTargets,
@@ -1573,15 +1573,15 @@ internal sealed class BmsLibraryPackageInstallService
                 excludedComponentPathsByWorkPackage,
                 plan.MoveGuardHashes,
                 true,
-                deletePendingPackageSourceAfterInstall) ?? new List<BMSPackage>();
+                deletePendingPackageSourceAfterInstall) ?? new List<ChartPackage>();
             installStopwatch.Stop();
-            Dictionary<BMSPackage, PendingInstallBatchItem> itemByInstallWorkPackage = groupEntry.Items
+            Dictionary<ChartPackage, PendingInstallBatchItem> itemByInstallWorkPackage = groupEntry.Items
                 .Where((PendingInstallBatchItem item) => item.InstallWorkPackage != null)
                 .ToDictionary((PendingInstallBatchItem item) => item.InstallWorkPackage);
-            HashSet<BMSPackage> failedOriginalPackages = new HashSet<BMSPackage>(
-                failedInstallWorkPackages.Where((BMSPackage workPkg) => itemByInstallWorkPackage.ContainsKey(workPkg))
-                    .Select((BMSPackage workPkg) => itemByInstallWorkPackage[workPkg].OriginalPackage));
-            foreach (BMSPackage failedOriginalPackage in failedOriginalPackages)
+            HashSet<ChartPackage> failedOriginalPackages = new HashSet<ChartPackage>(
+                failedInstallWorkPackages.Where((ChartPackage workPkg) => itemByInstallWorkPackage.ContainsKey(workPkg))
+                    .Select((ChartPackage workPkg) => itemByInstallWorkPackage[workPkg].OriginalPackage));
+            foreach (ChartPackage failedOriginalPackage in failedOriginalPackages)
             {
                 if (failedOriginalPackage != null)
                 {
@@ -1603,7 +1603,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 if (item.IsResourceOnlyInstall)
                 {
-                    BMSPackage installedDisplayPackage = createInstalledDisplayPackage?.Invoke(item.OriginalPackage, groupEntry.DestinationDirectory);
+                    ChartPackage installedDisplayPackage = createInstalledDisplayPackage?.Invoke(item.OriginalPackage, groupEntry.DestinationDirectory);
                     if (installedDisplayPackage != null && installedDisplayPackage.ChartFiles != null && installedDisplayPackage.ChartFiles.Count > 0)
                     {
                         result.DeferredInstalledPackages.Add(installedDisplayPackage);
@@ -1621,7 +1621,7 @@ internal sealed class BmsLibraryPackageInstallService
             Stopwatch pendingMarkStopwatch = Stopwatch.StartNew();
             int pendingCountBeforeRemove = plan.SelectedPendingPackages.Count;
             int removedPendingCount = 0;
-            foreach (BMSPackage pendingPackage in destinationPackages)
+            foreach (ChartPackage pendingPackage in destinationPackages)
             {
                 if (pendingPackage != null && result.PendingPackagesToRemove.Add(pendingPackage))
                 {
@@ -1644,7 +1644,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
         if (deletePendingPackageSourceAfterInstall && plan.CleanupOnlyCandidates.Count > 0)
         {
-            foreach (BMSPackage cleanupOnlyPackage in plan.CleanupOnlyCandidates.Distinct())
+            foreach (ChartPackage cleanupOnlyPackage in plan.CleanupOnlyCandidates.Distinct())
             {
                 if (cleanupOnlyPackage == null)
                 {
@@ -1685,24 +1685,24 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     public PackageInstallExecutionResult InstallPackages(
-        IEnumerable<BMSPackage> bmsPackagesInstall,
+        IEnumerable<ChartPackage> chartPackagesInstall,
         string installationDirectory,
-        Func<BMSPackage, string, bool, HashSet<string>, ISet<string>, bool> movePackageFiles,
+        Func<ChartPackage, string, bool, HashSet<string>, ISet<string>, bool> movePackageFiles,
         Action<IEnumerable<BMSFile>> upsertSongs,
         Action<IEnumerable<BMSFile>> updateMaintenance,
         Action<IEnumerable<BMSFile>> updateZeroNote,
         Action<IEnumerable<BMSFile>> applyScores,
         Action<IEnumerable<BMSFile>> applyState,
-        Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null,
+        Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
         HashSet<string> existingHashes = null,
         bool skipInstalledPackageWhenNoBms = false,
         bool deleteSourceContentsAfterSuccessfulInstall = false)
     {
         PackageInstallExecutionResult result = new PackageInstallExecutionResult();
-        List<BMSPackage> packages = (bmsPackagesInstall ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage package) => package != null).ToList();
+        List<ChartPackage> packages = (chartPackagesInstall ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage package) => package != null).ToList();
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         Stopwatch moveStopwatch = Stopwatch.StartNew();
-        foreach (BMSPackage package in packages)
+        foreach (ChartPackage package in packages)
         {
             HashSet<string> excludedComponentPaths = null;
             excludedComponentPathsByPackage?.TryGetValue(package, out excludedComponentPaths);
@@ -1778,19 +1778,19 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     public ForceInstallBatchResult ForceInstallPackages(
-        IEnumerable<BMSPackage> packages,
-        IEnumerable<BMSPackage> currentPendingPackages,
-        Func<BMSPackage, bool> confirmNormalInstallOverride,
-        Func<IEnumerable<BMSPackage>, List<BMSPackage>, List<BMSPackage>> installPackages,
+        IEnumerable<ChartPackage> packages,
+        IEnumerable<ChartPackage> currentPendingPackages,
+        Func<ChartPackage, bool> confirmNormalInstallOverride,
+        Func<IEnumerable<ChartPackage>, List<ChartPackage>, List<ChartPackage>> installPackages,
         Action<string> logInfo = null)
     {
         ForceInstallBatchResult result = new ForceInstallBatchResult();
-        List<BMSPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
-        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
+        List<ChartPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null).ToList();
         result.Requested = requestedPackages.Count;
-        foreach (BMSPackage requestedPackage in requestedPackages)
+        foreach (ChartPackage requestedPackage in requestedPackages)
         {
-            BMSPackage pendingPackage = pendingPackages.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            ChartPackage pendingPackage = pendingPackages.FirstOrDefault((ChartPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
             if (pendingPackage == null)
             {
                 result.Skipped++;
@@ -1804,13 +1804,13 @@ internal sealed class BmsLibraryPackageInstallService
                 logInfo?.Invoke("force_install_batch skipped_by_confirm path=" + (pendingPackage.path ?? "(null)"));
                 continue;
             }
-            List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
-            List<BMSPackage> failedPackages = installPackages?.Invoke(new BMSPackage[1] { pendingPackage }, deferredInstalledPackages) ?? new List<BMSPackage>();
+            List<ChartPackage> deferredInstalledPackages = new List<ChartPackage>();
+            List<ChartPackage> failedPackages = installPackages?.Invoke(new ChartPackage[1] { pendingPackage }, deferredInstalledPackages) ?? new List<ChartPackage>();
             result.Processed++;
             if (failedPackages.Count == 0)
             {
                 result.PendingPackagesToRemove.Add(pendingPackage);
-                result.DeferredInstalledPackages.AddRange(deferredInstalledPackages.Where((BMSPackage pkg) => pkg != null));
+                result.DeferredInstalledPackages.AddRange(deferredInstalledPackages.Where((ChartPackage pkg) => pkg != null));
                 result.Succeeded++;
                 foreach (BMSFile packageFile in packageFiles)
                 {
@@ -1828,31 +1828,31 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     public PendingResourceOverwriteExecutionResult ExecuteInstalledOnlyResourceOverwrite(
-        IEnumerable<BMSPackage> packages,
-        IEnumerable<BMSPackage> currentPendingPackages,
+        IEnumerable<ChartPackage> packages,
+        IEnumerable<ChartPackage> currentPendingPackages,
         bool deletePendingPackageSourceAfterInstall,
-        Func<BMSPackage, InstalledOnlyPackageResolutionResult> resolveDestination,
-        Func<InstalledOnlyPackageResolutionResult, BMSPackage, string> describeSkipDetail,
-        Func<BMSPackage, string, bool> hasResourceOverwriteTargets,
-        Func<BMSPackage, string, bool> installPackageToEstimatedDestination,
-        Func<BMSPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
-        Func<BMSPackage, bool> isPackageStillPending,
+        Func<ChartPackage, InstalledOnlyPackageResolutionResult> resolveDestination,
+        Func<InstalledOnlyPackageResolutionResult, ChartPackage, string> describeSkipDetail,
+        Func<ChartPackage, string, bool> hasResourceOverwriteTargets,
+        Func<ChartPackage, string, bool> installPackageToEstimatedDestination,
+        Func<ChartPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
+        Func<ChartPackage, bool> isPackageStillPending,
         CancellationToken token = default,
         Action onEachProcessed = null,
         Action<string> logInfo = null)
     {
         PendingResourceOverwriteExecutionResult result = new PendingResourceOverwriteExecutionResult();
-        List<BMSPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
-        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
+        List<ChartPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null).ToList();
         result.Requested = requestedPackages.Count;
-        foreach (BMSPackage requestedPackage in requestedPackages)
+        foreach (ChartPackage requestedPackage in requestedPackages)
         {
             if (token.IsCancellationRequested)
             {
                 result.Canceled = true;
                 break;
             }
-            BMSPackage pendingPackage = pendingPackages.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            ChartPackage pendingPackage = pendingPackages.FirstOrDefault((ChartPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
             if (pendingPackage == null)
             {
                 result.SkippedNotPending++;
@@ -2078,8 +2078,8 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     public PendingPackageSourceDeletionResult DeletePendingPackageSources(
-        IEnumerable<BMSPackage> packages,
-        IEnumerable<BMSPackage> currentPendingPackages,
+        IEnumerable<ChartPackage> packages,
+        IEnumerable<ChartPackage> currentPendingPackages,
         bool sendToRecycleBin,
         IFileMutationService fileMutationService,
         FileMutationOptions targetOnlyFileMutationOptions,
@@ -2089,18 +2089,18 @@ internal sealed class BmsLibraryPackageInstallService
         Action<string> logInfo = null)
     {
         PendingPackageSourceDeletionResult result = new PendingPackageSourceDeletionResult();
-        List<BMSPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
-        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        List<ChartPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
+        List<ChartPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<ChartPackage>()).Where((ChartPackage pkg) => pkg != null).ToList();
         result.Requested = requestedPackages.Count;
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
-        foreach (BMSPackage requestedPackage in requestedPackages)
+        foreach (ChartPackage requestedPackage in requestedPackages)
         {
             if (token.IsCancellationRequested)
             {
                 result.Canceled = true;
                 break;
             }
-            BMSPackage pendingPackage = pendingPackages.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            ChartPackage pendingPackage = pendingPackages.FirstOrDefault((ChartPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
             if (pendingPackage == null)
             {
                 result.Skipped++;
@@ -2162,7 +2162,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     public PendingFileDeletionResult DeletePendingFiles(
         IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<BMSPackage> pendingPackages,
+        IEnumerable<ChartPackage> pendingPackages,
         bool sendToRecycleBin,
         bool deleteContainingPackageFoldersWhenNoBms,
         IFileMutationService fileMutationService,
@@ -2187,7 +2187,7 @@ internal sealed class BmsLibraryPackageInstallService
 
         if (deleteContainingPackageFoldersWhenNoBms)
         {
-            foreach (BMSPackage pendingPackage in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(pendingPackages, selectedPaths, selectedFileRefs))
+            foreach (ChartPackage pendingPackage in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(pendingPackages, selectedPaths, selectedFileRefs))
             {
                 if (!Directory.Exists(pendingPackage.path))
                 {
@@ -2296,7 +2296,7 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     private void MovePackageComponentsSmart(
-        BMSPackage package,
+        ChartPackage package,
         List<string> installComponentFiles,
         string destinationDirectory,
         ISet<string> excludedComponentPaths,

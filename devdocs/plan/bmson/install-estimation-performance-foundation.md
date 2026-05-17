@@ -422,7 +422,7 @@ Perf-2a は一度、
 
 を構築する。
 
-`BMSPackage` 側には surface snapshot cache があるため再利用はされるが、**初回構築時の再帰列挙コスト**は残る。
+`ChartPackage` 側には surface snapshot cache があるため再利用はされるが、**初回構築時の再帰列挙コスト**は残る。
 
 ### 2.2 Everything / Fast 列挙基盤との関係
 
@@ -650,7 +650,7 @@ Perf-3 では少なくとも次を前提にする。
   の順で考える
 
 つまり Perf-3 は、Perf-2a / Perf-2b のように candidate を減らしたり並列度を上げたりする段ではなく、**source path 列挙と surface snapshot 構築を観測し、再利用可能な scanner / cache へ寄せる段**として扱う。  
-この段のスコープは **Estimation First** であり、`BMSLibrary` の library scan と `BMSPackage` / `PackageInstallEstimationSnapshotBuilder` の source-side install estimation までに限定する。
+この段のスコープは **Estimation First** であり、`BMSLibrary` の library scan と `ChartPackage` / `PackageInstallEstimationSnapshotBuilder` の source-side install estimation までに限定する。
 
 ### 3.9 Ownership Fix 後の性能観測
 
@@ -852,7 +852,7 @@ Phase 6 / Perf-3 で扱うもの:
 - **Phase 3 の実装は投入済み**
   - source-side mainline は `EBridge_ScanSourceRoots` を使う 4-query native surface に切り替えた
   - source-side mainline の `__all__` query は廃止した
-  - package chart discovery (`BMSPackage.ChartFiles`; 当時の旧 `BMSPackage.BMSFiles`) は chart discovery cache に戻し、install surface は別 cache に分離した
+  - package chart discovery (`ChartPackage.ChartFiles`; 当時の旧 `ChartPackage.BMSFiles`) は chart discovery cache に戻し、install surface は別 cache に分離した
   - 件数は `SourceSurfaceTrackedFileCount` / `SourceSurfaceChartFileCount` / `SourceSurfaceResourceFileCount` で受ける
   - source-side で Everything を使うかどうかは user setting で切り替える
     - 設定名: `保留パッケージの推定時に Everything を使用する`
@@ -965,7 +965,7 @@ directory package の当時の旧 `pkg.BMSFiles` 参照に伴って source-side 
      - packed result decode
      の contract に限定する
    - grouped full-path enumeration は fallback / diagnostics / small-root utility に役割を限定する
-   - `BMSPackage` の chart discovery cache と install-surface cache を分離し、mainline materialize は native result 直受けへ寄せる
+   - `ChartPackage` の chart discovery cache と install-surface cache を分離し、mainline materialize は native result 直受けへ寄せる
    - 詳細な段階分けは [library-scan-native-aggregation-plan.md](library-scan-native-aggregation-plan.md) を参照
 3. **docs / diagnostics の整流化**
    - 現状ロジックとログ項目の説明を一本化する

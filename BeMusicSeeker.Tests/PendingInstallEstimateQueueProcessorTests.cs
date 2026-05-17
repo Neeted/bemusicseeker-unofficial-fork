@@ -119,9 +119,9 @@ public sealed class PendingInstallEstimateQueueProcessorTests
         Assert.AreEqual(0, snapshot.CompletedPackageCount);
     }
 
-    private static BMSPackage CreatePackage(string path)
+    private static ChartPackage CreatePackage(string path)
     {
-        BMSPackage package = new BMSPackage
+        ChartPackage package = new ChartPackage
         {
             path = path
         };

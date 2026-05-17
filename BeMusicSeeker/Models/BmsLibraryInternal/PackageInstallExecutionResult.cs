@@ -6,9 +6,9 @@ internal sealed class PackageInstallExecutionResult
 {
     public List<BMSFile> AddedFiles { get; } = new List<BMSFile>();
 
-    public List<BMSPackage> FailedPackages { get; } = new List<BMSPackage>();
+    public List<ChartPackage> FailedPackages { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> InstalledPackagesToRegister { get; } = new List<BMSPackage>();
+    public List<ChartPackage> InstalledPackagesToRegister { get; } = new List<ChartPackage>();
 
     public long MoveMs { get; set; }
 

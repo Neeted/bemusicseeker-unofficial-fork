@@ -3102,7 +3102,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             treeRoot.IsExpanded = true;
             return;
         }
-        BMSPackage package = treeViewItem.DataContext as BMSPackage;
+        ChartPackage package = treeViewItem.DataContext as ChartPackage;
         if (package != null)
         {
             await Task.Run(delegate
@@ -3136,7 +3136,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             treeRoot.IsExpanded = true;
             return;
         }
-        BMSPackage package = treeViewItem.DataContext as BMSPackage;
+        ChartPackage package = treeViewItem.DataContext as ChartPackage;
         if (package != null)
         {
             await Task.Run(delegate
@@ -3870,7 +3870,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSPackage> list = viewModel.GetPendingPackagesContainingOnlyInstalledCharts();
+        List<ChartPackage> list = viewModel.GetPendingPackagesContainingOnlyInstalledCharts();
         if (list.Count == 0)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -3990,7 +3990,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSPackage> list = viewModel.GetPendingPackagesContainingOnlyInstalledCharts();
+        List<ChartPackage> list = viewModel.GetPendingPackagesContainingOnlyInstalledCharts();
         if (list.Count == 0)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -4052,7 +4052,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: BMSPackage dataContext } } }))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } }))
         {
             return;
         }
@@ -4083,7 +4083,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     /// <summary>
     /// インストール関連ツリーのコンテキストメニュー「このフォルダの履歴を消去」実行時の処理。
-    /// 「インストール保留中」などのリストから対象のパッケージ (BMSPackage) を一つ取り除きます。
+    /// 「インストール保留中」などのリストから対象のパッケージ (ChartPackage) を一つ取り除きます。
     /// </summary>
     private async void treeViewInstallPackageContextMenuClearFolderClick(object sender, RoutedEventArgs e)
     {
@@ -4091,7 +4091,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
         if (pkg == null)
         {
             return;
@@ -4104,7 +4104,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuClearFolderClick");
         await Task.Run(delegate
         {
-            viewModel.RemovePendingPackages(new BMSPackage[1] { pkg });
+            viewModel.RemovePendingPackages(new ChartPackage[1] { pkg });
         }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4121,7 +4121,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
         if (pkg == null)
         {
             return;
@@ -4134,7 +4134,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, pkg, "treeViewInstalledFolderContextMenuClearFolderClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveInstalledPackageRecords(new BMSPackage[1] { pkg });
+            viewModel.RemoveInstalledPackageRecords(new ChartPackage[1] { pkg });
         }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
@@ -4151,7 +4151,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
         if (pkg == null)
         {
             return;
@@ -4161,7 +4161,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.ClearInstallDestinationForPendingPackages(new BMSPackage[1] { pkg });
+                viewModel.ClearInstallDestinationForPendingPackages(new ChartPackage[1] { pkg });
             }).Logging("treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
         }
     }
@@ -4172,7 +4172,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
         if (pkg == null)
         {
             return;
@@ -4185,7 +4185,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuForceInstallClick");
         await Task.Run(delegate
         {
-            viewModel.ForceInstallPendingPackages(new BMSPackage[1] { pkg });
+            viewModel.ForceInstallPendingPackages(new ChartPackage[1] { pkg });
         }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4202,7 +4202,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
         if (pkg == null)
         {
             return;
@@ -4215,7 +4215,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuManualInstallClick");
         await Task.Run(delegate
         {
-            viewModel.ManualInstallPendingPackages(new BMSPackage[1] { pkg });
+            viewModel.ManualInstallPendingPackages(new ChartPackage[1] { pkg });
         }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4232,7 +4232,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
         if (pkg == null)
         {
             return;
@@ -4242,7 +4242,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.SearchInstallDestinationForPendingPackages(new BMSPackage[1] { pkg });
+                viewModel.SearchInstallDestinationForPendingPackages(new ChartPackage[1] { pkg });
             }).Logging("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
         }
     }
@@ -4253,7 +4253,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        ChartPackage pkg = placementTarget.DataContext as ChartPackage;
         if (pkg == null || !ConfirmMergeDestinationSearch())
         {
             return;
@@ -4263,7 +4263,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.SearchMergeDestinationForPendingPackages(new BMSPackage[1] { pkg });
+                viewModel.SearchMergeDestinationForPendingPackages(new ChartPackage[1] { pkg });
             }).Logging("treeViewInstallPackageContextMenuSearchMergeDestinationClick");
         }
     }
@@ -5508,7 +5508,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return false;
     }
 
-    private bool TryResolveInstallDestination(BMSPackage pkg, out string installDir, out string reason)
+    private bool TryResolveInstallDestination(ChartPackage pkg, out string installDir, out string reason)
     {
         installDir = null;
         reason = null;
@@ -5571,7 +5571,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewInstallPackageContextMenuOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: BMSPackage dataContext } } }))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } }))
         {
             return;
         }

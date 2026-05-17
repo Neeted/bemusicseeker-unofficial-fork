@@ -57,7 +57,7 @@
 ## 主な対象コード
 
 - `BeMusicSeeker/Models/PendingChartEntry.cs`
-- `BeMusicSeeker/Models/BMSPackage.cs`
+- `BeMusicSeeker/Models/ChartPackage.cs`
 - `BeMusicSeeker/Models/BmsLibraryInternal/BmsonSongParser.cs`
 - `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryPackageInstallService.cs`
 - `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryInstallEstimationService.cs`

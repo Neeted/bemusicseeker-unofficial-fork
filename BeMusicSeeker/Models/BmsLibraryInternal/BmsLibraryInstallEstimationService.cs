@@ -408,7 +408,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         InstalledOnlyPackageResolutionResult result = new InstalledOnlyPackageResolutionResult();
         if (package == null)
@@ -448,7 +448,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, List<BMSFile> missingFiles, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         InstalledDirectoryLookupResult result = new InstalledDirectoryLookupResult();
         if (package == null || missingFiles == null || missingFiles.Count == 0)
@@ -1153,20 +1153,20 @@ internal sealed class BmsLibraryInstallEstimationService
         }
     }
 
-    public PendingInstallDestinationSelectionResult ValidatePendingInstallDestination(BMSFile targetFile, IEnumerable<BMSPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
+    public PendingInstallDestinationSelectionResult ValidatePendingInstallDestination(BMSFile targetFile, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
     {
         return ValidateInstallDestination(targetFile, pendingPackages, knownChartDirectories, destinationDirectory, allowStandaloneLibraryFile: false);
     }
 
-    public PendingInstallDestinationSelectionResult ValidateInstallDestination(BMSFile targetFile, IEnumerable<BMSPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryFile)
+    public PendingInstallDestinationSelectionResult ValidateInstallDestination(BMSFile targetFile, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryFile)
     {
         PendingInstallDestinationSelectionResult result = new PendingInstallDestinationSelectionResult();
         if (targetFile == null)
         {
             return result;
         }
-        BMSPackage package = (pendingPackages ?? Enumerable.Empty<BMSPackage>())
-            .FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.ChartFiles.Any((BMSFile file) => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
+        ChartPackage package = (pendingPackages ?? Enumerable.Empty<ChartPackage>())
+            .FirstOrDefault((ChartPackage pkg) => pkg != null && pkg.ChartFiles.Any((BMSFile file) => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
         if (package == null)
         {
             if (!allowStandaloneLibraryFile)
@@ -1254,17 +1254,17 @@ internal sealed class BmsLibraryInstallEstimationService
         return new List<string>();
     }
 
-    public static BMSFile FindChartWithMissingInstalledDirectory(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static BMSFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count == 0);
     }
 
-    public static BMSFile FindChartWithMultipleInstalledDirectories(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static BMSFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count > 1);
     }
 
-    public static int CountDistinctInstalledDirectoriesForPackage(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartFiles ?? new List<BMSFile>())
             .Where((BMSFile file) => file != null)

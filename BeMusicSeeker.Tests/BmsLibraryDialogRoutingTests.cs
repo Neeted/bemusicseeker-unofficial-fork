@@ -31,19 +31,19 @@ public sealed class BmsLibraryDialogRoutingTests
                 path = "C:\\Pending\\Pkg\\chart.bms",
                 instl_dst = "C:\\Installed\\Pkg"
             };
-            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+            ChartPackage pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
             {
                 path = "C:\\Pending\\Pkg",
                 delete_parent = false
             };
-            library.BMSPackagesPending = CreatePackageCollection(new[] { pendingPackage });
+            library.ChartPackagesPending = CreatePackageCollection(new[] { pendingPackage });
 
             library.ForceInstallPendingPackages(new[] { pendingPackage });
 
             Assert.AreEqual(1, dialogService.Calls.Count);
             Assert.AreEqual(Properties.Resources.Confirm_NormalInstallTitle, dialogService.Calls[0].Caption);
             Assert.AreEqual(MessageBoxButton.YesNo, dialogService.Calls[0].Button);
-            Assert.AreSame(pendingPackage, library.BMSPackagesPending.Single());
+            Assert.AreSame(pendingPackage, library.ChartPackagesPending.Single());
         });
     }
 
@@ -65,9 +65,9 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
-    private static DispatcherCollection<BMSPackage> CreatePackageCollection(IEnumerable<BMSPackage> packages)
+    private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
-        return new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>((packages ?? Enumerable.Empty<BMSPackage>()).ToList()), Dispatcher.CurrentDispatcher);
+        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>((packages ?? Enumerable.Empty<ChartPackage>()).ToList()), Dispatcher.CurrentDispatcher);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

@@ -2339,10 +2339,10 @@ internal sealed class BmsLibraryInitializationService
         Stopwatch loadStopwatch = Stopwatch.StartNew();
         try
         {
-            List<BMSPackage> packages = dbGateway.LoadInstallPackages();
-            result.PendingPackages.AddRange(packages.Where((BMSPackage pkg) => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.ChartFiles.Count > 0));
+            List<ChartPackage> packages = dbGateway.LoadInstallPackages();
+            result.PendingPackages.AddRange(packages.Where((ChartPackage pkg) => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.ChartFiles.Count > 0));
             result.StalePackages.AddRange(packages.Except(result.PendingPackages));
-            result.StaleInstallPaths.AddRange(result.StalePackages.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path));
+            result.StaleInstallPaths.AddRange(result.StalePackages.Where((ChartPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((ChartPackage pkg) => pkg.path));
         }
         catch
         {
@@ -2353,7 +2353,7 @@ internal sealed class BmsLibraryInitializationService
         loadStopwatch.Stop();
         result.LoadMs = loadStopwatch.ElapsedMilliseconds;
         Stopwatch warningStopwatch = Stopwatch.StartNew();
-        foreach (BMSPackage pendingPackage in result.PendingPackages)
+        foreach (ChartPackage pendingPackage in result.PendingPackages)
         {
             bool isSingleFilePackage = !Directory.Exists(pendingPackage.path);
             foreach (BMSFile bmsFile in (pendingPackage.ChartFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))

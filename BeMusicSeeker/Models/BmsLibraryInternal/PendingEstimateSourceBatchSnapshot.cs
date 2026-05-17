@@ -32,7 +32,7 @@ internal sealed class SourceBaselinePrefilterResult
 
 internal sealed class PendingEstimateSourceBatchPackageState
 {
-    public BMSPackage Package { get; set; }
+    public ChartPackage Package { get; set; }
 
     public string DisplayName { get; set; } = string.Empty;
 
@@ -63,7 +63,7 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
 internal sealed class PendingEstimateSourceBatchSnapshot
 {
-    private readonly Dictionary<BMSPackage, PendingEstimateSourceBatchPackageState> packageStatesByPackage = new Dictionary<BMSPackage, PendingEstimateSourceBatchPackageState>();
+    private readonly Dictionary<ChartPackage, PendingEstimateSourceBatchPackageState> packageStatesByPackage = new Dictionary<ChartPackage, PendingEstimateSourceBatchPackageState>();
 
     public List<PendingEstimateSourceBatchPackageState> PackageStates { get; } = new List<PendingEstimateSourceBatchPackageState>();
 
@@ -98,7 +98,7 @@ internal sealed class PendingEstimateSourceBatchSnapshot
         packageStatesByPackage[state.Package] = state;
     }
 
-    public bool TryGetState(BMSPackage package, out PendingEstimateSourceBatchPackageState state)
+    public bool TryGetState(ChartPackage package, out PendingEstimateSourceBatchPackageState state)
     {
         state = null;
         return package != null && packageStatesByPackage.TryGetValue(package, out state);

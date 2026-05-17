@@ -2947,7 +2947,7 @@ public sealed class ChartInfoMetadataTests
             string sourceChartPath = Path.Combine(sourceDir, "install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE install bms\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             PendingChartEntry pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            BMSPackage package = new BMSPackage(new[] { pendingChart })
+            ChartPackage package = new ChartPackage(new[] { pendingChart })
             {
                 path = sourceDir,
                 delete_parent = false
@@ -2987,7 +2987,7 @@ public sealed class ChartInfoMetadataTests
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             PendingChartEntry pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            BMSPackage package = new BMSPackage(new[] { pendingChart })
+            ChartPackage package = new ChartPackage(new[] { pendingChart })
             {
                 path = sourceDir,
                 delete_parent = false
@@ -3019,7 +3019,7 @@ public sealed class ChartInfoMetadataTests
             string sourceChartPath = Path.Combine(sourceDir, "bad-install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE bad install\r\n#00111:01\r\n", Encoding.ASCII);
             PendingChartEntry pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            BMSPackage package = new BMSPackage(new[] { pendingChart })
+            ChartPackage package = new ChartPackage(new[] { pendingChart })
             {
                 path = sourceDir,
                 delete_parent = false
@@ -3955,7 +3955,7 @@ public sealed class ChartInfoMetadataTests
         return bundlePath;
     }
 
-    private static void InvokeInstallChartPackages(BMSLibrary library, IEnumerable<BMSPackage> packages, string installDirectory)
+    private static void InvokeInstallChartPackages(BMSLibrary library, IEnumerable<ChartPackage> packages, string installDirectory)
     {
         MethodInfo method = typeof(BMSLibrary).GetMethod("installChartPackages", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(method, "installChartPackages method was not found.");
@@ -3966,7 +3966,7 @@ public sealed class ChartInfoMetadataTests
                 packages,
                 installDirectory,
                 null,
-                new List<BMSPackage>(),
+                new List<ChartPackage>(),
                 null,
                 null,
                 false,

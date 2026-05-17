@@ -131,18 +131,18 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         TestableBmsFile selectedB = CreateFile("C:\\Pending\\Pkg1\\b.bms");
         TestableBmsFile partial = CreateFile("C:\\Pending\\Pkg2\\a.bms");
         TestableBmsFile partialUnselected = CreateFile("C:\\Pending\\Pkg2\\b.bms");
-        BMSPackage pkg1 = new BMSPackage(new BMSFile[] { selectedA, selectedB })
+        ChartPackage pkg1 = new ChartPackage(new BMSFile[] { selectedA, selectedB })
         {
             path = "C:\\Pending\\Pkg1",
             delete_parent = false
         };
-        BMSPackage pkg2 = new BMSPackage(new BMSFile[] { partial, partialUnselected })
+        ChartPackage pkg2 = new ChartPackage(new BMSFile[] { partial, partialUnselected })
         {
             path = "C:\\Pending\\Pkg2",
             delete_parent = false
         };
 
-        List<BMSPackage> result = service.GetPendingPackagesFullyCoveredBySelection(
+        List<ChartPackage> result = service.GetPendingPackagesFullyCoveredBySelection(
             new[] { pkg1, pkg2 },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedA.path, selectedB.path, partial.path },
             new HashSet<BMSFile> { selectedA, selectedB, partial });
@@ -173,12 +173,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             libraryFile.instl_dst = sourceRoot;
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = nestedDirectoryPath;
-            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+            ChartPackage pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
             {
                 path = Path.Combine(tempDirectoryPath, "Pending"),
                 delete_parent = false
             };
-            BMSPackage installedPackage = new BMSPackage(new BMSFile[] { libraryFile })
+            ChartPackage installedPackage = new ChartPackage(new BMSFile[] { libraryFile })
             {
                 path = nestedDirectoryPath,
                 delete_parent = false
@@ -232,7 +232,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             libraryFile.instl_dst = folderPath;
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = folderPath;
-            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+            ChartPackage pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
             {
                 path = Path.Combine(tempDirectoryPath, "Pending"),
                 delete_parent = false
@@ -283,7 +283,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromBmsonSong(song) },
                 new[] { LibraryChartRef.FromBmsonSong(song) },
-                Array.Empty<BMSPackage>(),
+                Array.Empty<ChartPackage>(),
                 lookupCache,
                 false,
                 _ => true,
@@ -320,7 +320,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256) },
                 new[] { LibraryChartRef.FromCompatibilityChartFile(canonicalFile) },
-                Array.Empty<BMSPackage>(),
+                Array.Empty<ChartPackage>(),
                 lookupCache,
                 true,
                 _ => true,
@@ -358,7 +358,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, staleChartPath, null, null) },
                 new[] { LibraryChartRef.FromCompatibilityChartFile(catalogFile) },
-                Array.Empty<BMSPackage>(),
+                Array.Empty<ChartPackage>(),
                 new DirectoryResourceLookupCache(),
                 true,
                 _ => true,
@@ -393,7 +393,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromCompatibilityChartFile(nonCanonicalFile) },
                 new[] { LibraryChartRef.FromCompatibilityChartFile(canonicalFile) },
-                Array.Empty<BMSPackage>(),
+                Array.Empty<ChartPackage>(),
                 new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
@@ -427,7 +427,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256) },
                 new[] { LibraryChartRef.FromCompatibilityChartFile(catalogFile) },
-                Array.Empty<BMSPackage>(),
+                Array.Empty<ChartPackage>(),
                 new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
@@ -464,7 +464,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromCompatibilityChartFile(libraryFile) },
                 new[] { LibraryChartRef.FromCompatibilityChartFile(libraryFile) },
-                Array.Empty<BMSPackage>(),
+                Array.Empty<ChartPackage>(),
                 new DirectoryResourceLookupCache(),
                 false,
                 path =>
@@ -563,8 +563,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Dst",
             new[] { file1, file2 },
             Array.Empty<LR2SongDBExtended.bmson_song>(),
-            Array.Empty<BMSPackage>(),
-            Array.Empty<BMSPackage>(),
+            Array.Empty<ChartPackage>(),
+            Array.Empty<ChartPackage>(),
             unregister: false,
             raiseBmsFilesChanged: false);
 
@@ -590,8 +590,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Dst",
             new[] { file },
             Array.Empty<LR2SongDBExtended.bmson_song>(),
-            Array.Empty<BMSPackage>(),
-            Array.Empty<BMSPackage>(),
+            Array.Empty<ChartPackage>(),
+            Array.Empty<ChartPackage>(),
             unregister: false,
             raiseBmsFilesChanged: true);
 
@@ -714,8 +714,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Dst",
             Array.Empty<BMSFile>(),
             new[] { bmsonSong },
-            Array.Empty<BMSPackage>(),
-            Array.Empty<BMSPackage>(),
+            Array.Empty<ChartPackage>(),
+            Array.Empty<ChartPackage>(),
             unregister: false,
             raiseBmsFilesChanged: false);
 
@@ -742,8 +742,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Dst",
             Array.Empty<BMSFile>(),
             new[] { bmsonSong },
-            Array.Empty<BMSPackage>(),
-            Array.Empty<BMSPackage>(),
+            Array.Empty<ChartPackage>(),
+            Array.Empty<ChartPackage>(),
             unregister: false,
             raiseBmsFilesChanged: true);
 
@@ -767,8 +767,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Dst",
             new[] { bmsFile },
             new[] { bmsonSong },
-            Array.Empty<BMSPackage>(),
-            Array.Empty<BMSPackage>(),
+            Array.Empty<ChartPackage>(),
+            Array.Empty<ChartPackage>(),
             unregister: true);
 
         CollectionAssert.AreEqual(new BMSFile[] { bmsFile }, delta.FilesToUnregister);
@@ -792,7 +792,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         LibraryFixInstallationResult result = service.FixInstallationDirectory(
             new[] { movedFile, duplicateFile },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            delegate (BMSPackage package, string destinationDirectory)
+            delegate (ChartPackage package, string destinationDirectory)
             {
                 if (package.ChartFiles[0] == duplicateFile)
                 {
@@ -831,7 +831,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         LibraryFixInstallationResult result = service.FixInstallationDirectory(
             new[] { movedFile },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            delegate (BMSPackage package, string destinationDirectory)
+            delegate (ChartPackage package, string destinationDirectory)
             {
                 movedFile.path = Path.Combine(destinationDirectory, "move.bmson");
                 return true;

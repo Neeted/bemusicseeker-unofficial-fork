@@ -4,9 +4,9 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class InstallTableLoadResult
 {
-    public List<BMSPackage> PendingPackages { get; } = new List<BMSPackage>();
+    public List<ChartPackage> PendingPackages { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> StalePackages { get; } = new List<BMSPackage>();
+    public List<ChartPackage> StalePackages { get; } = new List<ChartPackage>();
 
     public List<string> StaleInstallPaths { get; } = new List<string>();
 

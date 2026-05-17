@@ -28,7 +28,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreateInstalledFile("cccccccccccccccccccccccccccccccc", Path.Combine(installedDir, "c.pms"))
             };
 
-            BMSPackage package = CreatePendingPackage(
+            ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")),
                 CreatePendingFile("cccccccccccccccccccccccccccccccc", Path.Combine(tempRoot, "Pending", "c.pms")));
@@ -55,7 +55,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreateInstalledFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(installedDir2, "b.bme"))
             };
 
-            BMSPackage package = CreatePendingPackage(
+            ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
@@ -81,7 +81,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir2, "a.bms"))
             };
 
-            BMSPackage package = CreatePendingPackage(
+            ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")));
 
             InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
@@ -104,7 +104,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir, "a.bms"))
             };
 
-            BMSPackage package = CreatePendingPackage(
+            ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
@@ -134,7 +134,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             TestableBmsFile pendingB = CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme"));
             pendingA.instl_dst = installedDir1;
             pendingB.instl_dst = installedDir1;
-            BMSPackage package = CreatePendingPackage(pendingA, pendingB);
+            ChartPackage package = CreatePendingPackage(pendingA, pendingB);
 
             InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
@@ -156,7 +156,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
 
             TestableBmsFile pendingFile = CreatePendingFile("cccccccccccccccccccccccccccccccc", Path.Combine(tempRoot, "Pending", "a.bms"));
             pendingFile.SetSha256(new string('b', 64));
-            BMSPackage package = CreatePendingPackage(pendingFile);
+            ChartPackage package = CreatePendingPackage(pendingFile);
 
             InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(new[] { installedFile });
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
@@ -223,9 +223,9 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         return CreateInstalledFile(hash, path);
     }
 
-    private static BMSPackage CreatePendingPackage(params TestableBmsFile[] files)
+    private static ChartPackage CreatePendingPackage(params TestableBmsFile[] files)
     {
-        return new BMSPackage(files)
+        return new ChartPackage(files)
         {
             path = files.FirstOrDefault()?.path ?? string.Empty,
             delete_parent = false

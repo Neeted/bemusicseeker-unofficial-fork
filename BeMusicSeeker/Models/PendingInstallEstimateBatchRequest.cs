@@ -10,7 +10,7 @@ internal sealed class PendingInstallEstimateBatchRequest
 {
     public PendingInstallEstimateBatchSource Source { get; }
 
-    public BMSPackage[] Packages { get; }
+    public ChartPackage[] Packages { get; }
 
     public int PackageCount => Packages.Length;
 
@@ -26,15 +26,15 @@ internal sealed class PendingInstallEstimateBatchRequest
 
     public PendingInstallEstimateBatchRequest(
         PendingInstallEstimateBatchSource source,
-        IEnumerable<BMSPackage> packages,
+        IEnumerable<ChartPackage> packages,
         string displayName,
         IEnumerable<string> regroupEligibleSourceDirectories = null,
         int deferredPackageCount = 0,
         PendingEstimateSourceBatchSnapshot batchSourceSnapshot = null)
     {
         Source = source;
-        Packages = (packages ?? Enumerable.Empty<BMSPackage>())
-            .Where((BMSPackage package) => package != null)
+        Packages = (packages ?? Enumerable.Empty<ChartPackage>())
+            .Where((ChartPackage package) => package != null)
             .ToArray();
         DeferredPackageCount = Math.Max(0, deferredPackageCount);
         DisplayName = string.IsNullOrWhiteSpace(displayName)

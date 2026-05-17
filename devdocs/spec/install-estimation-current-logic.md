@@ -125,7 +125,7 @@ Background pending estimate と手動の複数 package 推定は、batch 内の 
 - 手動の複数 package 推定の外側並列度は `max(1, Environment.ProcessorCount - 1)` です。
 - 実効値は `pending_estimate_batch start` / `progress` / `done` ログの `packageDegree` に出ます。
 
-`SearchEstimatedInstallationDirectory(IEnumerable<BMSPackage>)` は、2 件以上の package を受け取った場合、background pending estimate と同じ batch pipeline を使います。`SearchEstimatedInstallationDirectory(IEnumerable<BMSFile>)` も、対象 file がすべて pending package に属する場合は package work item にまとめ、2 件以上の package は同じ batch pipeline で評価します。
+`SearchEstimatedInstallationDirectory(IEnumerable<ChartPackage>)` は、2 件以上の package を受け取った場合、background pending estimate と同じ batch pipeline を使います。`SearchEstimatedInstallationDirectory(IEnumerable<BMSFile>)` も、対象 file がすべて pending package に属する場合は package work item にまとめ、2 件以上の package は同じ batch pipeline で評価します。
 
 一方、loose file が混じる手動 file 群推定と `fixMode=true` の再インストール先修正は、現在も外側 work item を逐次処理します。この経路は file 単位の `fixMode` と package 単位の推定を混ぜる必要があり、batch pipeline へ寄せる前に適用順序と警告更新の仕様整理が必要なためです。ただし各 loose file 内の candidate 評価は `candidateDegree` に応じて並列化されます。
 

@@ -399,7 +399,7 @@ Perf-3 に入る前の仕上げです。
 完了条件:
 - 主要 docs が relative path 対応後の実装を説明している
 - Perf-3 は relative path semantics を前提に着手できる
-- `BMSPackage` の source scan snapshot 再利用と package surface logging が通常実装として説明できる
+- `ChartPackage` の source scan snapshot 再利用と package surface logging が通常実装として説明できる
 
 ## フェーズごとの優先順位
 

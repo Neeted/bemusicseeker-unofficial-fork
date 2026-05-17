@@ -8,7 +8,7 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models;
 
-public class BMSPackage : LR2SongDBExtended.install
+public class ChartPackage : LR2SongDBExtended.install
 {
 	private List<BMSFile> chartFiles;
 
@@ -36,18 +36,18 @@ public class BMSPackage : LR2SongDBExtended.install
 		}
 	}
 
-	public BMSPackage()
+	public ChartPackage()
 	{
 	}
 
-	public BMSPackage(BMSFile bmsFile)
+	public ChartPackage(BMSFile chartFile)
 	{
-		path = bmsFile.path;
-		chartFiles = new List<BMSFile> { bmsFile };
+		path = chartFile.path;
+		chartFiles = new List<BMSFile> { chartFile };
 		hasExplicitChartFiles = true;
 	}
 
-	public BMSPackage(IEnumerable<BMSFile> chartFiles)
+	public ChartPackage(IEnumerable<BMSFile> chartFiles)
 	{
 		this.chartFiles = chartFiles.ToList();
 		hasExplicitChartFiles = true;

@@ -4,17 +4,17 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class AutoInstallApplyResult
 {
-    public List<BMSPackage> PendingPackagesToAdd { get; } = new List<BMSPackage>();
+    public List<ChartPackage> PendingPackagesToAdd { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> PendingPackagesToRemove { get; } = new List<BMSPackage>();
+    public List<ChartPackage> PendingPackagesToRemove { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> AutoInstalledPackages { get; } = new List<BMSPackage>();
+    public List<ChartPackage> AutoInstalledPackages { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> AutoInstallFailures { get; } = new List<BMSPackage>();
+    public List<ChartPackage> AutoInstallFailures { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> EstimateTargets { get; } = new List<BMSPackage>();
+    public List<ChartPackage> EstimateTargets { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> InstallRowsToUpsert { get; } = new List<BMSPackage>();
+    public List<ChartPackage> InstallRowsToUpsert { get; } = new List<ChartPackage>();
 
     public List<string> InstallRowsToDelete { get; } = new List<string>();
 

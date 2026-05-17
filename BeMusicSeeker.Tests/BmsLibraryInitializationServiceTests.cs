@@ -2606,17 +2606,17 @@ public sealed class BmsLibraryInitializationServiceTests
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new BMSPackage
+                songDb.InsertOrReplace(new ChartPackage
                 {
                     path = directoryPackagePath,
                     delete_parent = false
                 }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new BMSPackage
+                songDb.InsertOrReplace(new ChartPackage
                 {
                     path = singleFileChartPath,
                     delete_parent = false
                 }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new BMSPackage
+                songDb.InsertOrReplace(new ChartPackage
                 {
                     path = Path.Combine(lr2RootPath, "MissingPkg"),
                     delete_parent = false
@@ -2644,8 +2644,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.LoadMs >= 0);
             Assert.IsTrue(result.WarningInitMs >= 0);
             Assert.IsTrue(result.TotalMs >= 0);
-            BMSPackage installedWarningPackage = result.PendingPackages.Single((BMSPackage pkg) => pkg.path.Equals(directoryPackagePath, StringComparison.OrdinalIgnoreCase));
-            BMSPackage singleFileWarningPackage = result.PendingPackages.Single((BMSPackage pkg) => pkg.path.Equals(singleFileChartPath, StringComparison.OrdinalIgnoreCase));
+            ChartPackage installedWarningPackage = result.PendingPackages.Single((ChartPackage pkg) => pkg.path.Equals(directoryPackagePath, StringComparison.OrdinalIgnoreCase));
+            ChartPackage singleFileWarningPackage = result.PendingPackages.Single((ChartPackage pkg) => pkg.path.Equals(singleFileChartPath, StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(installedWarningPackage.ChartFiles[0].Warnings.Contains(ChartWarningKind.AlreadyInstalled));
             Assert.IsTrue(singleFileWarningPackage.ChartFiles[0].Warnings.Contains(ChartWarningKind.SingleBmsFile));
         });
@@ -2666,7 +2666,7 @@ public sealed class BmsLibraryInitializationServiceTests
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new BMSPackage
+                songDb.InsertOrReplace(new ChartPackage
                 {
                     path = directoryPackagePath,
                     delete_parent = false
@@ -2754,7 +2754,7 @@ public sealed class BmsLibraryInitializationServiceTests
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new BMSPackage
+                songDb.InsertOrReplace(new ChartPackage
                 {
                     path = singleFileChartPath,
                     delete_parent = false

@@ -78,7 +78,7 @@ internal sealed class LibraryInstallDestinationChange
 
 internal sealed class LibraryInstalledPackagePathChange
 {
-    public BMSPackage Package { get; set; }
+    public ChartPackage Package { get; set; }
 
     public string NewPath { get; set; }
 }

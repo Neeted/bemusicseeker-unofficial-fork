@@ -4,13 +4,13 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PendingInstallBatchResult
 {
-    public HashSet<BMSPackage> PendingPackagesToRemove { get; } = new HashSet<BMSPackage>();
+    public HashSet<ChartPackage> PendingPackagesToRemove { get; } = new HashSet<ChartPackage>();
 
-    public List<BMSPackage> DeferredInstalledPackages { get; } = new List<BMSPackage>();
+    public List<ChartPackage> DeferredInstalledPackages { get; } = new List<ChartPackage>();
 
     public List<BMSFile> DeferredMaintenanceTargets { get; } = new List<BMSFile>();
 
-    public List<BMSPackage> FailedPackages { get; } = new List<BMSPackage>();
+    public List<ChartPackage> FailedPackages { get; } = new List<ChartPackage>();
 
     public List<string> InstallRowsToDelete { get; } = new List<string>();
 

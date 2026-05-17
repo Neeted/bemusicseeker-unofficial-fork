@@ -28,13 +28,13 @@ internal sealed class BmsLibraryStateApplier
 
     private readonly Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs;
 
-    private readonly Func<DispatcherCollection<BMSPackage>> getPendingPackages;
+    private readonly Func<DispatcherCollection<ChartPackage>> getPendingPackages;
 
-    private readonly Action<DispatcherCollection<BMSPackage>> setPendingPackages;
+    private readonly Action<DispatcherCollection<ChartPackage>> setPendingPackages;
 
-    private readonly Func<DispatcherCollection<BMSPackage>> getInstalledPackages;
+    private readonly Func<DispatcherCollection<ChartPackage>> getInstalledPackages;
 
-    private readonly Action<DispatcherCollection<BMSPackage>> setInstalledPackages;
+    private readonly Action<DispatcherCollection<ChartPackage>> setInstalledPackages;
 
     private readonly Action invalidateInstalledDirectoryIndex;
 
@@ -52,10 +52,10 @@ internal sealed class BmsLibraryStateApplier
         Action<List<BMSFile>> setBmsFiles,
         Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs,
         Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs,
-        Func<DispatcherCollection<BMSPackage>> getPendingPackages,
-        Action<DispatcherCollection<BMSPackage>> setPendingPackages,
-        Func<DispatcherCollection<BMSPackage>> getInstalledPackages,
-        Action<DispatcherCollection<BMSPackage>> setInstalledPackages,
+        Func<DispatcherCollection<ChartPackage>> getPendingPackages,
+        Action<DispatcherCollection<ChartPackage>> setPendingPackages,
+        Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
+        Action<DispatcherCollection<ChartPackage>> setInstalledPackages,
         Action invalidateInstalledDirectoryIndex,
         Action invalidateParentFolderCache,
         Action clearDuplicatedCache,
@@ -85,8 +85,8 @@ internal sealed class BmsLibraryStateApplier
             return;
         }
 
-        setPendingPackages(new DispatcherCollection<BMSPackage>(
-            new ObservableCollection<BMSPackage>(delta.RemainingPackages ?? new List<BMSPackage>()),
+        setPendingPackages(new DispatcherCollection<ChartPackage>(
+            new ObservableCollection<ChartPackage>(delta.RemainingPackages ?? new List<ChartPackage>()),
             DispatcherHelper.UIDispatcher));
 
         List<string> installPathsToDelete = (delta.InstallPathsToDelete ?? new List<string>())
@@ -196,11 +196,11 @@ internal sealed class BmsLibraryStateApplier
             .Where((BMSFile file) => !IsMatchedRemovedFile(file, removedPaths, removedFileRefs))
             .ToList());
         dbGateway.DeleteSongsAndMaintenance(removedFilesList);
-        DispatcherCollection<BMSPackage> installedPackages = getInstalledPackages();
+        DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
-        List<BMSPackage> emptyInstalledPackages = new List<BMSPackage>();
+        List<ChartPackage> emptyInstalledPackages = new List<ChartPackage>();
 
-        foreach (BMSPackage installedPackage in installedPackages.Where((BMSPackage package) => package != null).ToList())
+        foreach (ChartPackage installedPackage in installedPackages.Where((ChartPackage package) => package != null).ToList())
         {
             int countBefore = installedPackage.ChartFiles.Count;
             installedPackage.ChartFiles.RemoveAll((BMSFile file) => IsMatchedRemovedFile(file, removedPaths, removedFileRefs));
@@ -216,7 +216,7 @@ internal sealed class BmsLibraryStateApplier
 
         if (emptyInstalledPackages.Count > 0)
         {
-            foreach (BMSPackage emptyInstalledPackage in emptyInstalledPackages)
+            foreach (ChartPackage emptyInstalledPackage in emptyInstalledPackages)
             {
                 installedPackages.Remove(emptyInstalledPackage);
             }
@@ -253,10 +253,10 @@ internal sealed class BmsLibraryStateApplier
             .ToList());
         dbGateway.DeleteBmsonSongs(removedSongsList);
 
-        DispatcherCollection<BMSPackage> installedPackages = getInstalledPackages();
+        DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
-        List<BMSPackage> emptyInstalledPackages = new List<BMSPackage>();
-        foreach (BMSPackage installedPackage in installedPackages.Where((BMSPackage package) => package != null).ToList())
+        List<ChartPackage> emptyInstalledPackages = new List<ChartPackage>();
+        foreach (ChartPackage installedPackage in installedPackages.Where((ChartPackage package) => package != null).ToList())
         {
             int countBefore = installedPackage.ChartFiles.Count;
             installedPackage.ChartFiles.RemoveAll((BMSFile file) => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs));
@@ -271,7 +271,7 @@ internal sealed class BmsLibraryStateApplier
         }
         if (emptyInstalledPackages.Count > 0)
         {
-            foreach (BMSPackage emptyInstalledPackage in emptyInstalledPackages)
+            foreach (ChartPackage emptyInstalledPackage in emptyInstalledPackages)
             {
                 installedPackages.Remove(emptyInstalledPackage);
             }

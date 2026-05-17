@@ -74,7 +74,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public LibraryRemovalResult DeleteLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         IEnumerable<LibraryChartRef> libraryCharts,
-        IEnumerable<BMSPackage> pendingPackages,
+        IEnumerable<ChartPackage> pendingPackages,
         DirectoryResourceLookupCache directoryLookupCache,
         bool sendToRecycleBin,
         Func<string, bool> confirmDeleteWholeFolder,
@@ -308,7 +308,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    private static void ClearInstallDestinationsUnderDeletedFolder(string folderPath, IEnumerable<BMSPackage> pendingPackages, IEnumerable<LibraryChartRef> currentLibraryCharts)
+    private static void ClearInstallDestinationsUnderDeletedFolder(string folderPath, IEnumerable<ChartPackage> pendingPackages, IEnumerable<LibraryChartRef> currentLibraryCharts)
     {
         if (string.IsNullOrWhiteSpace(folderPath))
         {
@@ -316,9 +316,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         try
         {
-            IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? Enumerable.Empty<BMSPackage>())
-                .Where((BMSPackage package) => package != null)
-                .SelectMany((BMSPackage package) => package.ChartFiles ?? new List<BMSFile>());
+            IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? Enumerable.Empty<ChartPackage>())
+                .Where((ChartPackage package) => package != null)
+                .SelectMany((ChartPackage package) => package.ChartFiles ?? new List<BMSFile>());
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
                 .Select((LibraryChartRef chart) => chart.CompatibilityChartFile)
                 .Where((BMSFile bmsInfo) => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
@@ -362,8 +362,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string dstDir,
         IEnumerable<BMSFile> libraryFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
-        IEnumerable<BMSPackage> pendingPackages,
-        IEnumerable<BMSPackage> installedPackages,
+        IEnumerable<ChartPackage> pendingPackages,
+        IEnumerable<ChartPackage> installedPackages,
         bool unregister,
         bool raiseBmsFilesChanged = true)
     {
@@ -383,9 +383,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             return delta;
         }
-        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>())
-            .Where((BMSPackage pkg) => pkg != null)
-            .SelectMany((BMSPackage pkg) => pkg.ChartFiles)
+        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<ChartPackage>())
+            .Where((ChartPackage pkg) => pkg != null)
+            .SelectMany((ChartPackage pkg) => pkg.ChartFiles)
             .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
@@ -398,7 +398,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (BMSPackage installedPackage in installedPackages ?? Enumerable.Empty<BMSPackage>())
+        foreach (ChartPackage installedPackage in installedPackages ?? Enumerable.Empty<ChartPackage>())
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
                 && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -535,8 +535,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string dstDir,
         IEnumerable<BMSFile> libraryFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> libraryBmsonSongs,
-        IEnumerable<BMSPackage> pendingPackages,
-        IEnumerable<BMSPackage> installedPackages,
+        IEnumerable<ChartPackage> pendingPackages,
+        IEnumerable<ChartPackage> installedPackages,
         Func<IEnumerable<BMSFile>, HashSet<string>> createHashSnapshotExcluding)
     {
         LibraryMergeResult result = new LibraryMergeResult();
@@ -550,15 +550,15 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             .Select(PendingChartEntry.CreateFromBmsonSong)
             .Where((PendingChartEntry file) => file != null));
-        result.Repackage = new BMSPackage(result.SourceFiles)
+        result.Repackage = new ChartPackage(result.SourceFiles)
         {
             path = srcDir,
             delete_parent = false
         };
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>())
-            .Where((BMSPackage pkg) => pkg != null)
-            .SelectMany((BMSPackage pkg) => pkg.ChartFiles)
+        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<ChartPackage>())
+            .Where((ChartPackage pkg) => pkg != null)
+            .SelectMany((ChartPackage pkg) => pkg.ChartFiles)
             .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
@@ -571,7 +571,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (BMSPackage installedPackage in installedPackages ?? Enumerable.Empty<BMSPackage>())
+        foreach (ChartPackage installedPackage in installedPackages ?? Enumerable.Empty<ChartPackage>())
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
                 && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -593,7 +593,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public LibraryFixInstallationResult FixInstallationDirectory(
         IEnumerable<BMSFile> chartFiles,
         HashSet<string> existingHashes,
-        Func<BMSPackage, string, bool> movePackageFiles,
+        Func<ChartPackage, string, bool> movePackageFiles,
         Func<BMSFile, bool> confirmDuplicateRemoval)
     {
         LibraryFixInstallationResult result = new LibraryFixInstallationResult();
@@ -604,7 +604,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             PendingChartEntry bmsonEntry = file as PendingChartEntry;
             bool isBmson = bmsonEntry?.IsBmsonChart == true && bmsonEntry.BmsonSong != null;
-            BMSPackage installPackage = new BMSPackage(file)
+            ChartPackage installPackage = new ChartPackage(file)
             {
                 delete_parent = false
             };
@@ -877,10 +877,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    public List<BMSPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<BMSPackage> pendingPackages, HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
+    public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<ChartPackage> pendingPackages, HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
     {
-        return (pendingPackages ?? Enumerable.Empty<BMSPackage>())
-            .Where((BMSPackage pkg) => pkg != null && pkg.ChartFiles.Count > 0 && pkg.ChartFiles.All((BMSFile file) => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))
+        return (pendingPackages ?? Enumerable.Empty<ChartPackage>())
+            .Where((ChartPackage pkg) => pkg != null && pkg.ChartFiles.Count > 0 && pkg.ChartFiles.All((BMSFile file) => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))
             .ToList();
     }
 

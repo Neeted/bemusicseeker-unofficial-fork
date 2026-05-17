@@ -4,15 +4,15 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class AutoInstallWorkflowResult
 {
-    public List<BMSPackage> DiscoveredPackages { get; } = new List<BMSPackage>();
+    public List<ChartPackage> DiscoveredPackages { get; } = new List<ChartPackage>();
 
     public List<string> RegroupEligibleSourceDirectories { get; } = new List<string>();
 
-    public List<BMSPackage> PendingPackagesToRemove { get; } = new List<BMSPackage>();
+    public List<ChartPackage> PendingPackagesToRemove { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> PendingPackagesToAdd { get; } = new List<BMSPackage>();
+    public List<ChartPackage> PendingPackagesToAdd { get; } = new List<ChartPackage>();
 
-    public List<BMSPackage> AutoInstallCandidates { get; } = new List<BMSPackage>();
+    public List<ChartPackage> AutoInstallCandidates { get; } = new List<ChartPackage>();
 
     public List<string> ExtractedTempDirectories { get; } = new List<string>();
 

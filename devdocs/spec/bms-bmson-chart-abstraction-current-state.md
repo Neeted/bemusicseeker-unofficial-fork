@@ -4,7 +4,7 @@
 
 この文書は、現行実装における BMS / bmson の譜面抽象化の状態を記録する。
 
-今後 `BMSFile` を `ChartFile`、`BMSPackage` を `ChartPackage` に近づけていく前に、現在どこまで chart として共通化され、どこに BMS / LR2 前提の境界が残っているかを明文化する。
+今後 `BMSFile` を `ChartFile`、`ChartPackage` を `ChartPackage` に近づけていく前に、現在どこまで chart として共通化され、どこに BMS / LR2 前提の境界が残っているかを明文化する。
 
 この文書は移行計画ではなく、現在仕様を表す。将来の rename や抽象化を行う場合も、ここに書いた storage / read model / operation target の責務を崩さないことを前提にする。
 
@@ -220,7 +220,7 @@ merge 先探索は package 内 chart を `ChartFiles` として扱い、BMS / bm
 
 `SearchMergeDestinationForPendingCharts(...)` は、選択 chart が pending package に属する場合、選択 chart 単体ではなく所属 package に展開して package-level merge を走らせる。mixed package の既所持先が複数 directory に分かれている場合でも、hash 一致数が単独最多の directory があればそれを package 全体の merge 先として採用する。最多 directory が同点の場合や hash 一致がない場合は、hash 由来の自動決定をせず、`MergeCandidateOnly` の resource 評価へ fallback する。
 
-direct install / drop install の ViewModel 入口は `InstallChartPackages(...)` で、model 層の pending package install 入口は `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` を使う。旧 `InstallBMSFilesAuto` / `InstallBMSPackagesForce` / `InstallBMSPackagesToEstimatedDir` / 単数 wrapper は残さない。
+direct install / drop install の ViewModel 入口は `InstallChartPackages(...)` で、model 層の pending package install 入口は `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` を使う。旧 `InstallBMSFilesAuto` / `InstallChartPackagesForce` / `InstallChartPackagesToEstimatedDir` / 単数 wrapper は残さない。
 
 newly installed tree に表示される installed package history/list のクリアは `RemoveInstalledPackageRecords` / `RemoveInstalledPackageRecordsAll` を入口にする。これは chart file 自体の削除ではなく、installed package record を list から消す操作である。
 
@@ -228,20 +228,20 @@ library folder operation は public / user-facing 名に `BMSFolder` / `BMSDirec
 
 ## Package / pending install
 
-### `BMSPackage`
+### `ChartPackage`
 
-`BMSPackage` は名前上は BMS package だが、現行では package 内 chart の discovery container としても使われる。
+`ChartPackage` は package 内 chart の discovery container であり、BMS / bmson 混在 package を同じ単位で扱う。
 
-pending / installed package record の永続正本は `install` table の row であり、実質的には source path と delete_parent などの package record metadata を保存する。`ChartFiles` 自体は永続化されず、DB restore 後は `BMSPackage.path` から lazy rediscovery される。
+pending / installed package record の永続正本は `install` table の row であり、実質的には source path と delete_parent などの package record metadata を保存する。`ChartFiles` 自体は永続化されず、DB restore 後は `ChartPackage.path` から lazy rediscovery される。
 
 主な現行仕様:
 
-- `BMSPackage.ChartFiles` は package 内 chart discovery の primary API であり、`List<BMSFile>` を返す。
+- `ChartPackage.ChartFiles` は package 内 chart discovery の primary API であり、`List<BMSFile>` を返す。
 - 明示的に `chartFiles` を渡された package ではその list を返す。
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
 - `PendingCharts` は `ChartFiles.OfType<PendingChartEntry>()` である。
 
-production code の `BMSPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart list は `ChartFiles` に一本化されている。
+production code の `ChartPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart list は `ChartFiles` に一本化されている。
 
 `PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。旧 `BmsFiles` alias は削除済みであり、ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
 
@@ -385,7 +385,7 @@ View の control 名、menu item 名、event handler 名、ログ名にも BMS �
 
 ## 現在の未抽象化領域
 
-次の領域では、まだ `BMSFile` / `BMSPackage` の名前と型が chart 共通概念を兼ねている。
+次の領域では、まだ `BMSFile` の名前と型が chart 共通概念を兼ねている。
 
 ### `BMSFile` の二重責務
 
@@ -398,13 +398,13 @@ View の control 名、menu item 名、event handler 名、ログ名にも BMS �
 
 `PendingChartEntry : BMSFile` により移行は進んでいるが、`BMSFile` 型を見るだけでは「実体 BMS」なのか「chart adapter」なのか判定できない。`PendingChartEntry.IsBmsChartFile(...)` / `IsBmsonChartFile(...)` や `OwnedChartRef.Kind` を見る必要がある。
 
-### `BMSPackage.ChartFiles`
+### `ChartPackage.ChartFiles`
 
-`BMSPackage.ChartFiles` は package 内 chart discovery の結果だが、型は `List<BMSFile>` のままである。
+`ChartPackage.ChartFiles` は package 内 chart discovery の結果だが、型は `List<BMSFile>` のままである。
 
-bmson は `PendingChartEntry` として混ざるため、`BMSPackage.ChartFiles` を「BMS のみ」と解釈してはいけない。
+bmson は `PendingChartEntry` として混ざるため、`ChartPackage.ChartFiles` を「BMS のみ」と解釈してはいけない。
 
-将来 `ChartPackage` 化する場合、既存 `BMSPackage` は `ChartFiles` を primary API として維持する。旧 `BMSFiles` alias は production 利用がないことを確認したうえで削除済みであり、テストコードにも旧 alias そのものを残すためのテストは置かない。
+`ChartPackage` は `ChartFiles` を primary API として維持する。旧 `BMSFiles` alias は production 利用がないことを確認したうえで削除済みであり、テストコードにも旧 alias そのものを残すためのテストは置かない。
 
 ### model APIs の残存 BMS 名
 
@@ -413,7 +413,7 @@ bmson は `PendingChartEntry` として混ざるため、`BMSPackage.ChartFiles`
 - `BMSFilesView`
 
 `RemoveChartFiles(...)` は BMS / bmson 共通の library chart 削除入口であり、旧 `RemoveBMSFiles(...)` wrapper は残さない。未使用だった single chart move wrapper も削除済みである。
-pending package install 入口も `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` へ移行済みで、旧 `InstallBMSFilesAuto` / `InstallBMSPackagesForce` / `InstallBMSPackagesToEstimatedDir` wrapper は残さない。
+pending package install 入口も `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` へ移行済みで、旧 `InstallBMSFilesAuto` / `InstallChartPackagesForce` / `InstallChartPackagesToEstimatedDir` wrapper は残さない。
 duplicate view の cache / search 入口は `DuplicateChartGroups` / `SearchDuplicateChartGroups()` に移行済みで、旧 `BMSFilesDuplicated` / `SearchBMSFilesDuplicated()` は残さない。
 
 ### BMS-only views and workflows
@@ -463,7 +463,7 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 - representative chart
 - chart resource aggregate
 
-`BMSPackage.ChartFiles` の heavy lazy discovery 挙動は重要である。rename や API 置換時も、参照時に discovery が走る既存意味を不用意に変えない。
+`ChartPackage.ChartFiles` の heavy lazy discovery 挙動は重要である。rename や API 置換時も、参照時に discovery が走る既存意味を不用意に変えない。
 
 ### compatibility API の扱い
 
@@ -482,6 +482,6 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 2. UI / operation の入口は chart target に寄せる。
 3. BMS-only 処理は capability で明示する。
 4. `BMSFile` 型を見ただけで BMS 専用と判断しない。`PendingChartEntry` の kind または `OwnedChartRef.Kind` を確認する。
-5. `BMSPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。旧 `BMSFiles` alias は削除済みであり、package 内 chart list の入口は増やさない。
+5. `ChartPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。旧 `BMSFiles` alias は削除済みであり、package 内 chart list の入口は増やさない。
 6. public binding / settings 名の BMS は互換契約として残り得る。内部 helper から段階的に chart 名へ寄せる。
 7. `ChartFile` / `ChartPackage` を導入しても、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。

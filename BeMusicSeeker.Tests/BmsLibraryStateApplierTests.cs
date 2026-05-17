@@ -20,12 +20,12 @@ public sealed class BmsLibraryStateApplierTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSPackage removedPackage = new BMSPackage
+            ChartPackage removedPackage = new ChartPackage
             {
                 path = "C:\\Pending\\Removed",
                 delete_parent = false
             };
-            BMSPackage remainingPackage = new BMSPackage
+            ChartPackage remainingPackage = new ChartPackage
             {
                 path = "C:\\Pending\\Remaining",
                 delete_parent = false
@@ -38,15 +38,15 @@ public sealed class BmsLibraryStateApplierTests
 
             List<BMSFile> libraryFiles = new List<BMSFile>();
             List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
-            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(new[] { removedPackage, remainingPackage });
-            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(new[] { removedPackage, remainingPackage });
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
             TrackingCallbacks callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
             applier.ApplyPendingPackageMutationDelta(new PendingPackageMutationDelta
             {
                 HasChanges = true,
-                RemainingPackages = new List<BMSPackage> { remainingPackage },
+                RemainingPackages = new List<ChartPackage> { remainingPackage },
                 InstallPathsToDelete = new List<string> { removedPackage.path }
             });
 
@@ -55,7 +55,7 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreEqual(1, callbacks.PendingPackagesSetCount);
             using LR2SongDBExtended verifySongDb = new LR2SongDBExtended(songDbPath);
             verifySongDb.CreateTable<LR2SongDBExtended.install>();
-            Assert.AreEqual(0, verifySongDb.Table<BMSPackage>().Count());
+            Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
 
@@ -90,7 +90,7 @@ public sealed class BmsLibraryStateApplierTests
                     path = Path.Combine(tempRootPath, "pending_chart.bms"),
                     instl_dst = oldDirectoryPath
                 };
-                BMSPackage installedPackage = new BMSPackage(new BMSFile[] { movedFile })
+                ChartPackage installedPackage = new ChartPackage(new BMSFile[] { movedFile })
                 {
                     path = oldDirectoryPath,
                     delete_parent = false
@@ -130,8 +130,8 @@ public sealed class BmsLibraryStateApplierTests
                         folder = oldDirectoryPath
                     }
                 };
-                DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
-                DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { installedPackage });
+                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
+                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { installedPackage });
                 TrackingCallbacks callbacks = new TrackingCallbacks();
                 BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 LibraryMutationDelta delta = new LibraryMutationDelta
@@ -216,12 +216,12 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            BMSPackage removedPackage = new BMSPackage(new BMSFile[] { removedFile })
+            ChartPackage removedPackage = new ChartPackage(new BMSFile[] { removedFile })
             {
                 path = "C:\\Installed\\RemovePkg",
                 delete_parent = false
             };
-            BMSPackage keptPackage = new BMSPackage(new BMSFile[] { keptFile })
+            ChartPackage keptPackage = new ChartPackage(new BMSFile[] { keptFile })
             {
                 path = "C:\\Installed\\KeepPkg",
                 delete_parent = false
@@ -238,8 +238,8 @@ public sealed class BmsLibraryStateApplierTests
 
             List<BMSFile> libraryFiles = new List<BMSFile> { removedFile, keptFile };
             List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
-            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
-            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
             TrackingCallbacks callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
@@ -280,7 +280,7 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            BMSPackage removedPackage = new BMSPackage(new BMSFile[] { canonicalFile })
+            ChartPackage removedPackage = new ChartPackage(new BMSFile[] { canonicalFile })
             {
                 path = "C:\\Installed\\RemovePkg",
                 delete_parent = false
@@ -296,8 +296,8 @@ public sealed class BmsLibraryStateApplierTests
 
             List<BMSFile> libraryFiles = new List<BMSFile> { canonicalFile, keptFile };
             List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
-            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
-            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { removedPackage });
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { removedPackage });
             TrackingCallbacks callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
@@ -338,8 +338,8 @@ public sealed class BmsLibraryStateApplierTests
 
             List<BMSFile> libraryFiles = new List<BMSFile>();
             List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song> { removedSong, keptSong };
-            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
-            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
             TrackingCallbacks callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
@@ -377,12 +377,12 @@ public sealed class BmsLibraryStateApplierTests
             };
             PendingChartEntry removedEntry = PendingChartEntry.CreateFromBmsonSong(removedSong);
             PendingChartEntry keptEntry = PendingChartEntry.CreateFromBmsonSong(keptSong);
-            BMSPackage removedPackage = new BMSPackage(new BMSFile[] { removedEntry })
+            ChartPackage removedPackage = new ChartPackage(new BMSFile[] { removedEntry })
             {
                 path = "C:\\Installed\\RemovePkg",
                 delete_parent = false
             };
-            BMSPackage keptPackage = new BMSPackage(new BMSFile[] { keptEntry })
+            ChartPackage keptPackage = new ChartPackage(new BMSFile[] { keptEntry })
             {
                 path = "C:\\Installed\\KeepPkg",
                 delete_parent = false
@@ -396,8 +396,8 @@ public sealed class BmsLibraryStateApplierTests
 
             List<BMSFile> libraryFiles = new List<BMSFile>();
             List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song> { removedSong, keptSong };
-            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
-            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
             TrackingCallbacks callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
@@ -431,8 +431,8 @@ public sealed class BmsLibraryStateApplierTests
 
             List<BMSFile> libraryFiles = new List<BMSFile>();
             List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song> { removedSong };
-            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
-            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(Array.Empty<ChartPackage>());
             TrackingCallbacks callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
             LibraryMutationDelta delta = new LibraryMutationDelta
@@ -463,10 +463,10 @@ public sealed class BmsLibraryStateApplierTests
         Action<List<BMSFile>> setBmsFiles,
         Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs,
         Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs,
-        Func<DispatcherCollection<BMSPackage>> getPendingPackages,
-        Action<DispatcherCollection<BMSPackage>> setPendingPackages,
-        Func<DispatcherCollection<BMSPackage>> getInstalledPackages,
-        Action<DispatcherCollection<BMSPackage>> setInstalledPackages)
+        Func<DispatcherCollection<ChartPackage>> getPendingPackages,
+        Action<DispatcherCollection<ChartPackage>> setPendingPackages,
+        Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
+        Action<DispatcherCollection<ChartPackage>> setInstalledPackages)
     {
         return new BmsLibraryStateApplier(
             new BmsLibraryDbGateway(songDbPath),
@@ -483,13 +483,13 @@ public sealed class BmsLibraryStateApplierTests
                 setBmsonSongs(songs);
             },
             getPendingPackages,
-            delegate (DispatcherCollection<BMSPackage> packages)
+            delegate (DispatcherCollection<ChartPackage> packages)
             {
                 callbacks.PendingPackagesSetCount++;
                 setPendingPackages(packages);
             },
             getInstalledPackages,
-            delegate (DispatcherCollection<BMSPackage> packages)
+            delegate (DispatcherCollection<ChartPackage> packages)
             {
                 callbacks.InstalledPackagesSetCount++;
                 setInstalledPackages(packages);
@@ -501,9 +501,9 @@ public sealed class BmsLibraryStateApplierTests
             () => callbacks.InstalledPackagesChangedCount++);
     }
 
-    private static DispatcherCollection<BMSPackage> CreatePackageCollection(IEnumerable<BMSPackage> packages)
+    private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
-        return new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>((packages ?? Enumerable.Empty<BMSPackage>()).ToList()), Dispatcher.CurrentDispatcher);
+        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>((packages ?? Enumerable.Empty<ChartPackage>()).ToList()), Dispatcher.CurrentDispatcher);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

@@ -2083,7 +2083,7 @@
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
-              <TreeViewItem Name="newlyInstalledTreeViewItem" ContextMenu="{StaticResource treeViewInstalledContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstall}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.New, Mode=OneWay}" ItemsSource="{Binding BMSPackagesInstalled}" Selected="newlyInstalledFolderSelect">
+              <TreeViewItem Name="newlyInstalledTreeViewItem" ContextMenu="{StaticResource treeViewInstalledContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstall}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.New, Mode=OneWay}" ItemsSource="{Binding ChartPackagesInstalled}" Selected="newlyInstalledFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
@@ -2094,7 +2094,7 @@
                   </Style>
                 </ItemsControl.ItemContainerStyle>
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding BMSPackagesPending}" Selected="pendingInstallFolderSelect">
+              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding ChartPackagesPending}" Selected="pendingInstallFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />

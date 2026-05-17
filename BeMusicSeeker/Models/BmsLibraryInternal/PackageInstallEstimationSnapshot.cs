@@ -87,7 +87,7 @@ internal sealed class PackageInstallEstimationSnapshot
 
 internal static class PackageInstallEstimationSnapshotBuilder
 {
-    internal static PackageInstallEstimationSnapshot Build(BMSPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
+    internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
     {
         List<BMSFile> targetFileList = (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
         return new PackageInstallEstimationSnapshot
