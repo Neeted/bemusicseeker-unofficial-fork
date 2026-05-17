@@ -3710,7 +3710,7 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// native bridge を優先し、Everything API が使えない場合は managed scan で chart files を走査します。
     /// </summary>
-    private ChartScanExecutionResult ExecuteBmsScanWithManagedFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
+    private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
     {
         IChartFileScanner scanner = new EverythingFileScanner();
         reportScanner?.Invoke("Native");
@@ -3803,7 +3803,7 @@ public class BMSLibrary : NotificationObject
                 bmsScanPrefetchTask = Task.Run(delegate
                 {
                     var stopwatchPrefetch = Stopwatch.StartNew();
-                    ChartScanExecutionResult scanResult = ExecuteBmsScanWithManagedFallback(
+                    ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
                         prefetchDirectories,
                         scannerLabel => ReportLibraryInitializationProgress(
                             LibraryInitializationProgressStage.FileEnumeration,
@@ -4287,7 +4287,7 @@ public class BMSLibrary : NotificationObject
             BMSFiles,
             bmsScanPrefetchInfo?.ScanResult,
             bmsScanPrefetchInfo?.ElapsedMs ?? 0L,
-            () => ExecuteBmsScanWithManagedFallback(
+            () => ExecuteChartScanWithManagedFallback(
                 bmsDirectories,
                 scannerLabel =>
                 {
