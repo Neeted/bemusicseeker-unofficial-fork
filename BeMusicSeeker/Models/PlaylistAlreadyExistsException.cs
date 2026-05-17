@@ -10,5 +10,17 @@ internal sealed class PlaylistAlreadyExistsException : InvalidOperationException
         PlaylistName = playlistName ?? string.Empty;
     }
 
+    public PlaylistAlreadyExistsException() : base()
+    {
+    }
+
+    public PlaylistAlreadyExistsException(string message) : base(message)
+    {
+    }
+
+    public PlaylistAlreadyExistsException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+
     internal string PlaylistName { get; }
 }

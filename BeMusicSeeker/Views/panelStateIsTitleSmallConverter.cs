@@ -7,13 +7,13 @@ namespace BeMusicSeeker.Views;
 
 internal class panelStateIsTitleSmallConverter : IValueConverter
 {
-	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		return value is MainWindowViewModel.PanelState && ((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.TITLE_SMALL);
-	}
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value is MainWindowViewModel.PanelState && ((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.TITLE_SMALL);
+    }
 
-	public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		throw new NotImplementedException();
-	}
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
 }

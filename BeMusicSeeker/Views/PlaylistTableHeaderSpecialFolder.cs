@@ -2,5 +2,5 @@ namespace BeMusicSeeker.Views;
 
 internal enum PlaylistTableHeaderSpecialFolder
 {
-	NOT_OWNED
+    NOT_OWNED
 }

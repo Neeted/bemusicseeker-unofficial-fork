@@ -16,7 +16,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     public void RecheckZeroNoteWarnings_RaisesBmsFilesZeroNoteWhenWarningsChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
             TestableBmsFile file = new TestableBmsFile
@@ -27,7 +27,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             file.SetNotes(1200);
             library.BMSFiles = new List<BMSFile> { file };
             List<string> changedProperties = new List<string>();
-            library.PropertyChanged += delegate(object _, System.ComponentModel.PropertyChangedEventArgs e)
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 changedProperties.Add(e.PropertyName);
             };
@@ -43,7 +43,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     public void RecheckZeroNoteWarnings_DoesNotRaiseBmsFilesZeroNoteWhenWarningsDoNotChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
@@ -57,7 +57,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             file.SetChartInfo(CreateChartInfo(file.hash, notes: 0));
             library.BMSFiles = new List<BMSFile> { file };
             List<string> changedProperties = new List<string>();
-            library.PropertyChanged += delegate(object _, System.ComponentModel.PropertyChangedEventArgs e)
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 changedProperties.Add(e.PropertyName);
             };
@@ -75,7 +75,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     public void RecheckZeroNoteWarnings_SetsStructuredWarningWhenMismatchIsDetected()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");

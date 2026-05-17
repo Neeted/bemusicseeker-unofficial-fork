@@ -12,51 +12,51 @@ namespace BeMusicSeeker.Views;
 
 internal class ChartRowsViewToSummaryTextConverter : IValueConverter
 {
-	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		if (value is IChartListViewMetadata metadata)
-		{
-			return FormatSummaryText(metadata.RowCount, metadata.DistinctFolderCount);
-		}
-		if (value is IEnumerable rows)
-		{
-			List<object> rowList = rows.Cast<object>().Where((object row) => row != null).ToList();
-			int count = rowList.Count;
-			int num = rowList.Select(GetFolderName).Where((string folder) => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
-			return FormatSummaryText(count, num);
-		}
-		return string.Empty;
-	}
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is IChartListViewMetadata metadata)
+        {
+            return FormatSummaryText(metadata.RowCount, metadata.DistinctFolderCount);
+        }
+        if (value is IEnumerable rows)
+        {
+            List<object> rowList = rows.Cast<object>().Where((object row) => row != null).ToList();
+            int count = rowList.Count;
+            int num = rowList.Select(GetFolderName).Where((string folder) => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            return FormatSummaryText(count, num);
+        }
+        return string.Empty;
+    }
 
-	internal static string FormatSummaryText(int rowCount, int distinctFolderCount)
-	{
-		string text = "[" + rowCount + Resources.Num_songs;
-		if (distinctFolderCount > 1)
-		{
-			return text + " / " + distinctFolderCount + Resources.Num_folders + "]";
-		}
-		return text + "]";
-	}
+    internal static string FormatSummaryText(int rowCount, int distinctFolderCount)
+    {
+        string text = "[" + rowCount + Resources.Num_songs;
+        if (distinctFolderCount > 1)
+        {
+            return text + " / " + distinctFolderCount + Resources.Num_folders + "]";
+        }
+        return text + "]";
+    }
 
-	private static string GetFolderName(object row)
-	{
-		if (row is BMSFile bMSFile)
-		{
-			return bMSFile.Folder;
-		}
-		if (row is PlaylistDetailRow playlistDetailRow)
-		{
-			return playlistDetailRow.Folder;
-		}
-		if (row is LibraryChartRow libraryChartRow)
-		{
-			return libraryChartRow.Folder;
-		}
-		return string.Empty;
-	}
+    private static string GetFolderName(object row)
+    {
+        if (row is BMSFile bMSFile)
+        {
+            return bMSFile.Folder;
+        }
+        if (row is PlaylistDetailRow playlistDetailRow)
+        {
+            return playlistDetailRow.Folder;
+        }
+        if (row is LibraryChartRow libraryChartRow)
+        {
+            return libraryChartRow.Folder;
+        }
+        return string.Empty;
+    }
 
-	public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		throw new NotImplementedException();
-	}
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
 }

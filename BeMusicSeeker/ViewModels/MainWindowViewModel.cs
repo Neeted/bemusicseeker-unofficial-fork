@@ -6365,7 +6365,7 @@ public class MainWindowViewModel : ViewModel
 
     /// <summary>
     /// 現在の更新要求がプレイリスト詳細ビューの再描画経路を使うべきかを判定します。
-     /// </summary>
+    /// </summary>
     /// <param name="mode">今回の更新モード。</param>
     /// <param name="currentTreeMode">現在選択中の tree モード。</param>
     /// <returns>プレイリスト詳細ビューの再描画経路を使う場合は <see langword="true"/>。</returns>
@@ -6760,7 +6760,7 @@ public class MainWindowViewModel : ViewModel
             if (playlistLibraryIndexVersion != targetVersion)
             {
                 LogPlaylistWorker("playlist_library_index_prewarm stale_skipped version=" + targetVersion + " currentVersion=" + playlistLibraryIndexVersion + " reason=" + reason + " source=" + source);
-                return null;
+                return Task.FromResult<PlaylistLibraryIndexSnapshot>(null);
             }
             if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted && playlistLibraryIndexPrewarmVersion == targetVersion)
             {
@@ -6814,8 +6814,6 @@ public class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在のライブラリから playlist 用 hash index snapshot を構築します。
     /// </summary>
-    /// <param name="cancellationToken">キャンセルトークン。</param>
-    /// <param name="targetVersion">期待する版数。</param>
     /// <returns>構築された snapshot。</returns>
     internal static LR2SongDBExtended.bmson_song ChoosePreferredBmsonRepresentative(LR2SongDBExtended.bmson_song existing, LR2SongDBExtended.bmson_song candidate)
     {
@@ -7508,7 +7506,7 @@ public class MainWindowViewModel : ViewModel
 
     /// <summary>
     /// 現在処理中の source build 要求が最新かどうかを判定します。
-     /// </summary>
+    /// </summary>
     /// <param name="requestVersion">判定対象の要求バージョン。</param>
     /// <returns>最新要求であれば <see langword="true"/>。</returns>
     private bool IsLatestPlaylistSourceBuildRequest(int requestVersion)
@@ -9041,14 +9039,14 @@ public class MainWindowViewModel : ViewModel
                     requestVersion = deferredPlaylistRefRequestedVersion;
                 }
                 DateTime startedAt = DateTime.UtcNow;
-                    try
+                try
+                {
+                    tables.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred").GetAwaiter().GetResult();
+                    if (IsStartupProgressOperationTokenCurrent(operationToken))
                     {
-                        tables.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred").GetAwaiter().GetResult();
-                        if (IsStartupProgressOperationTokenCurrent(operationToken))
-                        {
-                            TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
-                        }
-                        List<BMSTable> list = new List<BMSTable>();
+                        TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
+                    }
+                    List<BMSTable> list = new List<BMSTable>();
                     tables.AcquireReaderLockBMSTables();
                     try
                     {
@@ -9112,7 +9110,7 @@ public class MainWindowViewModel : ViewModel
 
     private Action<BMSPlaylist.PlaylistTableUpdateContext> CreatePlaylistReferenceReplaceUpdateCallback()
     {
-        return delegate(BMSPlaylist.PlaylistTableUpdateContext updateContext)
+        return delegate (BMSPlaylist.PlaylistTableUpdateContext updateContext)
         {
             if (updateContext == null || !updateContext.Updated || files == null)
             {
@@ -15008,10 +15006,10 @@ public class MainWindowViewModel : ViewModel
             else
             {
                 PlayEndBMSFile();
-        if (SelectedIndexBMSFilesView >= 0 && SelectedIndexBMSFilesView < BMSFilesView.Count)
-        {
-            PlayStartBmsFile(SelectedIndexBMSFilesView);
-        }
+                if (SelectedIndexBMSFilesView >= 0 && SelectedIndexBMSFilesView < BMSFilesView.Count)
+                {
+                    PlayStartBmsFile(SelectedIndexBMSFilesView);
+                }
             }
         }
     }
@@ -16150,8 +16148,8 @@ public class MainWindowViewModel : ViewModel
                             RetryHelper.RetryIfError(delegate
                             {
                                 ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files)
-                                                                        where f.path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                                                        select f);
+                                                                         where f.path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                                                         select f);
                             }, delegate (Exception ex)
                             {
                                 ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16179,8 +16177,8 @@ public class MainWindowViewModel : ViewModel
                         RetryHelper.RetryIfError(delegate
                         {
                             ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany((DuplicateGroup g) => g.Files)
-                                                                    where f.path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                                                    select f);
+                                                                     where f.path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                                                     select f);
                         }, delegate (Exception ex)
                         {
                             ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16301,8 +16299,8 @@ public class MainWindowViewModel : ViewModel
                 ChartRowsKeywordFilterView = new List<LibraryChartRow>();
                 GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(KeywordFilter);
                 ChartRowsKeywordFilterView = from r in ChartRowsFolderView.AsParallel()
-                                            where query.MatchesLibraryChartRow(r)
-                                            select r;
+                                             where query.MatchesLibraryChartRow(r)
+                                             select r;
             }
             else
             {
@@ -20366,7 +20364,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        List<BMSTable> list = tablesToResync.Where((BMSTable t) => t != null).Distinct().Where(delegate(BMSTable item)
+        List<BMSTable> list = tablesToResync.Where((BMSTable t) => t != null).Distinct().Where(delegate (BMSTable item)
         {
             Uri uri2 = item.Page_url ?? item.Header_url;
             return uri2 != null && uri2.IsAbsoluteUri;
@@ -20384,7 +20382,7 @@ public class MainWindowViewModel : ViewModel
             List<BMSPlaylist.PlaylistReloadTargetResult> results = await tables.ReloadPlaylistTargetsAsync(
                 list,
                 new List<Action<BMSPlaylist.PlaylistTableUpdateContext>> { CreatePlaylistReferenceReplaceUpdateCallback() },
-                delegate(PlaylistSyncAttemptResult result)
+                delegate (PlaylistSyncAttemptResult result)
                 {
                     if (result == null)
                     {

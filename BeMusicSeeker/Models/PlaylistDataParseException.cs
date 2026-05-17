@@ -8,4 +8,20 @@ internal sealed class PlaylistDataParseException : ArgumentException
         : base(message, "_data_json", innerException)
     {
     }
+
+    public PlaylistDataParseException() : base()
+    {
+    }
+
+    public PlaylistDataParseException(string message) : base(message)
+    {
+    }
+
+    public PlaylistDataParseException(string message, string paramName, Exception innerException) : base(message, paramName, innerException)
+    {
+    }
+
+    public PlaylistDataParseException(string message, string paramName) : base(message, paramName)
+    {
+    }
 }

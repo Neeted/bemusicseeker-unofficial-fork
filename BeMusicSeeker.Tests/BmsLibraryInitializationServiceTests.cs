@@ -687,7 +687,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                logInstallPerformance: delegate(string message)
+                logInstallPerformance: delegate (string message)
                 {
                     lock (eventLock)
                     {
@@ -697,7 +697,7 @@ public sealed class BmsLibraryInitializationServiceTests
                         }
                     }
                 },
-                reportParseProgress: delegate(int total, int processed, string path)
+                reportParseProgress: delegate (int total, int processed, string path)
                 {
                     lock (eventLock)
                     {
@@ -1988,7 +1988,7 @@ public sealed class BmsLibraryInitializationServiceTests
     public void ApplyFileScanDiff_RemovesOrphanChartDigestRowsForDeletedSongs()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLr2SongDb(delegate(string lr2RootPath, string songDbPath)
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string deletedChartPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bms");
             Directory.CreateDirectory(Path.GetDirectoryName(deletedChartPath));
@@ -2038,7 +2038,7 @@ public sealed class BmsLibraryInitializationServiceTests
     public void ApplyFileScanDiff_KeepsSharedChartDigestRowsWhenAnotherSongStillUsesSameMd5()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLr2SongDb(delegate(string lr2RootPath, string songDbPath)
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepChartPath = Path.Combine(lr2RootPath, "Keep", "keep.bms");
             string deletedChartPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bms");

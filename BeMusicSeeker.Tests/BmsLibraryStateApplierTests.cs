@@ -317,7 +317,7 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void UnregisterBmsonSongs_RemovesSongsFromCollectionAndDatabase()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             LR2SongDBExtended.bmson_song removedSong = new LR2SongDBExtended.bmson_song
             {
@@ -361,7 +361,7 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void UnregisterBmsonSongs_RemovesRowsFromInstalledPackages()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             LR2SongDBExtended.bmson_song removedSong = new LR2SongDBExtended.bmson_song
             {
@@ -416,7 +416,7 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void ApplyLibraryMutationDelta_UnregistersBmsonSongs()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             LR2SongDBExtended.bmson_song removedSong = new LR2SongDBExtended.bmson_song
             {

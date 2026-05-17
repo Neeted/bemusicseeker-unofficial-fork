@@ -3056,16 +3056,16 @@ public class BMSLibrary : NotificationObject
                 }
                 return currentMissingFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle));
             case PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult:
-            {
-                LogInstallEstimationEvaluation(evaluationResult.EstimationData);
-                if (request.AttemptInstalledResolve && evaluationResult.EstimationData?.Result?.HasViableDestination != true)
                 {
-                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentMissingFiles);
-                    return false;
+                    LogInstallEstimationEvaluation(evaluationResult.EstimationData);
+                    if (request.AttemptInstalledResolve && evaluationResult.EstimationData?.Result?.HasViableDestination != true)
+                    {
+                        ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentMissingFiles);
+                        return false;
+                    }
+                    ApplyInstallEstimationResultToFiles(currentMissingFiles, evaluationResult.EstimationData?.Result);
+                    return currentMissingFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle));
                 }
-                ApplyInstallEstimationResultToFiles(currentMissingFiles, evaluationResult.EstimationData?.Result);
-                return currentMissingFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle));
-            }
             case PendingInstallEstimateEvaluationOutcomeKind.NoOp:
                 if (request.AttemptInstalledResolve)
                 {
@@ -4336,7 +4336,7 @@ public class BMSLibrary : NotificationObject
                 }
             },
             LogInstallPerformanceWarn,
-            delegate(IReadOnlyList<LR2SongDBExtended.chart_info> rows)
+            delegate (IReadOnlyList<LR2SongDBExtended.chart_info> rows)
             {
                 if (rows == null || rows.Count == 0)
                 {
@@ -6094,7 +6094,6 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// 最新の ranking refresh 要求を実行し、score snapshot を更新します。
     /// </summary>
-    /// <param name="requestVersion">処理対象の要求版数。</param>
     private sealed class RankingRefreshRunResult
     {
         public long IrScoreMs { get; set; }
@@ -10028,7 +10027,7 @@ public class BMSLibrary : NotificationObject
         {
             return new List<BMSFile>();
         }
-        return files.Where(delegate(BMSFile file)
+        return files.Where(delegate (BMSFile file)
         {
             if (file == null)
             {
@@ -10101,7 +10100,7 @@ public class BMSLibrary : NotificationObject
     {
         List<BMSTable> list = ((tables != null) ? tables.Where((BMSTable table) => table != null).Distinct().ToList() : new List<BMSTable>());
         HashSet<BMSTable> hashSet = new HashSet<BMSTable>(list);
-        Action<IEnumerable<BMSFile>> action = delegate(IEnumerable<BMSFile> files)
+        Action<IEnumerable<BMSFile>> action = delegate (IEnumerable<BMSFile> files)
         {
             foreach (BMSFile file in files.Where((BMSFile file) => file != null))
             {
@@ -10144,7 +10143,7 @@ public class BMSLibrary : NotificationObject
         if (entries == null)
         {
             RemovePlaylistReferenceIndexTable(table);
-            Action<IEnumerable<BMSFile>> action = delegate(IEnumerable<BMSFile> files)
+            Action<IEnumerable<BMSFile>> action = delegate (IEnumerable<BMSFile> files)
             {
                 foreach (BMSFile file in files.Where((BMSFile file) => file != null))
                 {
@@ -10463,7 +10462,7 @@ public class BMSLibrary : NotificationObject
                     delegate (BMSFile file)
                     {
                         return dialogService.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, file.path, string.Join(Environment.NewLine, from x in BMSFiles.Where((BMSFile f) => f.hash == file.hash).Except(new BMSFile[1] { file })
-                                                                                                                                                select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
+                                                                                                                                                         select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
                     });
                 ApplyLibraryMutationDelta(result.MutationDelta);
                 if (result.FilesToRemove.Count > 0)

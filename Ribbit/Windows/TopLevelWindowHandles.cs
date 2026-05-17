@@ -9,17 +9,17 @@ namespace Ribbit.Windows;
 [SecurityPermission(SecurityAction.Demand, UnmanagedCode = true)]
 public sealed class TopLevelWindowHandles : WindowHandles
 {
-	[SuppressUnmanagedCodeSecurity]
-	private static class NativeMethods
-	{
-		[DllImport("user32.dll", CallingConvention = CallingConvention.StdCall, SetLastError = true)]
-		[return: MarshalAs(UnmanagedType.Bool)]
-		public static extern bool EnumWindows([MarshalAs(UnmanagedType.FunctionPtr)] EnumWindowsProcDelegate enumProc, IntPtr lParam);
-	}
+    [SuppressUnmanagedCodeSecurity]
+    private static class NativeMethods
+    {
+        [DllImport("user32.dll", CallingConvention = CallingConvention.StdCall, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumWindows([MarshalAs(UnmanagedType.FunctionPtr)] EnumWindowsProcDelegate enumProc, IntPtr lParam);
+    }
 
-	public TopLevelWindowHandles()
-	{
-		handles = new List<IntPtr>();
-		NativeMethods.EnumWindows(base.EnumWindowProc, (IntPtr)0);
-	}
+    public TopLevelWindowHandles()
+    {
+        handles = new List<IntPtr>();
+        NativeMethods.EnumWindows(base.EnumWindowProc, (IntPtr)0);
+    }
 }

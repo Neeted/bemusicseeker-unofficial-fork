@@ -1242,6 +1242,18 @@ internal static class ChartInfoParser
             Phase = phase ?? string.Empty;
         }
 
+        public ChartInfoParseTimeoutException() : base()
+        {
+        }
+
+        public ChartInfoParseTimeoutException(string message) : base(message)
+        {
+        }
+
+        public ChartInfoParseTimeoutException(string message, Exception innerException) : base(message, innerException)
+        {
+        }
+
         /// <summary>
         /// 許可された解析時間です。
         /// </summary>
@@ -1349,6 +1361,10 @@ internal static class ChartInfoParser
 
         public BmsRecoverableParseException(string message, Exception innerException)
             : base(message, innerException)
+        {
+        }
+
+        public BmsRecoverableParseException() : base()
         {
         }
     }

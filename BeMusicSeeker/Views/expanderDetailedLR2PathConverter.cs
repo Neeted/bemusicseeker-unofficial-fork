@@ -6,15 +6,15 @@ namespace BeMusicSeeker.Views;
 
 internal class expanderDetailedLR2PathConverter : IMultiValueConverter
 {
-	public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
-	{
-		bool num = (bool)values[0];
-		bool flag = (bool)values[1];
-		return num && !flag;
-	}
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool num = (bool)values[0];
+        bool flag = (bool)values[1];
+        return num && !flag;
+    }
 
-	public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
-	{
-		throw new NotImplementedException();
-	}
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
 }

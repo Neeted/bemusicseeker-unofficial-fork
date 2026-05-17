@@ -14,7 +14,7 @@ public sealed class ChartInfoProductionCompareTests
     [TestMethod]
     public void Compare_ReportsMissingExtraFieldDiffsAndIgnoresRandomValueDiffs()
     {
-        WithProductionCompareFixture(delegate(ProductionCompareFixture fixture)
+        WithProductionCompareFixture(delegate (ProductionCompareFixture fixture)
         {
             ChartInfoCompareResult result = ChartInfoCompareRunner.Compare(new ChartInfoCompareOptions
             {
@@ -48,7 +48,7 @@ public sealed class ChartInfoProductionCompareTests
     [TestMethod]
     public void Compare_ExportsFixtureWhenNonRandomDiffCountIsWithinLimit()
     {
-        WithProductionCompareFixture(delegate(ProductionCompareFixture fixture)
+        WithProductionCompareFixture(delegate (ProductionCompareFixture fixture)
         {
             string exportPath = Path.Combine(fixture.RootPath, "export");
 
@@ -78,7 +78,7 @@ public sealed class ChartInfoProductionCompareTests
     [TestMethod]
     public void Compare_SkipsFixtureExportWhenDiffCountExceedsLimit()
     {
-        WithProductionCompareFixture(delegate(ProductionCompareFixture fixture)
+        WithProductionCompareFixture(delegate (ProductionCompareFixture fixture)
         {
             string exportPath = Path.Combine(fixture.RootPath, "export");
 

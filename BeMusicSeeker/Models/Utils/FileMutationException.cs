@@ -50,6 +50,22 @@ internal sealed class FileMutationException : IOException
         RootCause = rootCause;
     }
 
+    public FileMutationException() : base()
+    {
+    }
+
+    public FileMutationException(string message) : base(message)
+    {
+    }
+
+    public FileMutationException(string message, int hresult) : base(message, hresult)
+    {
+    }
+
+    public FileMutationException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+
     /// <summary>
     /// 失敗した操作種別です。
     /// </summary>

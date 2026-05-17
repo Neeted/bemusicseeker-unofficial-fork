@@ -234,7 +234,7 @@ public sealed class CustomTableView : Grid
             ClipToBounds = true
         };
         rowPropertyChangedRedrawScheduler = new CustomTableRedrawScheduler(Dispatcher, FlushPendingRowInvalidations);
-        rowChangeTracker = new CustomTableRowChangeTracker(delegate(INotifyPropertyChanged row, PropertyChangedEventArgs e)
+        rowChangeTracker = new CustomTableRowChangeTracker(delegate (INotifyPropertyChanged row, PropertyChangedEventArgs e)
         {
             EnqueueRowInvalidation(row);
         });

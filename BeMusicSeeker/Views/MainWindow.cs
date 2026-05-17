@@ -324,7 +324,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        _startupInitialSelectionReadyHandler = delegate(object _, PropertyChangedEventArgs args)
+        _startupInitialSelectionReadyHandler = delegate (object _, PropertyChangedEventArgs args)
         {
             if (args == null || args.PropertyName != "IsStartupUiInteractionBlocked" || viewModel.IsStartupUiInteractionBlocked)
             {
@@ -1149,7 +1149,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             ? ChartOperationSourceScope.PendingPackage
             : GetCurrentChartOperationSourceScope();
         return GetSelectedGridRowsSnapshot()
-            .Select(delegate(object row)
+            .Select(delegate (object row)
             {
                 return GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) ? target : null;
             })
@@ -2479,8 +2479,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// プレイリストサマリー行のダブルクリック時に、対応するプレイリストを左ツリーで選択します。
     /// 既存のツリー選択イベントを再利用し、プレイリスト絞り込み表示への遷移も従来の選択経路に委ねます。
     /// </summary>
-    /// <param name="sender">操作元。</param>
-    /// <param name="e">マウス入力情報。</param>
     /// <summary>
     /// プレイリストサマリー行に対応するプレイリストをプレイリストツリー上で選択します。
     /// 再読み込み後に <see cref="PlaylistSummaryRow.TableRef"/> が古い参照になっていても、既存の再選択補助ロジックで解決を試みます。
@@ -3641,7 +3639,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
             }
             else
-        {
+            {
                 menuItem = item as MenuItem;
             }
         }
@@ -6017,7 +6015,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (!token.IsCancellationRequested)
             {
                 List<Func<MenuItem>> subMenuItemCreateFuncs = new List<Func<MenuItem>>();
-                    songInfoCacheToUrlLists(songInfoCache, GridRowResolver.GetUrl(row), GridRowResolver.GetUrlDiff(row), out var urls, out var urls_diff);
+                songInfoCacheToUrlLists(songInfoCache, GridRowResolver.GetUrl(row), GridRowResolver.GetUrlDiff(row), out var urls, out var urls_diff);
                 foreach (Uri url in urls)
                 {
                     Func<MenuItem> item = delegate

@@ -84,6 +84,18 @@ internal sealed class BmsLibraryPackageInstallService
             RestoredPath = restoredPath;
         }
 
+        public RequiredArchiveMetadataRestoreException() : base()
+        {
+        }
+
+        public RequiredArchiveMetadataRestoreException(string message) : base(message)
+        {
+        }
+
+        public RequiredArchiveMetadataRestoreException(string message, Exception innerException) : base(message, innerException)
+        {
+        }
+
         public string RestoredPath { get; }
     }
 

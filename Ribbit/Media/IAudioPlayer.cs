@@ -4,25 +4,25 @@ namespace Ribbit.Media;
 
 public interface IAudioPlayer : IDisposable
 {
-	bool CanSeek { get; }
+    bool CanSeek { get; }
 
-	TimeSpan CurrentTime { get; set; }
+    TimeSpan CurrentTime { get; set; }
 
-	TimeSpan Duration { get; }
+    TimeSpan Duration { get; }
 
-	PlayState PlayState { get; }
+    PlayState PlayState { get; }
 
-	float Volume { get; set; }
+    float Volume { get; set; }
 
-	string FileName { get; }
+    string FileName { get; }
 
-	bool IsMuted { get; set; }
+    bool IsMuted { get; set; }
 
-	float PlaybackRate { get; set; }
+    float PlaybackRate { get; set; }
 
-	void Pause();
+    void Pause();
 
-	void Play(PlayWith with = PlayWith.RESTART);
+    void Play(PlayWith with = PlayWith.RESTART);
 
-	void Stop();
+    void Stop();
 }

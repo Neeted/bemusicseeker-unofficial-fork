@@ -4,21 +4,21 @@ namespace Ribbit.Media;
 
 public interface IImageLoader<TEXTURE> : IImageLoader, IDisposable
 {
-	TEXTURE Image { get; }
+    TEXTURE Image { get; }
 }
 public interface IImageLoader : IDisposable
 {
-	string FileName { get; }
+    string FileName { get; }
 
-	bool CanSeek { get; }
+    bool CanSeek { get; }
 
-	TimeSpan CurrentTime { get; set; }
+    TimeSpan CurrentTime { get; set; }
 
-	TimeSpan Duration { get; }
+    TimeSpan Duration { get; }
 
-	void Attach();
+    void Attach();
 
-	void Detach();
+    void Detach();
 
-	void Suspend();
+    void Suspend();
 }

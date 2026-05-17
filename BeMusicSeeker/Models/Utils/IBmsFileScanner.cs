@@ -4,5 +4,5 @@ namespace BeMusicSeeker.Models.Utils;
 
 public interface IBmsFileScanner
 {
-	BmsScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> bmsExtensions, bool verboseLog = false);
+    BmsScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> bmsExtensions, bool verboseLog = false);
 }

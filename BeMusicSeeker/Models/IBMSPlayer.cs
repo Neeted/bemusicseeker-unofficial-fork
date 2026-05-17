@@ -5,69 +5,69 @@ namespace BeMusicSeeker.Models;
 
 internal interface IBMSPlayer : INotifyPropertyChanged
 {
-	string ExePath { get; set; }
+    string ExePath { get; set; }
 
-	IntPtr ParentHandle { set; }
+    IntPtr ParentHandle { set; }
 
-	TimeSpan Duration { get; }
+    TimeSpan Duration { get; }
 
-	TimeSpan CurrentTime { get; set; }
+    TimeSpan CurrentTime { get; set; }
 
-	TimeSpan StopTime { get; }
+    TimeSpan StopTime { get; }
 
-	TimeSpan BmsDuration { get; }
+    TimeSpan BmsDuration { get; }
 
-	TimeSpan MusicDuration { get; }
+    TimeSpan MusicDuration { get; }
 
-	int CurrentVoices { get; }
+    int CurrentVoices { get; }
 
-	int MaxVoices { get; }
+    int MaxVoices { get; }
 
-	int NoteDensity { get; }
+    int NoteDensity { get; }
 
-	int NoteDensityMax { get; }
+    int NoteDensityMax { get; }
 
-	int Bpm { get; }
+    int Bpm { get; }
 
-	int MinBpm { get; }
+    int MinBpm { get; }
 
-	int MaxBpm { get; }
+    int MaxBpm { get; }
 
-	double Total { get; }
+    double Total { get; }
 
-	int Combo { get; }
+    int Combo { get; }
 
-	int Notes { get; }
+    int Notes { get; }
 
-	int Measure { get; }
+    int Measure { get; }
 
-	int LastMeasure { get; }
+    int LastMeasure { get; }
 
-	void CloseProcess();
+    void CloseProcess();
 
-	void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null);
+    void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null);
 
-	void RestartPlayingBMSfile();
+    void RestartPlayingBMSfile();
 
-	void PausePlayingBMSfileToggle();
+    void PausePlayingBMSfileToggle();
 
-	void FastForwardPlayingBMSfileStart();
+    void FastForwardPlayingBMSfileStart();
 
-	void FastForwardPlayingBMSfileEnd();
+    void FastForwardPlayingBMSfileEnd();
 
-	void FastBackwardPlayingBMSfileStart();
+    void FastBackwardPlayingBMSfileStart();
 
-	void FastBackwardPlayingBMSfileEnd();
+    void FastBackwardPlayingBMSfileEnd();
 
-	void ShowInfo();
+    void ShowInfo();
 
-	void ShowEffect();
+    void ShowEffect();
 
-	void ChangePlayside();
+    void ChangePlayside();
 
-	void IncreaseHighSpeed();
+    void IncreaseHighSpeed();
 
-	void DecreaseHighSpeed();
+    void DecreaseHighSpeed();
 
-	void VolumeChanged();
+    void VolumeChanged();
 }

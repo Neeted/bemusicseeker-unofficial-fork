@@ -177,7 +177,7 @@ public sealed class CustomTableRowChangeTrackerTests
     private static void RunOnSta(Action action)
     {
         Exception exception = null!;
-        Thread thread = new Thread(delegate()
+        Thread thread = new Thread(delegate ()
         {
             try
             {

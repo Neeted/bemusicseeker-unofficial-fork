@@ -2778,7 +2778,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 tableSnapshot = BMSTables.ToList();
             }
-            List<BMSTable> reloadTargets = tableSnapshot.Where(delegate(BMSTable table)
+            List<BMSTable> reloadTargets = tableSnapshot.Where(delegate (BMSTable table)
             {
                 Uri uri2 = table?.Page_url ?? table?.Header_url;
                 return reloadExtPlaylist && table != null && table.is_external_sync && uri2 != null && uri2.IsAbsoluteUri;
@@ -2821,7 +2821,7 @@ public partial class BMSPlaylist : NotificationObject
         List<BMSTable> targetSnapshot = (targets ?? Enumerable.Empty<BMSTable>())
             .Where((BMSTable table) => table != null)
             .Distinct()
-            .Where(delegate(BMSTable table)
+            .Where(delegate (BMSTable table)
             {
                 Uri uri = table.Page_url ?? table.Header_url;
                 return uri != null && uri.IsAbsoluteUri;
@@ -2839,7 +2839,7 @@ public partial class BMSPlaylist : NotificationObject
             CurrentUri = null
         });
         using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-        await Task.WhenAll(targetSnapshot.Select(async delegate(BMSTable table)
+        await Task.WhenAll(targetSnapshot.Select(async delegate (BMSTable table)
         {
             await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
             Uri uri = table.Page_url ?? table.Header_url;
@@ -3319,11 +3319,11 @@ public partial class BMSPlaylist : NotificationObject
             return LoadWalkureTable(pageUri, baseTable);
         }
         Uri originalPageUri = pageUri;
-            Uri headerUri = null;
-            Uri resolvedHeaderUri = null;
-            Uri resolvedDataUri = null;
-            BMSTable bMSTable = null;
-            string header_json = null;
+        Uri headerUri = null;
+        Uri resolvedHeaderUri = null;
+        Uri resolvedDataUri = null;
+        BMSTable bMSTable = null;
+        string header_json = null;
         try
         {
             string input = await playlistHttpClient.GetStringAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
@@ -4152,11 +4152,11 @@ public partial class BMSPlaylist : NotificationObject
         using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
         string separator = "\v" + Environment.NewLine;
         string playlistDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist>()
-                                                    select c.Replace(separator, Environment.NewLine));
+                                                     select c.Replace(separator, Environment.NewLine));
         string courseDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist_course>()
-                                                  select c.Replace(separator, Environment.NewLine));
+                                                   select c.Replace(separator, Environment.NewLine));
         string entryDump = string.Join(separator, from c in lR2SongDBExtended.Dump<LR2SongDBExtended.playlist_entry>()
-                                                 select c.Replace(separator, Environment.NewLine));
+                                                  select c.Replace(separator, Environment.NewLine));
         return string.Join(separator, new string[3] { playlistDump, courseDump, entryDump });
     }
 

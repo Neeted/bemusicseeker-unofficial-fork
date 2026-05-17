@@ -267,7 +267,7 @@ internal sealed class BmsLibraryDbGateway
         {
             return;
         }
-        ExecuteSongDbTransaction(delegate(LR2SongDBExtended songDb)
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
             foreach (LR2SongDBExtended.bmson_song entry in entries)

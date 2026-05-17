@@ -7,69 +7,69 @@ namespace BeMusicSeeker.Models;
 
 public class SimpleDirectoryStructure
 {
-	public string DirName { get; private set; }
+    public string DirName { get; private set; }
 
-	public HashSet<SimpleDirectoryStructure> DirList { get; private set; }
+    public HashSet<SimpleDirectoryStructure> DirList { get; private set; }
 
-	public HashSet<string> FileList { get; private set; }
+    public HashSet<string> FileList { get; private set; }
 
-	public SimpleDirectoryStructure(string dirName = null)
-	{
-		DirName = dirName;
-		DirList = new HashSet<SimpleDirectoryStructure>();
-		FileList = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-	}
+    public SimpleDirectoryStructure(string dirName = null)
+    {
+        DirName = dirName;
+        DirList = new HashSet<SimpleDirectoryStructure>();
+        FileList = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
 
-	public SimpleDirectoryStructure(List<string> paths, string dirName = null)
-		: this(dirName)
-	{
-		foreach (IGrouping<string, string> item in paths.GroupBy(delegate(string path)
-		{
-			string text = ((dirName == null) ? path : path.Remove(0, dirName.Length + 1));
-			int num = text.IndexOf(Path.DirectorySeparatorChar);
-			if (num == -1)
-			{
-				return dirName;
-			}
-			string text2 = text.Substring(0, num);
-			if (dirName != null)
-			{
-				text2 = dirName + Path.DirectorySeparatorChar + text2;
-			}
-			return text2;
-		}, StringComparer.OrdinalIgnoreCase))
-		{
-			if (item.Key.Equals(dirName, StringComparison.OrdinalIgnoreCase))
-			{
-				foreach (string item2 in item)
-				{
-					FileList.Add(item2);
-				}
-			}
-			else
-			{
-				DirList.Add(new SimpleDirectoryStructure(item.ToList(), item.Key));
-			}
-		}
-	}
+    public SimpleDirectoryStructure(List<string> paths, string dirName = null)
+        : this(dirName)
+    {
+        foreach (IGrouping<string, string> item in paths.GroupBy(delegate (string path)
+        {
+            string text = ((dirName == null) ? path : path.Remove(0, dirName.Length + 1));
+            int num = text.IndexOf(Path.DirectorySeparatorChar);
+            if (num == -1)
+            {
+                return dirName;
+            }
+            string text2 = text.Substring(0, num);
+            if (dirName != null)
+            {
+                text2 = dirName + Path.DirectorySeparatorChar + text2;
+            }
+            return text2;
+        }, StringComparer.OrdinalIgnoreCase))
+        {
+            if (item.Key.Equals(dirName, StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string item2 in item)
+                {
+                    FileList.Add(item2);
+                }
+            }
+            else
+            {
+                DirList.Add(new SimpleDirectoryStructure(item.ToList(), item.Key));
+            }
+        }
+    }
 
-	public IEnumerable<string> GetAllFiles()
-	{
-		return DirList.SelectMany((SimpleDirectoryStructure d) => d.GetAllFiles()).Concat(FileList);
-	}
+    public IEnumerable<string> GetAllFiles()
+    {
+        return DirList.SelectMany((SimpleDirectoryStructure d) => d.GetAllFiles()).Concat(FileList);
+    }
 
-	public override bool Equals(object a)
-	{
-		return StringComparer.OrdinalIgnoreCase.Equals(DirName, a as SimpleDirectoryStructure);
-	}
+    public override bool Equals(object a)
+    {
+        return StringComparer.OrdinalIgnoreCase.Equals(DirName, a as SimpleDirectoryStructure);
+    }
 
-	public override int GetHashCode()
-	{
-		return StringComparer.OrdinalIgnoreCase.GetHashCode(DirName);
-	}
+    public override int GetHashCode()
+    {
+        return StringComparer.OrdinalIgnoreCase.GetHashCode(DirName);
+    }
 
-	public override string ToString()
-	{
-		return DirName;
-	}
+    public override string ToString()
+    {
+        return DirName;
+    }
 }

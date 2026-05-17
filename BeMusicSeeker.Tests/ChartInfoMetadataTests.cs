@@ -44,7 +44,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void EnsureChartInfoSchema_CreatesTableIndexesAndVersionWithoutAlteringSongTable()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -140,7 +140,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void EnsureChartInfoSchema_RecreatesOldTableWithoutDifficultyDefined()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -171,7 +171,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoExport_ExportsCurrentRowsAndComplementsDigestMap()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string md5A = new string('a', 32);
             string md5B = new string('b', 32);
@@ -214,7 +214,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoExport_RequiresChartInfoTable()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string outputPath = Path.Combine(tempRootPath, "chart-info-metadata.db");
 
@@ -230,7 +230,7 @@ public sealed class ChartInfoMetadataTests
     public void ChartInfoExport_CreatesArchiveWithRootMetadataDbAndStartupImporterCanImport()
     {
         string sevenZipPath = ResolveInstalledSevenZipPathOrInconclusive();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new string('a', 32);
             string sha = new string('1', 64);
@@ -276,7 +276,7 @@ public sealed class ChartInfoMetadataTests
                 appBaseDirectory,
                 new BmsLibraryDbGateway(importDbPath),
                 null,
-                delegate(string sourceArchivePath, string destinationDirectoryPath)
+                delegate (string sourceArchivePath, string destinationDirectoryPath)
                 {
                     RunSevenZip(sevenZipPath, "x -y " + QuoteProcessArgument(sourceArchivePath) + " -o" + QuoteProcessArgument(destinationDirectoryPath));
                     return Array.Empty<ArchiveEntryMetadata>();
@@ -292,7 +292,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoExport_RejectsArchiveOutputSameAsDbOutput()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -313,7 +313,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoExport_ArchiveOutputRequiresSevenZip()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -334,7 +334,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ImportChartInfoMetadataBundle_ImportsMissingAndStaleRowsAndClearsFailures()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string missingMd5 = new string('a', 32);
             string staleMd5 = new string('b', 32);
@@ -405,7 +405,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ImportChartInfoMetadataBundle_SkipsAlreadyImportedBundle()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new string('a', 32);
             string sha = new string('1', 64);
@@ -429,7 +429,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ImportChartInfoMetadataBundle_ThrowsForInvalidBundleSchema()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string bundlePath = Path.Combine(tempRootPath, "invalid-chart-info-metadata.db");
             using (SQLiteConnection invalid = new SQLiteConnection(bundlePath, storeDateTimeAsTicks: true))
@@ -446,7 +446,7 @@ public sealed class ChartInfoMetadataTests
     public void ImportChartInfoMetadataBundle_ImportedDigestMapIsAppliedByLoadSongTable()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new string('a', 32);
             string sha = new string('1', 64);
@@ -489,7 +489,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void StartupImporter_PrefersDatabaseBundleOverArchive()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string appBaseDirectory = Path.Combine(tempRootPath, "app");
             Directory.CreateDirectory(appBaseDirectory);
@@ -509,7 +509,7 @@ public sealed class ChartInfoMetadataTests
                 appBaseDirectory,
                 new BmsLibraryDbGateway(songDbPath),
                 logs.Add,
-                delegate(string archivePath, string destinationDirectoryPath)
+                delegate (string archivePath, string destinationDirectoryPath)
                 {
                     extractCount++;
                     throw new InvalidOperationException("archive should not be extracted when db bundle exists.");
@@ -530,7 +530,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void StartupImporter_AlreadyImportedDatabaseIsMoved()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string appBaseDirectory = Path.Combine(tempRootPath, "app");
             Directory.CreateDirectory(appBaseDirectory);
@@ -563,7 +563,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void StartupImporter_ImportsArchiveBundleAndUsesArchiveShaForHistory()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string appBaseDirectory = Path.Combine(tempRootPath, "app");
             Directory.CreateDirectory(appBaseDirectory);
@@ -586,7 +586,7 @@ public sealed class ChartInfoMetadataTests
                 tempDirectories.Add(directoryPath);
                 return directoryPath;
             };
-            Func<string, string, IReadOnlyList<ArchiveEntryMetadata>> extractArchive = delegate(string sourceArchivePath, string destinationDirectoryPath)
+            Func<string, string, IReadOnlyList<ArchiveEntryMetadata>> extractArchive = delegate (string sourceArchivePath, string destinationDirectoryPath)
             {
                 extractCount++;
                 Assert.AreEqual(archivePath, sourceArchivePath);
@@ -615,7 +615,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void StartupImporter_AlreadyImportedArchiveIsMovedWithoutExtraction()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string appBaseDirectory = Path.Combine(tempRootPath, "app");
             Directory.CreateDirectory(appBaseDirectory);
@@ -630,7 +630,7 @@ public sealed class ChartInfoMetadataTests
             List<string> logs = new List<string>();
             int extractCount = 0;
 
-            Func<string, string, IReadOnlyList<ArchiveEntryMetadata>> extractArchive = delegate(string sourceArchivePath, string destinationDirectoryPath)
+            Func<string, string, IReadOnlyList<ArchiveEntryMetadata>> extractArchive = delegate (string sourceArchivePath, string destinationDirectoryPath)
             {
                 extractCount++;
                 File.Copy(dbBundlePath, Path.Combine(destinationDirectoryPath, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName));
@@ -657,7 +657,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void StartupImporter_ArchiveWithoutMetadataDatabaseLogsFailureAndCleansTempDirectory()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string appBaseDirectory = Path.Combine(tempRootPath, "app");
             Directory.CreateDirectory(appBaseDirectory);
@@ -672,7 +672,7 @@ public sealed class ChartInfoMetadataTests
                 tempDirectories.Add(directoryPath);
                 return directoryPath;
             };
-            Func<string, string, IReadOnlyList<ArchiveEntryMetadata>> extractArchive = delegate(string sourceArchivePath, string destinationDirectoryPath)
+            Func<string, string, IReadOnlyList<ArchiveEntryMetadata>> extractArchive = delegate (string sourceArchivePath, string destinationDirectoryPath)
             {
                 return Array.Empty<ArchiveEntryMetadata>();
             };
@@ -696,7 +696,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void StartupImporter_DatabaseArchiveFailureDoesNotUndoImport()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string appBaseDirectory = Path.Combine(tempRootPath, "app");
             Directory.CreateDirectory(appBaseDirectory);
@@ -722,7 +722,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void DeleteSongsAndMaintenance_LeavesChartInfoRows()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             TestableBmsFile file = new TestableBmsFile
             {
@@ -760,7 +760,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void LoadChartInfosByHash_LoadsRequestedRowsAndUsesStableMd5Representative()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
             string md5 = new string('a', 32);
@@ -789,7 +789,7 @@ public sealed class ChartInfoMetadataTests
     public void DeferredChartInfoHydration_BuildsSessionIndexAndUsesSha256BeforeMd5()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
             string md5 = new string('a', 32);
@@ -822,7 +822,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_SimpleFixture_ComputesChartMetadata()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "simple.bms");
             File.WriteAllText(
@@ -876,7 +876,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_SectionRateUsesParsedRateWithoutSubtractionDrift()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "section-rate.bms");
             StringBuilder chart = new StringBuilder();
@@ -899,7 +899,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_SpeedChangeUsesJavaStyleSmallExponentText()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "small-bpm.bms");
             File.WriteAllText(
@@ -920,7 +920,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_DoubleValuesUseJavaParseDoubleRounding()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "java-parse-double-bpm.bms");
             File.WriteAllText(
@@ -943,7 +943,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "java-parse-double-bpm.bmson");
             File.WriteAllText(
@@ -1035,7 +1035,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_InvalidChartLikeLineExtendsTimelineSections()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "invalid-section-tail.bms");
             File.WriteAllText(
@@ -1057,7 +1057,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBmson_SimpleFixture_ComputesChartMetadata()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "simple.bmson");
             File.WriteAllText(
@@ -1110,7 +1110,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBmson_ScrollDoesNotCarryToLaterTimelines()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "scroll-reset.bmson");
             File.WriteAllText(
@@ -1175,7 +1175,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBmson_LevelMissingNullExplicitZeroAndFloatTruncated()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string missingPath = Path.Combine(tempRootPath, "missing-level.bmson");
             File.WriteAllText(
@@ -1214,7 +1214,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_Base62Fixture_UsesBase62ForIndexedDefinitionsAndDataTokens()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "base62.bms");
             File.WriteAllText(
@@ -1242,7 +1242,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_IndexedBpmCommandAcceptsColonSeparator()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "indexed-bpm-colon.bms");
             File.WriteAllText(
@@ -1265,7 +1265,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_InitialBpmIsIncludedInMinMaxBpmEvenWhenMeasureZeroChangesBpm()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "measure-zero-bpm.bms");
             File.WriteAllText(
@@ -1287,7 +1287,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_RandomFixture_UsesStableSelectedBranchOne()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "random.bms");
             File.WriteAllText(
@@ -1315,7 +1315,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_InvalidCompactRandomCommandDoesNotSetRandomFeature()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "invalid-compact-random.bms");
             File.WriteAllText(
@@ -1338,7 +1338,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_TimelineLongerThanOneDayIsAllowed()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "longer-than-one-day.bms");
             File.WriteAllText(
@@ -1357,7 +1357,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_TimelineLongerThanIntMillisecondsIsFatal()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "too-long.bms");
             File.WriteAllText(
@@ -1374,7 +1374,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_JavaIntWrappedTimelineAddsDiagnostic()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "java-int-wrap.bms");
             File.WriteAllText(
@@ -1399,7 +1399,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_RandomRetrySkipsTimelineLongerThanIntMilliseconds()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "random-too-long.bms");
             File.WriteAllText(
@@ -1427,7 +1427,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_MalformedKnownCommandsAreNonFatalAndTotalUndefined()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "malformed.bms");
             File.WriteAllText(
@@ -1450,7 +1450,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_LevelAndDifficultyUseStrictReferenceParsingAndDifficultyInference()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string validPath = Path.Combine(tempRootPath, "valid-difficulty.bms");
             File.WriteAllText(
@@ -1505,7 +1505,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_HeaderCommandsAcceptBeatorajaReserveWordFormsAndUnicodeDigits()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "reserve-word-headers.bms");
             File.WriteAllText(
@@ -1530,7 +1530,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_TotalRejectsTrailingGarbageButAcceptsDecimal()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string invalidPath = Path.Combine(tempRootPath, "total-invalid.bms");
             File.WriteAllText(invalidPath, "#BPM 120\r\n#TOTAL 100abc\r\n#00111:01\r\n", Encoding.ASCII);
@@ -1552,7 +1552,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_MissingInitialBpmIsFatal()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "missing-bpm.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n", Encoding.ASCII);
@@ -1564,7 +1564,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_MeasureZeroIndexedBpmCanDefineInitialTimelineBpm()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "measure-zero-indexed-bpm.bms");
             File.WriteAllText(
@@ -1586,7 +1586,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_MeasureZeroDirectBpmCanDefineInitialTimelineBpm()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "measure-zero-direct-bpm.bms");
             File.WriteAllText(
@@ -1607,7 +1607,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_InvalidInitialBpmWithoutTimelineZeroBpmIsFatal()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string[] texts =
             {
@@ -1629,7 +1629,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_RandomRetryUsesLaterBranchWhenBranchOneHasInvalidInitialBpm()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "random-initial-bpm-retry.bms");
             File.WriteAllText(
@@ -1657,7 +1657,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_RandomRetryUsesLaterBranchWhenBranchOneTimelineIsTooLong()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "random-long-timeline-retry.bms");
             File.WriteAllText(
@@ -1685,7 +1685,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_RandomEndIfDoesNotSkipFollowingMainData()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "random-endif-main-data.bms");
             File.WriteAllText(
@@ -1712,7 +1712,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_RandomEndRandomCanCloseRandomBlock()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "random-endrandom-main-data.bms");
             File.WriteAllText(
@@ -1736,7 +1736,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBmson_UnknownFieldsAreIgnoredAndUnsupportedModeFallsBackToBeat7()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "unknown.bmson");
             File.WriteAllText(
@@ -1759,7 +1759,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_LongNoteChartHashUsesBeatorajaNumericLongNoteMarker()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "long-charthash.bms");
             File.WriteAllText(
@@ -1779,7 +1779,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_NormalNoteCollisionOverwritesExistingNoteLikeBeatoraja()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "normal-overwrite.bms");
             File.WriteAllText(
@@ -1805,7 +1805,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_LongNoteEndRemovesInsideLaneNotesLikeBeatoraja()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "ln-inside-collision.bms");
             File.WriteAllText(
@@ -1828,7 +1828,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBms_MalformedChannelLineWithoutColonIsStillDecodedLikeBeatoraja()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "malformed-channel.bms");
             File.WriteAllText(
@@ -1849,7 +1849,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ParseBmson_LongNoteAudioDurationAffectsChartHash()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string firstPath = Path.Combine(tempRootPath, "duration-a.bmson");
             string secondPath = Path.Combine(tempRootPath, "duration-b.bmson");
@@ -2509,7 +2509,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "backfill.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
@@ -2565,7 +2565,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_ReadsOnceAndPersistsDigestAndInfoForMissingSha256()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "single-read.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
@@ -2578,7 +2578,7 @@ public sealed class ChartInfoMetadataTests
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
             Dictionary<string, int> readCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            ChartInfoBuildService service = new ChartInfoBuildService(delegate(string path)
+            ChartInfoBuildService service = new ChartInfoBuildService(delegate (string path)
             {
                 readCounts[path] = readCounts.TryGetValue(path, out int count) ? count + 1 : 1;
                 return File.ReadAllBytes(path);
@@ -2614,7 +2614,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_IgnoresMaintenanceEncodingAndUsesBeatorajaDefaultDecode()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "ms932-fullwidth-level.bms");
             File.WriteAllText(
@@ -2661,7 +2661,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_GroupsDuplicateMissingSha256TargetsByMd5()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartAPath = Path.Combine(tempRootPath, "duplicate-a.bms");
             string chartBPath = Path.Combine(tempRootPath, "duplicate-b.bms");
@@ -2676,7 +2676,7 @@ public sealed class ChartInfoMetadataTests
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
             int readCount = 0;
-            ChartInfoBuildService service = new ChartInfoBuildService(delegate(string path)
+            ChartInfoBuildService service = new ChartInfoBuildService(delegate (string path)
             {
                 readCount++;
                 return File.ReadAllBytes(path);
@@ -2701,7 +2701,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoInlineBuildService_ParsesOnlyProvidedSnapshots()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string targetChartPath = Path.Combine(tempRootPath, "target.bms");
             string untouchedChartPath = Path.Combine(tempRootPath, "untouched.bms");
@@ -2734,7 +2734,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoInlineBuildService_AppliesExistingCurrentRowWithoutParsing()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "already-current.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE current\r\n", Encoding.ASCII);
@@ -2769,7 +2769,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoInlineBuildService_ParseFailureCanBePersistedWithSong()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "bad-target.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
@@ -2816,7 +2816,7 @@ public sealed class ChartInfoMetadataTests
     public void DeferredChartInfoHydration_AppliesExistingRowsToBmsAndBmson()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string bmsSha = new string('1', 64);
             string bmsonSha = new string('2', 64);
@@ -2842,7 +2842,7 @@ public sealed class ChartInfoMetadataTests
                 BmsonSongs = new List<LR2SongDBExtended.bmson_song> { bmsonSong }
             };
             int chartInfoPropertyChangedCount = 0;
-            file.PropertyChanged += delegate(object sender, System.ComponentModel.PropertyChangedEventArgs args)
+            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSFile.ChartInfo))
                 {
@@ -2876,7 +2876,7 @@ public sealed class ChartInfoMetadataTests
     public void DeferredChartInfoHydration_SkipsFullBackfillWhenNoCandidates()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
@@ -2892,7 +2892,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void GetChartInfoBackfillCandidateSummary_ClassifiesCurrentFailureAndStaleRows()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
             string currentMd5 = new string('a', 32);
@@ -2938,7 +2938,7 @@ public sealed class ChartInfoMetadataTests
     public void InstallChartPackages_AddsBmsAndBuildsInlineChartInfo()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceBms");
             string installDir = Path.Combine(tempRootPath, "InstalledBms");
@@ -2971,7 +2971,7 @@ public sealed class ChartInfoMetadataTests
     public void InstallChartPackages_AddsBmsonAndBuildsInlineChartInfo()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceBmson");
             string installDir = Path.Combine(tempRootPath, "InstalledBmson");
@@ -3010,7 +3010,7 @@ public sealed class ChartInfoMetadataTests
     public void InstallChartPackages_ChartInfoParseFailurePersistsRecordWithoutBlockingInstall()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceBadBms");
             string installDir = Path.Combine(tempRootPath, "InstalledBadBms");
@@ -3044,7 +3044,7 @@ public sealed class ChartInfoMetadataTests
     public void BMSFilesChartInfoParseFailed_ProjectsCurrentFailuresAsWarningShims()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             TestableBmsFile bmsFile = new TestableBmsFile
             {
@@ -3105,7 +3105,7 @@ public sealed class ChartInfoMetadataTests
     public void RemoveChartInfoParseFailuresByMd5_RemovesFailureRowsAndRefreshesProjectionOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sharedMd5 = new string('a', 32);
             string sharedSha256 = new string('1', 64);
@@ -3142,7 +3142,7 @@ public sealed class ChartInfoMetadataTests
                 BmsonSongs = new List<LR2SongDBExtended.bmson_song> { bmsonSong }
             };
             List<string> changedProperties = new List<string>();
-            library.PropertyChanged += delegate(object sender, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 changedProperties.Add(args.PropertyName);
             };
@@ -3171,7 +3171,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_ParseFailureStillPersistsDigest()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "bad.bmson");
             File.WriteAllText(chartPath, "not json", Encoding.ASCII);
@@ -3212,7 +3212,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_SkipsCurrentPersistedParseFailure()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "bad-skip.bmson");
             File.WriteAllText(chartPath, "not json", Encoding.ASCII);
@@ -3240,7 +3240,7 @@ public sealed class ChartInfoMetadataTests
                 path = chartPath
             };
             secondFile.SetHash(firstFile.hash);
-            ChartInfoBuildService secondService = new ChartInfoBuildService(delegate(string path)
+            ChartInfoBuildService secondService = new ChartInfoBuildService(delegate (string path)
             {
                 readCount++;
                 return File.ReadAllBytes(path);
@@ -3270,7 +3270,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void ChartInfoInlineBuildService_SkipsCurrentPersistedParseFailure()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "bad-targeted-skip.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE bad\r\n#00111:01\r\n", Encoding.ASCII);
@@ -3304,7 +3304,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_ReparsesStalePersistedParseFailureAndUpdatesRecord()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "bad-stale.bmson");
             File.WriteAllText(chartPath, "not json", Encoding.ASCII);
@@ -3342,7 +3342,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_ReparsesShorterTimeoutFailure()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "bad-timeout-stale.bmson");
             File.WriteAllText(chartPath, "not json", Encoding.ASCII);
@@ -3379,7 +3379,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_SuccessClearsStaleParseFailure()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "good-clear.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
@@ -3415,7 +3415,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_ReadFailureLogsWarnImmediately()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             TestableBmsFile file = new TestableBmsFile
             {
@@ -3469,7 +3469,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_TimeoutStillPersistsDigest()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "timeout.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
@@ -3513,7 +3513,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_CommitsInChunksAndLogsPhaseBoundaries()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             List<TestableBmsFile> files = new List<TestableBmsFile>();
             for (int index = 0; index < 5; index++)
@@ -3573,7 +3573,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void UpsertChartInfoBackfillChunk_UsesExplicitSqlAndReplacesRows()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoBackfillSchema();
@@ -3627,7 +3627,7 @@ public sealed class ChartInfoMetadataTests
     [TestMethod]
     public void BackfillChartInfos_JavaIntWrappedTimelineLogsParseDiagnosticAsSuccess()
     {
-        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "java-int-wrap-backfill.bms");
             File.WriteAllText(

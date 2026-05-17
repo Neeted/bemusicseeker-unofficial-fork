@@ -51,7 +51,7 @@ public sealed class ChartWarningCollectionTests
         BMSFile file = new BMSFile();
         file.SetWarning(ChartWarningKind.ResourceWavMissing, string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2));
         List<string> changedProperties = new List<string>();
-        file.PropertyChanged += delegate(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             changedProperties.Add(e.PropertyName);
         };

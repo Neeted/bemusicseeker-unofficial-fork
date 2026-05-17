@@ -265,7 +265,7 @@ public class LR2ScoreDB : SQLiteConnectionEx
         {
             if (!(_dbPath == value))
             {
-                if (!File.Exists(value) || !(Path.GetExtension(value).ToLower() == ".db"))
+                if (!File.Exists(value) || !(string.Equals(Path.GetExtension(value), ".db", System.StringComparison.OrdinalIgnoreCase)))
                 {
                     Close();
                     throw new FileNotFoundException("ファイルが見つからないか、db ファイルではありません。", value);

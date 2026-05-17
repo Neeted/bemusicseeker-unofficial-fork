@@ -114,7 +114,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void BmsonSongsSetter_InvalidatesDuplicateCache()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             library.DuplicateChartGroups = new List<DuplicateGroup>
@@ -144,7 +144,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void SearchDuplicateChartGroups_RebuildsAfterBmsonSongsChangeInvalidatesCache()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             library.BMSFiles = new List<BMSFile>
@@ -176,7 +176,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void RemoveChartFiles_BmsonPendingRow_UnregistersBmsonSong()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateRemoveBmson_" + System.Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRootPath);
@@ -216,7 +216,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void TryGetInstalledDirectoryByHash_ResolvesBmsonOnlyLibrary()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonInstalledDir_" + System.Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRootPath);
@@ -255,7 +255,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void MergeBMSDirectory_BmsonOnly_ReRegistersSongAtDestination()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateMergeBmson_" + System.Guid.NewGuid().ToString("N"));
             string srcDir = Path.Combine(tempRootPath, "Src");
@@ -308,7 +308,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void MergeBMSDirectory_BmsonDuplicateSkip_KeepsDestinationOnly()
     {
-        WithTemporarySongDb(delegate(string songDbPath)
+        WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateMergeBmsonSkip_" + System.Guid.NewGuid().ToString("N"));
             string srcDir = Path.Combine(tempRootPath, "Src");

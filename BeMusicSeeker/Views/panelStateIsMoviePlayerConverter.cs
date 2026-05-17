@@ -7,13 +7,13 @@ namespace BeMusicSeeker.Views;
 
 internal class panelStateIsMoviePlayerConverter : IValueConverter
 {
-	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		return value is MainWindowViewModel.PanelState && (MainWindowViewModel.PanelState)value == MainWindowViewModel.PanelState.MOVIE_PLAYER;
-	}
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        return value is MainWindowViewModel.PanelState && (MainWindowViewModel.PanelState)value == MainWindowViewModel.PanelState.MOVIE_PLAYER;
+    }
 
-	public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		throw new NotImplementedException();
-	}
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
 }

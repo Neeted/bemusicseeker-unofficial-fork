@@ -106,8 +106,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
         foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in resolveResult.CanonicalCharts.GroupBy((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
-                                                          orderby groupedFiles.Key.Length descending
-                                                          select groupedFiles)
+                                                                   orderby groupedFiles.Key.Length descending
+                                                                   select groupedFiles)
         {
             HashSet<string> removedChartPaths = new HashSet<string>(result.RemovedCharts.Select((LibraryChartRef chart) => chart.Path), StringComparer.OrdinalIgnoreCase);
             bool shouldDeleteWholeFolder = currentLibraryCharts.Where((LibraryChartRef chart) => chart.Path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !removedChartPaths.Contains(chart.Path)).Count() == folderGroup.Count()
@@ -186,8 +186,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<string> result = new List<string>();
         HashSet<string> selectedChartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in (canonicalCharts ?? Enumerable.Empty<LibraryChartRef>()).GroupBy((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
-                                                          orderby groupedFiles.Key.Length descending
-                                                          select groupedFiles)
+                                                                   orderby groupedFiles.Key.Length descending
+                                                                   select groupedFiles)
         {
             bool shouldConfirmWholeFolder = currentLibraryCharts.Where((LibraryChartRef chart) => chart.Path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !selectedChartPaths.Contains(chart.Path)).Count() == folderGroup.Count();
             if (shouldConfirmWholeFolder)

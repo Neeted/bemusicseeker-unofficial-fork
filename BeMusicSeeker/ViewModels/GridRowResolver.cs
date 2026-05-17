@@ -223,12 +223,12 @@ internal static class GridRowResolver
         string sha256 = TryGetChartFile(row, out ChartFile chart)
             ? FirstNonEmpty(chart.Sha256, chart.ChartInfo?.sha256)
             : row switch
-        {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
-            LibraryChartRow libraryChartRow => FirstNonEmpty(libraryChartRow.sha256, libraryChartRow.ChartInfo?.sha256),
-            BMSFile bmsFile => FirstNonEmpty(bmsFile.sha256, bmsFile.ChartInfo?.sha256),
-            _ => null
-        };
+            {
+                PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
+                LibraryChartRow libraryChartRow => FirstNonEmpty(libraryChartRow.sha256, libraryChartRow.ChartInfo?.sha256),
+                BMSFile bmsFile => FirstNonEmpty(bmsFile.sha256, bmsFile.ChartInfo?.sha256),
+                _ => null
+            };
         return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
     }
 

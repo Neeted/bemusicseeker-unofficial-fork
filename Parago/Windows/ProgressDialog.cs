@@ -103,7 +103,7 @@ public partial class ProgressDialog : Window, IComponentConnector
             {
                 if (!Current.CheckCancellationPending())
                 {
-                    throw ex;
+                    throw;
                 }
             }
             finally

@@ -8,14 +8,14 @@ namespace BeMusicSeeker.Views;
 
 internal class vbmsFileToIsReadOnlyConverter : IValueConverter
 {
-	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(value);
-		return entry == null || entry.parent == null || entry.parent.is_external_sync;
-	}
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(value);
+        return entry == null || entry.parent == null || entry.parent.is_external_sync;
+    }
 
-	public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		throw new NotImplementedException();
-	}
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
 }

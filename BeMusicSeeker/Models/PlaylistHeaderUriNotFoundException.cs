@@ -10,5 +10,17 @@ internal sealed class PlaylistHeaderUriNotFoundException : InvalidOperationExcep
         PageUri = pageUri;
     }
 
+    public PlaylistHeaderUriNotFoundException() : base()
+    {
+    }
+
+    public PlaylistHeaderUriNotFoundException(string message) : base(message)
+    {
+    }
+
+    public PlaylistHeaderUriNotFoundException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
+
     internal Uri PageUri { get; }
 }

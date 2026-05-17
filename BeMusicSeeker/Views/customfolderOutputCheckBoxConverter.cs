@@ -7,30 +7,30 @@ namespace BeMusicSeeker.Views;
 
 internal class customfolderOutputCheckBoxConverter : IValueConverter
 {
-	private LR2SongDBExtended.playlist.CustomFolderType flags;
+    private LR2SongDBExtended.playlist.CustomFolderType flags;
 
-	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		LR2SongDBExtended.playlist.CustomFolderType customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)value;
-		string value2 = parameter as string;
-		LR2SongDBExtended.playlist.CustomFolderType customFolderType2 = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
-		flags = customFolderType;
-		return (customFolderType & customFolderType2) != customFolderType2;
-	}
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        LR2SongDBExtended.playlist.CustomFolderType customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)value;
+        string value2 = parameter as string;
+        LR2SongDBExtended.playlist.CustomFolderType customFolderType2 = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
+        flags = customFolderType;
+        return (customFolderType & customFolderType2) != customFolderType2;
+    }
 
-	public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		bool num = (bool)value;
-		string value2 = parameter as string;
-		LR2SongDBExtended.playlist.CustomFolderType customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
-		if (num)
-		{
-			flags &= ~customFolderType;
-		}
-		else
-		{
-			flags |= customFolderType;
-		}
-		return flags;
-	}
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        bool num = (bool)value;
+        string value2 = parameter as string;
+        LR2SongDBExtended.playlist.CustomFolderType customFolderType = (LR2SongDBExtended.playlist.CustomFolderType)Enum.Parse(typeof(LR2SongDBExtended.playlist.CustomFolderType), value2);
+        if (num)
+        {
+            flags &= ~customFolderType;
+        }
+        else
+        {
+            flags |= customFolderType;
+        }
+        return flags;
+    }
 }
