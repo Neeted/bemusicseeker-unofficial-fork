@@ -10226,7 +10226,7 @@ reportProgress,
         }
     }
 
-    public static string GetLCSBMSInfo(IEnumerable<string> strings)
+    public static string GetLongestCommonChartInfo(IEnumerable<string> strings)
     {
         List<string> list = [.. (from s in strings.Where(s => !string.IsNullOrWhiteSpace(s)).SelectMany((s1, i) => from input in strings.Skip(i + 1)
                                                                                                                                    select new string[2]
@@ -10281,9 +10281,9 @@ reportProgress,
         int num = 250;
         int num2 = 128;
         var encoding = Encoding.GetEncoding("Shift_JIS");
-        string lCSBMSInfo = GetLCSBMSInfo(chartFiles.Select(f => f.Title));
-        string lCSBMSInfo2 = GetLCSBMSInfo(chartFiles.Select(f => f.Artist));
-        string s = options.FolderNameFormat.Replace("%ARTIST%", lCSBMSInfo2).Replace("%TITLE%", lCSBMSInfo).Trim();
+        string commonTitle = GetLongestCommonChartInfo(chartFiles.Select(f => f.Title));
+        string commonArtist = GetLongestCommonChartInfo(chartFiles.Select(f => f.Artist));
+        string s = options.FolderNameFormat.Replace("%ARTIST%", commonArtist).Replace("%TITLE%", commonTitle).Trim();
         if (options.UseOnlyShiftJISChars)
         {
             s = s.ToSjisSchemeString();

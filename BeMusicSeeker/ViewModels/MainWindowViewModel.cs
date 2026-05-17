@@ -20796,7 +20796,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (string.IsNullOrWhiteSpace(text))
                 {
-                    text = BMSLibrary.GetLCSBMSInfo(item.Select(f => f.Title));
+                    text = BMSLibrary.GetLongestCommonChartInfo(item.Select(f => f.Title));
                     text = tables.CreateNewFolderBMSTable(bmsTable, text, commitFlag: false);
                 }
                 tables.AddPlaylistEntriesToFolderBMSTable(item.Select(f => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
