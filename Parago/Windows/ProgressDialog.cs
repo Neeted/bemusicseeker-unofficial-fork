@@ -98,7 +98,7 @@ public partial class ProgressDialog : Window, IComponentConnector
             catch (ProgressDialogCancellationExcpetion)
             {
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 if (!Current.CheckCancellationPending())
                 {
