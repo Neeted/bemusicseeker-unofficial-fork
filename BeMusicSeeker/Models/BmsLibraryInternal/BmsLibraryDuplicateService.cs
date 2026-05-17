@@ -45,14 +45,6 @@ internal sealed class BmsLibraryDuplicateService
         }
     }
 
-    public DuplicateAnalysisResult Analyze(List<BMSFile> snapshot)
-    {
-        return Analyze((snapshot ?? new List<BMSFile>())
-            .Select(DuplicateChartRow.CreateFromBmsFile)
-            .Where((DuplicateChartRow row) => row != null)
-            .ToList());
-    }
-
     public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot)
     {
         DuplicateAnalysisResult result = new DuplicateAnalysisResult();

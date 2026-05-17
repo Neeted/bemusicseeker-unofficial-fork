@@ -218,7 +218,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void DeleteLibraryFiles_RemovesFolderAndClearsInstallDestinations()
+    public void DeleteLibraryCharts_RemovesFolderAndClearsInstallDestinations()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -240,9 +240,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(folderPath, Enumerable.Empty<string>());
 
-            LibraryRemovalResult result = service.DeleteLibraryFiles(
-                new[] { libraryFile },
-                new[] { libraryFile },
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                new[] { LibraryChartRef.FromCompatibilityChartFile(libraryFile) },
+                new[] { LibraryChartRef.FromCompatibilityChartFile(libraryFile) },
                 new[] { pendingPackage },
                 lookupCache,
                 false,

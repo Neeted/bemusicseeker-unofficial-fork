@@ -28,7 +28,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirC", "b.bms"))
         };
 
-        DuplicateAnalysisResult result = service.Analyze(files);
+        DuplicateAnalysisResult result = service.Analyze(service.BuildSnapshot(files, null));
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         CollectionAssert.AreEquivalent(new[] { "C:\\BMS\\DirA", "C:\\BMS\\DirB", "C:\\BMS\\DirC" }, result.DuplicateGroups[0].Folders);

@@ -71,29 +71,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return mutationResult;
     }
 
-    public LibraryRemovalResult DeleteLibraryFiles(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<BMSFile> libraryFiles,
-        IEnumerable<BMSPackage> pendingPackages,
-        DirectoryResourceLookupCache directoryLookupCache,
-        bool sendToRecycleBin,
-        Func<string, bool> confirmDeleteWholeFolder,
-        IFileMutationService fileMutationService,
-        FileMutationOptions targetOnlyFileMutationOptions,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
-    {
-        return DeleteLibraryCharts(
-            (bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile),
-            (libraryFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile),
-            pendingPackages,
-            directoryLookupCache,
-            sendToRecycleBin,
-            confirmDeleteWholeFolder,
-            fileMutationService,
-            targetOnlyFileMutationOptions,
-            recursiveDirectoryTreeFileMutationOptions);
-    }
-
     public LibraryRemovalResult DeleteLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         IEnumerable<LibraryChartRef> libraryCharts,
@@ -528,11 +505,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             plans.Add(plan);
         }
         return plans;
-    }
-
-    public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<BMSFile> selectedFiles, string destinationRootDirectory)
-    {
-        return BuildRootFolderMovePlans((selectedFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityChartFile), destinationRootDirectory);
     }
 
     public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<LibraryChartRef> selectedCharts, string destinationRootDirectory)
