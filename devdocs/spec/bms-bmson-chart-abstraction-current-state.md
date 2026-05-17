@@ -106,7 +106,7 @@ playlist reference 表示は、BMS では従来どおり `BMSFile.RefTables` を
 
 `BuildStandardLibraryRows(...)` は `BMSFile` と `bmson_song` を結合し、BMS / bmson 共通の source row を作る。bmson は path 順で追加される。
 
-`CreateFilterFile()` は、BMS では元の `BMSFile`、bmson では `PendingChartEntry.CreateFromBmsonSong(...)` を返す。これは既存の filter API が `BMSFile` を要求するための compatibility path であり、storage の正本ではない。
+`CreateFilterFile()` は `CompatibilityBmsFile` を返す。BMS では元の `BMSFile`、bmson では `BmsonChartAdapterProvider` があれば provider 由来の `PendingChartEntry`、なければ row-local な `PendingChartEntry.CreateFromBmsonSong(...)` になる。これは既存の filter API が `BMSFile` を要求するための compatibility path であり、storage の正本ではない。通常 ViewModel 経由の一覧 row では provider が shared bmson chart adapter cache を参照するため、folder filter では PLINQ filter の前に逐次で compatibility file を確定してから filter へ渡す。
 
 bmson library rows は全ての tree mode に無条件で混ざるわけではない。`ShouldIncludeBmsonLibraryRowsInMainView(...)` は、通常 root / folder / keyword / mode filter と `FullScanAllChartsFilterSelected` では bmson を含めるが、playlist tree active、maintenance filter、install filter では除外する。maintenance / install / playlist detail 側は、それぞれ専用 source や pending adapter の経路で bmson を扱う。
 

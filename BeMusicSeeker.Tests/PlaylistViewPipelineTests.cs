@@ -1771,17 +1771,28 @@ public sealed class PlaylistViewPipelineTests
             md5 = "dddddddddddddddddddddddddddddddd",
             sha256 = new string('d', 64)
         });
+        PendingChartEntry keepBmsonAdapter = PendingChartEntry.CreateFromBmsonSong(keepBmson.BmsonSong);
+        bool filterSawKeepBmsonAdapter = false;
+        keepBmson.SetBmsonChartAdapterProvider(song => ReferenceEquals(song, keepBmson.BmsonSong) ? keepBmsonAdapter : null);
 
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
             [keepBms, skipBms],
             [keepBmson, skipBmson],
-            file => file.path.StartsWith("C:\\Keep", StringComparison.OrdinalIgnoreCase),
+            file =>
+            {
+                if (ReferenceEquals(file, keepBmsonAdapter))
+                {
+                    filterSawKeepBmsonAdapter = true;
+                }
+                return file.path.StartsWith("C:\\Keep", StringComparison.OrdinalIgnoreCase);
+            },
             out LibraryRowsBuildMetrics metrics);
 
         Assert.AreEqual(2, rows.Count);
         CollectionAssert.AreEquivalent(new[] { "Keep Bms", "Keep Bmson" }, rows.Select(row => row.Title).ToArray());
         Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bms && row.BmsFile == keepBms));
         Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.BmsonSong == keepBmson.BmsonSong));
+        Assert.IsTrue(filterSawKeepBmsonAdapter);
         Assert.IsFalse(rows.Any(row => row.Title == "Skip Bms" || row.Title == "Skip Bmson"));
         Assert.IsTrue(rows.All(row => row.GetType() == typeof(LibraryChartRow)));
         Assert.IsTrue(metrics.FolderFilterApplied);

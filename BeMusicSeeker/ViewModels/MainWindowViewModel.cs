@@ -16362,7 +16362,11 @@ public class MainWindowViewModel : ViewModel
             regularRows = filteredRegularRows;
 
             filterStopwatch.Restart();
-            normalizedBmsonRows = normalizedBmsonRows.AsParallel().Where(row => folderFilter(row.BmsFile ?? PendingChartEntry.CreateFromBmsonSong(row.BmsonSong)));
+            // CompatibilityBmsFile can touch the shared bmson adapter cache, so resolve it before the PLINQ filter.
+            List<(LibraryChartRow Row, BeMusicSeeker.Models.BMSFile CompatibilityFile)> bmsonRowsWithCompatibilityFiles = [.. normalizedBmsonRows.Select(row => (row, row.CompatibilityBmsFile))];
+            normalizedBmsonRows = bmsonRowsWithCompatibilityFiles.AsParallel()
+                .Where(rowWithFile => folderFilter(rowWithFile.CompatibilityFile))
+                .Select(rowWithFile => rowWithFile.Row);
             List<LibraryChartRow> filteredBmsonRows = [.. normalizedBmsonRows];
             filterStopwatch.Stop();
             bmsonFilterMs = filterStopwatch.ElapsedMilliseconds;
