@@ -39,6 +39,7 @@ public sealed class BmsSortCompatibilityTests
     [TestMethod]
     [TestCategory("Compatibility")]
     [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("Manual compatibility check. Excluded from default build/test pass criteria.")]
+    [DoNotParallelize]
     public void SortOrder_ShouldMatchLegacyImplementation_ForRepresentativeColumns()
     {
         string testSongDbFullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, TestSongDbRelativePath);

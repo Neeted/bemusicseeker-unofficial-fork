@@ -111,6 +111,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void LoadSongTable_RawCatalogLoaderPreservesSongColumns()
     {
         TestResourceInitializer.EnsureJapaneseResources();

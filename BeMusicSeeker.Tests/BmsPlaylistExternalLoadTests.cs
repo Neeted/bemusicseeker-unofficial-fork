@@ -234,6 +234,7 @@ public sealed class BmsPlaylistExternalLoadTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    [DoNotParallelize]
     public async Task RegistrateExternalTableAsync_ExistingPlaylistNameThrowsSpecificException()
     {
         bool previousEnablePlaylistUrlCompletion = BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion;

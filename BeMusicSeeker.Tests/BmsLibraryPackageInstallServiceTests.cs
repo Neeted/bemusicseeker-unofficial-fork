@@ -720,6 +720,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PrepareAutoInstallWorkflow_DoesNotPrebuildSourceSurfaceForDiscoveredPackages()
     {
         TestResourceInitializer.EnsureJapaneseResources();
