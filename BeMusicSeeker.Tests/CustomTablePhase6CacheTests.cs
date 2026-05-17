@@ -40,7 +40,7 @@ public sealed class CustomTablePhase6CacheTests
         Assert.IsTrue(snapshot.Matches(columns, 0d, 100d));
         Assert.IsFalse(snapshot.Matches(columns, 1d, 100d));
         Assert.IsFalse(snapshot.Matches(columns, 0d, 101d));
-        Assert.IsFalse(snapshot.Matches(new[] { CreateColumn("A", 50) }, 0d, 100d));
+        Assert.IsFalse(snapshot.Matches([CreateColumn("A", 50)], 0d, 100d));
     }
 
     [TestMethod]

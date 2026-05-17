@@ -266,7 +266,7 @@ internal sealed class DirectoryResourceLookupCache
         {
             lock (lockEntries)
             {
-                return entries.Keys.ToArray();
+                return [.. entries.Keys];
             }
         }
     }
@@ -518,7 +518,7 @@ internal sealed class DirectoryResourceLookupCache
         {
             return [];
         }
-        EnsureRelativeDirectoriesByHashes(audioDirectoriesByRelativeHash, entry => entry?.AudioRelativePathHashArray, new[] { relativePathHash });
+        EnsureRelativeDirectoriesByHashes(audioDirectoriesByRelativeHash, entry => entry?.AudioRelativePathHashArray, [relativePathHash]);
         lock (lockLazyDirectoriesByHash)
         {
             if (audioDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
@@ -535,7 +535,7 @@ internal sealed class DirectoryResourceLookupCache
         {
             return [];
         }
-        EnsureRelativeDirectoriesByHashes(imageDirectoriesByRelativeHash, entry => entry?.ImageRelativePathHashArray, new[] { relativePathHash });
+        EnsureRelativeDirectoriesByHashes(imageDirectoriesByRelativeHash, entry => entry?.ImageRelativePathHashArray, [relativePathHash]);
         lock (lockLazyDirectoriesByHash)
         {
             if (imageDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
@@ -552,7 +552,7 @@ internal sealed class DirectoryResourceLookupCache
         {
             return [];
         }
-        EnsureRelativeDirectoriesByHashes(movieDirectoriesByRelativeHash, entry => entry?.MovieRelativePathHashArray, new[] { relativePathHash });
+        EnsureRelativeDirectoriesByHashes(movieDirectoriesByRelativeHash, entry => entry?.MovieRelativePathHashArray, [relativePathHash]);
         lock (lockLazyDirectoriesByHash)
         {
             if (movieDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
@@ -719,7 +719,7 @@ internal sealed class DirectoryResourceLookupCache
                     continue;
                 }
                 directoriesByTargetHash[hash] = [.. directories
-                    .Concat(new[] { directoryPath })
+                    .Concat([directoryPath])
                     .Distinct(StringComparer.OrdinalIgnoreCase)];
                 updatedHashCount++;
             }

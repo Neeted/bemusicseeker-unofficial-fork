@@ -125,7 +125,6 @@ public class xxHash32
             _state.v3 = CalcSubHash(_state.v3, _state.memory, num);
             num += 4;
             _state.v4 = CalcSubHash(_state.v4, _state.memory, num);
-            num += 4;
             num = 0;
             _state.memsize = 0;
         }

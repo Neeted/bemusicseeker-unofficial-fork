@@ -45,12 +45,12 @@ public sealed class GridKeywordSearchQueryTests
     public void MatchesChartList_PlaylistFieldSearchesReferenceNames()
     {
         TestableBmsFile file = CreateFile();
-        file.AddRefTables(new[]
-        {
+        file.AddRefTables(
+        [
             CreateTable("Satellite sl", "★"),
             CreateTable("Second Table", "★★"),
             CreateTable("GENOSIDE", "▽")
-        });
+        ]);
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("ref:\"Second Table\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
@@ -69,11 +69,11 @@ public sealed class GridKeywordSearchQueryTests
     public void MatchesChartListSourceRow_UsesSafeIdentityFieldsWithoutLibraryChartRow()
     {
         TestableBmsFile file = CreateFile();
-        file.AddRefTables(new[]
-        {
+        file.AddRefTables(
+        [
             CreateTable("Satellite sl", "★"),
             CreateTable("GENOSIDE", "▽")
-        });
+        ]);
         var sourceRow = ChartListSourceRow.FromBmsFile(file);
 
         var query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
@@ -503,7 +503,7 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void KeywordSearchHistoryStore_AddEntryMovesDuplicateToFront()
     {
-        string[] updated = [.. KeywordSearchHistoryStore.AddEntry(new[] { "alpha", "beta", "gamma" }, " BETA ")];
+        string[] updated = [.. KeywordSearchHistoryStore.AddEntry(["alpha", "beta", "gamma"], " BETA ")];
 
         CollectionAssert.AreEqual(new[] { "BETA", "alpha", "gamma" }, updated);
     }

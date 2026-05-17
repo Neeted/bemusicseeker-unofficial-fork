@@ -316,7 +316,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             return null;
         }
 
-        if (!EverythingNative.TryScanSourceRoots(new[] { sourceDirectory }, out EverythingNative.BridgeSourceRootScanResult scanResult, out _)
+        if (!EverythingNative.TryScanSourceRoots([sourceDirectory], out EverythingNative.BridgeSourceRootScanResult scanResult, out _)
             || scanResult == null
             || !scanResult.TryGetEntry(sourceDirectory, out EverythingNative.BridgeSourceRootEntryResult entryResult)
             || entryResult == null
@@ -357,34 +357,32 @@ internal static class PackageInstallEstimationSnapshotBuilder
     private static RootFileEnumerationResult EnumerateChartsOnlyWithFallback(string rootDirectory)
     {
         return RootFileEnumerationService.EnumerateFilesWithFallback(
-            new[] { rootDirectory },
-            new[]
-            {
+            [rootDirectory],
+            [
                 new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, ChartDirectoryScanBuilder.ChartExtensions)
-            });
+            ]);
     }
 
     private static RootFileEnumerationResult EnumerateChartsOnlyFastOnly(string rootDirectory)
     {
         return new FastRootFileEnumerator().EnumerateFiles(
-            new[] { rootDirectory },
-            new[]
-            {
+            [rootDirectory],
+            [
                 new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, ChartDirectoryScanBuilder.ChartExtensions)
-            });
+            ]);
     }
 
     private static RootFileEnumerationResult EnumerateSourceSurfaceWithFallback(string rootDirectory)
     {
         return RootFileEnumerationService.EnumerateFilesWithFallback(
-            new[] { rootDirectory },
+            [rootDirectory],
             ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
     }
 
     private static RootFileEnumerationResult EnumerateSourceSurfaceFastOnly(string rootDirectory)
     {
         return new FastRootFileEnumerator().EnumerateFiles(
-            new[] { rootDirectory },
+            [rootDirectory],
             ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
     }
 

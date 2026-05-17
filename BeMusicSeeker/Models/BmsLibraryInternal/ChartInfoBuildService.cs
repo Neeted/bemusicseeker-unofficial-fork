@@ -1255,12 +1255,12 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
         {
             return new ChartInfoCommitChunk(
                 TargetCount,
-                DigestEntries.ToList(),
-                DigestApplications.ToList(),
-                ChartInfoRows.ToList(),
-                ChartInfoApplications.ToList(),
-                ParseFailureRows.ToList(),
-                ParseFailureDeleteMd5s.ToList());
+                [.. DigestEntries],
+                [.. DigestApplications],
+                [.. ChartInfoRows],
+                [.. ChartInfoApplications],
+                [.. ParseFailureRows],
+                [.. ParseFailureDeleteMd5s]);
         }
     }
 

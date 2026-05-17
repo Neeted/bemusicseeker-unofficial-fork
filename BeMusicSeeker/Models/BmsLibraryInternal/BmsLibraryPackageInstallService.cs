@@ -344,7 +344,7 @@ internal sealed class BmsLibraryPackageInstallService
         IEnumerable<string> fileSystemEntries;
         try
         {
-            fileSystemEntries = Directory.EnumerateFileSystemEntries(dirfullpath, "*", System.IO.SearchOption.TopDirectoryOnly).ToList();
+            fileSystemEntries = [.. Directory.EnumerateFileSystemEntries(dirfullpath, "*", System.IO.SearchOption.TopDirectoryOnly)];
         }
         catch
         {
@@ -1805,7 +1805,7 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
             List<ChartPackage> deferredInstalledPackages = [];
-            List<ChartPackage> failedPackages = installPackages?.Invoke(new ChartPackage[1] { pendingPackage }, deferredInstalledPackages) ?? [];
+            List<ChartPackage> failedPackages = installPackages?.Invoke([pendingPackage], deferredInstalledPackages) ?? [];
             result.Processed++;
             if (failedPackages.Count == 0)
             {

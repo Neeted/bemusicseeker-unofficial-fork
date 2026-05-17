@@ -107,7 +107,7 @@ public static class Win32API
 
         public Size Size
         {
-            get
+            readonly get
             {
                 return new Size(Width, Height);
             }
@@ -152,7 +152,7 @@ public static class Win32API
             return false;
         }
 
-        public override bool Equals(object obj)
+        public override readonly bool Equals(object obj)
         {
             if (obj is RECT)
             {

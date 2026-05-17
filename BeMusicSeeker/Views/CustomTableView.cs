@@ -880,11 +880,10 @@ public sealed class CustomTableView : Grid
         {
             return [];
         }
-        return selectionModel.SelectedIndices
+        return [.. selectionModel.SelectedIndices
             .Where(index => index >= 0 && index < rows.Count)
             .Select(index => rows[index])
-            .Where(row => row != null)
-            .ToArray();
+            .Where(row => row != null)];
     }
 
     public void ClearSelection()

@@ -210,10 +210,9 @@ public sealed class AppSchemaPreflightServiceTests
     public void RepairAppOwnedSchema_DoesNotBackfillMissingDigestFromSongFiles()
     {
         string tempDbPath = CreateEmptySongDbPath();
-        string chartPath = string.Empty;
         try
         {
-            chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
             BMSPlaylist.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -321,12 +320,11 @@ public sealed class AppSchemaPreflightServiceTests
     public void RepairAppOwnedSchema_NormalizesChartDigestMapAndSetsVersion()
     {
         string tempDbPath = CreateEmptySongDbPath();
-        string chartPath = string.Empty;
         string md5 = string.Empty;
         string sha256 = string.Empty;
         try
         {
-            chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
             BMSPlaylist.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))

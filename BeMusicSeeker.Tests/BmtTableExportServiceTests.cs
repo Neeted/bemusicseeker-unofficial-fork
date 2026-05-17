@@ -135,20 +135,20 @@ public sealed class BmtTableExportServiceTests
             JObject firstTableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
             JObject secondTableData = CreateLocalTableData("bemusicseeker://playlist/2", "Second");
 
-            BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
-            {
+            BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
                 Tuple.Create("1", firstTableData),
                 Tuple.Create("2", secondTableData)
-            }, cleanupStaleManagedFiles: true);
+            ], cleanupStaleManagedFiles: true);
             string firstFileName = BMSTable.ComputeSha256Hex(firstTableData.Value<string>("url")) + ".bmt";
             string secondFileName = BMSTable.ComputeSha256Hex(secondTableData.Value<string>("url")) + ".bmt";
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, firstFileName)));
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, secondFileName)));
 
-            BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
-            {
+            BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
                 Tuple.Create("2", secondTableData)
-            }, cleanupStaleManagedFiles: true);
+            ], cleanupStaleManagedFiles: true);
 
             Assert.IsFalse(File.Exists(Path.Combine(tempDirectory, firstFileName)));
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, secondFileName)));
@@ -180,19 +180,19 @@ public sealed class BmtTableExportServiceTests
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
             JObject firstTableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
-            BmtTableExportService.ExportResult firstResult = BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
-            {
+            BmtTableExportService.ExportResult firstResult = BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
                 Tuple.Create("1", firstTableData)
-            }, cleanupStaleManagedFiles: true);
+            ], cleanupStaleManagedFiles: true);
             Assert.AreEqual(0, firstResult.PreviousManagedTables.Count);
             Assert.AreEqual("bemusicseeker://playlist/1", firstResult.CurrentManagedTables.Single().Url);
             Assert.AreEqual("First", firstResult.CurrentManagedTables.Single().Name);
 
             JObject secondTableData = CreateLocalTableData("bemusicseeker://playlist/2", "Second");
-            BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
-            {
+            BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
                 Tuple.Create("2", secondTableData)
-            }, cleanupStaleManagedFiles: true);
+            ], cleanupStaleManagedFiles: true);
 
             Assert.AreEqual("bemusicseeker://playlist/1", secondResult.PreviousManagedTables.Single().Url);
             Assert.AreEqual("bemusicseeker://playlist/2", secondResult.CurrentManagedTables.Single().Url);
@@ -206,10 +206,10 @@ public sealed class BmtTableExportServiceTests
         WithTemporaryDirectory(delegate (string tempDirectory)
         {
             JObject tableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
-            BmtTableExportService.ExportTableDataSet(tempDirectory, new[]
-            {
+            BmtTableExportService.ExportTableDataSet(tempDirectory,
+            [
                 Tuple.Create("1", tableData)
-            }, cleanupStaleManagedFiles: true);
+            ], cleanupStaleManagedFiles: true);
 
             BmtTableExportService.ExportResult result = BmtTableExportService.RemoveManagedPlaylist(tempDirectory, "missing");
 
@@ -230,8 +230,8 @@ public sealed class BmtTableExportServiceTests
 
             BeatorajaConfigService.SyncTableUrls(
                 root,
-                new[] { "bemusicseeker://playlist/2", "bemusicseeker://playlist/1" },
-                new[] { "bemusicseeker://playlist/old", "bemusicseeker://playlist/1" });
+                ["bemusicseeker://playlist/2", "bemusicseeker://playlist/1"],
+                ["bemusicseeker://playlist/old", "bemusicseeker://playlist/1"]);
 
             var config = JObject.Parse(File.ReadAllText(configPath, Encoding.UTF8));
             CollectionAssert.AreEqual(new[]

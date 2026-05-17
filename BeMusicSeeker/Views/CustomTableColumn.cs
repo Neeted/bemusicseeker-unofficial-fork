@@ -279,11 +279,10 @@ internal static class CustomTableColumnFactory
             return [];
         }
         CustomTableColumn[] columns = CreateAllMainColumns(settings);
-        return columns
+        return [.. columns
             .Where(column => column.IsVisible)
             .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
-            .ThenBy(column => column.FallbackOrder)
-            .ToArray();
+            .ThenBy(column => column.FallbackOrder)];
     }
 
     internal static IEnumerable<CustomTableColumnSettings.ColumnLayout> EnumerateMainColumnLayouts(CustomTableColumnSettings settings)
@@ -308,11 +307,10 @@ internal static class CustomTableColumnFactory
             return [];
         }
         CustomTableColumn[] columns = CreateAllPlaylistSummaryColumns(settings);
-        return columns
+        return [.. columns
             .Where(column => column.IsVisible)
             .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
-            .ThenBy(column => column.FallbackOrder)
-            .ToArray();
+            .ThenBy(column => column.FallbackOrder)];
     }
 
     internal static IEnumerable<PlaylistSummaryColumnSettings.ColumnLayout> EnumeratePlaylistSummaryColumnLayouts(PlaylistSummaryColumnSettings settings)

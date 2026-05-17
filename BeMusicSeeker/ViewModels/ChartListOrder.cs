@@ -422,10 +422,9 @@ internal sealed class ChartListOrder
 
     internal static IReadOnlyList<string> GetDefaultPrewarmColumnNames()
     {
-        return columnDefinitions
+        return [.. columnDefinitions
             .Where(definition => definition.PrewarmByDefault)
-            .Select(definition => definition.NormalizedColumnName)
-            .ToArray();
+            .Select(definition => definition.NormalizedColumnName)];
     }
 
     internal static bool TryGetVirtualSortColumnMetadata(string columnName, out ChartListOrderColumnMetadata metadata)
@@ -449,7 +448,7 @@ internal sealed class ChartListOrder
 
     internal static IReadOnlyList<ChartListOrderColumnMetadata> GetVirtualSortColumnMetadata()
     {
-        return columnDefinitions
+        return [.. columnDefinitions
             .Select(definition => new ChartListOrderColumnMetadata(
                 definition.NormalizedColumnName,
                 definition.KeyKind,
@@ -457,8 +456,7 @@ internal sealed class ChartListOrder
                 definition.SortProfile,
                 definition.StringSortKind,
                 definition.Dependency,
-                definition.PrewarmPriority))
-            .ToArray();
+                definition.PrewarmPriority))];
     }
 
     internal static bool TryNormalizeVirtualSortColumn(string columnName, out string normalizedColumnName)

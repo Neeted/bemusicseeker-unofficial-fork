@@ -1270,7 +1270,7 @@ public class BMSLibrary : NotificationObject
         lock (lockParentFolderList)
         {
             RefreshBMSParentFolderListCacheUnsafe();
-            return bmsParentFolderListCache.ToList();
+            return [.. bmsParentFolderListCache];
         }
     }
 
@@ -8582,7 +8582,7 @@ reportProgress,
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
             {
-                ClearDeferredEstimateReasonForFilesUnsafe(new BMSFile[1] { bmsFile });
+                ClearDeferredEstimateReasonForFilesUnsafe([bmsFile]);
             }
         }
         bool resolvedInstalledDirectory = false;
@@ -8597,7 +8597,7 @@ reportProgress,
                         List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), bmsFile);
                         if (installedDirectories.Count == 1)
                         {
-                            ApplyResolvedInstallDestinationToFiles(new BMSFile[1] { bmsFile }, installedDirectories[0]);
+                            ApplyResolvedInstallDestinationToFiles([bmsFile], installedDirectories[0]);
                             resolvedInstalledDirectory = true;
                         }
                     }
@@ -8608,7 +8608,7 @@ reportProgress,
                 return;
             }
         }
-        SearchEstimatedInstallationDirectoryForChartsCore(new BMSFile[1] { bmsFile }, asParallel, fixMode);
+        SearchEstimatedInstallationDirectoryForChartsCore([bmsFile], asParallel, fixMode);
     }
 
     public void SearchEstimatedInstallationDirectory(BMSFile bmsFile, bool asParallel = true, bool fixMode = false)
@@ -8761,7 +8761,7 @@ reportProgress,
         foreach (BMSFile item in list)
         {
             item.instl_dst = null;
-            SearchEstimatedInstallationDirectoryForChartsCore(new BMSFile[1] { item }, asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
+            SearchEstimatedInstallationDirectoryForChartsCore([item], asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
         }
         int num = list.Count(f => !string.IsNullOrWhiteSpace(f.instl_dst));
         if (num == 0)
@@ -9239,7 +9239,7 @@ reportProgress,
         ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingUnsafe(null));
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select(pendingPackage => pendingPackage.path));
-        dbGateway.UpsertInstallRows(new ChartPackage[1] { regroupedPackage });
+        dbGateway.UpsertInstallRows([regroupedPackage]);
         bool metadataResolved = (regroupedPackage.ChartFiles ?? []).Any(file => file != null && (!string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist)));
         LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackage.ChartFiles.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
     }
@@ -9460,7 +9460,7 @@ reportProgress,
                             {
                                 try
                                 {
-                                    InstallPendingPackagesToEstimatedDestinations(new ChartPackage[1] { pendingPackage });
+                                    InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
                                     return true;
                                 }
                                 catch (Exception ex)
@@ -9782,12 +9782,12 @@ reportProgress,
         {
             using (table.ReaderWriterLock.GetReaderGuard())
             {
-                sourceEntries = table.entries.ToList();
+                sourceEntries = [.. table.entries];
             }
         }
         else
         {
-            sourceEntries = sourceEntries.ToList();
+            sourceEntries = [.. sourceEntries];
         }
         PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(table, sourceEntries);
         ReplacePlaylistReferenceIndexTable(table, sourceEntries);
@@ -10353,7 +10353,7 @@ reportProgress,
                         dialogService.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
                     }
-                    BmsScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(new[] { dst });
+                    BmsScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots([dst]);
                     foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
                     {
                         reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));
@@ -10412,7 +10412,7 @@ reportProgress,
                     (package, destinationDirectory) => MoveChartPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
                     delegate (BMSFile file)
                     {
-                        return dialogService.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, file.path, string.Join(Environment.NewLine, from x in BMSFiles.Where(f => f.hash == file.hash).Except(new BMSFile[1] { file })
+                        return dialogService.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, file.path, string.Join(Environment.NewLine, from x in BMSFiles.Where(f => f.hash == file.hash).Except([file])
                                                                                                                                                          select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
                     });
                 ApplyLibraryMutationDelta(result.MutationDelta);

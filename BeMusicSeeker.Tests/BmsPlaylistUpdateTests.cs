@@ -156,7 +156,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table },
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table],
             [
                 delegate(BMSPlaylist.PlaylistTableUpdateContext context)
                 {
@@ -305,7 +305,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table }, reason: "test_explicit_reload");
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table], reason: "test_explicit_reload");
 
             Assert.AreEqual(1, results.Count);
             Assert.IsTrue(results[0].Succeeded);
@@ -344,7 +344,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             List<PlaylistSyncProgressSnapshot> snapshots = [];
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { table }, progressCallback: snapshots.Add, reason: "test_skip_no_uri");
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table], progressCallback: snapshots.Add, reason: "test_skip_no_uri");
 
             Assert.AreEqual(0, results.Count);
             Assert.IsTrue(snapshots.Count >= 2);
@@ -389,7 +389,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { goodTable, badTable }), Dispatcher.CurrentDispatcher);
             List<PlaylistSyncAttemptResult> syncResults = [];
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync(new[] { goodTable, badTable }, syncResultCallback: syncResults.Add, reason: "test_partial_failure");
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([goodTable, badTable], syncResultCallback: syncResults.Add, reason: "test_partial_failure");
 
             Assert.AreEqual(2, results.Count);
             Assert.AreEqual(2, syncResults.Count);

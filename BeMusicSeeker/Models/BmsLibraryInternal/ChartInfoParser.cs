@@ -196,7 +196,7 @@ internal static class ChartInfoParser
         }
         string chartString = model.ToChartString(timeoutGuard);
         IReadOnlyList<ChartInfoParseDiagnostic> readOnlyDiagnostics = diagnostics as IReadOnlyList<ChartInfoParseDiagnostic>
-            ?? (diagnostics ?? []).ToList();
+            ?? [.. (diagnostics ?? [])];
         return new ChartInfoParseResult(BuildRow(model, chartString, timeoutGuard), readOnlyDiagnostics, chartString);
     }
 

@@ -94,7 +94,7 @@ public sealed class ChartListVirtualViewTests
     {
         var file = new ThrowingFolderBmsFile();
         file.Apply(@"folder-a\alpha.bms", "Alpha");
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, null);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], null);
         var order = ChartListOrder.CreateTitleAscending(sourceRows);
 
         var view = new ChartListVirtualView(sourceRows, order, row => LibraryChartRow.FromBmsFile(row.BmsFile));
@@ -757,7 +757,7 @@ public sealed class ChartListVirtualViewTests
     {
         var file = new TestableBmsFile();
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, null);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], null);
 
         file.Apply(
             @"folder-a\new.bms",
@@ -807,7 +807,7 @@ public sealed class ChartListVirtualViewTests
         index.ReplaceTable(table, table.entries);
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
             null,
-            new[] { bmson },
+            [bmson],
             null,
             row => index.Find(row.Hash, row.Sha256));
         var chartRow = LibraryChartRow.FromBmsonSong(bmson);
@@ -856,7 +856,7 @@ public sealed class ChartListVirtualViewTests
             ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0),
             MaintenanceInfo = CreateMaintenanceInfo(@"folder-b\bmson.bmson", "22222222222222222222222222222222", 4)
         };
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(new[] { file }, new[] { bmson });
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], [bmson]);
 
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsFile != null), LibraryChartRow.FromBmsFile(file));
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsonSong != null), LibraryChartRow.FromBmsonSong(bmson));
@@ -874,10 +874,10 @@ public sealed class ChartListVirtualViewTests
         file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
         var projection = new ResourceHealthWarningProjection(
             1,
-            new[] { ChartWarning.Create(ChartWarningKind.ResourceBgaMissing, "projected resource warning") },
+            [ChartWarning.Create(ChartWarningKind.ResourceBgaMissing, "projected resource warning")],
             isIgnored: false);
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
-            new[] { file },
+            [file],
             null,
             _ => projection);
         var chartRow = LibraryChartRow.FromBmsFile(file);

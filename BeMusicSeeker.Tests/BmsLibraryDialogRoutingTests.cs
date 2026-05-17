@@ -31,14 +31,14 @@ public sealed class BmsLibraryDialogRoutingTests
                 path = "C:\\Pending\\Pkg\\chart.bms",
                 instl_dst = "C:\\Installed\\Pkg"
             };
-            var pendingPackage = new ChartPackage(new BMSFile[] { pendingFile })
+            var pendingPackage = new ChartPackage([pendingFile])
             {
                 path = "C:\\Pending\\Pkg",
                 delete_parent = false
             };
-            library.ChartPackagesPending = CreatePackageCollection(new[] { pendingPackage });
+            library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
 
-            library.ForceInstallPendingPackages(new[] { pendingPackage });
+            library.ForceInstallPendingPackages([pendingPackage]);
 
             Assert.AreEqual(1, dialogService.Calls.Count);
             Assert.AreEqual(Properties.Resources.Confirm_NormalInstallTitle, dialogService.Calls[0].Caption);

@@ -67,13 +67,13 @@ public sealed class PendingInstallEstimateQueueProcessorTests
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
             PendingInstallEstimateBatchSource.StartupRestore,
-            new[] { CreatePackage(@"C:\pending\startup\a"), CreatePackage(@"C:\pending\startup\b") },
+            [CreatePackage(@"C:\pending\startup\a"), CreatePackage(@"C:\pending\startup\b")],
             "startup"));
         Assert.IsTrue(firstStarted.Wait(3000), "The first batch did not start.");
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
             PendingInstallEstimateBatchSource.AutoInstall,
-            new[] { CreatePackage(@"C:\pending\drop\c") },
+            [CreatePackage(@"C:\pending\drop\c")],
             "drop"));
 
         Assert.IsTrue(progressReported.Wait(3000), "The active batch progress was not reported.");
@@ -106,7 +106,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
 
         processor.Enqueue(new PendingInstallEstimateBatchRequest(
             PendingInstallEstimateBatchSource.StartupRestore,
-            new[] { CreatePackage(@"C:\pending\startup\a") },
+            [CreatePackage(@"C:\pending\startup\a")],
             "startup"));
 
         Assert.IsTrue(completed.Wait(3000), "The batch did not complete.");

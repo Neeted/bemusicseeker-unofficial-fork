@@ -72,7 +72,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         _ = file.maintenanceInfo;
         IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(file);
-        var snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { file }, service, version: 1);
+        var snapshot = ResourceHealthIndexSnapshot.Build([file], service, version: 1);
 
         Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, file.MaintenanceInfoOrigin);
         Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
@@ -115,7 +115,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
-                new[] { ChartResourceKeyHash.GetLookupHash(@"sound\foo") },
+                [ChartResourceKeyHash.GetLookupHash(@"sound\foo")],
                 [],
                 []);
 
@@ -149,7 +149,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
-                new[] { ChartResourceKeyHash.GetLookupHash("foo") },
+                [ChartResourceKeyHash.GetLookupHash("foo")],
                 [],
                 []);
 
@@ -183,7 +183,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
-                new[] { ChartResourceKeyHash.GetLookupHash("foo") },
+                [ChartResourceKeyHash.GetLookupHash("foo")],
                 [],
                 []);
 
@@ -334,7 +334,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             is_files_warning_ignored = true
         }, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        var snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 3);
+        var snapshot = ResourceHealthIndexSnapshot.Build([active, ignored], service, version: 3);
 
         CollectionAssert.AreEqual(new[] { active }, snapshot.ActiveFiles.ToArray());
         CollectionAssert.AreEqual(new[] { ignored }, snapshot.IgnoredFiles.ToArray());
@@ -368,7 +368,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_existing = 1,
             is_files_warning_ignored = true
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        var snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 1);
+        var snapshot = ResourceHealthIndexSnapshot.Build([active, ignored], service, version: 1);
 
         active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
         {
@@ -376,7 +376,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             wav_files_defined = 2,
             wav_files_existing = 2
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        ResourceHealthIndexSnapshot afterFix = snapshot.ApplyDelta(new BMSFile[] { active }, null, service, version: 2);
+        ResourceHealthIndexSnapshot afterFix = snapshot.ApplyDelta([active], null, service, version: 2);
 
         Assert.AreEqual(2, afterFix.TargetCount);
         Assert.IsFalse(afterFix.GetProjection(active).HasIssues);
@@ -392,14 +392,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_existing = 3,
             is_files_warning_ignored = false
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        ResourceHealthIndexSnapshot afterAdd = afterFix.ApplyDelta(new BMSFile[] { added }, null, service, version: 3);
+        ResourceHealthIndexSnapshot afterAdd = afterFix.ApplyDelta([added], null, service, version: 3);
 
         Assert.AreEqual(3, afterAdd.TargetCount);
         Assert.IsTrue(afterAdd.GetProjection(added).HasIssues);
         CollectionAssert.AreEqual(new[] { added }, afterAdd.ActiveFiles.ToArray());
         CollectionAssert.AreEqual(new[] { ignored }, afterAdd.IgnoredFiles.ToArray());
 
-        ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, new BMSFile[] { ignored }, service, version: 4);
+        ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, [ignored], service, version: 4);
 
         Assert.AreEqual(2, afterRemove.TargetCount);
         Assert.IsFalse(afterRemove.GetProjection(ignored).HasIssues);
@@ -454,7 +454,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         SetNotes(bmsonRow, 0);
         bmsonRow.SetChartInfo(CreateChartInfo(bmsonRow.hash, notes: 0));
 
-        List<BMSFile> result = service.GetZeroNoteFiles(new BMSFile[] { zeroNoteFile, normalFile, missingChartInfoFile, bmsonRow });
+        List<BMSFile> result = service.GetZeroNoteFiles([zeroNoteFile, normalFile, missingChartInfoFile, bmsonRow]);
 
         CollectionAssert.AreEqual(new[] { zeroNoteFile }, result);
     }
@@ -479,11 +479,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         SetNotes(bmsonRow, 0);
 
         Assert.IsTrue(service.ApplyNeedToBeFixedWarnings(bmsonRow));
-        Assert.AreEqual(0, service.GetGarbledFiles(new BMSFile[] { bmsonRow }, isInFixedList: false).Count);
-        Assert.AreEqual(0, service.GetZeroNoteFiles(new BMSFile[] { bmsonRow }).Count);
-        Assert.AreEqual(1, service.SetFilesWarningIgnored(new BMSFile[] { bmsonRow }, unset: false).Count);
+        Assert.AreEqual(0, service.GetGarbledFiles([bmsonRow], isInFixedList: false).Count);
+        Assert.AreEqual(0, service.GetZeroNoteFiles([bmsonRow]).Count);
+        Assert.AreEqual(1, service.SetFilesWarningIgnored([bmsonRow], unset: false).Count);
 
-        MaintenanceEncodingUpdateResult encodingResult = service.ApplyEncoding(new BMSFile[] { bmsonRow }, "shift_jis");
+        MaintenanceEncodingUpdateResult encodingResult = service.ApplyEncoding([bmsonRow], "shift_jis");
 
         Assert.AreEqual(0, encodingResult.SongsToUpsert.Count);
         Assert.AreEqual(0, encodingResult.MaintenanceInfosToUpsert.Count);
@@ -507,7 +507,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored(new BMSFile[] { file }, unset: false);
+        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([file], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(info.is_files_warning_ignored);
@@ -572,8 +572,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             is_encoding_fixed = false
         }, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        List<BMSFile> regularList = service.GetGarbledFiles(new BMSFile[] { unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File }, isInFixedList: false);
-        List<BMSFile> fixedList = service.GetGarbledFiles(new BMSFile[] { unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File }, isInFixedList: true);
+        List<BMSFile> regularList = service.GetGarbledFiles([unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File], isInFixedList: false);
+        List<BMSFile> fixedList = service.GetGarbledFiles([unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File], isInFixedList: true);
 
         CollectionAssert.AreEquivalent(new BMSFile[] { unknownFile, gb2312File, big5File }, regularList);
         CollectionAssert.AreEquivalent(new BMSFile[] { fixedUnknownFile }, fixedList);
@@ -590,7 +590,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         zeroNoteFile.path = "C:\\missing\\chart.bms";
         zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
 
-        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(new BMSFile[] { zeroNoteFile });
+        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings([zeroNoteFile]);
 
         Assert.AreEqual(1, result.Total);
         Assert.AreEqual(1, result.ClearedCount);
@@ -631,7 +631,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
             file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "gb2312");
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
 
             Assert.AreEqual(expectedTitle, file.title);
             Assert.AreEqual(expectedSubtitle, file.subtitle);
@@ -683,7 +683,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
             file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "gb2312");
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
 
             Assert.AreEqual(expectedTitle, file.Title);
             Assert.AreEqual(expectedArtist, file.Artist);
@@ -734,7 +734,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
             file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "shift_jis");
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "shift_jis");
 
             Assert.AreEqual(expectedTitle, file.title);
             Assert.AreEqual(expectedSubtitle, file.subtitle);
@@ -791,7 +791,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 propertyNames.Add(e.PropertyName);
             };
 
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "gb2312");
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
 
             Assert.AreEqual(0, result.SongsToUpsert.Count);
             CollectionAssert.AreEqual(new[] { info }, result.MaintenanceInfosToUpsert);
@@ -836,7 +836,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
             file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "gb2312");
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
 
             Assert.AreEqual(0, result.SongsToUpsert.Count);
             Assert.AreEqual(0, result.MaintenanceInfosToUpsert.Count);
@@ -885,7 +885,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new[] { file },
+                [file],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -927,7 +927,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new[] { file },
+                [file],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -986,7 +986,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new[] { file },
+                [file],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1035,7 +1035,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new[] { file },
+                [file],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1088,7 +1088,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new[] { file },
+                [file],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1132,7 +1132,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new[] { file },
+                [file],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1180,7 +1180,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new BMSFile[] { bmsFile, bmsonFile },
+                [bmsFile, bmsonFile],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1240,7 +1240,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new BMSFile[] { bmsFile },
+                [bmsFile],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1290,7 +1290,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new BMSFile[] { bmsFile },
+                [bmsFile],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null,
@@ -1456,7 +1456,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                new[] { invalidRow, validRow },
+                [invalidRow, validRow],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1506,7 +1506,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = Path.Combine(tempDirectoryPath, "stale.bms"), hash = "cccccccccccccccccccccccccccccccc" }, typeof(LR2SongDBExtended.maintenance));
             }
 
-            int deleted = new BmsLibraryDbGateway(songDbPath).DeleteMaintenanceRows(new[] { Path.Combine(tempDirectoryPath, "stale.bms") });
+            int deleted = new BmsLibraryDbGateway(songDbPath).DeleteMaintenanceRows([Path.Combine(tempDirectoryPath, "stale.bms")]);
 
             Assert.AreEqual(1, deleted);
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -1553,7 +1553,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
             file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, encoding);
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], encoding);
 
             Assert.AreEqual(expectedTitle, file.Title);
             Assert.AreEqual(expectedArtist, file.Artist);

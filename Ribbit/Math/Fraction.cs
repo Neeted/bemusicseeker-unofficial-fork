@@ -584,7 +584,7 @@ public struct Fraction : IComparable, IFormattable
         return hashCode ^ hashCode2;
     }
 
-    public int CompareTo(object obj)
+    public readonly int CompareTo(object obj)
     {
         if (obj == null)
         {
@@ -614,7 +614,7 @@ public struct Fraction : IComparable, IFormattable
         return CompareTo(right);
     }
 
-    public int CompareTo(Fraction right)
+    public readonly int CompareTo(Fraction right)
     {
         if (m_Denominator == 0L)
         {
@@ -727,9 +727,10 @@ public struct Fraction : IComparable, IFormattable
             num4 = 1L;
             num5 = 0L;
         }
-        long outN = 1L;
-        long outD = 1L;
+
         bool isOflow = false;
+        long outN;
+        long outD;
         void action(long fromN, long fromD, long toN, long toD)
         {
             double num13 = (double)toN - target * (double)toD;
@@ -820,9 +821,10 @@ public struct Fraction : IComparable, IFormattable
             num4 = 1L;
             num5 = 0L;
         }
-        long outN = 1L;
-        long outD = 1L;
+
         bool isOflow = false;
+        long outN;
+        long outD;
         void action(long fromN, long fromD, long toN, long toD)
         {
             decimal num13 = (decimal)toN - target * (decimal)toD;

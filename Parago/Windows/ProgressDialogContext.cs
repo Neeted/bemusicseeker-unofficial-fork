@@ -3,17 +3,11 @@ using System.ComponentModel;
 
 namespace Parago.Windows;
 
-public class ProgressDialogContext
+public class ProgressDialogContext(BackgroundWorker worker, DoWorkEventArgs arguments)
 {
-    public BackgroundWorker Worker { get; private set; }
+    public BackgroundWorker Worker { get; private set; } = worker ?? throw new ArgumentNullException("worker");
 
-    public DoWorkEventArgs Arguments { get; private set; }
-
-    public ProgressDialogContext(BackgroundWorker worker, DoWorkEventArgs arguments)
-    {
-        Worker = worker ?? throw new ArgumentNullException("worker");
-        Arguments = arguments ?? throw new ArgumentNullException("arguments");
-    }
+    public DoWorkEventArgs Arguments { get; private set; } = arguments ?? throw new ArgumentNullException("arguments");
 
     public bool CheckCancellationPending()
     {

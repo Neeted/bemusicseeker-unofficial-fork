@@ -46,7 +46,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref bmsFilesChangedCount);
                     }
                 };
-                SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
+                SetLibraryFilesWithoutNotification(library, [file]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
@@ -108,10 +108,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref bmsFilesChangedCount);
                     }
                 };
-                SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
+                SetLibraryFilesWithoutNotification(library, [file]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
-                library.MoveBMSRootFolder(new[] { file }, destinationParentPath);
+                library.MoveBMSRootFolder([file], destinationParentPath);
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
                 Assert.IsTrue(file.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bms")));
@@ -160,7 +160,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref bmsonSongsChangedCount);
                     }
                 };
-                SetLibraryBmsonSongsWithoutNotification(library, new[] { song });
+                SetLibraryBmsonSongsWithoutNotification(library, [song]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
@@ -213,10 +213,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref bmsFilesChangedCount);
                     }
                 };
-                SetLibraryBmsonSongsWithoutNotification(library, new[] { song });
+                SetLibraryBmsonSongsWithoutNotification(library, [song]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
-                library.MoveBMSRootFolder(new[] { row }, destinationParentPath);
+                library.MoveBMSRootFolder([row], destinationParentPath);
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
                 Assert.IsTrue(song.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bmson")));
@@ -275,12 +275,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref encodingChangedCount);
                     }
                 };
-                SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
+                SetLibraryFilesWithoutNotification(library, [file]);
                 Interlocked.Exchange(ref garbledChangedCount, 0);
                 Interlocked.Exchange(ref garbledFixedChangedCount, 0);
                 Interlocked.Exchange(ref encodingChangedCount, 0);
 
-                library.SetBMSFilesEncoding(new[] { file }, "gb2312");
+                library.SetBMSFilesEncoding([file], "gb2312");
 
                 Thread.Sleep(200);
                 Assert.AreEqual(0, Volatile.Read(ref garbledChangedCount));
@@ -336,7 +336,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Interlocked.Increment(ref namesChangedCount);
                 }
             };
-            SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
+            SetLibraryFilesWithoutNotification(library, [file]);
             Interlocked.Exchange(ref bmsFilesChangedCount, 0);
             Interlocked.Exchange(ref symbolsChangedCount, 0);
             Interlocked.Exchange(ref namesChangedCount, 0);
@@ -369,14 +369,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             BMSTable oldTable = CreateTable("Before", "A", file.hash);
             BMSTable newTable = CreateTable("After", "B", file.hash);
-            SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
+            SetLibraryFilesWithoutNotification(library, [file]);
 
             library.AddReferenceBMSTables(oldTable);
             Assert.AreEqual(1, file.RefTables.Count);
             Assert.AreEqual("A", file.RefTablesSymbols);
             Assert.AreEqual("Before", file.RefTablesNames);
 
-            library.SynchronizeReferenceBMSTables(new[] { newTable }, suppressFilePropertyChanged: true);
+            library.SynchronizeReferenceBMSTables([newTable], suppressFilePropertyChanged: true);
 
             Assert.AreEqual(1, file.RefTables.Count);
             Assert.AreSame(newTable, file.RefTables[0]);

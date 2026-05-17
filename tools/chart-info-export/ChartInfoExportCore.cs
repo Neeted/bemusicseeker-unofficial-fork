@@ -256,7 +256,7 @@ public static class ChartInfoExportRunner
             RedirectStandardError = true,
             CreateNoWindow = true
         };
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start 7z.exe.");
+        using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start 7z.exe.");
         string stdout = process.StandardOutput.ReadToEnd();
         string stderr = process.StandardError.ReadToEnd();
         process.WaitForExit();
@@ -302,7 +302,7 @@ public static class ChartInfoExportRunner
         RequireColumns(source, "chart_info", ChartInfoColumns);
         if (TableExists(source, "chart_digest_map"))
         {
-            RequireColumns(source, "chart_digest_map", new[] { "md5", "sha256" });
+            RequireColumns(source, "chart_digest_map", ["md5", "sha256"]);
         }
     }
 

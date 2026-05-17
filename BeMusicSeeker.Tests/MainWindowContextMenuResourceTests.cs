@@ -39,9 +39,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"tableContextMenuItemRemoveChartInfoParseFailureClick\""));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Remove_chart_info_parse_failure_record));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Msg_remove_chart_info_parse_failure_record));
-        Assert.IsTrue(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, new[] { new string('a', 32) }));
-        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(false, new[] { new string('a', 32) }));
-        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, new[] { " " }));
+        Assert.IsTrue(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, [new string('a', 32)]));
+        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(false, [new string('a', 32)]));
+        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, [" "]));
     }
 
     [TestMethod]
@@ -54,9 +54,9 @@ public sealed class MainWindowContextMenuResourceTests
             ChartFileKind.Bms,
             ChartOperationCapabilities.RunBmsEncodingFix);
 
-        Assert.IsTrue(MainWindow.ShouldShowResourceHealthContextMenu(false, new[] { bmsonTarget }));
-        Assert.IsFalse(MainWindow.ShouldShowResourceHealthContextMenu(true, new[] { bmsonTarget }));
-        Assert.IsFalse(MainWindow.ShouldShowResourceHealthContextMenu(false, new[] { bmsOnlyTarget }));
+        Assert.IsTrue(MainWindow.ShouldShowResourceHealthContextMenu(false, [bmsonTarget]));
+        Assert.IsFalse(MainWindow.ShouldShowResourceHealthContextMenu(true, [bmsonTarget]));
+        Assert.IsFalse(MainWindow.ShouldShowResourceHealthContextMenu(false, [bmsOnlyTarget]));
     }
 
     [TestMethod]
@@ -737,7 +737,7 @@ public sealed class MainWindowContextMenuResourceTests
         Directory.CreateDirectory(installRoot);
         try
         {
-            IReadOnlyList<string> normalized = MainWindowViewModel.SettingDialogViewModel.NormalizeStandaloneBmsRootPaths(new[] { firstRoot, secondRoot, installRoot });
+            IReadOnlyList<string> normalized = MainWindowViewModel.SettingDialogViewModel.NormalizeStandaloneBmsRootPaths([firstRoot, secondRoot, installRoot]);
 
             Assert.AreEqual(3, normalized.Count);
             Assert.IsTrue(normalized.Contains(firstRoot, StringComparer.OrdinalIgnoreCase));

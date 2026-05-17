@@ -49,7 +49,7 @@ internal sealed class ExternalPlaylistImportQueueSummary
 {
     internal ExternalPlaylistImportQueueSummary(IEnumerable<ExternalPlaylistImportOutcome> outcomes)
     {
-        Outcomes = (outcomes ?? []).Where(outcome => outcome != null).ToList();
+        Outcomes = [.. (outcomes ?? []).Where(outcome => outcome != null)];
     }
 
     internal IReadOnlyList<ExternalPlaylistImportOutcome> Outcomes { get; }
@@ -62,9 +62,9 @@ internal sealed class ExternalPlaylistImportQueueSummary
 
     internal bool HasNotifiableItems => SkippedDuplicateNameCount > 0 || FailedCount > 0;
 
-    internal IReadOnlyList<ExternalPlaylistImportOutcome> SkippedDuplicateNameOutcomes => Outcomes.Where(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.SkippedDuplicateName).ToList();
+    internal IReadOnlyList<ExternalPlaylistImportOutcome> SkippedDuplicateNameOutcomes => [.. Outcomes.Where(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.SkippedDuplicateName)];
 
-    internal IReadOnlyList<ExternalPlaylistImportOutcome> FailedOutcomes => Outcomes.Where(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed).ToList();
+    internal IReadOnlyList<ExternalPlaylistImportOutcome> FailedOutcomes => [.. Outcomes.Where(outcome => outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed)];
 }
 
 internal sealed class ExternalPlaylistImportQueue
@@ -77,7 +77,7 @@ internal sealed class ExternalPlaylistImportQueue
 
     internal bool Enqueue(Uri uri)
     {
-        return EnqueueRange(new[] { uri });
+        return EnqueueRange([uri]);
     }
 
     internal bool EnqueueRange(IEnumerable<Uri> uris)

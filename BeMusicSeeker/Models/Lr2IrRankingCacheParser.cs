@@ -326,7 +326,6 @@ internal static class Lr2IrRankingCacheParser
 
     private static bool TryReadIntElement(XElement parent, string name, out int value)
     {
-        value = 0;
         string text = parent.Element(name)?.Value?.Trim();
         return int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out value) && value >= 0;
     }

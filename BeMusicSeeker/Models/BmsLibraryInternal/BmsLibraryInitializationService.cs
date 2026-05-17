@@ -2370,14 +2370,12 @@ internal sealed class BmsLibraryInitializationService
         phase1?.Invoke();
         stopwatchPhase1.Stop();
         result.Phase1MinLoadMs = stopwatchPhase1.ElapsedMilliseconds;
-
-        long waitBeforeContinuationStartMs = 0L;
         long waitForContinuationSignalMs = 0L;
         long waitForContinuationTasksMs = 0L;
         var stopwatchWaitBeforeContinuationStart = Stopwatch.StartNew();
         semaphore?.Wait();
         stopwatchWaitBeforeContinuationStart.Stop();
-        waitBeforeContinuationStartMs = stopwatchWaitBeforeContinuationStart.ElapsedMilliseconds;
+        long waitBeforeContinuationStartMs = stopwatchWaitBeforeContinuationStart.ElapsedMilliseconds;
 
         if (tasksContinuation != null)
         {

@@ -983,12 +983,12 @@ public partial class BMSPlaylist : NotificationObject
             await Task.Yield();
             if (!string.IsNullOrWhiteSpace(cleanupTablePath) && (!enabled || !string.Equals(cleanupTablePath, outputPath, StringComparison.OrdinalIgnoreCase)))
             {
-                SyncBeatorajaManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), new List<BmtTableExportService.ManagedTableUrlEntry>());
+                SyncBeatorajaManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), []);
                 BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
             }
             if (!enabled)
             {
-                SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), new List<BmtTableExportService.ManagedTableUrlEntry>());
+                SyncBeatorajaManagedTableUrls(outputPath, BmtTableExportService.ReadManagedTableUrls(outputPath), []);
                 return;
             }
             List<BMSTable> tablesSnapshot;
@@ -3271,10 +3271,10 @@ public partial class BMSPlaylist : NotificationObject
         Uri resolvedHeaderUri = null;
         Uri resolvedDataUri = null;
         BMSTable bMSTable = null;
-        string header_json = null;
         try
         {
             string input = await playlistHttpClient.GetStringAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
+            string header_json;
             if (TryResolveHeaderUri(input, pageUri, out headerUri))
             {
                 resolvedHeaderUri = (!headerUri.IsAbsoluteUri) ? new Uri(pageUri, headerUri) : headerUri;
@@ -3625,7 +3625,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return [];
         }
-        return entries.Select(CreateComparablePlaylistEntryRow).Where(row => row != null).ToList();
+        return [.. entries.Select(CreateComparablePlaylistEntryRow).Where(row => row != null)];
     }
 
     internal static ComparablePlaylistEntryRow CreateComparablePlaylistEntryRow(BMSTableEntry entry)
@@ -3924,7 +3924,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsTable">保存対象のプレイリスト。</param>
     private void CommitBMSTable(BMSTable bmsTable)
     {
-        CommitBMSTable(new BMSTable[1] { bmsTable });
+        CommitBMSTable([bmsTable]);
     }
 
     /// <summary>
@@ -4011,7 +4011,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsTable">削除対象のプレイリスト。</param>
     private void deleteBMSTable(BMSTable bmsTable)
     {
-        deleteBMSTable(new BMSTable[1] { bmsTable });
+        deleteBMSTable([bmsTable]);
     }
 
     /// <summary>

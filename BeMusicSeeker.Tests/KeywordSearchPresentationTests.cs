@@ -65,7 +65,7 @@ public sealed class KeywordSearchPresentationTests
     [TestMethod]
     public void BuildKeywordSearchHistorySuggestions_ReplacesWholeSearchText()
     {
-        KeywordSearchSuggestionItem suggestion = MainWindowViewModel.BuildKeywordSearchHistorySuggestions(new[] { "title:alpha" }, "current")
+        KeywordSearchSuggestionItem suggestion = MainWindowViewModel.BuildKeywordSearchHistorySuggestions(["title:alpha"], "current")
             [0];
 
         string applied = suggestion.Apply("current", out int caretIndex);

@@ -38,7 +38,7 @@ public sealed class BmsLibraryStateApplierTests
 
             List<BMSFile> libraryFiles = [];
             List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
-            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection(new[] { removedPackage, remainingPackage });
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([removedPackage, remainingPackage]);
             DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
@@ -90,7 +90,7 @@ public sealed class BmsLibraryStateApplierTests
                     path = Path.Combine(tempRootPath, "pending_chart.bms"),
                     instl_dst = oldDirectoryPath
                 };
-                var installedPackage = new ChartPackage(new BMSFile[] { movedFile })
+                var installedPackage = new ChartPackage([movedFile])
                 {
                     path = oldDirectoryPath,
                     delete_parent = false
@@ -131,7 +131,7 @@ public sealed class BmsLibraryStateApplierTests
                     }
                 ];
                 DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { installedPackage });
+                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([installedPackage]);
                 var callbacks = new TrackingCallbacks();
                 BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta
@@ -216,12 +216,12 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var removedPackage = new ChartPackage(new BMSFile[] { removedFile })
+            var removedPackage = new ChartPackage([removedFile])
             {
                 path = "C:\\Installed\\RemovePkg",
                 delete_parent = false
             };
-            var keptPackage = new ChartPackage(new BMSFile[] { keptFile })
+            var keptPackage = new ChartPackage([keptFile])
             {
                 path = "C:\\Installed\\KeepPkg",
                 delete_parent = false
@@ -239,11 +239,11 @@ public sealed class BmsLibraryStateApplierTests
             List<BMSFile> libraryFiles = [removedFile, keptFile];
             List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
             DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage, keptPackage]);
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsFiles(new[] { removedFile });
+            applier.UnregisterBmsFiles([removedFile]);
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreSame(keptFile, libraryFiles.Single());
@@ -280,7 +280,7 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var removedPackage = new ChartPackage(new BMSFile[] { canonicalFile })
+            var removedPackage = new ChartPackage([canonicalFile])
             {
                 path = "C:\\Installed\\RemovePkg",
                 delete_parent = false
@@ -297,11 +297,11 @@ public sealed class BmsLibraryStateApplierTests
             List<BMSFile> libraryFiles = [canonicalFile, keptFile];
             List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
             DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { removedPackage });
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage]);
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsFiles(new[] { removedFileReference });
+            applier.UnregisterBmsFiles([removedFileReference]);
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreSame(keptFile, libraryFiles.Single());
@@ -343,7 +343,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsonSongs(new[] { removedSong });
+            applier.UnregisterBmsonSongs([removedSong]);
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());
@@ -377,12 +377,12 @@ public sealed class BmsLibraryStateApplierTests
             };
             var removedEntry = PendingChartEntry.CreateFromBmsonSong(removedSong);
             var keptEntry = PendingChartEntry.CreateFromBmsonSong(keptSong);
-            var removedPackage = new ChartPackage(new BMSFile[] { removedEntry })
+            var removedPackage = new ChartPackage([removedEntry])
             {
                 path = "C:\\Installed\\RemovePkg",
                 delete_parent = false
             };
-            var keptPackage = new ChartPackage(new BMSFile[] { keptEntry })
+            var keptPackage = new ChartPackage([keptEntry])
             {
                 path = "C:\\Installed\\KeepPkg",
                 delete_parent = false
@@ -397,11 +397,11 @@ public sealed class BmsLibraryStateApplierTests
             List<BMSFile> libraryFiles = [];
             List<LR2SongDBExtended.bmson_song> bmsonSongs = [removedSong, keptSong];
             DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage, keptPackage]);
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsonSongs(new[] { removedSong });
+            applier.UnregisterBmsonSongs([removedSong]);
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());

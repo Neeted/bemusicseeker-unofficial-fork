@@ -278,12 +278,10 @@ public partial class App : System.Windows.Application
         }
         if (exception is NullReferenceException)
         {
-            showMessage = false;
             return;
         }
         if (exception is InvalidOperationException)
         {
-            showMessage = false;
             return;
         }
         try
@@ -338,9 +336,8 @@ public partial class App : System.Windows.Application
     {
         Logger fileLogger = NLogWrapper.FileLogger;
         Logger networkLogger = NLogWrapper.NetworkLogger;
-        Logger logger = fileLogger;
-        string empty = string.Empty;
-        empty = Assembly.GetEntryAssembly().GetName().Version.ToString();
+        string empty = Assembly.GetEntryAssembly().GetName().Version.ToString();
+        Logger logger;
         if (showMessage)
         {
             System.Windows.MessageBox.Show(".NET Frameworkでエラーが発生しました" + Environment.NewLine + Environment.NewLine + "原因の追跡が困難なため、どの操作で発生したか" + Environment.NewLine + "開発者に報告頂けると助かります" + Environment.NewLine + Environment.NewLine + "エラー概要:" + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);

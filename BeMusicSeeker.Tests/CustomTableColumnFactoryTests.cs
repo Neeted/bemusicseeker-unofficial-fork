@@ -492,7 +492,7 @@ public sealed class CustomTableColumnFactoryTests
 
         var bmsFile = new BMSFile
         {
-            InstallDestinationSuggestions = new[] { "C:\\BMS\\A", "", "C:\\BMS\\B" }
+            InstallDestinationSuggestions = ["C:\\BMS\\A", "", "C:\\BMS\\B"]
         };
         CollectionAssert.AreEqual(
             new[] { "C:\\BMS\\A", "C:\\BMS\\B" },
@@ -505,7 +505,7 @@ public sealed class CustomTableColumnFactoryTests
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             sha256 = new string('b', 64)
         });
-        bmsonRow.CompatibilityBmsFile.InstallDestinationSuggestions = new[] { "C:\\Bmson\\A", "", "C:\\Bmson\\B" };
+        bmsonRow.CompatibilityBmsFile.InstallDestinationSuggestions = ["C:\\Bmson\\A", "", "C:\\Bmson\\B"];
         CollectionAssert.AreEqual(
             new[] { "C:\\Bmson\\A", "C:\\Bmson\\B" },
             columns["InstallDst"].GetEditSuggestions(bmsonRow).ToArray());

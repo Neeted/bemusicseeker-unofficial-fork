@@ -41,9 +41,9 @@ public sealed class ExternalPlaylistImportQueueTests
         var second = new Uri("https://example.com/range-second");
         var third = new Uri("https://example.com/range-third");
 
-        Assert.IsTrue(queue.EnqueueRange(new[] { first, second }));
+        Assert.IsTrue(queue.EnqueueRange([first, second]));
         Assert.AreEqual(2, queue.PendingCount);
-        Assert.IsFalse(queue.EnqueueRange(new[] { third }));
+        Assert.IsFalse(queue.EnqueueRange([third]));
         Assert.AreEqual(3, queue.PendingCount);
 
         Assert.IsTrue(queue.TryDequeue(out Uri dequeuedFirst));
@@ -65,7 +65,7 @@ public sealed class ExternalPlaylistImportQueueTests
 
         Assert.IsFalse(queue.EnqueueRange(null));
         Assert.IsFalse(queue.EnqueueRange([]));
-        Assert.IsTrue(queue.EnqueueRange(new[] { null, valid, null }));
+        Assert.IsTrue(queue.EnqueueRange([null, valid, null]));
         Assert.AreEqual(1, queue.PendingCount);
         Assert.IsTrue(queue.TryDequeue(out Uri dequeued));
         Assert.AreEqual(valid, dequeued);
@@ -87,12 +87,12 @@ public sealed class ExternalPlaylistImportQueueTests
         var imported = new Uri("https://example.com/imported");
         var skipped = new Uri("https://example.com/skipped");
         var failed = new Uri("https://example.com/failed");
-        var summary = new ExternalPlaylistImportQueueSummary(new[]
-        {
+        var summary = new ExternalPlaylistImportQueueSummary(
+        [
             ExternalPlaylistImportOutcome.Imported(imported, "Imported"),
             ExternalPlaylistImportOutcome.SkippedDuplicateName(skipped, "Skipped", new InvalidOperationException("duplicate")),
             ExternalPlaylistImportOutcome.Failed(failed, new InvalidOperationException("failed"))
-        });
+        ]);
 
         Assert.AreEqual(1, summary.ImportedCount);
         Assert.AreEqual(1, summary.SkippedDuplicateNameCount);

@@ -46,7 +46,7 @@ internal static class KeywordSearchHistoryStore
                 // 復元できない行は履歴全体を捨てずに無視します。
             }
         }
-        return history.Take(MaxHistoryCount).ToArray();
+        return [.. history.Take(MaxHistoryCount)];
     }
 
     /// <summary>
@@ -73,14 +73,14 @@ internal static class KeywordSearchHistoryStore
         string normalizedEntry = NormalizeEntry(entry);
         if (string.IsNullOrEmpty(normalizedEntry))
         {
-            return NormalizeEntries(history).ToArray();
+            return [.. NormalizeEntries(history)];
         }
         List<string> entries =
         [
             normalizedEntry,
             .. NormalizeEntries(history).Where(current => !string.Equals(current, normalizedEntry, StringComparison.OrdinalIgnoreCase)),
         ];
-        return entries.Take(MaxHistoryCount).ToArray();
+        return [.. entries.Take(MaxHistoryCount)];
     }
 
     private static IEnumerable<string> NormalizeEntries(IEnumerable<string> history)

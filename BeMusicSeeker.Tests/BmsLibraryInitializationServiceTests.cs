@@ -492,7 +492,7 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { keepFile, deletedFile },
+                [keepFile, deletedFile],
                 new BmsScanExecutionResult
                 {
                     Success = true,
@@ -503,7 +503,7 @@ public sealed class BmsLibraryInitializationServiceTests
                     ManagedMaterializeMs = 7L,
                     BridgeRawBufferBytes = 4096UL,
                     Result = CreateScanResult(
-                        new[] { keepFile.path, Path.Combine(newDirectoryPath, "added.bms") },
+                        [keepFile.path, Path.Combine(newDirectoryPath, "added.bms")],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { keepDirectoryPath, Array.Empty<string>() },
@@ -579,7 +579,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath, bmsonPath },
+                        [bmsPath, bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -745,7 +745,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -795,7 +795,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -843,7 +843,7 @@ public sealed class BmsLibraryInitializationServiceTests
             };
             file.SetHash("cccccccccccccccccccccccccccccccc");
 
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(new[] { file });
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs([file]);
 
             Assert.IsFalse(string.IsNullOrWhiteSpace(file.folder));
             Assert.IsFalse(string.IsNullOrWhiteSpace(file.parent));
@@ -876,7 +876,7 @@ public sealed class BmsLibraryInitializationServiceTests
             };
             file.SetHash("dddddddddddddddddddddddddddddddd");
 
-            new BmsLibraryDbGateway(songDbPath).UpsertSongs(new[] { file });
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs([file]);
 
             Assert.IsTrue(string.IsNullOrWhiteSpace(file.parent));
             Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
@@ -911,7 +911,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -964,7 +964,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, new[] { "sound.wav" } }
@@ -1025,7 +1025,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, new[] { "sound.wav" } }
@@ -1091,7 +1091,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { asciiPath, koreanPath },
+                        [asciiPath, koreanPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, new[] { "sound.wav" } }
@@ -1165,7 +1165,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { firstPath, secondPath },
+                        [firstPath, secondPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, new[] { "sound.wav" } }
@@ -1224,7 +1224,7 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { existing },
+                [existing],
                 new BmsScanExecutionResult
                 {
                     Success = true,
@@ -1278,7 +1278,7 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { existing },
+                [existing],
                 new BmsScanExecutionResult
                 {
                     Success = true,
@@ -1423,7 +1423,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -1475,7 +1475,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -1532,7 +1532,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -1574,7 +1574,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 songDbConnection.CreateTable<LR2SongDB.song>();
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.UpsertChartInfos(new[] { CreateMinimalChartInfoRow(snapshot.Sha256, snapshot.Md5) });
+            gateway.UpsertChartInfos([CreateMinimalChartInfoRow(snapshot.Sha256, snapshot.Md5)]);
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
@@ -1585,7 +1585,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -1627,11 +1627,11 @@ public sealed class BmsLibraryInitializationServiceTests
                 songDbConnection.CreateTable<LR2SongDB.song>();
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.UpsertChartInfos(new[]
-            {
+            gateway.UpsertChartInfos(
+            [
                 CreateMinimalChartInfoRow(firstSnapshot.Sha256, firstSnapshot.Md5),
                 CreateMinimalChartInfoRow(secondSnapshot.Sha256, secondSnapshot.Md5)
-            });
+            ]);
 
             List<LR2SongDBExtended.chart_info> callbackRows = [];
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -1643,7 +1643,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { firstPath, secondPath },
+                        [firstPath, secondPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -1812,7 +1812,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsonPath },
+                        [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -1866,7 +1866,7 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { keepFile },
+                [keepFile],
                 new BmsScanExecutionResult
                 {
                     Success = true,
@@ -1935,12 +1935,12 @@ public sealed class BmsLibraryInitializationServiceTests
             uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash("movie");
             var nativeIndex = LibraryResourceIndex.CreateFromNativeCanonicalArrays(
                 [chartDirectoryPath],
-                [new[] { audioRelativeHash }],
-                [Array.Empty<uint>()],
-                [new[] { movieRelativeHash }],
-                [new[] { audioRelativeHash }],
-                [Array.Empty<uint>()],
-                [new[] { movieRelativeHash }],
+                [[audioRelativeHash]],
+                [[]],
+                [[movieRelativeHash]],
+                [[audioRelativeHash]],
+                [[]],
+                [[movieRelativeHash]],
                 new Dictionary<uint, string[]> { { audioRelativeHash, new[] { chartDirectoryPath } } },
                 [],
                 new Dictionary<uint, string[]> { { movieRelativeHash, new[] { chartDirectoryPath } } });
@@ -1949,7 +1949,7 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { keepFile },
+                [keepFile],
                 new BmsScanExecutionResult
                 {
                     Success = true,
@@ -2014,7 +2014,7 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { deletedFile },
+                [deletedFile],
                 new BmsScanExecutionResult
                 {
                     Success = true,
@@ -2075,12 +2075,12 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { keepFile, deletedFile },
+                [keepFile, deletedFile],
                 new BmsScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { keepChartPath },
+                        [keepChartPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { Path.GetDirectoryName(keepChartPath), Array.Empty<string>() }
@@ -2124,7 +2124,7 @@ public sealed class BmsLibraryInitializationServiceTests
             List<(int Total, int Processed, string Path)> progress = [];
             ChartDigestBackfillResult result = service.BackfillChartDigests(
                 new BmsLibraryDbGateway(songDbPath),
-                new[] { chartA, chartB },
+                [chartA, chartB],
                 (total, processed, path) => progress.Add((total, processed, path)));
 
             Assert.AreEqual(1, result.TargetCount);
@@ -2209,7 +2209,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.UpsertChartInfos(new[] { CreateMinimalChartInfoRow(sha256, md5) });
+            gateway.UpsertChartInfos([CreateMinimalChartInfoRow(sha256, md5)]);
 
             var service = new BmsLibraryInitializationService();
             SongTableLoadResult result = service.LoadSongTable(
@@ -2271,12 +2271,12 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                currentBmsonSongs: new[] { keepSong, deletedSong },
+                currentBmsonSongs: [keepSong, deletedSong],
                 executeBmsonScan: () => new BmsScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { keepBmsonPath, addedBmsonPath },
+                        [keepBmsonPath, addedBmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { Path.GetDirectoryName(keepBmsonPath), Array.Empty<string>() },
@@ -2333,7 +2333,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsonPath },
+                        [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
@@ -2342,7 +2342,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                currentBmsonSongs: new[] { existingSong });
+                currentBmsonSongs: [existingSong]);
 
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreEqual("New", result.AddedBmsonSongs[0].title);
@@ -2394,7 +2394,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsonPath },
+                        [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
@@ -2403,7 +2403,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                currentBmsonSongs: new[] { currentSong });
+                currentBmsonSongs: [currentSong]);
 
             Assert.AreEqual(0, result.BmsonUpsertTargetCount);
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
@@ -2446,7 +2446,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsonPath },
+                        [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
@@ -2455,7 +2455,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                currentBmsonSongs: new[] { existingSong });
+                currentBmsonSongs: [existingSong]);
 
             Assert.AreEqual(1, result.BmsonUpsertTargetCount);
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
@@ -2497,12 +2497,12 @@ public sealed class BmsLibraryInitializationServiceTests
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                new[] { keepFile },
+                [keepFile],
                 new BmsScanExecutionResult
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsPath },
+                        [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { bmsDir, Array.Empty<string>() }
@@ -2518,7 +2518,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        new[] { bmsonPath },
+                        [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { bmsonDir, new[] { Path.Combine("sound", "song.ogg") } }

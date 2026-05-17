@@ -82,7 +82,7 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         if (normalize != Normalization.NONE)
         {
             float num = 0f;
-            foreach (TimeSpan item in first.Concat(new TimeSpan[1] { base.Duration }))
+            foreach (TimeSpan item in first.Concat([base.Duration]))
             {
                 float level = BassAudioWriter.GetLevel(item - currentTime, normalize == Normalization.RMS_VALUE);
                 num = System.Math.Max(num, level);
@@ -130,7 +130,7 @@ public class BMSAutoPlayWriter(BMSFile bms) : BMSAutoPlayer<BassAudioWriter>(bms
         });
         NLogWrapper.DebuggerLogger?.Trace(BassAudioWriter.EncoderCommandLine);
         BassAudioWriter.StartRecording();
-        foreach (TimeSpan item2 in first.Concat(new TimeSpan[1] { base.Duration }))
+        foreach (TimeSpan item2 in first.Concat([base.Duration]))
         {
             BassAudioWriter.RecordToFile(item2 - currentTime);
             ForwardTo(item2);

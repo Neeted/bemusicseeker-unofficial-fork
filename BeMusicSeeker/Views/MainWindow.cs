@@ -1338,7 +1338,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool TryGetContextMenuChartTarget(object primarySource, object fallbackSource, out ChartOperationTarget target)
     {
-        target = null;
         if (TryGetContextMenuRow(primarySource, out object row)
             && GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out target))
         {
@@ -1763,7 +1762,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             InstallDestinationTitle = bmsFile.InstallDestinationTitle,
             InstallDestinationArtist = bmsFile.InstallDestinationArtist,
             Warnings = bmsFile.Warnings.ToStructuredList(),
-            Suggestions = (bmsFile.InstallDestinationSuggestions ?? []).ToArray()
+            Suggestions = [.. (bmsFile.InstallDestinationSuggestions ?? [])]
         };
     }
 
@@ -2443,7 +2442,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return contextRow;
         }
-        if ((sender as FrameworkElement)?.DataContext is PlaylistSummaryRow playlistSummaryRow)
+        if (sender is FrameworkElement { DataContext: PlaylistSummaryRow playlistSummaryRow })
         {
             return playlistSummaryRow;
         }
@@ -3308,7 +3307,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await viewModel.ResyncPlaylistsAsync(new BMSTable[1] { table }).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
+        await viewModel.ResyncPlaylistsAsync([table]).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
         RestorePlaylistTableSelectionAfterReload(table);
     }
 
@@ -3622,7 +3621,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        return _findTypeFromVisualChildren<EditableTextBlock>(new TreeViewItem[1] { treeViewItem });
+        return _findTypeFromVisualChildren<EditableTextBlock>([treeViewItem]);
     }
 
     private static Type _findTypeFromVisualChildren<Type>(IEnumerable<DependencyObject> _objs) where Type : class
@@ -4018,7 +4017,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuClearFolderClick");
         await Task.Run(delegate
         {
-            viewModel.RemovePendingPackages(new ChartPackage[1] { pkg });
+            viewModel.RemovePendingPackages([pkg]);
         }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4046,7 +4045,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, pkg, "treeViewInstalledFolderContextMenuClearFolderClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveInstalledPackageRecords(new ChartPackage[1] { pkg });
+            viewModel.RemoveInstalledPackageRecords([pkg]);
         }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
@@ -4071,7 +4070,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.ClearInstallDestinationForPendingPackages(new ChartPackage[1] { pkg });
+                viewModel.ClearInstallDestinationForPendingPackages([pkg]);
             }).Logging("treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
         }
     }
@@ -4093,7 +4092,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuForceInstallClick");
         await Task.Run(delegate
         {
-            viewModel.ForceInstallPendingPackages(new ChartPackage[1] { pkg });
+            viewModel.ForceInstallPendingPackages([pkg]);
         }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4121,7 +4120,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuManualInstallClick");
         await Task.Run(delegate
         {
-            viewModel.ManualInstallPendingPackages(new ChartPackage[1] { pkg });
+            viewModel.ManualInstallPendingPackages([pkg]);
         }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
@@ -4146,7 +4145,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.SearchInstallDestinationForPendingPackages(new ChartPackage[1] { pkg });
+                viewModel.SearchInstallDestinationForPendingPackages([pkg]);
             }).Logging("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
         }
     }
@@ -4165,7 +4164,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.SearchMergeDestinationForPendingPackages(new ChartPackage[1] { pkg });
+                viewModel.SearchMergeDestinationForPendingPackages([pkg]);
             }).Logging("treeViewInstallPackageContextMenuSearchMergeDestinationClick");
         }
     }
@@ -4196,7 +4195,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem != null)
         {
-            List<string> list = [.. duplicateGroup.Folders.Except(new string[1] { dataContext }, StringComparer.OrdinalIgnoreCase)];
+            List<string> list = [.. duplicateGroup.Folders.Except([dataContext], StringComparer.OrdinalIgnoreCase)];
             menuItem.IsEnabled = list.Count > 0;
             if (menuItem.IsEnabled)
             {
@@ -6051,7 +6050,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     }
                 }
                 string fileName = ResolveDownloadedArchiveFileName(normalizedUri, response);
-                if (BMSFile.bmsExtensions.Concat(new string[4] { ".zip", ".7z", ".rar", "lzh" }).All(e => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+                if (BMSFile.bmsExtensions.Concat([".zip", ".7z", ".rar", "lzh"]).All(e => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
                 {
                     return;
                 }
@@ -6070,7 +6069,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         });
         if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
         {
-            installBMSFiles(new string[1] { filePath });
+            installBMSFiles([filePath]);
             return DownloadAndInstallResult.Installed;
         }
         return result;
@@ -7473,7 +7472,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void gridTreePane_TreeViewItemSelected(object sender, RoutedEventArgs e)
     {
-        var tvi = e.OriginalSource as TreeViewItem ?? e.Source as TreeViewItem;
+        TreeViewItem tvi = e.OriginalSource as TreeViewItem ?? e.Source as TreeViewItem;
         if (tvi != null && tvi.IsSelected)
         {
             if (_lastSelectedTreeViewItem != null && _lastSelectedTreeViewItem != tvi)

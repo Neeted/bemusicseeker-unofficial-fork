@@ -341,7 +341,7 @@ internal sealed class ChartWarningCollection
     /// <returns>構造化 warning の snapshot。</returns>
     internal IReadOnlyList<ChartWarning> ToStructuredList()
     {
-        return structuredWarnings.Values.ToList();
+        return [.. structuredWarnings.Values];
     }
 
     /// <summary>

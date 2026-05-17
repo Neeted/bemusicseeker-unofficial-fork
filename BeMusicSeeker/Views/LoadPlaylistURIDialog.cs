@@ -16,8 +16,8 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
     {
         internal PlaylistUriInputParseResult(IEnumerable<Uri> validUris, IEnumerable<string> invalidLines)
         {
-            ValidUris = (validUris ?? []).ToList();
-            InvalidLines = (invalidLines ?? []).ToList();
+            ValidUris = [.. (validUris ?? [])];
+            InvalidLines = [.. (invalidLines ?? [])];
         }
 
         internal IReadOnlyList<Uri> ValidUris { get; }
@@ -121,7 +121,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
     private void ShowInvalidUriLines(IReadOnlyList<string> invalidLines)
     {
         const int maxSamples = 5;
-        IReadOnlyList<string> samples = (invalidLines ?? []).Where(line => !string.IsNullOrWhiteSpace(line)).Take(maxSamples).ToList();
+        IReadOnlyList<string> samples = [.. (invalidLines ?? []).Where(line => !string.IsNullOrWhiteSpace(line)).Take(maxSamples)];
         string sampleText = string.Join(Environment.NewLine, samples.Select(line => "- " + line));
         if (invalidLines != null && invalidLines.Count > maxSamples)
         {

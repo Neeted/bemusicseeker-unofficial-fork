@@ -16,13 +16,13 @@ internal static class ChartDirectoryScanBuilder
 
     internal const string MovieGroupName = "movie";
 
-    internal static readonly string[] ChartExtensions = [.. BMSFile.bmsExtensions.Concat(new[] { ".bmson" }).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] ChartExtensions = [.. BMSFile.bmsExtensions.Concat([".bmson"]).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal static readonly string[] AudioExtensions = [.. BMSFile.wavExtensions.Concat(new[] { ".flac" }).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] AudioExtensions = [.. BMSFile.wavExtensions.Concat([".flac"]).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal static readonly string[] ImageExtensions = [.. BMSFile.bgaImageExtensions.Concat(new[] { ".jpeg" }).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] ImageExtensions = [.. BMSFile.bgaImageExtensions.Concat([".jpeg"]).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal static readonly string[] MovieExtensions = [.. BMSFile.bgaMovieExtensions.Concat(new[] { ".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm" }).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] MovieExtensions = [.. BMSFile.bgaMovieExtensions.Concat([".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm"]).Distinct(StringComparer.OrdinalIgnoreCase)];
 
     private static readonly HashSet<string> chartExtensionsSet = new(ChartExtensions, StringComparer.OrdinalIgnoreCase);
 

@@ -29,7 +29,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 234
         };
 
-        service.ApplyKnownScoresToFiles(new BMSFile[] { matched, unmatched }, new BMSScore[] { score });
+        service.ApplyKnownScoresToFiles([matched, unmatched], [score]);
 
         Assert.AreSame(score, matched.bmsScore);
         Assert.IsNull(unmatched.bmsScore);
@@ -46,7 +46,7 @@ public sealed class BmsLibraryIrServiceTests
             hash = "cccccccccccccccccccccccccccccccc"
         };
 
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[] { matched, unmatched }, new BMSScore[] { score });
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([matched, unmatched], [score]);
 
         Assert.AreEqual(1, matchedScoreCount);
         Assert.AreSame(score, matched.bmsScore);
@@ -58,7 +58,7 @@ public sealed class BmsLibraryIrServiceTests
     {
         var service = new BmsLibraryIrService();
 
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[0], new BMSScore[0]);
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([], []);
 
         Assert.AreEqual(0, matchedScoreCount);
     }
@@ -80,7 +80,7 @@ public sealed class BmsLibraryIrServiceTests
             [score.hash] = score
         };
 
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[] { matched, unmatched }, scoresByHash);
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([matched, unmatched], scoresByHash);
 
         Assert.AreEqual(1, matchedScoreCount);
         Assert.AreSame(score, matched.bmsScore);
@@ -120,7 +120,7 @@ public sealed class BmsLibraryIrServiceTests
             [beatorajaScore.hash] = beatorajaScore
         };
 
-        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[] { file }, scoresByHash, scoresBySha256);
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount([file], scoresByHash, scoresBySha256);
 
         Assert.AreEqual(1, matchedScoreCount);
         Assert.AreNotSame(beatorajaScore, file.bmsScore);
@@ -235,8 +235,8 @@ public sealed class BmsLibraryIrServiceTests
         var cacheUpdate = new DateTime(2026, 1, 1, 12, 0, 0);
         env.WriteCacheXml(hash, cacheUpdate, cacheUpdate);
         BmsLibraryDbGateway gateway = env.CreateGateway();
-        gateway.UpsertIrData(new[]
-        {
+        gateway.UpsertIrData(
+        [
             new LR2IRData(hash)
             {
                 lr2id = 123,
@@ -253,11 +253,11 @@ public sealed class BmsLibraryIrServiceTests
                 lastupdate = cacheUpdate,
                 lastcacheupdate = cacheUpdate
             }
-        });
+        ]);
         List<BMSScore> scores = [];
         TestableBmsFile file = CreateFile(hash);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, new BMSFile[] { file }, skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], skipEstimateOfflineScoreRanking: true);
 
         Assert.AreEqual(1, result.CacheFilesScanned);
         Assert.AreEqual(0, result.CacheFilesReloaded);
@@ -273,8 +273,8 @@ public sealed class BmsLibraryIrServiceTests
     {
         using var env = TempIrEnvironment.Create();
         BmsLibraryDbGateway gateway = env.CreateGateway();
-        gateway.UpsertIrData(new[]
-        {
+        gateway.UpsertIrData(
+        [
             new LR2IRData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
             {
                 lr2id = 123,
@@ -285,7 +285,7 @@ public sealed class BmsLibraryIrServiceTests
                 lr2id = 456,
                 rank = 20
             }
-        });
+        ]);
 
         IrDataLoadResult result = gateway.LoadIrDataWithMetrics(123);
 
@@ -309,7 +309,7 @@ public sealed class BmsLibraryIrServiceTests
         List<BMSScore> scores = [];
         TestableBmsFile file = CreateFile(hash);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, new BMSFile[] { file }, skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, [file], skipEstimateOfflineScoreRanking: true);
 
         Assert.AreEqual(1, result.CacheFilesScanned);
         Assert.AreEqual(1, result.CacheFilesReloaded);
@@ -332,12 +332,12 @@ public sealed class BmsLibraryIrServiceTests
         string hash = "21212121212121212121212121212121";
         var cacheUpdate = new DateTime(2026, 4, 1, 12, 0, 0);
         var lastUpdate = new DateTime(2026, 4, 2, 13, 14, 15);
-        string xml = BuildRankingCacheXml(lastUpdate, new[]
-        {
+        string xml = BuildRankingCacheXml(lastUpdate,
+        [
             new RankingScoreRow { Lr2Id = 100, Notes = 1000, Combo = 850, Pg = 400, Gr = 40, MinBp = 20, Clear = 3 },
             new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 950, Pg = 500, Gr = 20, MinBp = 5, Clear = 4 },
             new RankingScoreRow { Lr2Id = 200, Notes = 1000, Combo = 900, Pg = 450, Gr = 50, MinBp = 10, Clear = 2 }
-        });
+        ]);
 
         bool parsed = BmsLibraryIrService.TryParseRankingCacheSummary(xml, hash, 123, cacheUpdate, out LR2IRData actual, out int scoresParsed);
 
@@ -365,12 +365,12 @@ public sealed class BmsLibraryIrServiceTests
         string hash = "23232323232323232323232323232323";
         var cacheUpdate = new DateTime(2026, 4, 1, 12, 0, 0);
         var lastUpdate = new DateTime(2026, 4, 2, 13, 14, 15);
-        string xml = BuildRankingCacheXml(lastUpdate, new[]
-        {
+        string xml = BuildRankingCacheXml(lastUpdate,
+        [
             new RankingScoreRow { Lr2Id = 100, Notes = 800, Combo = 850, Pg = 500, Gr = 0, MinBp = 20, Clear = 3 },
             new RankingScoreRow { Lr2Id = 200, Notes = 1200, Combo = 950, Pg = 500, Gr = 0, MinBp = 5, Clear = 4 },
             new RankingScoreRow { Lr2Id = 300, Notes = 1600, Combo = 900, Pg = 100, Gr = 50, MinBp = 10, Clear = 2 }
-        });
+        ]);
 
         bool parsed = BmsLibraryIrService.TryParseRankingCacheSummary(xml, hash, 999, cacheUpdate, out LR2IRData actual, out int scoresParsed);
 
@@ -395,10 +395,10 @@ public sealed class BmsLibraryIrServiceTests
     {
         string hash = "24242424242424242424242424242424";
         var cacheUpdate = new DateTime(2026, 4, 3, 9, 0, 0);
-        string xml = BuildRankingCacheXml(null, new[]
-        {
+        string xml = BuildRankingCacheXml(null,
+        [
             new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 850, Pg = 400, Gr = 40, MinBp = 20, Clear = 3 }
-        }, appendNul: true);
+        ], appendNul: true);
 
         bool parsed = BmsLibraryIrService.TryParseRankingCacheSummary(xml, hash, 123, cacheUpdate, out LR2IRData actual, out int scoresParsed);
 
@@ -414,12 +414,12 @@ public sealed class BmsLibraryIrServiceTests
         string hash = "34343434343434343434343434343434";
         var cacheUpdate = new DateTime(2026, 4, 3, 9, 0, 0);
         var lastUpdate = new DateTime(2026, 4, 3, 10, 0, 0);
-        string xml = BuildRankingCacheXml(lastUpdate, new[]
-        {
+        string xml = BuildRankingCacheXml(lastUpdate,
+        [
             new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 850, Pg = 400, Gr = 40, MinBp = 20, Clear = 3 },
             new RankingScoreRow { Lr2Id = 456, Notes = 1000, Combo = 950, Pg = 500, Gr = 20, MinBp = -1, Clear = 4 },
             new RankingScoreRow { Lr2Id = 789, Notes = 1000, Combo = 900, Pg = 450, Gr = 50, MinBp = 10, Clear = 2 }
-        });
+        ]);
 
         var cache = new LR2IRCache(xml, hash, cacheUpdate);
         bool parsed = BmsLibraryIrService.TryParseRankingCacheSummary(xml, hash, 123, cacheUpdate, out LR2IRData summary, out int scoresParsed);
@@ -497,7 +497,7 @@ public sealed class BmsLibraryIrServiceTests
         env.WriteCacheXml("27272727272727272727272727272727", cacheUpdate, cacheUpdate, lr2Id: 123, pg: 600, gr: 100);
         BmsLibraryDbGateway gateway = env.CreateGateway();
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], new BMSFile[0], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], skipEstimateOfflineScoreRanking: true);
 
         Assert.AreEqual(2, result.CacheFilesReloaded);
         Assert.AreEqual(2, result.IrDataUpsertCount);
@@ -523,8 +523,8 @@ public sealed class BmsLibraryIrServiceTests
         envDegree2.WriteCacheXml(hashes[0], cacheUpdate, cacheUpdate, lr2Id: 123, pg: 700, gr: 100);
         envDegree2.WriteCacheXml(hashes[1], cacheUpdate, cacheUpdate, lr2Id: 123, pg: 600, gr: 100);
 
-        IrCacheRefreshResult resultDegree1 = new BmsLibraryIrService(1).RefreshRankingScoresFromCache(123, envDegree1.ScoreDbPath, envDegree1.CreateGateway(), [], new BMSFile[0], skipEstimateOfflineScoreRanking: true);
-        IrCacheRefreshResult resultDegree2 = new BmsLibraryIrService(2).RefreshRankingScoresFromCache(123, envDegree2.ScoreDbPath, envDegree2.CreateGateway(), [], new BMSFile[0], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult resultDegree1 = new BmsLibraryIrService(1).RefreshRankingScoresFromCache(123, envDegree1.ScoreDbPath, envDegree1.CreateGateway(), [], [], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult resultDegree2 = new BmsLibraryIrService(2).RefreshRankingScoresFromCache(123, envDegree2.ScoreDbPath, envDegree2.CreateGateway(), [], [], skipEstimateOfflineScoreRanking: true);
 
         List<LR2IRData> rowsDegree1 = [.. envDegree1.CreateGateway().LoadIrData(123).OrderBy(row => row.hash)];
         List<LR2IRData> rowsDegree2 = [.. envDegree2.CreateGateway().LoadIrData(123).OrderBy(row => row.hash)];
@@ -547,8 +547,8 @@ public sealed class BmsLibraryIrServiceTests
         var newerUpdate = new DateTime(2026, 4, 6, 12, 0, 0);
         env.WriteCacheXml(hash, newerUpdate, newerUpdate, lr2Id: 123, pg: 700, gr: 100);
         BmsLibraryDbGateway gateway = env.CreateGateway();
-        gateway.UpsertIrData(new[]
-        {
+        gateway.UpsertIrData(
+        [
             new LR2IRData(hash)
             {
                 lr2id = 123,
@@ -560,9 +560,9 @@ public sealed class BmsLibraryIrServiceTests
                 lastupdate = currentUpdate,
                 lastcacheupdate = currentUpdate
             }
-        });
+        ]);
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], new BMSFile[0], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [], [], skipEstimateOfflineScoreRanking: true);
 
         Assert.AreEqual(1, result.CacheFilesReloaded);
         Assert.AreEqual(1, result.IrDataUpsertCount);
@@ -578,8 +578,8 @@ public sealed class BmsLibraryIrServiceTests
         BmsLibraryDbGateway gateway = env.CreateGateway();
         string hash = "29292929292929292929292929292929";
 
-        gateway.UpsertIrData(new[] { new LR2IRData(hash) { lr2id = 123, rank = 10, pg = 100 } });
-        gateway.UpsertIrData(new[] { new LR2IRData(hash) { lr2id = 123, rank = 1, pg = 500 } });
+        gateway.UpsertIrData([new LR2IRData(hash) { lr2id = 123, rank = 10, pg = 100 }]);
+        gateway.UpsertIrData([new LR2IRData(hash) { lr2id = 123, rank = 1, pg = 500 }]);
 
         List<LR2IRData> rows = [.. gateway.LoadIrData(123).Where(data => data.hash == hash)];
         Assert.AreEqual(1, rows.Count);
@@ -594,11 +594,11 @@ public sealed class BmsLibraryIrServiceTests
         BmsLibraryDbGateway gateway = env.CreateGateway();
         string hash = "30303030303030303030303030303030";
 
-        gateway.UpsertIrData(new[]
-        {
+        gateway.UpsertIrData(
+        [
             new LR2IRData(hash) { lr2id = 123, rank = 10 },
             new LR2IRData(hash) { lr2id = 456, rank = 20 }
-        });
+        ]);
 
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
         Assert.AreEqual(1, gateway.LoadIrData(456).Count(data => data.hash == hash));
@@ -634,7 +634,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], new BMSFile[0], skipEstimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], skipEstimateOfflineScoreRanking: false);
 
         Assert.AreEqual(1, result.CacheFilesReloaded);
         Assert.AreEqual(0, result.OfflineEstimateXmlLoadCount);
@@ -650,8 +650,8 @@ public sealed class BmsLibraryIrServiceTests
         var cacheUpdate = new DateTime(2026, 4, 7, 12, 0, 0);
         env.WriteCacheXml(hash, cacheUpdate, cacheUpdate, lr2Id: 123, pg: 300, gr: 0);
         BmsLibraryDbGateway gateway = env.CreateGateway();
-        gateway.UpsertIrData(new[]
-        {
+        gateway.UpsertIrData(
+        [
             new LR2IRData(hash)
             {
                 lr2id = 123,
@@ -663,7 +663,7 @@ public sealed class BmsLibraryIrServiceTests
                 lastupdate = cacheUpdate,
                 lastcacheupdate = cacheUpdate
             }
-        });
+        ]);
         var score = new BMSScore
         {
             hash = hash,
@@ -671,7 +671,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], new BMSFile[0], skipEstimateOfflineScoreRanking: false);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], skipEstimateOfflineScoreRanking: false);
 
         Assert.AreEqual(0, result.CacheFilesReloaded);
         Assert.AreEqual(1, result.OfflineEstimateXmlLoadCount);
@@ -687,8 +687,8 @@ public sealed class BmsLibraryIrServiceTests
         var cacheUpdate = new DateTime(2026, 3, 1, 12, 0, 0);
         env.WriteCacheXml(hash, cacheUpdate, cacheUpdate, lr2Id: 123, pg: 300, gr: 0);
         BmsLibraryDbGateway gateway = env.CreateGateway();
-        gateway.UpsertIrData(new[]
-        {
+        gateway.UpsertIrData(
+        [
             new LR2IRData(hash)
             {
                 lr2id = 123,
@@ -705,7 +705,7 @@ public sealed class BmsLibraryIrServiceTests
                 lastupdate = cacheUpdate,
                 lastcacheupdate = cacheUpdate
             }
-        });
+        ]);
         var score = new BMSScore
         {
             hash = hash,
@@ -713,7 +713,7 @@ public sealed class BmsLibraryIrServiceTests
             great = 0
         };
 
-        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], new BMSFile[0], skipEstimateOfflineScoreRanking: true);
+        IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], [], skipEstimateOfflineScoreRanking: true);
 
         Assert.AreEqual(0, result.CacheFilesReloaded);
         Assert.AreEqual(0, result.OfflineEstimateXmlLoadCount);
@@ -728,11 +728,11 @@ public sealed class BmsLibraryIrServiceTests
         var service = new BmsLibraryIrService(2);
         string hash = "36363636363636363636363636363636";
         var lastUpdate = new DateTime(2026, 4, 8, 12, 0, 0);
-        string xml = BuildRankingCacheXml(lastUpdate, new[]
-        {
+        string xml = BuildRankingCacheXml(lastUpdate,
+        [
             new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 900, Pg = 500, Gr = 0, MinBp = 10, Clear = 4 },
             new RankingScoreRow { Lr2Id = 456, Notes = 1000, Combo = 900, Pg = 600, Gr = 0, MinBp = -1, Clear = 4 }
-        });
+        ]);
         var irClient = new FakeIrClient(string.Empty);
         irClient.SetRankingXml(hash, xml);
         BmsLibraryDbGateway gateway = env.CreateGateway();
@@ -751,7 +751,7 @@ public sealed class BmsLibraryIrServiceTests
             irClient,
             new Uri("https://example.invalid/ranking"),
             scores,
-            new BMSFile[] { file },
+            [file],
             skipEstimateOfflineScoreRanking: false);
 
         Assert.AreEqual(0, failed.Count);
@@ -1077,8 +1077,8 @@ public sealed class BmsLibraryIrServiceTests
 
         public void WriteCacheXml(string hash, DateTime fileWriteTime, DateTime lastUpdate, int lr2Id = 123, int pg = 450, int gr = 50)
         {
-            string xml = BuildRankingCacheXml(lastUpdate, new[]
-            {
+            string xml = BuildRankingCacheXml(lastUpdate,
+            [
                 new RankingScoreRow
                 {
                     Lr2Id = lr2Id,
@@ -1089,7 +1089,7 @@ public sealed class BmsLibraryIrServiceTests
                     Gr = gr,
                     MinBp = 12
                 }
-            });
+            ]);
             string path = Path.Combine(IrDirectoryPath, hash + ".xml");
             File.WriteAllText(path, xml, Encoding.GetEncoding("shift_jis"));
             File.SetLastWriteTime(path, fileWriteTime);

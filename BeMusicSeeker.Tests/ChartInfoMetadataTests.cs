@@ -357,12 +357,11 @@ public sealed class ChartInfoMetadataTests
             currentBundleRow.level = 12;
             string bundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { missingBundleRow, staleBundleRow, currentBundleRow },
-                new[]
-                {
+                [missingBundleRow, staleBundleRow, currentBundleRow],
+                [
                     CreateChartDigestRow(digestOnlyMd5, digestOnlySha),
                     CreateChartDigestRow(existingDigestMd5, bundleDigestSha)
-                });
+                ]);
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
@@ -411,7 +410,7 @@ public sealed class ChartInfoMetadataTests
             string sha = new('1', 64);
             string bundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             string bundleSha256 = BMSFile.GetSHA256Hash(bundlePath);
             var gateway = new BmsLibraryDbGateway(songDbPath);
 
@@ -455,7 +454,7 @@ public sealed class ChartInfoMetadataTests
             File.WriteAllText(chartPath, "#PLAYER 1", Encoding.ASCII);
             string bundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
@@ -497,7 +496,7 @@ public sealed class ChartInfoMetadataTests
             string sha = new('1', 64);
             string dbBundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             string appDbPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName);
             string appArchivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
             File.Copy(dbBundlePath, appDbPath);
@@ -538,7 +537,7 @@ public sealed class ChartInfoMetadataTests
             string sha = new('1', 64);
             string dbBundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             string appDbPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName);
             File.Copy(dbBundlePath, appDbPath);
             string dbSha256 = BMSFile.GetSHA256Hash(appDbPath);
@@ -571,7 +570,7 @@ public sealed class ChartInfoMetadataTests
             string sha = new('1', 64);
             string dbBundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             string archivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
             File.WriteAllText(archivePath, "archive identity", Encoding.ASCII);
             string archiveSha256 = BMSFile.GetSHA256Hash(archivePath);
@@ -623,7 +622,7 @@ public sealed class ChartInfoMetadataTests
             string sha = new('1', 64);
             string dbBundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             string archivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
             File.WriteAllText(archivePath, "archive identity", Encoding.ASCII);
             string archiveSha256 = BMSFile.GetSHA256Hash(archivePath);
@@ -704,7 +703,7 @@ createTempDirectory);
             string sha = new('1', 64);
             string dbBundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
-                new[] { CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+                [CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
             string appDbPath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataDbFileName);
             File.Copy(dbBundlePath, appDbPath);
             File.WriteAllText(Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName), "blocks archive directory", Encoding.ASCII);
@@ -747,7 +746,7 @@ createTempDirectory);
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             }
 
-            new BmsLibraryDbGateway(songDbPath).DeleteSongsAndMaintenance(new[] { file });
+            new BmsLibraryDbGateway(songDbPath).DeleteSongsAndMaintenance([file]);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + file.path.Replace("'", "''") + "';"));
@@ -767,15 +766,15 @@ createTempDirectory);
             string firstSha = new('1', 64);
             string secondSha = new('2', 64);
             string unrelatedSha = new('3', 64);
-            gateway.UpsertChartInfos(new[]
-            {
+            gateway.UpsertChartInfos(
+            [
                 CreateChartInfoRow(secondSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
                 CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
                 CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
-            });
+            ]);
 
-            Dictionary<string, LR2SongDBExtended.chart_info> bySha256 = gateway.LoadChartInfosBySha256(new[] { secondSha });
-            Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = gateway.LoadChartInfosByMd5(new[] { md5 });
+            Dictionary<string, LR2SongDBExtended.chart_info> bySha256 = gateway.LoadChartInfosBySha256([secondSha]);
+            Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = gateway.LoadChartInfosByMd5([md5]);
 
             Assert.AreEqual(1, bySha256.Count);
             Assert.AreEqual(secondSha, bySha256[secondSha].sha256);
@@ -796,12 +795,12 @@ createTempDirectory);
             string firstSha = new('1', 64);
             string secondSha = new('2', 64);
             string unrelatedSha = new('3', 64);
-            gateway.UpsertChartInfos(new[]
-            {
+            gateway.UpsertChartInfos(
+            [
                 CreateChartInfoRow(secondSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
                 CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
                 CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
-            });
+            ]);
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             Assert.IsFalse(library.ChartInfoIndexHydrated);
@@ -2516,7 +2515,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult first = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 (total, processed, currentPath) => progress.Add(Tuple.Create(total, processed, currentPath)));
 
@@ -2535,7 +2534,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult second = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 []);
 
             Assert.AreEqual(0, second.TargetCount);
@@ -2544,10 +2543,10 @@ createTempDirectory);
             Assert.AreEqual(0, second.FileReadCount);
             Assert.AreEqual(0L, second.FileReadBytes);
 
-            gateway.UpsertChartInfos(new[] { CreateChartInfoRow(file.sha256, file.hash, parserVersion: 0) });
+            gateway.UpsertChartInfos([CreateChartInfoRow(file.sha256, file.hash, parserVersion: 0)]);
             ChartInfoBackfillResult third = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 []);
 
             Assert.AreEqual(1, third.TargetCount);
@@ -2582,7 +2581,7 @@ createTempDirectory);
             List<string> logs = [];
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 message => logs.Add("INFO " + message),
@@ -2640,7 +2639,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 []);
 
             Assert.AreEqual(1, result.TargetCount);
@@ -2679,7 +2678,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { fileA, fileB },
+                [fileA, fileB],
                 []);
 
             Assert.AreEqual(1, result.TargetCount);
@@ -2713,7 +2712,7 @@ createTempDirectory);
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
                 gateway,
-                new[] { new InlineBmsChartSnapshot(targetFile, ChartFileContentReader.ReadSnapshot(targetChartPath)) },
+                [new InlineBmsChartSnapshot(targetFile, ChartFileContentReader.ReadSnapshot(targetChartPath))],
                 null,
                 new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase));
 
@@ -2742,12 +2741,12 @@ createTempDirectory);
             file.SetSha256(snapshot.Sha256);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             LR2SongDBExtended.chart_info expected = CreateChartInfoRow(file.sha256, file.hash, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            gateway.UpsertChartInfos(new[] { expected });
+            gateway.UpsertChartInfos([expected]);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
                 gateway,
-                new[] { new InlineBmsChartSnapshot(file, snapshot) },
+                [new InlineBmsChartSnapshot(file, snapshot)],
                 null,
                 new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase));
 
@@ -2781,9 +2780,9 @@ createTempDirectory);
 
             ChartInfoInlineBuildResult result = service.BuildForExistingFiles(
                 gateway,
-                new[] { file },
+                [file],
                 []);
-            gateway.UpsertSongs(new[] { file });
+            gateway.UpsertSongs([file]);
             gateway.UpsertChartInfoBackfillChunk(
                 [],
                 result.ChartInfoRows,
@@ -2830,7 +2829,7 @@ createTempDirectory);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             LR2SongDBExtended.chart_info bmsRow = CreateChartInfoRow(bmsSha, file.hash, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             LR2SongDBExtended.chart_info bmsonRow = CreateChartInfoRow(bmsonSha, bmsonSong.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-            gateway.UpsertChartInfos(new[] { bmsRow, bmsonRow });
+            gateway.UpsertChartInfos([bmsRow, bmsonRow]);
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
             {
                 BMSFiles = [file],
@@ -2942,14 +2941,14 @@ createTempDirectory);
             string sourceChartPath = Path.Combine(sourceDir, "install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE install bms\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = new ChartPackage(new[] { pendingChart })
+            var package = new ChartPackage([pendingChart])
             {
                 path = sourceDir,
                 delete_parent = false
             };
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
-            InvokeInstallChartPackages(library, new[] { package }, installDir);
+            InvokeInstallChartPackages(library, [package], installDir);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             BMSFile installedFile = library.BMSFiles.Single();
@@ -2982,14 +2981,14 @@ createTempDirectory);
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = new ChartPackage(new[] { pendingChart })
+            var package = new ChartPackage([pendingChart])
             {
                 path = sourceDir,
                 delete_parent = false
             };
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
-            InvokeInstallChartPackages(library, new[] { package }, installDir);
+            InvokeInstallChartPackages(library, [package], installDir);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             LR2SongDBExtended.bmson_song installedSong = library.BmsonSongs.Single();
@@ -3014,14 +3013,14 @@ createTempDirectory);
             string sourceChartPath = Path.Combine(sourceDir, "bad-install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE bad install\r\n#00111:01\r\n", Encoding.ASCII);
             var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = new ChartPackage(new[] { pendingChart })
+            var package = new ChartPackage([pendingChart])
             {
                 path = sourceDir,
                 delete_parent = false
             };
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
-            InvokeInstallChartPackages(library, new[] { package }, installDir);
+            InvokeInstallChartPackages(library, [package], installDir);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             BMSFile installedFile = library.BMSFiles.Single();
@@ -3064,13 +3063,13 @@ createTempDirectory);
             };
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
-            gateway.UpsertChartInfoParseFailures(new[]
-            {
+            gateway.UpsertChartInfoParseFailures(
+            [
                 CreateChartInfoParseFailureRow(bmsFile.hash, bmsFile.sha256, bmsFile.path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "BMS initial BPM is not defined or invalid.", null),
                 CreateChartInfoParseFailureRow(bmsonSong.md5, bmsonSong.sha256, bmsonSong.path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "JsonReaderException", "bad json", null),
                 CreateChartInfoParseFailureRow(new string('c', 32), string.Empty, Path.Combine(tempRootPath, "missing.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "missing", null),
                 CreateChartInfoParseFailureRow(staleBmsFile.hash, staleBmsFile.sha256, staleBmsFile.path, 0, "parse_failed", "InvalidDataException", "old", null)
-            });
+            ]);
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
             {
                 BMSFiles = [bmsFile, staleBmsFile],
@@ -3124,13 +3123,13 @@ createTempDirectory);
             {
                 songDb.CreateTable<LR2SongDB.song>();
             }
-            gateway.UpsertSongs(new[] { bmsFile });
-            gateway.UpsertBmsonSongs(new[] { bmsonSong });
-            gateway.UpsertChartInfos(new[] { CreateChartInfoRow(sharedSha256, sharedMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
-            gateway.UpsertChartInfoParseFailures(new[]
-            {
+            gateway.UpsertSongs([bmsFile]);
+            gateway.UpsertBmsonSongs([bmsonSong]);
+            gateway.UpsertChartInfos([CreateChartInfoRow(sharedSha256, sharedMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion)]);
+            gateway.UpsertChartInfoParseFailures(
+            [
                 CreateChartInfoParseFailureRow(sharedMd5, sharedSha256, bmsFile.path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)
-            });
+            ]);
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
             {
                 BMSFiles = [bmsFile],
@@ -3143,7 +3142,7 @@ createTempDirectory);
             };
             Assert.AreEqual(2, library.BMSFilesChartInfoParseFailed.Count());
 
-            library.RemoveChartInfoParseFailuresByMd5(new[] { sharedMd5, sharedMd5.ToUpperInvariant(), " " });
+            library.RemoveChartInfoParseFailuresByMd5([sharedMd5, sharedMd5.ToUpperInvariant(), " "]);
 
             CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.BMSFilesChartInfoParseFailed));
             Assert.AreEqual(0, library.BMSFilesChartInfoParseFailed.Count());
@@ -3160,7 +3159,7 @@ createTempDirectory);
     {
         CollectionAssert.AreEqual(
             new[] { new string('a', 32), new string('b', 32) },
-            MainWindowViewModel.NormalizeChartInfoParseFailureMd5s(new[] { null, " ", new string('A', 32), new string('a', 32), " " + new string('B', 32) + " " }));
+            MainWindowViewModel.NormalizeChartInfoParseFailureMd5s([null, " ", new string('A', 32), new string('a', 32), " " + new string('B', 32) + " "]));
     }
 
     [TestMethod]
@@ -3182,7 +3181,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 message => logs.Add("INFO " + message),
@@ -3221,7 +3220,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult first = firstService.BackfillChartInfos(
                 gateway,
-                new[] { firstFile },
+                [firstFile],
                 [],
                 null,
                 null);
@@ -3244,7 +3243,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult second = secondService.BackfillChartInfos(
                 gateway,
-                new[] { secondFile },
+                [secondFile],
                 [],
                 (current, total, target) => { },
                 message => logs.Add("INFO " + message),
@@ -3277,15 +3276,15 @@ createTempDirectory);
             file.SetHash(snapshot.Md5);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoBackfillSchema();
-            gateway.UpsertChartInfoParseFailures(new[]
-            {
+            gateway.UpsertChartInfoParseFailures(
+            [
                 CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "JsonReaderException", "bad json", null)
-            });
+            ]);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
 
             ChartInfoInlineBuildResult result = service.BuildForExistingFiles(
                 gateway,
-                new[] { file },
+                [file],
                 []);
 
             Assert.AreEqual(1, result.TargetCount);
@@ -3310,15 +3309,15 @@ createTempDirectory);
             file.SetHash(new string('a', 32));
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoBackfillSchema();
-            gateway.UpsertChartInfoParseFailures(new[]
-            {
+            gateway.UpsertChartInfoParseFailures(
+            [
                 CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, 0, "parse_failed", "JsonReaderException", "old failure", null)
-            });
+            ]);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 null);
@@ -3348,15 +3347,15 @@ createTempDirectory);
             file.SetHash(new string('a', 32));
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoBackfillSchema();
-            gateway.UpsertChartInfoParseFailures(new[]
-            {
+            gateway.UpsertChartInfoParseFailures(
+            [
                 CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "timeout", "ChartInfoParseTimeoutException", "old timeout", 0)
-            });
+            ]);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, parseTimeoutOverride: TimeSpan.FromSeconds(1));
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 null);
@@ -3386,15 +3385,15 @@ createTempDirectory);
             file.SetHash(digest.hash);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoBackfillSchema();
-            gateway.UpsertChartInfoParseFailures(new[]
-            {
+            gateway.UpsertChartInfoParseFailures(
+            [
                 CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, 0, "parse_failed", "InvalidDataException", "old failure", null)
-            });
+            ]);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 null);
@@ -3427,7 +3426,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 message => logs.Add("INFO " + message),
@@ -3480,7 +3479,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 message => logs.Add("INFO " + message),
@@ -3592,9 +3591,9 @@ createTempDirectory);
             LR2SongDBExtended.chart_info rowB = CreateChartInfoRow(shaB, md5B, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             rowB.level = 7;
 
-            gateway.UpsertChartInfoBackfillChunk(new[] { new ChartDigestBackfillEntry(md5A, shaA) }, null);
-            gateway.UpsertChartInfoBackfillChunk(null, new[] { rowA });
-            gateway.UpsertChartInfoBackfillChunk(new[] { new ChartDigestBackfillEntry(md5B, shaB) }, new[] { rowB });
+            gateway.UpsertChartInfoBackfillChunk([new ChartDigestBackfillEntry(md5A, shaA)], null);
+            gateway.UpsertChartInfoBackfillChunk(null, [rowA]);
+            gateway.UpsertChartInfoBackfillChunk([new ChartDigestBackfillEntry(md5B, shaB)], [rowB]);
 
             LR2SongDBExtended.chart_info replacement = CreateChartInfoRow(shaA, md5A, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             replacement.level = 12;
@@ -3602,8 +3601,8 @@ createTempDirectory);
             replacement.total_defined = true;
             replacement.updated_at = updatedAt.AddMinutes(1);
             gateway.UpsertChartInfoBackfillChunk(
-                new[] { new ChartDigestBackfillEntry(md5A, shaC) },
-                new[] { replacement });
+                [new ChartDigestBackfillEntry(md5A, shaC)],
+                [replacement]);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
@@ -3644,7 +3643,7 @@ createTempDirectory);
 
             ChartInfoBackfillResult result = service.BackfillChartInfos(
                 gateway,
-                new[] { file },
+                [file],
                 [],
                 null,
                 message => logs.Add("INFO " + message),
@@ -4485,7 +4484,7 @@ createTempDirectory);
 
             WriteLines(
                 Path.Combine(directory, "summary.txt"),
-                new[] { ToString() });
+                [ToString()]);
 
             return directory;
         }

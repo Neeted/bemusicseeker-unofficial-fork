@@ -42,8 +42,8 @@ public sealed class BmsLibraryDuplicateServiceTests
         var service = new BmsLibraryDuplicateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
 
-        service.ApplyDuplicateWarnings(new[] { file }, Resources.Warning_DuplicateBmsFile);
-        service.ApplyDuplicateWarnings(new[] { file }, Resources.Warning_DuplicateBmsFile);
+        service.ApplyDuplicateWarnings([file], Resources.Warning_DuplicateBmsFile);
+        service.ApplyDuplicateWarnings([file], Resources.Warning_DuplicateBmsFile);
 
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.HasHighlightedWarning);
@@ -59,7 +59,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
 
-        service.ClearDuplicateState(new[] { file });
+        service.ClearDuplicateState([file]);
 
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
@@ -197,7 +197,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 };
                 library.BmsonSongs = [song];
 
-                library.RemoveChartFiles(new[] { PendingChartEntry.CreateFromBmsonSong(song) }, sendToRecycleBin: false);
+                library.RemoveChartFiles([PendingChartEntry.CreateFromBmsonSong(song)], sendToRecycleBin: false);
 
                 Assert.IsFalse(File.Exists(chartPath));
                 Assert.AreEqual(0, library.BmsonSongs.Count);

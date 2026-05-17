@@ -315,7 +315,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         using LR2ScoreDBExtended scoreDb = OpenScoreDbReadOnly();
         result.ReadOnly = scoreDb.IsReadOnlyConnection;
         result.DbLockWaitMs = scoreDb.ProcessLockWaitMs;
-        result.Scores.AddRange(scoreDb.Table<BMSScore>().ToList());
+        result.Scores.AddRange([.. scoreDb.Table<BMSScore>()]);
         result.LR2Id = scoreDb.Table<LR2ScoreDB.player>().ToList().FirstOrDefault()?.irid ?? 0;
         return result;
     }
@@ -1771,8 +1771,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             songDb,
             "bundle",
             "chart_info_metadata_bundle",
-            new[]
-            {
+            [
                 "bundle_id",
                 "format_version",
                 "generated_at",
@@ -1780,9 +1779,9 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 "chart_info_parser_version",
                 "chart_info_count",
                 "chart_digest_count"
-            });
+            ]);
         RequireAttachedTableColumns(songDb, "bundle", "chart_info", ChartInfoColumnList.Split([", "], StringSplitOptions.None));
-        RequireAttachedTableColumns(songDb, "bundle", "chart_digest_map", new[] { "md5", "sha256" });
+        RequireAttachedTableColumns(songDb, "bundle", "chart_digest_map", ["md5", "sha256"]);
         ChartInfoMetadataBundleManifest manifest = songDb.Query<ChartInfoMetadataBundleManifest>(
             "SELECT bundle_id, format_version, generated_at, chart_info_schema_version, chart_info_parser_version, chart_info_count, chart_digest_count "
             + "FROM bundle.chart_info_metadata_bundle ORDER BY bundle_id COLLATE NOCASE ASC LIMIT 1;").FirstOrDefault();

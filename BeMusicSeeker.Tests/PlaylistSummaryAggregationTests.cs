@@ -80,12 +80,12 @@ public sealed class PlaylistSummaryAggregationTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            SetLibraryFilesWithoutNotification(library, new[]
-            {
+            SetLibraryFilesWithoutNotification(library,
+            [
                 CreateLibraryFile(@"C:\Songs\bms.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-            });
-            SetLibraryBmsonSongsWithoutNotification(library, new[]
-            {
+            ]);
+            SetLibraryBmsonSongsWithoutNotification(library,
+            [
                 new LR2SongDBExtended.bmson_song
                 {
                     path = @"C:\Songs\bmson\chart.bmson",
@@ -93,7 +93,7 @@ public sealed class PlaylistSummaryAggregationTests
                     md5 = "cccccccccccccccccccccccccccccccc",
                     sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
                 }
-            });
+            ]);
 
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot snapshot = library.GetPlaylistSummaryOwnedHashSnapshot();
 

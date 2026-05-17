@@ -68,9 +68,9 @@ public sealed class DropInstallQueueProcessorTests
                 }
             });
 
-        processor.Enqueue(new string[1] { @"C:\queue\first.zip" });
+        processor.Enqueue([@"C:\queue\first.zip"]);
         Assert.IsTrue(firstStarted.Wait(3000), "The first batch did not start.");
-        processor.Enqueue(new string[1] { @"C:\queue\second.zip" });
+        processor.Enqueue([@"C:\queue\second.zip"]);
 
         Assert.IsTrue(pendingReported.Wait(5000), "Pending batch count was not reported.");
 
@@ -138,8 +138,8 @@ public sealed class DropInstallQueueProcessorTests
                 }
             });
 
-        processor.Enqueue(new string[1] { @"C:\queue\first.zip" });
-        processor.Enqueue(new string[1] { @"C:\queue\second.zip" });
+        processor.Enqueue([@"C:\queue\first.zip"]);
+        processor.Enqueue([@"C:\queue\second.zip"]);
         Assert.IsTrue(firstStarted.Wait(3000), "The first batch did not start.");
 
         processor.CancelAll();
@@ -189,8 +189,8 @@ public sealed class DropInstallQueueProcessorTests
                 }
             });
 
-        processor.Enqueue(new string[1] { @"C:\queue\first.zip" });
-        processor.Enqueue(new string[1] { @"C:\queue\second.zip" });
+        processor.Enqueue([@"C:\queue\first.zip"]);
+        processor.Enqueue([@"C:\queue\second.zip"]);
 
         Assert.IsTrue(secondFinished.Wait(3000), "The second batch did not complete after the first batch failed.");
 

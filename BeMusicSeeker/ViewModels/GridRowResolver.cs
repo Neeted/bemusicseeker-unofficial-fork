@@ -40,7 +40,7 @@ internal static class GridRowResolver
     /// </summary>
     internal static BMSFile GetRealBmsFile(object row)
     {
-        BMSFile file = null;
+        BMSFile file;
         if (row is PlaylistDetailRow playlistDetailRow)
         {
             file = playlistDetailRow.RealFile;

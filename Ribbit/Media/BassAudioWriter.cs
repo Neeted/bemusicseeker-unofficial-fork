@@ -90,8 +90,8 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("BassAudioWriter is not initialized");
         }
         filePathWithoutExtension = Path.GetFullPath(filePathWithoutExtension);
-        int num = 16;
         bool wAV_Use32BitInteger = false;
+        int num;
         switch (BassAudioPlayer.Format)
         {
             case SampleFormat.SAMPLE_INT_8BIT:

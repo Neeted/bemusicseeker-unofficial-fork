@@ -122,12 +122,12 @@ internal sealed class BmsLibraryStateApplier(
 
         if (delta.FilesToUnregister.Count > 0)
         {
-            UnregisterBmsFiles(delta.FilesToUnregister.Distinct().ToList());
+            UnregisterBmsFiles([.. delta.FilesToUnregister.Distinct()]);
         }
 
         if (delta.BmsonSongsToUnregister.Count > 0)
         {
-            UnregisterBmsonSongs(delta.BmsonSongsToUnregister.Distinct().ToList());
+            UnregisterBmsonSongs([.. delta.BmsonSongsToUnregister.Distinct()]);
         }
 
         if (delta.InvalidateInstalledDirectoryIndex)

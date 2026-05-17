@@ -82,7 +82,7 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
         }
     }
 
-    private readonly ReaderWriterLockSlim readerWriterLockSlim = new ReaderWriterLockSlim(recursionPolicy);
+    private readonly ReaderWriterLockSlim readerWriterLockSlim = new(recursionPolicy);
 
     private readonly object lockThis = new();
 

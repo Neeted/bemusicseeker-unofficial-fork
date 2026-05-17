@@ -192,7 +192,7 @@ internal sealed class PlaylistReferenceIndex
         if (!tables.Any(candidate => ReferenceEquals(candidate, table)))
         {
             tables.Add(table);
-            displayMap[key] = new PlaylistReferenceDisplay(tables.ToArray());
+            displayMap[key] = new PlaylistReferenceDisplay([.. tables]);
         }
     }
 
@@ -217,7 +217,7 @@ internal sealed class PlaylistReferenceIndex
         }
         else
         {
-            displayMap[key] = new PlaylistReferenceDisplay(tables.ToArray());
+            displayMap[key] = new PlaylistReferenceDisplay([.. tables]);
         }
     }
 

@@ -9,7 +9,7 @@ public sealed class JsonBackedResourceManager(string baseName, Assembly assembly
 {
     private static readonly CultureInfo JaCulture = CultureInfo.GetCultureInfo("ja-JP");
 
-    private readonly ResourceManager fallbackResourceManager = new ResourceManager(baseName, assembly);
+    private readonly ResourceManager fallbackResourceManager = new(baseName, assembly);
 
     public override string GetString(string name, CultureInfo culture)
     {

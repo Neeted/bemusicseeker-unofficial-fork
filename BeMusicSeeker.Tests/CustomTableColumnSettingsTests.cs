@@ -274,10 +274,9 @@ public sealed class CustomTableColumnSettingsTests
 
     private static IReadOnlyList<(string Name, CustomTableColumnSettings.ColumnLayout Layout)> GetLayouts(CustomTableColumnSettings settings)
     {
-        return typeof(CustomTableColumnSettings)
+        return [.. typeof(CustomTableColumnSettings)
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .Where((property) => property.PropertyType == typeof(CustomTableColumnSettings.ColumnLayout))
-            .Select((property) => (property.Name, Layout: (CustomTableColumnSettings.ColumnLayout)property.GetValue(settings)))
-            .ToArray();
+            .Select((property) => (property.Name, Layout: (CustomTableColumnSettings.ColumnLayout)property.GetValue(settings)))];
     }
 }

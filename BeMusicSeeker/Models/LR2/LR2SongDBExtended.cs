@@ -9,8 +9,8 @@ namespace BeMusicSeeker.Models.LR2;
 
 public sealed class LR2SongDBExtended : LR2SongDB
 {
-    internal static IReadOnlyList<string> BeMusicSeekerOwnedTableNames { get; } = new[]
-    {
+    internal static IReadOnlyList<string> BeMusicSeekerOwnedTableNames { get; } =
+    [
         SQLiteTable<install>.GetTableName(),
         SQLiteTable<maintenance>.GetTableName(),
         SQLiteTable<playlist>.GetTableName(),
@@ -25,12 +25,12 @@ public sealed class LR2SongDBExtended : LR2SongDB
         SQLiteTable<ir_score>.GetTableName(),
         SQLiteTable<ir_score_refresh_metadata>.GetTableName(),
         SQLiteTable<ir_data>.GetTableName()
-    };
+    ];
 
-    internal static IReadOnlyList<string> BeMusicSeekerOwnedNativeIndexNames { get; } = new[]
-    {
+    internal static IReadOnlyList<string> BeMusicSeekerOwnedNativeIndexNames { get; } =
+    [
         "song_idx_folder"
-    };
+    ];
 
     [Table("install")]
     public class install : SQLiteTable<install>

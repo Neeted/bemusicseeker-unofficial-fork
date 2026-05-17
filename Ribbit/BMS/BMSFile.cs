@@ -291,7 +291,7 @@ public class BMSFile
 
     public class Chart
     {
-        public class Note
+        public class Note(BMSFile.Chart measure, Note.NoteType type)
         {
             public enum NoteType : uint
             {
@@ -420,11 +420,11 @@ public class BMSFile
 
             public Fraction PositionTime = 0L;
 
-            public NoteType Type;
+            public NoteType Type = type;
 
             public object Value;
 
-            public Chart Measure { get; }
+            public Chart Measure { get; } = measure ?? throw new ArgumentNullException("measure");
 
             public TimeSpan PositionTimeSpan
             {
@@ -440,12 +440,6 @@ public class BMSFile
                         return new TimeSpan((long)(600000000m * PositionTime.ToDecimal()));
                     }
                 }
-            }
-
-            public Note(Chart measure, NoteType type)
-            {
-                Measure = measure ?? throw new ArgumentNullException("measure");
-                Type = type;
             }
         }
 

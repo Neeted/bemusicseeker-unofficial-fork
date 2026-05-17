@@ -158,7 +158,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             pendingFile.SetSha256(new string('b', 64));
             ChartPackage package = CreatePendingPackage(pendingFile);
 
-            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(new[] { installedFile });
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap([installedFile]);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);

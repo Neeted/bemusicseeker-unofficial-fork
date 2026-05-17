@@ -45,7 +45,6 @@ internal static class EverythingNative
 
     internal static bool EnsureBridgeAvailable(out string reason)
     {
-        reason = null;
         if (IntPtr.Size != 8)
         {
             reason = "unsupported_architecture";
@@ -364,7 +363,6 @@ internal static class EverythingNative
     {
         result = null;
         reason = null;
-        elapsedMs = 0L;
         IntPtr resultPtr = IntPtr.Zero;
         var stopwatch = Stopwatch.StartNew();
         try

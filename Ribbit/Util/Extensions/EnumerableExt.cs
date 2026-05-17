@@ -193,7 +193,7 @@ public static class EnumerableExt
         {
             return source;
         }
-        return source.ToArray();
+        return [.. source];
     }
 
     public static IEnumerable<T> DequeWhile<T>(this Queue<T> src, Func<T, bool> condition)

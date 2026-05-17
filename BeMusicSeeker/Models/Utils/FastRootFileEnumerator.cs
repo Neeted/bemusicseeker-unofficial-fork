@@ -103,11 +103,10 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 
         try
         {
-            return Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+            return [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Select(Path.GetFullPath)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
         }
         catch
         {

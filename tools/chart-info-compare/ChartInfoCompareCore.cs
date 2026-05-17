@@ -444,7 +444,7 @@ public sealed class ChartInfoCompareResult
 
     public List<CompareSample> RandomDiffSamples { get; } = [];
 
-    public IReadOnlyList<FieldDiffSummary> FieldDiffs => fieldDiffs.Values.OrderByDescending(item => item.Count).ThenBy(item => item.Field, StringComparer.Ordinal).ToList();
+    public IReadOnlyList<FieldDiffSummary> FieldDiffs => [.. fieldDiffs.Values.OrderByDescending(item => item.Count).ThenBy(item => item.Field, StringComparer.Ordinal)];
 
     public IReadOnlyCollection<BeatorajaSongRow> NonRandomDiffSongs => nonRandomDiffSongs.Values;
 

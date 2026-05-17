@@ -27,9 +27,9 @@ internal static class ResourceSurfaceMaterializer
         AddResourceHashes(rootDirectory, movieFilePaths, movieRelativePathHashes);
 
         return new DirectoryResourceLookupCache.Entry(
-            audioRelativePathHashes.OrderBy(hash => hash).ToArray(),
-            imageRelativePathHashes.OrderBy(hash => hash).ToArray(),
-            movieRelativePathHashes.OrderBy(hash => hash).ToArray());
+            [.. audioRelativePathHashes.OrderBy(hash => hash)],
+            [.. imageRelativePathHashes.OrderBy(hash => hash)],
+            [.. movieRelativePathHashes.OrderBy(hash => hash)]);
     }
 
     private static void AddResourceHashes(string rootDirectory, IEnumerable<string> absolutePaths, ISet<uint> categoryRelativePathHashes)

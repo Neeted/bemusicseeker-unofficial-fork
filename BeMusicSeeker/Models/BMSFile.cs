@@ -1305,7 +1305,7 @@ public class BMSFile : LR2SongDB.song
 
     public void AddRefTable(BMSTable table)
     {
-        AddRefTables(new BMSTable[1] { table });
+        AddRefTables([table]);
     }
 
     public int AddRefTables(IEnumerable<BMSTable> tables, bool suppressPropertyChanged = false)

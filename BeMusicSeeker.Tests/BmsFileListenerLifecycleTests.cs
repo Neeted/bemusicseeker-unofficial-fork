@@ -186,7 +186,6 @@ public sealed class BmsFileListenerLifecycleTests
 
         Assert.AreEqual(0, file.RefTables.Count);
         var weakReference = new WeakReference(file);
-        file = null;
         return weakReference;
     }
 
@@ -195,7 +194,6 @@ public sealed class BmsFileListenerLifecycleTests
         TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file.AddRefTable(table);
         var weakReference = new WeakReference(file);
-        file = null;
         return weakReference;
     }
 

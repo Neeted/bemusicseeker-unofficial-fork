@@ -45,7 +45,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int addedRefs = service.ApplyReferenceMap(new[] { file }, maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        int addedRefs = service.ApplyReferenceMap([file], maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(0, maps.Md5ToTablesMap.Count);
         Assert.AreEqual(1, maps.Sha256ToTablesMap.Count);
@@ -64,8 +64,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         shaTable.name = "SHA";
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64));
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(new[] { md5Table, shaTable });
-        int addedRefs = service.ApplyReferenceMap(new[] { file }, maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        PlaylistReferenceMaps maps = service.BuildReferenceMaps([md5Table, shaTable]);
+        int addedRefs = service.ApplyReferenceMap([file], maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedFiles);
         Assert.AreEqual(1, addedRefs);

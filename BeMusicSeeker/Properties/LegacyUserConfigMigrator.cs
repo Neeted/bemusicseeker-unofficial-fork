@@ -66,7 +66,6 @@ internal static class LegacyUserConfigMigrator
 
     private static bool TryValidateCandidate(FileInfo file, out string reason)
     {
-        reason = "unknown";
         try
         {
             var xDocument = XDocument.Load(file.FullName, LoadOptions.None);

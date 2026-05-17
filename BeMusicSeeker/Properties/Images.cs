@@ -18,7 +18,7 @@ public class Images
     {
         get
         {
-            if (object.ReferenceEquals(resourceMan, null))
+            if (resourceMan is null)
             {
                 var temp = new ResourceManager("BeMusicSeeker.Properties.Images", typeof(Images).Assembly);
                 resourceMan = temp;

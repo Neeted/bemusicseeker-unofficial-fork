@@ -165,7 +165,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
 
         List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
-            new[] { matchedRow },
+            [matchedRow],
             keywordFilter: "unknown:Matched",
             modeFilter: MainWindowViewModel.ModeFilterType.All,
             sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
@@ -201,7 +201,7 @@ public sealed class PlaylistViewPipelineTests
             sha256: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
 
         List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
-            new[] { matchedRow, filteredRow },
+            [matchedRow, filteredRow],
             keywordFilter: "memo:\"special memo\" -comment:ordinary md5:333333|555555 sha256:abab|efef title:re:^matched",
             modeFilter: MainWindowViewModel.ModeFilterType.All,
             sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
@@ -307,7 +307,7 @@ public sealed class PlaylistViewPipelineTests
         };
 
         List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
-            new[] { entryLevelTwelve, entryLevelTwoPointFive, entryLevelThree },
+            [entryLevelTwelve, entryLevelTwoPointFive, entryLevelThree],
             keywordFilter: null,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
             sortParameters: sortParameters,
@@ -808,14 +808,14 @@ public sealed class PlaylistViewPipelineTests
 
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
-            new[] { bmson },
+            [bmson],
             bmsonChartAdapterProvider: GetAdapter).Single();
         firstSourceRow.CompatibilityBmsFile.instl_dst = "C:\\Installed\\Bmson";
         firstSourceRow.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
-            new[] { bmson },
+            [bmson],
             bmsonChartAdapterProvider: GetAdapter).Single();
         var rebuiltViewRow = LibraryChartRow.FromBmsonSong(rebuiltSourceRow.BmsonSong);
         rebuiltViewRow.SetBmsonChartAdapterProvider(GetAdapter);
@@ -1006,7 +1006,7 @@ public sealed class PlaylistViewPipelineTests
         ChartOperationTarget target = CreateDeleteTarget(ChartOperationSourceScope.NewlyInstalledPackage, ChartOperationCapabilities.RemoveFromLibrary);
 
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
-            new[] { target },
+            [target],
             target,
             MainWindowViewModel.MainViewOperationSection.InstallInstalled);
 
@@ -1022,7 +1022,7 @@ public sealed class PlaylistViewPipelineTests
         ChartOperationTarget target = CreateDeleteTarget(ChartOperationSourceScope.PendingPackage, ChartOperationCapabilities.UpdateInstallDestination);
 
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
-            new[] { target },
+            [target],
             target,
             MainWindowViewModel.MainViewOperationSection.InstallPending);
 
@@ -1053,7 +1053,7 @@ public sealed class PlaylistViewPipelineTests
         ChartOperationTarget target = CreateDeleteTarget(ChartOperationSourceScope.PlaylistMissing, ChartOperationCapabilities.None);
 
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
-            new[] { target },
+            [target],
             target,
             MainWindowViewModel.MainViewOperationSection.Playlist);
 
@@ -1068,7 +1068,7 @@ public sealed class PlaylistViewPipelineTests
         ChartOperationTarget pendingTarget = CreateDeleteTarget(ChartOperationSourceScope.PendingPackage, ChartOperationCapabilities.UpdateInstallDestination);
 
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
-            new[] { libraryTarget, pendingTarget },
+            [libraryTarget, pendingTarget],
             pendingTarget,
             MainWindowViewModel.MainViewOperationSection.InstallPending);
 
@@ -1491,7 +1491,7 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow lowNotesRow = CreateMissingSourceRow("LowNotes", lowNotesInfo);
 
         List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
-            new[] { highNotesRow, lowNotesRow },
+            [highNotesRow, lowNotesRow],
             keywordFilter: "notes:>=2000 feature:random level:12",
             modeFilter: MainWindowViewModel.ModeFilterType.All,
             sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(PlaylistDetailRow.ChartNotes), Direction = ListSortDirection.Descending },
@@ -1708,8 +1708,8 @@ public sealed class PlaylistViewPipelineTests
         });
 
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
-            new[] { keepBms, skipBms },
-            new[] { keepBmson, skipBmson },
+            [keepBms, skipBms],
+            [keepBmson, skipBmson],
             file => file.path.StartsWith("C:\\Keep", StringComparison.OrdinalIgnoreCase),
             out LibraryRowsBuildMetrics metrics);
 
@@ -1747,7 +1747,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, firstStats.MissCount);
         Assert.AreEqual(1, secondStats.HitCount);
         Assert.AreEqual(0, secondStats.MissCount);
-        Assert.AreEqual(1, cache.Prune(new[] { fileA }));
+        Assert.AreEqual(1, cache.Prune([fileA]));
         Assert.AreEqual(1, cache.Count);
         fileB.SetTitle("B2");
         fileA.SetTitle("A2");
@@ -1767,7 +1767,7 @@ public sealed class PlaylistViewPipelineTests
         };
 
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
-            new[] { file },
+            [file],
             [],
             null,
             _ => cachedRow,

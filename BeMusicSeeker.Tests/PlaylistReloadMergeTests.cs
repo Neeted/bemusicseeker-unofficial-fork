@@ -398,10 +398,10 @@ public sealed class PlaylistReloadMergeTests
     [TestCategory("Playlist")]
     public void AnalyzePlaylistContentDiff_NoDifference_ReturnsEmptySamples()
     {
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> rows = BMSPlaylist.BuildComparablePlaylistEntryRows(new[]
-        {
+        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> rows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        [
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "same")
-        });
+        ]);
 
         BMSPlaylist.PlaylistContentDiffResult result = BMSPlaylist.AnalyzePlaylistContentDiff(rows, rows);
 
@@ -416,14 +416,14 @@ public sealed class PlaylistReloadMergeTests
     [TestCategory("Playlist")]
     public void AnalyzePlaylistContentDiff_CommentDifference_ReturnsOneSamplePerSide()
     {
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> persistedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(new[]
-        {
+        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> persistedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        [
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "old")
-        });
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> reloadedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(new[]
-        {
+        ]);
+        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> reloadedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        [
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "new")
-        });
+        ]);
 
         BMSPlaylist.PlaylistContentDiffResult result = BMSPlaylist.AnalyzePlaylistContentDiff(persistedRows, reloadedRows);
 
@@ -438,13 +438,13 @@ public sealed class PlaylistReloadMergeTests
     [TestCategory("Playlist")]
     public void AnalyzePlaylistContentDiff_SampleCount_IsLimitedToThree()
     {
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> persistedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(new[]
-        {
+        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> persistedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        [
             CreateComparableOnlyEntry("Title 1", "Artist", "FolderA", comment: "old"),
             CreateComparableOnlyEntry("Title 2", "Artist", "FolderA", comment: "old"),
             CreateComparableOnlyEntry("Title 3", "Artist", "FolderA", comment: "old"),
             CreateComparableOnlyEntry("Title 4", "Artist", "FolderA", comment: "old")
-        });
+        ]);
         IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> reloadedRows = BMSPlaylist.BuildComparablePlaylistEntryRows([]);
 
         BMSPlaylist.PlaylistContentDiffResult result = BMSPlaylist.AnalyzePlaylistContentDiff(persistedRows, reloadedRows);
