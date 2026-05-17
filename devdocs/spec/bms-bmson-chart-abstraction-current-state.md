@@ -80,6 +80,8 @@ parent folder cache は更新通知としては bmson 変更でも無効化さ�
 
 `LibraryChartRow.Chart` は `ChartFile` を返す。BMS では storage owner として実体 `BMSFile` を `BmsFile` に持ち、既存 `BMSFile` API 用にも同じ instance を `CompatibilityBmsFile` として渡す。bmson では storage owner として `BmsonSong` を持ち、必要に応じて既存 `BMSFile` API 用の adapter を `CompatibilityBmsFile` として持つ。pending bmson の場合は、現在の adapter path / hash を優先しつつ `BmsonSong` も保持する。
 
+所持 bmson row の `CompatibilityBmsFile` は、ViewModel が持つ shared bmson chart adapter cache から供給される。`LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` は `BmsonChartAdapterProvider` を受け取って同じ `PendingChartEntry` adapter を共有し、インストール先修復候補や warning state を row 再生成後も保持する。`CompatibilityBmsFile` という property 名は、既存 `BMSFile` 引数 API へ渡す互換境界を明示するために残す。
+
 表示列は BMS / bmson で共通化されているものが多い。
 
 - title / artist / genre / folder / path
@@ -381,6 +383,7 @@ View の control 名、menu item 名、event handler 名、ログ名にも BMS �
 - UI operation target 解決: `GridRowResolver.TryGetChartOperationTarget(...)`
 - context menu / command selection helper: `GetSelectedChartTargets(...)`
 - 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedChartCompatibilityAdapters(...)` / `GetSelectedPendingChartCompatibilityAdapters(...)`
+- 所持 bmson row の共有 adapter cache: `sharedBmsonChartAdaptersByKey` と `BmsonChartAdapterProvider`
 - BMS 専用 operation helper: `GetSelectedBmsChartFiles(...)`
 - model mutation reference: `LibraryChartRef`
 - installed directory lookup: BMSFile + bmson_song の両方を hash / path で登録

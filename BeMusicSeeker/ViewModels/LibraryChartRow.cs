@@ -20,9 +20,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; private set; }
 
-    private PendingChartEntry bmsonCompatibilityBmsFile;
+    private PendingChartEntry bmsonChartAdapter;
 
-    private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider;
+    private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
 
     private Func<LibraryChartRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
@@ -41,7 +41,7 @@ internal sealed class LibraryChartRow : NotificationObject
             {
                 PendingChartEntry pending = BmsFile as PendingChartEntry;
                 bool isPendingBmson = pending?.IsBmsonChart == true;
-                BMSFile compatibilityBmsFile = BmsFile ?? GetOrCreateBmsonCompatibilityBmsFile();
+                BMSFile compatibilityBmsFile = BmsFile ?? GetOrCreateBmsonChartAdapter();
                 return new ChartFile(
                     ChartFileKind.Bmson,
                     isPendingBmson ? pending.path : bmsonSong.path,
@@ -72,7 +72,7 @@ internal sealed class LibraryChartRow : NotificationObject
         }
     }
 
-    internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonCompatibilityBmsFile();
+    internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonChartAdapter();
 
     private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong)
     {
@@ -109,45 +109,45 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(string.Empty);
     }
 
-    private PendingChartEntry GetOrCreateBmsonCompatibilityBmsFile()
+    private PendingChartEntry GetOrCreateBmsonChartAdapter()
     {
         if (BmsonSong == null)
         {
             return null;
         }
-        PendingChartEntry provided = bmsonCompatibilityBmsFileProvider?.Invoke(BmsonSong);
+        PendingChartEntry provided = bmsonChartAdapterProvider?.Invoke(BmsonSong);
         if (provided != null)
         {
-            if (!ReferenceEquals(bmsonCompatibilityBmsFile, provided))
+            if (!ReferenceEquals(bmsonChartAdapter, provided))
             {
-                SetBmsonCompatibilityBmsFile(provided);
+                SetBmsonChartAdapter(provided);
             }
-            return bmsonCompatibilityBmsFile;
+            return bmsonChartAdapter;
         }
-        if (bmsonCompatibilityBmsFile == null || !ReferenceEquals(bmsonCompatibilityBmsFile.BmsonSong, BmsonSong))
+        if (bmsonChartAdapter == null || !ReferenceEquals(bmsonChartAdapter.BmsonSong, BmsonSong))
         {
-            SetBmsonCompatibilityBmsFile(PendingChartEntry.CreateFromBmsonSong(BmsonSong));
+            SetBmsonChartAdapter(PendingChartEntry.CreateFromBmsonSong(BmsonSong));
         }
-        else if (!string.Equals(bmsonCompatibilityBmsFile.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
+        else if (!string.Equals(bmsonChartAdapter.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
         {
-            bmsonCompatibilityBmsFile.UpdateFromBmsonSong(BmsonSong);
+            bmsonChartAdapter.UpdateFromBmsonSong(BmsonSong);
         }
-        return bmsonCompatibilityBmsFile;
+        return bmsonChartAdapter;
     }
 
-    internal void SetBmsonCompatibilityBmsFileProvider(Func<LR2SongDBExtended.bmson_song, PendingChartEntry> provider)
+    internal void SetBmsonChartAdapterProvider(Func<LR2SongDBExtended.bmson_song, PendingChartEntry> provider)
     {
-        bmsonCompatibilityBmsFileProvider = provider;
+        bmsonChartAdapterProvider = provider;
     }
 
-    private void SetBmsonCompatibilityBmsFile(PendingChartEntry entry)
+    private void SetBmsonChartAdapter(PendingChartEntry entry)
     {
-        if (bmsonCompatibilityBmsFile is INotifyPropertyChanged oldSource)
+        if (bmsonChartAdapter is INotifyPropertyChanged oldSource)
         {
             PropertyChangedEventManager.RemoveHandler(oldSource, OnSourcePropertyChanged, string.Empty);
         }
-        bmsonCompatibilityBmsFile = entry;
-        if (bmsonCompatibilityBmsFile is INotifyPropertyChanged newSource)
+        bmsonChartAdapter = entry;
+        if (bmsonChartAdapter is INotifyPropertyChanged newSource)
         {
             PropertyChangedEventManager.AddHandler(newSource, OnSourcePropertyChanged, string.Empty);
         }

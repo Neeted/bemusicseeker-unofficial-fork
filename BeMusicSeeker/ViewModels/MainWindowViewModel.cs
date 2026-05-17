@@ -5758,7 +5758,7 @@ public class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
 
-    private readonly Dictionary<string, PendingChartEntry> bmsonCompatibilityBmsFilesByKey = new Dictionary<string, PendingChartEntry>(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PendingChartEntry> sharedBmsonChartAdaptersByKey = new Dictionary<string, PendingChartEntry>(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, BmsonLibrarySortKeySnapshot> bmsonLibrarySortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
 
@@ -10122,60 +10122,60 @@ public class MainWindowViewModel : ViewModel
 
     private void ApplyLibraryChartRowProviders(LibraryChartRow row)
     {
-        ApplyBmsonCompatibilityBmsFileProvider(row);
+        ApplyBmsonChartAdapterProvider(row);
         ApplyResourceHealthProjectionProvider(row);
         ApplyPlaylistReferenceDisplayProvider(row);
     }
 
-    private void ApplyBmsonCompatibilityBmsFileProvider(LibraryChartRow row)
+    private void ApplyBmsonChartAdapterProvider(LibraryChartRow row)
     {
-        row?.SetBmsonCompatibilityBmsFileProvider(GetOrCreateBmsonCompatibilityBmsFile);
+        row?.SetBmsonChartAdapterProvider(GetOrCreateSharedBmsonChartAdapter);
     }
 
-    private PendingChartEntry GetOrCreateBmsonCompatibilityBmsFile(LR2SongDBExtended.bmson_song song)
+    private PendingChartEntry GetOrCreateSharedBmsonChartAdapter(LR2SongDBExtended.bmson_song song)
     {
         if (song == null || string.IsNullOrWhiteSpace(song.path))
         {
             return null;
         }
-        string key = GetBmsonCompatibilityBmsFileKey(song);
+        string key = GetSharedBmsonChartAdapterKey(song);
         if (string.IsNullOrWhiteSpace(key))
         {
             return PendingChartEntry.CreateFromBmsonSong(song);
         }
-        if (!bmsonCompatibilityBmsFilesByKey.TryGetValue(key, out PendingChartEntry entry) || entry == null)
+        if (!sharedBmsonChartAdaptersByKey.TryGetValue(key, out PendingChartEntry entry) || entry == null)
         {
             entry = PendingChartEntry.CreateFromBmsonSong(song);
             if (entry != null)
             {
-                bmsonCompatibilityBmsFilesByKey[key] = entry;
+                sharedBmsonChartAdaptersByKey[key] = entry;
             }
             return entry;
         }
         if (!ReferenceEquals(entry.BmsonSong, song) || !string.Equals(entry.path, song.path, StringComparison.OrdinalIgnoreCase))
         {
-            UpdateBmsonCompatibilityBmsFilePreservingRepairState(entry, song);
+            UpdateSharedBmsonChartAdapterPreservingRepairState(entry, song);
         }
         return entry;
     }
 
-    private void PruneBmsonCompatibilityBmsFileCache(IReadOnlyCollection<LR2SongDBExtended.bmson_song> currentSongs)
+    private void PruneSharedBmsonChartAdapterCache(IReadOnlyCollection<LR2SongDBExtended.bmson_song> currentSongs)
     {
         HashSet<string> currentKeys = new HashSet<string>(
             (currentSongs ?? Array.Empty<LR2SongDBExtended.bmson_song>())
-                .Select(GetBmsonCompatibilityBmsFileKey)
+                .Select(GetSharedBmsonChartAdapterKey)
                 .Where((string key) => !string.IsNullOrWhiteSpace(key)),
             StringComparer.OrdinalIgnoreCase);
-        foreach (string key in bmsonCompatibilityBmsFilesByKey.Keys.ToList())
+        foreach (string key in sharedBmsonChartAdaptersByKey.Keys.ToList())
         {
             if (!currentKeys.Contains(key))
             {
-                bmsonCompatibilityBmsFilesByKey.Remove(key);
+                sharedBmsonChartAdaptersByKey.Remove(key);
             }
         }
     }
 
-    private static string GetBmsonCompatibilityBmsFileKey(LR2SongDBExtended.bmson_song song)
+    private static string GetSharedBmsonChartAdapterKey(LR2SongDBExtended.bmson_song song)
     {
         string lookupHash = PendingChartEntry.GetPrimaryLookupHash(song);
         string path = song?.path;
@@ -10190,7 +10190,7 @@ public class MainWindowViewModel : ViewModel
         return string.IsNullOrWhiteSpace(path) ? null : "path:" + path;
     }
 
-    private static void UpdateBmsonCompatibilityBmsFilePreservingRepairState(PendingChartEntry entry, LR2SongDBExtended.bmson_song song)
+    private static void UpdateSharedBmsonChartAdapterPreservingRepairState(PendingChartEntry entry, LR2SongDBExtended.bmson_song song)
     {
         if (entry == null || song == null)
         {
@@ -10575,7 +10575,7 @@ public class MainWindowViewModel : ViewModel
                 return null;
             }
             LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
-            ApplyBmsonCompatibilityBmsFileProvider(bmsonRow);
+            ApplyBmsonChartAdapterProvider(bmsonRow);
             if (applyResourceHealthProjection)
             {
                 ApplyResourceHealthProjectionProvider(bmsonRow);
@@ -10584,7 +10584,7 @@ public class MainWindowViewModel : ViewModel
             return bmsonRow;
         }
         LibraryChartRow row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
-        ApplyBmsonCompatibilityBmsFileProvider(row);
+        ApplyBmsonChartAdapterProvider(row);
         if (applyResourceHealthProjection)
         {
             ApplyResourceHealthProjectionProvider(row);
@@ -10627,7 +10627,7 @@ public class MainWindowViewModel : ViewModel
             includeBmsonRows ? files?.BmsonSongs : null,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
-            GetOrCreateBmsonCompatibilityBmsFile);
+            GetOrCreateSharedBmsonChartAdapter);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -15425,7 +15425,7 @@ public class MainWindowViewModel : ViewModel
         foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo, GetPlaylistReferenceDisplayForIdentity, GetOrCreateBmsonCompatibilityBmsFile));
+            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo, GetPlaylistReferenceDisplayForIdentity, GetOrCreateSharedBmsonChartAdapter));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
@@ -16808,7 +16808,7 @@ public class MainWindowViewModel : ViewModel
             .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        PruneBmsonCompatibilityBmsFileCache(snapshot);
+        PruneSharedBmsonChartAdapterCache(snapshot);
         HashSet<string> nextPaths = new HashSet<string>(snapshot.Select((LR2SongDBExtended.bmson_song song) => song.path), StringComparer.OrdinalIgnoreCase);
         bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any((string path) => !nextPaths.Contains(path));
         bool sourceReferenceChanged = false;

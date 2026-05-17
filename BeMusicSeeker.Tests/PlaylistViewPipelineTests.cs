@@ -757,7 +757,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(libraryRow.WarningTooltipText, "ambiguous install destination");
 
         LibraryChartRow rebuiltWarningRow = LibraryChartRow.FromBmsonSong(bmson);
-        rebuiltWarningRow.SetBmsonCompatibilityBmsFileProvider(song => firstLibraryTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
+        rebuiltWarningRow.SetBmsonChartAdapterProvider(song => firstLibraryTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
         Assert.IsTrue(rebuiltWarningRow.HasHighlightedWarning);
         StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, "ambiguous install destination");
 
@@ -777,12 +777,12 @@ public sealed class PlaylistViewPipelineTests
             entry,
             realFile: null,
             resolvedBmson: bmson,
-            bmsonCompatibilityBmsFileProvider: song => firstPlaylistTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
+            bmsonChartAdapterProvider: song => firstPlaylistTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
     }
 
     [TestMethod]
-    public void ChartListSourceRow_BmsonUsesSharedCompatibilityBmsFileForInstallRepairState()
+    public void ChartListSourceRow_BmsonUsesSharedChartAdapterForInstallRepairState()
     {
         LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
         {
@@ -807,16 +807,16 @@ public sealed class PlaylistViewPipelineTests
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             Array.Empty<BMSFile>(),
             new[] { bmson },
-            bmsonCompatibilityBmsFileProvider: GetAdapter).Single();
+            bmsonChartAdapterProvider: GetAdapter).Single();
         firstSourceRow.CompatibilityBmsFile.instl_dst = "C:\\Installed\\Bmson";
         firstSourceRow.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             Array.Empty<BMSFile>(),
             new[] { bmson },
-            bmsonCompatibilityBmsFileProvider: GetAdapter).Single();
+            bmsonChartAdapterProvider: GetAdapter).Single();
         LibraryChartRow rebuiltViewRow = LibraryChartRow.FromBmsonSong(rebuiltSourceRow.BmsonSong);
-        rebuiltViewRow.SetBmsonCompatibilityBmsFileProvider(GetAdapter);
+        rebuiltViewRow.SetBmsonChartAdapterProvider(GetAdapter);
 
         Assert.AreSame(firstSourceRow.CompatibilityBmsFile, rebuiltSourceRow.CompatibilityBmsFile);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.InstallDestination);

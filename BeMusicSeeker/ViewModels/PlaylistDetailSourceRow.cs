@@ -31,11 +31,11 @@ internal sealed class PlaylistDetailSourceRow
     /// </summary>
     internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
 
-    private PendingChartEntry bmsonCompatibilityBmsFile;
+    private PendingChartEntry bmsonChartAdapter;
 
-    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider;
+    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
 
-    internal BMSFile CompatibilityBmsFile => RealFile ?? GetOrCreateBmsonCompatibilityBmsFile();
+    internal BMSFile CompatibilityBmsFile => RealFile ?? GetOrCreateBmsonChartAdapter();
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
@@ -140,27 +140,27 @@ internal sealed class PlaylistDetailSourceRow
 
     internal bool HasEntryChartInfoDependency => RealFile == null && ResolvedBmson == null;
 
-    private PendingChartEntry GetOrCreateBmsonCompatibilityBmsFile()
+    private PendingChartEntry GetOrCreateBmsonChartAdapter()
     {
         if (ResolvedBmson == null)
         {
             return null;
         }
-        PendingChartEntry provided = bmsonCompatibilityBmsFileProvider?.Invoke(ResolvedBmson);
+        PendingChartEntry provided = bmsonChartAdapterProvider?.Invoke(ResolvedBmson);
         if (provided != null)
         {
-            bmsonCompatibilityBmsFile = provided;
-            return bmsonCompatibilityBmsFile;
+            bmsonChartAdapter = provided;
+            return bmsonChartAdapter;
         }
-        if (bmsonCompatibilityBmsFile == null || !ReferenceEquals(bmsonCompatibilityBmsFile.BmsonSong, ResolvedBmson))
+        if (bmsonChartAdapter == null || !ReferenceEquals(bmsonChartAdapter.BmsonSong, ResolvedBmson))
         {
-            bmsonCompatibilityBmsFile = PendingChartEntry.CreateFromBmsonSong(ResolvedBmson);
+            bmsonChartAdapter = PendingChartEntry.CreateFromBmsonSong(ResolvedBmson);
         }
-        else if (!string.Equals(bmsonCompatibilityBmsFile.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
+        else if (!string.Equals(bmsonChartAdapter.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
         {
-            bmsonCompatibilityBmsFile.UpdateFromBmsonSong(ResolvedBmson);
+            bmsonChartAdapter.UpdateFromBmsonSong(ResolvedBmson);
         }
-        return bmsonCompatibilityBmsFile;
+        return bmsonChartAdapter;
     }
 
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
@@ -245,13 +245,13 @@ internal sealed class PlaylistDetailSourceRow
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonCompatibilityBmsFileProvider = null)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
         ResolvedBmson = resolvedBmson;
         EntryChartInfo = entryChartInfo;
-        this.bmsonCompatibilityBmsFileProvider = bmsonCompatibilityBmsFileProvider;
+        this.bmsonChartAdapterProvider = bmsonChartAdapterProvider;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
         BMSFile compatibilityBmsFile = CompatibilityBmsFile;
