@@ -409,7 +409,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     /// <summary>
     /// メインウィンドウに対してファイルやフォルダーがドラッグ＆ドロップされた際の完了処理イベント。
-    /// ドロップされたパス一覧を取得し、BMSファイルのインストール処理を開始します。
+    /// ドロップされたパス一覧を取得し、譜面ファイルのインストール処理を開始します。
     /// </summary>
     private void Window_Drop(object sender, DragEventArgs e)
     {
@@ -6066,7 +6066,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         });
         if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
         {
-            installBMSFiles([filePath]);
+            installChartPackages([filePath]);
             return DownloadAndInstallResult.Installed;
         }
         return result;
@@ -6175,7 +6175,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// 導入件数が複数の場合は進捗表示付きのポップアップダイアログ (ProgressDialog) を表示します。
     /// </summary>
     /// <param name="filePaths">インストール対象の一連のファイルシステムパス群。</param>
-    private async void installBMSFiles(IEnumerable<string> filePaths)
+    private async void installChartPackages(IEnumerable<string> filePaths)
     {
         var viewModel = base.DataContext as MainWindowViewModel;
         int progIdx = 0;
@@ -6197,7 +6197,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     failNum++;
                 }
             });
-        }, cancelTokenSource.Token).Logging("installBMSFiles");
+        }, cancelTokenSource.Token).Logging("MainWindow.installChartPackages");
         if (total == 1)
         {
             await task;
