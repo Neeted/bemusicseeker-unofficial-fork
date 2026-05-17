@@ -1,6 +1,6 @@
 ---
 name: csharp-semantic-refactor
-description: Use for C#/.NET symbol renames, API/signature refactors, namespace/type/member moves, and BeMusicSeeker chart-abstraction renames where identifier replacement in .cs/.xaml would otherwise be tempting. Requires semantic rename first, user VS Code F2 handoff when no callable rename tool exists, and targeted audit of non-symbol artifacts such as XAML, resources, docs, settings, DB schema, serialization, and generated files.
+description: Use for C#/.NET symbol renames, API/signature refactors, namespace/type/member moves, and BeMusicSeeker chart-abstraction renames where identifier replacement in .cs/.xaml would otherwise be tempting. Requires semantic rename first via repo-local Roslynator rename-symbol when safe, user VS Code F2 handoff for location-specific renames, and targeted audit of non-symbol artifacts such as XAML, resources, docs, settings, DB schema, serialization, and generated files.
 ---
 
 # C# semantic refactor workflow
@@ -12,12 +12,33 @@ Use this skill for C#/.NET refactoring, especially BeMusicSeeker work that moves
 Do not use text replacement as the primary method for C# symbol changes.
 
 Semantic tools first:
-1. Callable Roslyn or LSP rename tool, if configured.
-2. VS Code F2 Rename Symbol / C# Dev Kit, applied by the user when Codex has no callable semantic rename tool.
-3. Compiler-driven edits for API/signature refactors.
-4. Targeted text edits only for classified non-symbol artifacts.
+1. Repo-local `dotnet roslynator rename-symbol`, when the target can be safely expressed with a narrow `--match` and verified with `--dry-run`.
+2. Other callable Roslyn or LSP rename tool, if configured.
+3. VS Code F2 Rename Symbol / C# Dev Kit, applied by the user for location-specific single-symbol renames or when CLI matching is not safe.
+4. Compiler-driven edits for API/signature refactors.
+5. Targeted text edits only for classified non-symbol artifacts.
 
 Use `rg` for discovery and audit only. Never use `rg`, `sed`, PowerShell replacement, or case-insensitive repository-wide replacement to edit C# identifiers.
+
+## Tool Discovery
+
+Before a rename, check repo-local tools:
+
+```powershell
+dotnet tool list --local
+dotnet roslynator rename-symbol --help
+dotnet roslynator analyze --help
+dotnet format --help
+dotnet dotnet-format --help
+```
+
+If local tools are declared but commands are unavailable, run `dotnet tool restore` and retry.
+
+Treat tool manifest and analyzer packages as separate concerns:
+
+- `.config/dotnet-tools.json` enables CLI tools such as `roslynator` and `dotnet-format`.
+- `Roslynator.*` `PackageReference`s enable build/IDE analyzer diagnostics and affect restore, lock files, warnings, and CI behavior.
+- Do not add analyzer packages merely to make `dotnet roslynator rename-symbol` available.
 
 ## Classify The Operation
 
@@ -60,6 +81,24 @@ If no semantic rename tool is callable, stop after this report and ask the user 
 
 Resume only after the user confirms the F2 rename has been applied.
 
+## Roslynator Rename
+
+Use Roslynator only when a symbol set can be selected precisely enough by `--match`, `--match-from`, `--scope`, project, and optional include/exclude filters.
+
+Start with a dry run:
+
+```powershell
+dotnet roslynator rename-symbol BeMusicSeeker.csproj --scope type --match "<predicate>" --new-name "<expression>" --dry-run -v minimal
+```
+
+Rules:
+
+- Prefer `--dry-run` first, then `--ask` or a narrow non-interactive run.
+- Inspect the dry-run target list before allowing disk writes.
+- Keep `--match` specific enough to avoid prefix-wide or namespace-wide surprises.
+- Do not use Roslynator for a cursor-position-specific rename that cannot be described safely in `--match`; ask the user to use VS Code F2 instead.
+- Inspect `git diff` immediately after any Roslynator write.
+
 ## During editing
 
 - Prefer one semantic rename operation per symbol. Do not bundle unrelated renames just because they share a prefix.
@@ -93,7 +132,8 @@ Run:
 - `dotnet build`
 - targeted `dotnet test` for the affected behavior
 - full `dotnet test` when the change crosses shared model/viewmodel/service boundaries
-- `dotnet format --verify-no-changes` when formatting/analyzer verification is part of the repo workflow or the change is broad; treat unavailable or noisy format tooling as report-only unless the repo already relies on it
+- formatting verification when formatting/analyzer verification is part of the repo workflow or the change is broad. Prefer SDK `dotnet format --verify-no-changes --no-restore` when available; use local tool `dotnet dotnet-format --check --no-restore` for older `dotnet-format` manifests. Treat unavailable or noisy format tooling as report-only unless the repo already relies on it
+- Roslynator analyzer warnings when `Roslynator.*` analyzer packages are referenced by the project; treat new diagnostics as part of the change impact, not as rename tooling setup
 
 Use a subagent review when available for non-trivial refactors. Ask it to review the diff for stale old names, over-rename, missed non-symbol artifacts, compatibility wrappers, and persistence/config risks.
 
