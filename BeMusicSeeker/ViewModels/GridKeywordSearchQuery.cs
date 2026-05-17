@@ -635,7 +635,7 @@ internal sealed class GridKeywordSearchQuery
             case "playlist":
             case "ref":
             case "table":
-                foreach (string name in GetPlaylistReferenceNames(row.BmsFile))
+                foreach (string name in SplitPlaylistReferenceNames(row.RefTablesNames))
                 {
                     yield return name;
                 }
@@ -827,21 +827,6 @@ internal sealed class GridKeywordSearchQuery
                     yield return value;
                 }
                 break;
-        }
-    }
-
-    private static IEnumerable<string> GetPlaylistReferenceNames(BMSFile file)
-    {
-        if (file == null)
-        {
-            yield break;
-        }
-        foreach (BMSTable table in file.RefTables)
-        {
-            if (!string.IsNullOrWhiteSpace(table?.name))
-            {
-                yield return table.name;
-            }
         }
     }
 

@@ -66,6 +66,36 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesChartList_PlaylistFieldSearchesBmsonReferenceProjection()
+    {
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\Bmson\chart.bmson",
+            folder = "BmsonFolder",
+            title = "BmsonTitle",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        };
+        var table = new BMSTable
+        {
+            name = "Bmson Table",
+            symbol = "BMSN",
+            entries = [CreateBmsonPlaylistEntry(song.sha256)]
+        };
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
+        index.ReplaceTable(table, table.entries);
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(song);
+        row.SetPlaylistReferenceDisplayProvider(row => index.Find(row.hash, row.sha256));
+
+        Assert.AreEqual("BMSN", row.RefTablesSymbols);
+        Assert.AreEqual("Bmson Table", row.RefTablesNames);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Bmson Table\"").MatchesLibraryChartRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("ref:\"Bmson Table\"").MatchesLibraryChartRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("table:\"Bmson Table\"").MatchesLibraryChartRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:BMSN").MatchesLibraryChartRow(row));
+    }
+
+    [TestMethod]
     public void MatchesChartListSourceRow_UsesSafeIdentityFieldsWithoutLibraryChartRow()
     {
         TestableBmsFile file = CreateFile();
@@ -522,6 +552,13 @@ public sealed class GridKeywordSearchQueryTests
             name = name,
             symbol = symbol
         };
+    }
+
+    private static BMSTableEntry CreateBmsonPlaylistEntry(string sha256)
+    {
+        var entry = new BMSTableEntry();
+        entry.MarkAsBmsonPlaylistIdentity(sha256);
+        return entry;
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfo(int? level = 12, bool difficultyDefined = true, bool totalDefined = true)
