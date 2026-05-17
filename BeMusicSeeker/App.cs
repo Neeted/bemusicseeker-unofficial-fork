@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using BeMusicSeeker.Models.Localization;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -16,6 +15,7 @@ using System.Windows.Controls;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;

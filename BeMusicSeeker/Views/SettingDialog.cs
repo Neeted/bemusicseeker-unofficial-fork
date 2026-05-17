@@ -12,8 +12,8 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using Microsoft.WindowsAPICodePack.Dialogs;
 using Microsoft.Win32;
+using Microsoft.WindowsAPICodePack.Dialogs;
 
 namespace BeMusicSeeker.Views;
 

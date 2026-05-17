@@ -6,9 +6,9 @@ using System.Linq;
 using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Properties;
 using System.Windows;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;

@@ -1,17 +1,17 @@
 using System;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Windows.Threading;
 
 namespace BeMusicSeeker.Tests;
 

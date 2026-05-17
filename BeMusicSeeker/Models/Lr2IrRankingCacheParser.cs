@@ -1,10 +1,10 @@
-using Ribbit.Util.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Xml.Linq;
 using BeMusicSeeker.Models.LR2;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models
 {

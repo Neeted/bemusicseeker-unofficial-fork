@@ -4,10 +4,10 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using System.Windows.Threading;
 
 namespace BeMusicSeeker.Tests;
 

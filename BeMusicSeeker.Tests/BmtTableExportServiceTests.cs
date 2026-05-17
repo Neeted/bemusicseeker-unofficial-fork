@@ -6,8 +6,8 @@ using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using Codeplex.Data;
-using Newtonsoft.Json.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 

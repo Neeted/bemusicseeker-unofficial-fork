@@ -1,7 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Collections;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -23,11 +23,11 @@ using Codeplex.Data;
 using Livet;
 using Livet.EventListeners;
 using Microsoft.VisualBasic.FileIO;
+using NLog;
 using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
-using NLog;
 
 namespace BeMusicSeeker.Models;
 
