@@ -3038,7 +3038,7 @@ createTempDirectory);
     }
 
     [TestMethod]
-    public void BMSFilesChartInfoParseFailed_ProjectsCurrentFailuresAsWarningShims()
+    public void ChartInfoParseFailedChartFiles_ProjectsCurrentFailuresAsWarningShims()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
@@ -3079,7 +3079,7 @@ createTempDirectory);
                 BmsonSongs = [bmsonSong]
             };
 
-            List<BMSFile> rows = [.. library.BMSFilesChartInfoParseFailed];
+            List<BMSFile> rows = [.. library.ChartInfoParseFailedChartFiles];
 
             Assert.AreEqual(2, rows.Count);
             CollectionAssert.AreEqual(
@@ -3143,12 +3143,12 @@ createTempDirectory);
             {
                 changedProperties.Add(args.PropertyName);
             };
-            Assert.AreEqual(2, library.BMSFilesChartInfoParseFailed.Count());
+            Assert.AreEqual(2, library.ChartInfoParseFailedChartFiles.Count());
 
             library.RemoveChartInfoParseFailuresByMd5([sharedMd5, sharedMd5.ToUpperInvariant(), " "]);
 
-            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.BMSFilesChartInfoParseFailed));
-            Assert.AreEqual(0, library.BMSFilesChartInfoParseFailed.Count());
+            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.ChartInfoParseFailedChartFiles));
+            Assert.AreEqual(0, library.ChartInfoParseFailedChartFiles.Count());
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", sharedMd5));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE hash = ?;", sharedMd5));

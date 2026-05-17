@@ -1037,7 +1037,7 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
-                    RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+                    RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
                 }).Logging("BMSFiles");
                 RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
             }
@@ -1070,7 +1070,7 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BmsonSongs");
-                    RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+                    RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
                 }).Logging("BmsonSongs");
             }
         }
@@ -1111,7 +1111,7 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesZeroNote => GetBMSFilesZeroNote(BMSFiles);
 
-    public IEnumerable<BMSFile> BMSFilesChartInfoParseFailed => GetBMSFilesChartInfoParseFailed();
+    public IEnumerable<BMSFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
 
     /// <summary>
     /// インストール待ち（Pending状態）の chart package のコレクションです。UIスレッドへのディスパッチに対応しています。
@@ -4356,7 +4356,7 @@ completeFileEnumerationOnce,
             || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
             || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
         {
-            RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+            RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
         }
         if (fileCheckResult.HasDbDiff)
         {
@@ -5114,7 +5114,7 @@ completeFileEnumerationOnce,
         }
         if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
         {
-            RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+            RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
         }
         LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
             + " target=" + result.TargetCount
@@ -5200,7 +5200,7 @@ reportProgress,
                 ChartInfoBackfillCurrentPath = string.Empty;
                 ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
                 ChartInfoBackfillCompletedVersion = requestVersion;
-                RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+                RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
                 lock (lockChartInfoBackfill)
                 {
                     chartInfoBackfillCompletedVersion = requestVersion;
@@ -5444,7 +5444,7 @@ reportProgress,
         RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
         RaisePropertyChanged(() => BMSFilesGarbled);
         RaisePropertyChanged(() => BMSFilesGarbledFixed);
-        RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+        RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
     }
 
     private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)
@@ -7242,7 +7242,7 @@ reportProgress,
         return maintenanceService.GetZeroNoteFiles(bmsFiles);
     }
 
-    public List<BMSFile> GetBMSFilesChartInfoParseFailed()
+    public List<BMSFile> GetChartInfoParseFailedChartFiles()
     {
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures = dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout);
         if (failures.Count == 0)
@@ -7308,7 +7308,7 @@ reportProgress,
             return;
         }
         dbGateway.DeleteChartInfoParseFailuresByMd5(normalizedMd5s);
-        RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+        RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
     }
 
     internal static string[] NormalizeChartInfoParseFailureMd5s(IEnumerable<string> md5s)

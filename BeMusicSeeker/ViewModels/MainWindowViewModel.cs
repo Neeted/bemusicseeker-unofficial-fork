@@ -9301,13 +9301,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesChartInfoParseFailed
+    private IEnumerable<BeMusicSeeker.Models.BMSFile> ChartInfoParseFailedChartFiles
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesChartInfoParseFailed;
+                return files.ChartInfoParseFailedChartFiles;
             }
             return null;
         }
@@ -11332,7 +11332,7 @@ public class MainWindowViewModel : ViewModel
                 subsetName = "zero_note";
                 return true;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
-                sourceFiles = BMSFilesChartInfoParseFailed;
+                sourceFiles = ChartInfoParseFailedChartFiles;
                 subsetName = "chart_info_parse_error";
                 return true;
             case viewUpdateMode.NewlyInstalledFolderSelected:
@@ -14313,7 +14313,7 @@ public class MainWindowViewModel : ViewModel
                 RefreshNormalLibraryAfterWarningChanged("bms_files_zero_note_changed");
             }
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesChartInfoParseFailed, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoParseFailedChartFiles, delegate
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.ChartInfoParseErrorFilterSelected)
@@ -16049,7 +16049,7 @@ public class MainWindowViewModel : ViewModel
                 ChartRowsFolderView = ToLibraryChartRows(BMSFilesZeroNote);
                 break;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesChartInfoParseFailed);
+                ChartRowsFolderView = ToLibraryChartRows(ChartInfoParseFailedChartFiles);
                 break;
             case viewUpdateMode.NewlyInstalledFolderSelected:
                 if (ChartPackagesInstalled == null)

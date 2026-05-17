@@ -115,7 +115,7 @@ CREATE INDEX IF NOT EXISTS idx_chart_info_parse_failure_parser_version
 - `MainWindow.xaml` のメンテナンスツリーに `解析エラー` node を追加する。
 - `MainWindow.cs` に selected handler を追加する。
 - `MainWindowViewModel.RefreshChartRowsView()` に filter case を追加する。
-- `BMSLibrary` / `MainWindowViewModel` に `BMSFilesChartInfoParseFailed` などの公開口を追加する。
+- `BMSLibrary` / `MainWindowViewModel` に `ChartInfoParseFailedChartFiles` などの公開口を追加する。
 
 初期カラム:
 
