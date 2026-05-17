@@ -67,7 +67,7 @@ internal static class GridRowResolver
 
     internal static BMSFile GetOperationChartFile(object row, ChartOperationSourceScope sourceScope)
     {
-        return TryGetOperationChartTarget(row, sourceScope, out ChartOperationTarget target)
+        return TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
             ? target.Chart?.CompatibilityChartFile
             : null;
     }
@@ -95,21 +95,6 @@ internal static class GridRowResolver
     internal static bool TryGetOwnedChartRef(object row, out OwnedChartRef chart)
     {
         return TryGetChartRef(row, out chart);
-    }
-
-    internal static bool TryGetOperationChartTarget(object row, out ChartOperationTarget target)
-    {
-        return TryGetOperationChartTarget(row, ChartOperationSourceScope.Library, out target);
-    }
-
-    internal static bool TryGetOperationChartTarget(object row, bool isPendingSection, out ChartOperationTarget target)
-    {
-        return TryGetOperationChartTarget(row, isPendingSection ? ChartOperationSourceScope.PendingPackage : ChartOperationSourceScope.Library, out target);
-    }
-
-    internal static bool TryGetOperationChartTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
-    {
-        return TryGetChartOperationTarget(row, sourceScope, out target);
     }
 
     internal static bool TryGetChartOperationTarget(object row, out ChartOperationTarget target)

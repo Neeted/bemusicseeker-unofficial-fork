@@ -1227,7 +1227,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(OwnedChartKind.Bms, chart.Kind);
         Assert.AreSame(file, chart.CompatibilityChartFile);
 
-        Assert.IsTrue(GridRowResolver.TryGetOperationChartTarget(file, out ChartOperationTarget target));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
         Assert.AreEqual(OwnedChartKind.Bms, target.Chart.Kind);
         Assert.AreSame(file, GridRowResolver.GetRealBmsFile(file));
         Assert.AreSame(file, GridRowResolver.GetOperationChartFile(file));

@@ -1151,7 +1151,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return GetSelectedGridRowsSnapshot()
             .Select(delegate(object row)
             {
-                return GridRowResolver.TryGetOperationChartTarget(row, sourceScope, out ChartOperationTarget target) ? target : null;
+                return GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) ? target : null;
             })
             .Where((ChartOperationTarget target) => target != null)
             .ToList();
@@ -1247,7 +1247,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
         return GetSelectedGridRowsSnapshot()
-            .Where((object row) => GridRowResolver.TryGetOperationChartTarget(row, sourceScope, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
+            .Where((object row) => GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
             .Select(GridRowResolver.GetHash)
             .Where((string hash) => !string.IsNullOrWhiteSpace(hash))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1282,7 +1282,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private ScoreViewerTarget TryCreateScoreViewerTarget(object row)
     {
-        if (!GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseScoreViewer))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseScoreViewer))
         {
             return null;
         }
@@ -1349,13 +1349,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         target = null;
         if (TryGetContextMenuRow(primarySource, out object row)
-            && GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out target))
+            && GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out target))
         {
             return true;
         }
         if (!ReferenceEquals(primarySource, fallbackSource)
             && TryGetContextMenuRow(fallbackSource, out row)
-            && GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out target))
+            && GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out target))
         {
             return true;
         }
@@ -1371,7 +1371,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             usePlaylistMissingContextMenu = false;
             return false;
         }
-        usePlaylistMissingContextMenu = GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
+        usePlaylistMissingContextMenu = GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
             ? target.IsPlaylistMissing
             : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetRealBmsFile(row) == null;
         string resourceKey = usePlaylistMissingContextMenu ? "tableContextMenuPlaylistMissing" : "tableContextMenu";
@@ -4833,7 +4833,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool isPlaylistSelected = IsPlaylistMainViewSection(effectiveSection);
         bool isPlaylistContext = isPlaylistSelected || isPlaylistRow;
         ChartOperationSourceScope sourceScope = mainWindowViewModel.CurrentMainViewChartOperationSourceScope;
-        if (!GridRowResolver.TryGetOperationChartTarget(row, sourceScope, out ChartOperationTarget rowTarget))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget rowTarget))
         {
             rowTarget = null;
             if (!isPlaylistRow)
@@ -5408,7 +5408,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
-        GridRowResolver.TryGetOperationChartTarget(row, out ChartOperationTarget rowTarget);
+        GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
         bool isBmsonContextRow = rowTarget?.Chart.Kind == OwnedChartKind.Bmson;
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
         bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
@@ -5461,7 +5461,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFolder))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFolder))
         {
             return;
         }
@@ -5626,7 +5626,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
         {
             return;
         }
@@ -5650,7 +5650,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
         {
             return;
         }

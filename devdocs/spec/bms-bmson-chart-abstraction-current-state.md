@@ -142,7 +142,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `OwnedChartKind.Bms` の missing row として扱われる。
 
-`GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetOperationTarget(...)` と capability を優先する。bmson owned row でも `OwnedChartRef.CompatibilityChartFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
+`GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartRef(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。bmson owned row でも `OwnedChartRef.CompatibilityChartFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。
 
 ### `ChartOperationTarget`
 
@@ -374,6 +374,7 @@ View の control 名、menu item 名、event handler 名、ログ名にも BMS �
 - 仮想 filter / sort / search source: `ChartListSourceRow`
 - UI 選択解決: `GridRowResolver.TryGetChartRef(...)`
 - UI operation: `ChartOperationTarget` + `ChartOperationCapabilities`
+- UI operation target 解決: `GridRowResolver.TryGetChartOperationTarget(...)`
 - context menu / command selection helper: `GetSelectedChartTargets(...)`
 - 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedCompatibilityChartFiles(...)` / `GetSelectedPendingCompatibilityChartFiles(...)`
 - BMS 専用 operation helper: `GetSelectedBmsChartFiles(...)`
