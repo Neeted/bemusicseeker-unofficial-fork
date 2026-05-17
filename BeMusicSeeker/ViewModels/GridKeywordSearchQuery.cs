@@ -12,7 +12,7 @@ namespace BeMusicSeeker.ViewModels;
 
 internal enum GridKeywordSearchContext
 {
-    BmsFile,
+    ChartList,
     PlaylistDetail,
     PlaylistSummary
 }
@@ -56,7 +56,7 @@ internal sealed class GridKeywordSearchQuery
         "clear", "rank", "djlevel", "dj", "rate", "score", "combo", "bp"
     };
 
-    private static readonly string[] BmsFileFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256" }
+    private static readonly string[] ChartListFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "table", "md5", "hash", "sha256" }
         .Concat(BaseChartFields)
         .Concat(ScoreFields)
         .ToArray();
@@ -92,7 +92,7 @@ internal sealed class GridKeywordSearchQuery
             case GridKeywordSearchContext.PlaylistSummary:
                 return PlaylistSummaryFields;
             default:
-                return BmsFileFields;
+                return ChartListFields;
         }
     }
 
@@ -135,26 +135,6 @@ internal sealed class GridKeywordSearchQuery
             .OrderBy((SearchCondition condition) => condition.SortWeight)
             .ToArray();
         return new GridKeywordSearchQuery(parsedConditions);
-    }
-
-    internal bool MatchesBmsFile(BMSFile file)
-    {
-        if (!HasTokens)
-        {
-            return true;
-        }
-        if (file == null)
-        {
-            return false;
-        }
-        foreach (SearchCondition condition in conditions)
-        {
-            if (!MatchesCondition(condition, file))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     internal bool MatchesLibraryChartRow(LibraryChartRow row)
@@ -517,23 +497,9 @@ internal sealed class GridKeywordSearchQuery
         return -1;
     }
 
-    private static bool MatchesCondition(SearchCondition condition, BMSFile file)
-    {
-        if (condition.IsInvalid || !IsKnownBmsFileField(condition.Field))
-        {
-            return false;
-        }
-        bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
-            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, file.ChartInfo, condition.Field))
-            : IsScoreField(condition.Field) && !condition.IsRegex
-                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, file.clear, file.rank, file.rateDouble, file.score, file.maxcombo, file.minbp))
-                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetBmsFileValues(file, condition.Field)));
-        return condition.IsNegated ? !matched : matched;
-    }
-
     private static bool MatchesCondition(SearchCondition condition, LibraryChartRow row)
     {
-        if (condition.IsInvalid || !IsKnownBmsFileField(condition.Field))
+        if (condition.IsInvalid || !IsKnownChartListField(condition.Field))
         {
             return false;
         }
@@ -547,7 +513,7 @@ internal sealed class GridKeywordSearchQuery
 
     private static bool MatchesCondition(SearchCondition condition, ChartListSourceRow row)
     {
-        if (condition.IsInvalid || !IsKnownBmsFileField(condition.Field))
+        if (condition.IsInvalid || !IsKnownChartListField(condition.Field))
         {
             return false;
         }
@@ -613,9 +579,9 @@ internal sealed class GridKeywordSearchQuery
         return false;
     }
 
-    private static bool IsKnownBmsFileField(string field)
+    private static bool IsKnownChartListField(string field)
     {
-        return field == null || BmsFileFields.Contains(field);
+        return field == null || ChartListFields.Contains(field);
     }
 
     private static bool IsKnownPlaylistDetailField(string field)
@@ -637,7 +603,7 @@ internal sealed class GridKeywordSearchQuery
             case GridKeywordSearchContext.PlaylistSummary:
                 return IsKnownPlaylistSummaryField(field);
             default:
-                return IsKnownBmsFileField(field);
+                return IsKnownChartListField(field);
         }
     }
 
@@ -649,79 +615,6 @@ internal sealed class GridKeywordSearchQuery
     private static bool IsScoreField(string field)
     {
         return field != null && ScoreFields.Contains(field);
-    }
-
-    private static IEnumerable<string> GetBmsFileValues(BMSFile file, string field)
-    {
-        switch (field)
-        {
-            case null:
-                yield return file.Title;
-                yield return file.genre;
-                yield return file.Artist;
-                yield return file.tag;
-                yield return file.path;
-                yield return file.RefTablesSymbols;
-                yield return file.hash;
-                yield return file.sha256;
-                break;
-            case "title":
-                yield return file.Title;
-                break;
-            case "artist":
-                yield return file.Artist;
-                break;
-            case "genre":
-                yield return file.genre;
-                break;
-            case "tag":
-                yield return file.tag;
-                break;
-            case "path":
-                yield return file.path;
-                break;
-            case "playlist":
-            case "ref":
-            case "table":
-                foreach (string name in GetPlaylistReferenceNames(file))
-                {
-                    yield return name;
-                }
-                break;
-            case "md5":
-            case "hash":
-                yield return file.hash;
-                break;
-            case "sha256":
-                yield return file.sha256;
-                break;
-            case "clear":
-                yield return ScoreDisplayTextFormatter.FormatClear(file.clear);
-                break;
-            case "rank":
-            case "djlevel":
-            case "dj":
-                yield return ScoreDisplayTextFormatter.FormatRank(file.rank);
-                break;
-            case "rate":
-                yield return FormatNullableDoubleInvariant(file.rateDouble);
-                break;
-            case "score":
-                yield return FormatNullableIntInvariant(file.score);
-                break;
-            case "combo":
-                yield return FormatNullableIntInvariant(file.maxcombo);
-                break;
-            case "bp":
-                yield return FormatNullableIntInvariant(file.minbp);
-                break;
-            default:
-                foreach (string value in GetChartInfoValues(file.ChartInfo, field))
-                {
-                    yield return value;
-                }
-                break;
-        }
     }
 
     private static IEnumerable<string> GetLibraryChartRowValues(LibraryChartRow row, string field)

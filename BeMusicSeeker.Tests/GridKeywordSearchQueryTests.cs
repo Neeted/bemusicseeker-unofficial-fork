@@ -12,37 +12,37 @@ namespace BeMusicSeeker.Tests;
 public sealed class GridKeywordSearchQueryTests
 {
     [TestMethod]
-    public void MatchesBmsFile_GlobalKeywordSearchesMetadataPathPlaylistAndHashes()
+    public void MatchesChartList_GlobalKeywordSearchesMetadataPathPlaylistAndHashes()
     {
         TestableBmsFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("genrex").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("abcdef").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("1234567890").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("genrex").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("abcdef").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("1234567890").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_UsesAndForMultipleTokens()
+    public void MatchesChartList_UsesAndForMultipleTokens()
     {
         TestableBmsFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha artistx abcdef").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha missing").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha artistx abcdef").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha missing").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_FieldQueryLimitsSearchTarget()
+    public void MatchesChartList_FieldQueryLimitsSearchTarget()
     {
         TestableBmsFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:alpha artist:artistx md5:abcdef sha256:123456").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:artistx").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("memo:alpha").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:alpha artist:artistx md5:abcdef sha256:123456").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:artistx").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("memo:alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_PlaylistFieldSearchesReferenceNames()
+    public void MatchesChartList_PlaylistFieldSearchesReferenceNames()
     {
         TestableBmsFile file = CreateFile();
         file.AddRefTables(new[]
@@ -52,12 +52,12 @@ public sealed class GridKeywordSearchQueryTests
             CreateTable("GENOSIDE", "▽")
         });
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("ref:\"Second Table\"").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("table:GENOSIDE").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:re:^GENOSIDE$").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★★").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("ref:\"Second Table\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("table:GENOSIDE").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:re:^GENOSIDE$").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★★").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
 
         LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(file);
         PlaylistDetailSourceRow playlistRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
@@ -135,17 +135,17 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
-    public void MatchesBmsFile_UnknownOrEmptyFieldQueryDoesNotMatch()
+    public void MatchesChartList_UnknownOrEmptyFieldQueryDoesNotMatch()
     {
         TestableBmsFile file = CreateFile();
 
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("unknown:alpha").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse(":alpha").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("unknown:alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse(":alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_WindowsDriveLetterTokenIsGlobalKeyword()
+    public void MatchesChartList_WindowsDriveLetterTokenIsGlobalKeyword()
     {
         TestableBmsFile file = CreateFile();
         file.path = @"D:\BMS\Alpha\chart.bms";
@@ -154,61 +154,61 @@ public sealed class GridKeywordSearchQueryTests
         GridKeywordSearchQuery driveRelativeQuery = GridKeywordSearchQuery.Parse("D:");
         GridKeywordSearchQuery lowerDrivePathQuery = GridKeywordSearchQuery.Parse(@"d:\bms\");
 
-        Assert.IsTrue(drivePathQuery.MatchesBmsFile(file));
-        Assert.IsTrue(driveRelativeQuery.MatchesBmsFile(file));
-        Assert.IsTrue(lowerDrivePathQuery.MatchesBmsFile(file));
-        Assert.AreEqual(0, drivePathQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
-        Assert.AreEqual(0, driveRelativeQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
-        Assert.AreEqual(0, lowerDrivePathQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
+        Assert.IsTrue(drivePathQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(driveRelativeQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(lowerDrivePathQuery.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.AreEqual(0, drivePathQuery.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
+        Assert.AreEqual(0, driveRelativeQuery.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
+        Assert.AreEqual(0, lowerDrivePathQuery.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
     }
 
     [TestMethod]
-    public void MatchesBmsFile_QuoteSearchTreatsPhraseAsSingleToken()
+    public void MatchesChartList_QuoteSearchTreatsPhraseAsSingleToken()
     {
         TestableBmsFile file = CreateFile();
         TestableBmsFile quotedFile = new TestableBmsFile();
         quotedFile.SetTitleForTest("Alpha \"Quoted\"");
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title\"").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha \\\"Quoted\\\"\"").MatchesBmsFile(quotedFile));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("\"Alpha Missing\"").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha \\\"Quoted\\\"\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(quotedFile)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("\"Alpha Missing\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_NegationExcludesMatchingRows()
+    public void MatchesChartList_NegationExcludesMatchingRows()
     {
         TestableBmsFile file = CreateFile();
         TestableBmsFile hyphenatedFile = new TestableBmsFile();
         hyphenatedFile.SetTitleForTest("foo-bar");
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha -artist:other").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha -artist:artistx").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("-").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("foo-bar").MatchesBmsFile(hyphenatedFile));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha -artist:other").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha -artist:artistx").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("-").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("foo-bar").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(hyphenatedFile)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_OrSearchIsLimitedToTokenAlternatives()
+    public void MatchesChartList_OrSearchIsLimitedToTokenAlternatives()
     {
         TestableBmsFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:missing|alpha").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"|missing").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:missing|other").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("|").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:missing|alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"|missing").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:missing|other").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("|").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_RegexSearchSupportsGlobalAndFieldQueries()
+    public void MatchesChartList_RegexSearchSupportsGlobalAndFieldQueries()
     {
         TestableBmsFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("re:^alpha").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:re:^alpha\\s+title$").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("artist:re:^alpha").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("re:^alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:re:^alpha\\s+title$").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("artist:re:^alpha").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
@@ -217,7 +217,7 @@ public sealed class GridKeywordSearchQueryTests
         GridKeywordSearchQuery memoQuery = GridKeywordSearchQuery.Parse("memo:alpha");
 
         Assert.AreEqual(0, memoQuery.GetDiagnostics(GridKeywordSearchContext.PlaylistDetail).Count);
-        Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile)[0].Kind);
+        Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.ChartList)[0].Kind);
         Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.PlaylistSummary)[0].Kind);
     }
 
@@ -226,7 +226,7 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("unknown:alpha title: - | title:re:[");
-        GridKeywordSearchDiagnosticKind[] kinds = query.GetDiagnostics(GridKeywordSearchContext.BmsFile)
+        GridKeywordSearchDiagnosticKind[] kinds = query.GetDiagnostics(GridKeywordSearchContext.ChartList)
             .Select((GridKeywordSearchDiagnostic diagnostic) => diagnostic.Kind)
             .ToArray();
 
@@ -235,7 +235,7 @@ public sealed class GridKeywordSearchQueryTests
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyNegation);
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyOr);
         CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.InvalidRegex);
-        Assert.IsFalse(query.MatchesBmsFile(file));
+        Assert.IsFalse(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
@@ -243,7 +243,7 @@ public sealed class GridKeywordSearchQueryTests
     {
         GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("title:\"Alpha Title\" -artist:other title:alpha|beta title:re:^alpha");
 
-        Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
+        Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
     }
 
     [TestMethod]
@@ -261,67 +261,67 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
-    public void MatchesBmsFile_ChartInfoNumericRangeAndAliases()
+    public void MatchesChartList_ChartInfoNumericRangeAndAliases()
     {
         TestableBmsFile file = CreateFile();
         file.SetChartInfo(CreateChartInfo());
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:10..12 notes:>=2000 duration:<124").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("difficulty:another feature:random tn:2.0..").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("-feature:mine scratch:12").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("feature:mine").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("difficulty:insane").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:10..12 notes:>=2000 duration:<124").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("difficulty:another feature:random tn:2.0..").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("-feature:mine scratch:12").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("feature:mine").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("difficulty:insane").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_ChartInfoDefinedUndefinedTerms()
+    public void MatchesChartList_ChartInfoDefinedUndefinedTerms()
     {
         TestableBmsFile file = CreateFile();
         file.SetChartInfo(CreateChartInfo(level: null, difficultyDefined: false, totalDefined: false));
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undefined difficulty:undefined total:undefined").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undef difficulty:null total:undef").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("level:defined").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:defined").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:undefined").MatchesBmsFile(CreateFile()));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:null").MatchesBmsFile(CreateFile()));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undefined difficulty:undefined total:undefined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undef difficulty:null total:undef").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("level:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:undefined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(CreateFile())));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:null").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(CreateFile())));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_ScoreFieldsSupportAliasesAndNumericRanges()
+    public void MatchesChartList_ScoreFieldsSupportAliasesAndNumericRanges()
     {
         TestableBmsFile file = CreateFile();
         file.SetScoreForTest(ClearType.HARD, RankType.AAA, perfect: 900, great: 100, totalnotes: 1000, maxcombo: 1200, minbp: 5);
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\"").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:AAA").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("djlevel:AAA").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:0.95").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:>=0.9").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("rate:95").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("score:>=1700 combo:1000.. bp:0..10").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined score:defined").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\"").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:AAA").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("djlevel:AAA").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:0.95").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:>=0.9").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("rate:95").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("score:>=1700 combo:1000.. bp:0..10").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined score:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
 
         file.bmsScore.clear = ClearType.EX_HARD;
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EXH").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EXH").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
         file.bmsScore.clear = ClearType.PA;
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:PF").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:PF").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
         file.bmsScore.clear = ClearType.MAX;
         file.bmsScore.rank = RankType.MAX;
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:MAX dj:MAX").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:MAX dj:MAX").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
-    public void MatchesBmsFile_ScoreFieldsSupportUndefinedTerms()
+    public void MatchesChartList_ScoreFieldsSupportUndefinedTerms()
     {
         TestableBmsFile file = CreateFile();
 
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undefined score:undefined rate:undefined combo:undefined bp:undefined").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undef score:null rate:undef combo:null bp:undef").MatchesBmsFile(file));
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("rank:defined").MatchesBmsFile(file));
-        Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undefined score:undefined rate:undefined combo:undefined bp:undefined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undef score:null rate:undef combo:null bp:undef").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("rank:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
     }
 
     [TestMethod]
@@ -345,7 +345,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreSame(chartInfo, row.ChartInfo);
         Assert.AreEqual("12", row.ChartLevelText);
         Assert.AreEqual(2500, row.ChartNotes);
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000").MatchesBmsFile(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(row)));
     }
 
     [TestMethod]
@@ -398,14 +398,14 @@ public sealed class GridKeywordSearchQueryTests
     [TestMethod]
     public void CreateFieldCompletion_CompletesContextSpecificFields()
     {
-        GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.BmsFile);
-        GridKeywordSearchCompletionResult negatedResult = GridKeywordSearchCompletion.CreateFieldCompletion("-ar", 3, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.ChartList);
+        GridKeywordSearchCompletionResult negatedResult = GridKeywordSearchCompletion.CreateFieldCompletion("-ar", 3, GridKeywordSearchContext.ChartList);
         GridKeywordSearchCompletionResult detailResult = GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.PlaylistDetail);
         GridKeywordSearchCompletionResult summaryResult = GridKeywordSearchCompletion.CreateFieldCompletion("na", 2, GridKeywordSearchContext.PlaylistSummary);
-        GridKeywordSearchCompletionResult clearResult = GridKeywordSearchCompletion.CreateFieldCompletion("cle", 3, GridKeywordSearchContext.BmsFile);
-        GridKeywordSearchCompletionResult djResult = GridKeywordSearchCompletion.CreateFieldCompletion("dj", 2, GridKeywordSearchContext.BmsFile);
-        GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.BmsFile);
-        GridKeywordSearchCompletionResult tableResult = GridKeywordSearchCompletion.CreateFieldCompletion("tab", 3, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult clearResult = GridKeywordSearchCompletion.CreateFieldCompletion("cle", 3, GridKeywordSearchContext.ChartList);
+        GridKeywordSearchCompletionResult djResult = GridKeywordSearchCompletion.CreateFieldCompletion("dj", 2, GridKeywordSearchContext.ChartList);
+        GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.ChartList);
+        GridKeywordSearchCompletionResult tableResult = GridKeywordSearchCompletion.CreateFieldCompletion("tab", 3, GridKeywordSearchContext.ChartList);
 
         Assert.IsTrue(bmsResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "title:"));
         Assert.IsTrue(negatedResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "-artist:"));
@@ -417,14 +417,14 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rank:"));
         Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rate:"));
         Assert.IsTrue(tableResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "table:"));
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.BmsFile).Items.Count);
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("D:", 2, GridKeywordSearchContext.BmsFile).Items.Count);
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.ChartList).Items.Count);
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("D:", 2, GridKeywordSearchContext.ChartList).Items.Count);
     }
 
     [TestMethod]
     public void CreateFieldCompletion_DoesNotCompleteTermsAfterFieldSeparator()
     {
-        GridKeywordSearchCompletionResult result = GridKeywordSearchCompletion.CreateFieldCompletion("title:alpha", 11, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult result = GridKeywordSearchCompletion.CreateFieldCompletion("title:alpha", 11, GridKeywordSearchContext.ChartList);
 
         Assert.AreEqual(0, result.Items.Count);
     }
@@ -441,22 +441,22 @@ public sealed class GridKeywordSearchQueryTests
             "Satellite sl"
         };
 
-        KeywordSearchSuggestionItem spaced = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.BmsFile, names)
+        KeywordSearchSuggestionItem spaced = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.ChartList, names)
             .Items
             .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Satellite sl");
         KeywordSearchSuggestionItem noSpace = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("ref:No", "ref:No".Length, GridKeywordSearchContext.PlaylistDetail, names)
             .Items
             .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "NoSpace");
-        KeywordSearchSuggestionItem table = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("table:No", "table:No".Length, GridKeywordSearchContext.BmsFile, names)
+        KeywordSearchSuggestionItem table = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("table:No", "table:No".Length, GridKeywordSearchContext.ChartList, names)
             .Items
             .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "NoSpace");
-        KeywordSearchSuggestionItem escaped = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:A", "playlist:A".Length, GridKeywordSearchContext.BmsFile, names)
+        KeywordSearchSuggestionItem escaped = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:A", "playlist:A".Length, GridKeywordSearchContext.ChartList, names)
             .Items
             .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "A \"Quote\" \\ Path");
-        KeywordSearchSuggestionItem pipe = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Pipe", "playlist:Pipe".Length, GridKeywordSearchContext.BmsFile, names)
+        KeywordSearchSuggestionItem pipe = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Pipe", "playlist:Pipe".Length, GridKeywordSearchContext.ChartList, names)
             .Items
             .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Pipe|Name");
-        KeywordSearchSuggestionItem quotedPrefix = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:\"Satellite s", "playlist:\"Satellite s".Length, GridKeywordSearchContext.BmsFile, names)
+        KeywordSearchSuggestionItem quotedPrefix = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:\"Satellite s", "playlist:\"Satellite s".Length, GridKeywordSearchContext.ChartList, names)
             .Items
             .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "Satellite sl");
 
@@ -472,14 +472,14 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual("playlist:\"Pipe|Name\"".Length, pipeCaret);
         Assert.AreEqual("playlist:\"Satellite sl\"", quotedPrefix.Apply("playlist:\"Satellite s", out int quotedPrefixCaret));
         Assert.AreEqual("playlist:\"Satellite sl\"".Length, quotedPrefixCaret);
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreatePlaylistValueCompletion("title:Sat", "title:Sat".Length, GridKeywordSearchContext.BmsFile, names).Items.Count);
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreatePlaylistValueCompletion("title:Sat", "title:Sat".Length, GridKeywordSearchContext.ChartList, names).Items.Count);
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.PlaylistSummary, names).Items.Count);
     }
 
     [TestMethod]
     public void KeywordSearchSuggestionItem_ApplyReplacesOnlyFieldPrefix()
     {
-        KeywordSearchSuggestionItem suggestion = GridKeywordSearchCompletion.CreateFieldCompletion("foo tit bar", 7, GridKeywordSearchContext.BmsFile)
+        KeywordSearchSuggestionItem suggestion = GridKeywordSearchCompletion.CreateFieldCompletion("foo tit bar", 7, GridKeywordSearchContext.ChartList)
             .Items
             .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "title:");
 

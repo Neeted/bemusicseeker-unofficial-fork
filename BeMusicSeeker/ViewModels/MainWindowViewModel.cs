@@ -12996,7 +12996,7 @@ public class MainWindowViewModel : ViewModel
     {
         return IsPlaylistViewMode(treeViewFilterTypeSelected)
             ? GridKeywordSearchContext.PlaylistDetail
-            : GridKeywordSearchContext.BmsFile;
+            : GridKeywordSearchContext.ChartList;
     }
 
     private void UpdateKeywordSearchPresentation()
