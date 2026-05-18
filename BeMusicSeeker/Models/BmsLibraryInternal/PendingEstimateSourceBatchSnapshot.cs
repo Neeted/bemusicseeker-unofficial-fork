@@ -44,6 +44,8 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public List<BMSFile> MissingFiles { get; set; } = [];
 
+    public List<PackageChartEntry> MissingEntries { get; set; } = [];
+
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
 
     public ChartInstallationEstimateMode EstimateMode { get; set; }

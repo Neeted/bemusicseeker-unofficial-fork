@@ -2284,6 +2284,8 @@ public class BMSLibrary : NotificationObject
 
         public List<BMSFile> MissingFiles { get; set; } = [];
 
+        public List<PackageChartEntry> MissingEntries { get; set; } = [];
+
         public ChartInstallationEstimateMode EstimateMode { get; set; }
 
         public bool WasPendingAtPreparation { get; set; }
@@ -2302,6 +2304,8 @@ public class BMSLibrary : NotificationObject
         public List<BMSFile> AlreadyInstalledFiles { get; } = [];
 
         public List<BMSFile> MissingFiles { get; } = [];
+
+        public List<PackageChartEntry> MissingEntries { get; } = [];
     }
 
     private sealed class PendingInstallEstimateEvaluationContext
@@ -2786,6 +2790,7 @@ public class BMSLibrary : NotificationObject
                                 DisplayName = state.DisplayName,
                                 AlreadyInstalledFiles = [.. state.AlreadyInstalledFiles],
                                 MissingFiles = [.. state.MissingFiles],
+                                MissingEntries = [.. state.MissingEntries],
                                 EstimateMode = state.EstimateMode,
                                 WasPendingAtPreparation = ChartPackagesPending.Contains(state.Package),
                                 BatchState = state
@@ -2804,6 +2809,7 @@ public class BMSLibrary : NotificationObject
                             DisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package?.path),
                             AlreadyInstalledFiles = partition.AlreadyInstalledFiles,
                             MissingFiles = partition.MissingFiles,
+                            MissingEntries = partition.MissingEntries,
                             EstimateMode = ChartInstallationEstimateMode.Normal,
                             WasPendingAtPreparation = package != null && ChartPackagesPending.Contains(package),
                             BatchState = null
@@ -2838,6 +2844,7 @@ public class BMSLibrary : NotificationObject
             else
             {
                 partition.MissingFiles.Add(adapter);
+                partition.MissingEntries.Add(entry);
             }
         }
         return partition;
@@ -2968,6 +2975,7 @@ public class BMSLibrary : NotificationObject
                 result.EstimationData = EvaluateInstallEstimation(
                     request.Package,
                     request.MissingFiles,
+                    request.MissingEntries,
                     executionPolicy.CandidateEvaluationDegree,
                     request.EstimateMode,
                     evaluationContext.OptionsSnapshot,
@@ -2987,6 +2995,7 @@ public class BMSLibrary : NotificationObject
         result.EstimationData = EvaluateInstallEstimation(
             request.Package,
             request.MissingFiles,
+            request.MissingEntries,
             executionPolicy.CandidateEvaluationDegree,
             request.EstimateMode,
             evaluationContext.OptionsSnapshot,
@@ -3335,7 +3344,8 @@ public class BMSLibrary : NotificationObject
                 PackageFiles = partition.PackageFiles,
                 AlreadyInstalledFiles = partition.AlreadyInstalledFiles,
                 MissingFiles = partition.MissingFiles,
-                ChartResources = ChartResourceSnapshot.CreateAggregate(partition.MissingFiles),
+                MissingEntries = partition.MissingEntries,
+                ChartResources = ChartResourceSnapshot.CreateAggregate(partition.MissingEntries.Select(entry => entry.Chart)),
                 EstimateMode = ChartInstallationEstimateMode.Normal
             };
             if (state.AttemptInstalledResolve)
@@ -7626,6 +7636,7 @@ reportProgress,
         return EvaluateInstallEstimation(
             package,
             targetChartFiles,
+            null,
             BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel),
             estimateMode,
             optionsSnapshot,
@@ -7639,8 +7650,30 @@ reportProgress,
 
     private InstallEstimationEvaluationData EvaluateInstallEstimation(ChartPackage package, List<BMSFile> targetChartFiles, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
     {
+        return EvaluateInstallEstimation(
+            package,
+            targetChartFiles,
+            null,
+            candidateEvaluationDegree,
+            estimateMode,
+            optionsSnapshot,
+            useThreadSafeResolvers,
+            useSharedLazyHashMetrics,
+            directoryLookupCacheSnapshot,
+            batchState,
+            candidateDirectoryOverride,
+            markInstalledDestinationAmbiguous);
+    }
+
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(ChartPackage package, List<BMSFile> targetChartFiles, List<PackageChartEntry> targetEntries, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
+    {
         List<BMSFile> targetFileList = [.. (targetChartFiles ?? []).Where(chartFile => chartFile != null)];
-        if (targetFileList.Count == 0)
+        List<PackageChartEntry> targetEntryList = [.. (targetEntries ?? []).Where(entry => entry?.Chart != null)];
+        if (targetEntryList.Count == 0)
+        {
+            targetEntryList = [.. targetFileList.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
+        }
+        if (targetFileList.Count == 0 && targetEntryList.Count == 0)
         {
             return new InstallEstimationEvaluationData
             {
@@ -7667,8 +7700,8 @@ reportProgress,
                 batchState.SourceDirectory,
                 batchState.SourceSurface,
                 includeBundledResources);
-            estimationSnapshot = package.BuildInstallEstimationSnapshot(
-                targetFileList,
+            estimationSnapshot = package.BuildInstallEstimationSnapshotFromEntries(
+                targetEntryList,
                 sharedInstallSurface,
                 sourceSurfaceCacheHit: false,
                 sourceSurfaceBatchHit: true);
@@ -7676,8 +7709,8 @@ reportProgress,
         else
         {
             estimationSnapshot = package != null
-                ? package.GetOrBuildInstallEstimationSnapshot(targetFileList)
-                : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFileList);
+                ? package.GetOrBuildInstallEstimationSnapshotFromEntries(targetEntryList)
+                : PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(targetEntryList);
         }
         InstallEstimationResult result = candidateDirectoryOverride == null
             ? CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
@@ -7708,7 +7741,7 @@ reportProgress,
         int lazyHashCacheEntriesAfter = useSharedLazyHashMetrics ? lazyHashCacheEntriesBefore : (effectiveDirectoryLookupCache?.LazyHashCacheEntryCount ?? lazyHashCacheEntriesBefore);
         return new InstallEstimationEvaluationData
         {
-            ChartCount = targetFileList.Count,
+            ChartCount = targetEntryList.Count,
             Result = result,
             LazyHashBuildMsDelta = useSharedLazyHashMetrics ? 0L : (lazyHashBuildMsAfter - lazyHashBuildMsBefore),
             LazyHashLookupCountDelta = useSharedLazyHashMetrics ? 0L : (lazyHashLookupCountAfter - lazyHashLookupCountBefore),
@@ -8322,7 +8355,7 @@ reportProgress,
         SearchEstimatedInstallationDirectoryForChartsCore(null, chartFiles, asParallel, estimateMode);
     }
 
-    private void SearchEstimatedInstallationDirectoryForChartsCore(ChartPackage package, IEnumerable<BMSFile> chartFiles, bool asParallel, ChartInstallationEstimateMode estimateMode)
+    private void SearchEstimatedInstallationDirectoryForChartsCore(ChartPackage package, IEnumerable<BMSFile> chartFiles, bool asParallel, ChartInstallationEstimateMode estimateMode, List<PackageChartEntry> targetEntries = null)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
@@ -8340,7 +8373,12 @@ reportProgress,
                     {
                         targetChartFile.status |= BMSFile.BMSFileStatus.SEARCHING;
                     }
-                    InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(package, targetChartFiles, asParallel, estimateMode);
+                    InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(
+                        package,
+                        targetChartFiles,
+                        targetEntries,
+                        BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel),
+                        estimateMode);
                     LogInstallEstimationEvaluation(estimationData);
                     ApplyInstallEstimationResultToFiles(targetChartFiles, estimationData.Result);
                 }
@@ -8490,7 +8528,8 @@ reportProgress,
                                 InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(
                                     package,
                                     missingFiles,
-                                    asParallel: true,
+                                    partition.MissingEntries,
+                                    BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: true),
                                     ChartInstallationEstimateMode.Normal,
                                     candidateDirectoryOverride: resolution.CandidateDirectories,
                                     markInstalledDestinationAmbiguous: true);
@@ -8511,7 +8550,7 @@ reportProgress,
                         }
                         if (missingFiles.Count > 0)
                         {
-                            SearchEstimatedInstallationDirectoryForChartsCore(package, missingFiles, asParallel: true, ChartInstallationEstimateMode.Normal);
+                            SearchEstimatedInstallationDirectoryForChartsCore(package, missingFiles, asParallel: true, ChartInstallationEstimateMode.Normal, partition.MissingEntries);
                         }
                     }
                 }

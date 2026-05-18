@@ -259,7 +259,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             InstallEstimationResult result = service.EstimateInstallationDirectoryForCandidateDirectories(
                 snapshot,
@@ -303,7 +303,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", Path.Combine("sound", "01.wav")]);
@@ -561,7 +561,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", "02.wav"]);
@@ -617,7 +617,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", .. Enumerable.Range(0, 71).Select(i => i.ToString("D2") + ".wav")]);
@@ -812,7 +812,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 delete_parent = true
             };
 
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([primary, secondary]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [primary, secondary]);
             uint expectedAudioRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(soundDir, "00.wav"))));
             uint expectedImageRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(imageDir, "bg.png"))));
             uint expectedMovieRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(movieDir, "pv.mp4"))));
@@ -855,7 +855,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 delete_parent = true
             };
 
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
             BmsLibraryInstallEstimationService.SourceBaselineEvaluation snapshotBaseline = service.EvaluateSourceBaseline(snapshot);
             BmsLibraryInstallEstimationService.SourceBaselineEvaluation resourceBaseline = service.EvaluateSourceBaseline(
                 snapshot.DefinedResources,
@@ -891,7 +891,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 delete_parent = true
             };
 
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([primary, secondary]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [primary, secondary]);
 
             Assert.AreEqual("song name", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
             Assert.AreEqual("artist", snapshot.TargetMetadataProfile.DominantNormalizedArtist);
@@ -920,7 +920,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 delete_parent = false
             };
 
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             Assert.AreEqual(0, snapshot.BundledAudioCount);
             Assert.AreEqual(0, snapshot.BundledImageCount);
@@ -956,8 +956,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 List<BMSFile> secondFiles = package.GetChartAdapters();
                 List<PackageChartEntry> firstEntries = package.ChartEntries;
                 List<PackageChartEntry> secondEntries = package.ChartEntries;
-                PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
-                PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
+                PackageInstallEstimationSnapshot firstSnapshot = BuildPackageSnapshot(package, firstFiles);
+                PackageInstallEstimationSnapshot secondSnapshot = BuildPackageSnapshot(package, firstFiles);
 
                 CollectionAssert.AreEqual(firstFiles, secondFiles);
                 Assert.AreEqual(3, firstFiles.Count);
@@ -1194,7 +1194,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 };
                 TestableBmsFile detachedCompatibilityAdapter = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsonPath);
 
-                PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([detachedCompatibilityAdapter]);
+                PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [detachedCompatibilityAdapter]);
 
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
@@ -1226,7 +1226,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     path = sourceDir
                 };
 
-                PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([]);
+                PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, []);
 
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
@@ -1258,7 +1258,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 };
 
                 List<PackageChartEntry> entries = package.ChartEntries;
-                PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([]);
+                PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, []);
 
                 Assert.AreEqual(1, entries.Count);
                 Assert.AreEqual(ChartFileKind.Bmson, entries[0].Chart.Kind);
@@ -1336,8 +1336,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 TestableBmsFile detachedCompatibilityAdapter = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsonPath);
                 PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir, useEverythingForPendingPackageSourceScan: false);
 
-                PackageInstallEstimationSnapshot snapshot = package.BuildInstallEstimationSnapshot(
-                    [detachedCompatibilityAdapter],
+                PackageInstallEstimationSnapshot snapshot = package.BuildInstallEstimationSnapshotFromEntries(
+                    ResolvePackageEntries(package, [detachedCompatibilityAdapter]),
                     sourceSurface,
                     sourceSurfaceCacheHit: false,
                     sourceSurfaceBatchHit: true);
@@ -1374,12 +1374,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 };
 
                 List<BMSFile> filesFromA = package.GetChartAdapters();
-                PackageInstallEstimationSnapshot snapshotA = package.GetOrBuildInstallEstimationSnapshot(filesFromA);
+                PackageInstallEstimationSnapshot snapshotA = BuildPackageSnapshot(package, filesFromA);
 
                 package.path = sourceDirB;
                 List<BMSFile> filesFromB = package.GetChartAdapters();
-                PackageInstallEstimationSnapshot snapshotB = package.GetOrBuildInstallEstimationSnapshot(filesFromB);
-                PackageInstallEstimationSnapshot cachedSnapshotB = package.GetOrBuildInstallEstimationSnapshot(filesFromB);
+                PackageInstallEstimationSnapshot snapshotB = BuildPackageSnapshot(package, filesFromB);
+                PackageInstallEstimationSnapshot cachedSnapshotB = BuildPackageSnapshot(package, filesFromB);
 
                 Assert.AreEqual(1, filesFromA.Count);
                 Assert.AreEqual(1, filesFromB.Count);
@@ -1417,7 +1417,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", "02.wav"]);
@@ -1461,7 +1461,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", "sound\\02.wav"]);
@@ -1502,7 +1502,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
@@ -1815,7 +1815,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([pending]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [pending]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bmson"]);
@@ -2095,7 +2095,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", "sound.wav"]);
@@ -2190,7 +2190,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = chartPath,
                 delete_parent = false
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", Path.Combine("sound", "00.wav")]);
@@ -2652,7 +2652,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 path = sourceDir,
                 delete_parent = true
             };
-            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([file]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bms", "sound\\02.wav"]);
@@ -2865,6 +2865,42 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     private static BmsLibraryInstallEstimationService CreateService()
     {
         return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
+    }
+
+    private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<BMSFile> targetFiles)
+    {
+        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
+        List<PackageChartEntry> targetEntries = targetFileList.Count == 0
+            ? package.ChartEntries
+            : ResolvePackageEntries(package, targetFileList);
+        return package.GetOrBuildInstallEstimationSnapshotFromEntries(targetEntries);
+    }
+
+    private static List<PackageChartEntry> ResolvePackageEntries(ChartPackage package, IEnumerable<BMSFile> targetFiles)
+    {
+        List<PackageChartEntry> packageEntries = package.ChartEntries;
+        var result = new List<PackageChartEntry>();
+        foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
+        {
+            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
+            result.Add(packageEntry ?? PackageChartEntry.FromCompatibilityAdapter(targetFile));
+        }
+        return [.. result.Where(entry => entry?.Chart != null)];
+    }
+
+    private static bool IsSamePackageChartTarget(PackageChartEntry entry, BMSFile targetFile)
+    {
+        if (entry?.Chart == null || targetFile == null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(entry.CompatibilityAdapter, targetFile))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path)
+            && !string.IsNullOrWhiteSpace(targetFile.path)
+            && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
     }
 
     private static TestableBmsFile CreateFile(string? hash, string path, params string[] wavFiles)

@@ -806,8 +806,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 foreach (ChartPackage package in result.DiscoveredPackages)
                 {
                     List<BMSFile> discoveredCharts = [.. package.GetChartAdapters()];
-                    PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshot(discoveredCharts);
-                    PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshot(discoveredCharts);
+                    PackageInstallEstimationSnapshot firstSnapshot = BuildPackageSnapshot(package, discoveredCharts);
+                    PackageInstallEstimationSnapshot secondSnapshot = BuildPackageSnapshot(package, discoveredCharts);
 
                     Assert.IsTrue(discoveredCharts.Count > 0);
                     Assert.IsFalse(firstSnapshot.SourceSurfaceCacheHit);
@@ -1769,6 +1769,42 @@ public sealed class BmsLibraryPackageInstallServiceTests
         };
         file.SetHash(hash);
         return file;
+    }
+
+    private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<BMSFile> targetFiles)
+    {
+        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
+        List<PackageChartEntry> targetEntries = targetFileList.Count == 0
+            ? package.ChartEntries
+            : ResolvePackageEntries(package, targetFileList);
+        return package.GetOrBuildInstallEstimationSnapshotFromEntries(targetEntries);
+    }
+
+    private static List<PackageChartEntry> ResolvePackageEntries(ChartPackage package, IEnumerable<BMSFile> targetFiles)
+    {
+        List<PackageChartEntry> packageEntries = package.ChartEntries;
+        var result = new List<PackageChartEntry>();
+        foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
+        {
+            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
+            result.Add(packageEntry ?? PackageChartEntry.FromCompatibilityAdapter(targetFile));
+        }
+        return [.. result.Where(entry => entry?.Chart != null)];
+    }
+
+    private static bool IsSamePackageChartTarget(PackageChartEntry entry, BMSFile targetFile)
+    {
+        if (entry?.Chart == null || targetFile == null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(entry.CompatibilityAdapter, targetFile))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path)
+            && !string.IsNullOrWhiteSpace(targetFile.path)
+            && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
     }
 
     private static SafeDeleteMoveSetup CreateSingleChartParentDeleteSetup(string tempDirectoryPath, string chartBaseName, string chartBody)

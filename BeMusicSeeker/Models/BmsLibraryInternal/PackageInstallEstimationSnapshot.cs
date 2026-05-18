@@ -169,11 +169,6 @@ internal sealed class PackageInstallEstimationSnapshot
 
 internal static class PackageInstallEstimationSnapshotBuilder
 {
-    internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
-    {
-        return Build(package, CreateEntriesFromCompatibilityAdapters(targetFiles), installSurfaceSnapshot, sourceSurfaceCacheHit, sourceSurfaceBatchHit);
-    }
-
     internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
     {
         List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
@@ -196,11 +191,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceSurfaceBatchHit = sourceSurfaceBatchHit,
             SourceSurfaceScanBackend = installSurfaceSnapshot?.ScanBackend ?? string.Empty
         };
-    }
-
-    internal static PackageInstallEstimationSnapshot BuildForLooseFiles(IEnumerable<BMSFile> targetFiles)
-    {
-        return BuildForLooseEntries(CreateEntriesFromCompatibilityAdapters(targetFiles));
     }
 
     internal static PackageInstallEstimationSnapshot BuildForLooseEntries(IEnumerable<PackageChartEntry> targetEntries)
@@ -495,13 +485,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
-    }
-
-    private static List<PackageChartEntry> CreateEntriesFromCompatibilityAdapters(IEnumerable<BMSFile> targetFiles)
-    {
-        return NormalizeEntries((targetFiles ?? [])
-            .Select(PackageChartEntry.FromCompatibilityAdapter)
-            .Where(entry => entry != null));
     }
 
     private static List<PackageChartEntry> NormalizeEntries(IEnumerable<PackageChartEntry> targetEntries)

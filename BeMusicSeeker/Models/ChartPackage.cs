@@ -180,18 +180,17 @@ public class ChartPackage : LR2SongDBExtended.install
         hasExplicitChartFiles = true;
     }
 
-    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles)
+    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries)
     {
-        List<PackageChartEntry> targetEntries = ResolveTargetEntries(targetFiles);
         PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);
         return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit);
     }
 
-    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
+    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
     {
         return PackageInstallEstimationSnapshotBuilder.Build(
             this,
-            ResolveTargetEntries(targetFiles),
+            targetEntries,
             installSurfaceSnapshot,
             sourceSurfaceCacheHit,
             sourceSurfaceBatchHit);
@@ -238,36 +237,4 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    private List<PackageChartEntry> ResolveTargetEntries(IEnumerable<BMSFile> targetFiles)
-    {
-        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
-        if (targetFileList.Count == 0)
-        {
-            return ChartEntries ?? [];
-        }
-
-        List<PackageChartEntry> packageEntries = ChartEntries ?? [];
-        var targetEntries = new List<PackageChartEntry>(targetFileList.Count);
-        foreach (BMSFile targetFile in targetFileList)
-        {
-            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSameChartTarget(entry, targetFile));
-            targetEntries.Add(packageEntry ?? PackageChartEntry.FromCompatibilityAdapter(targetFile));
-        }
-        return [.. targetEntries.Where(entry => entry?.Chart != null)];
-    }
-
-    private static bool IsSameChartTarget(PackageChartEntry entry, BMSFile targetFile)
-    {
-        if (entry?.Chart == null || targetFile == null)
-        {
-            return false;
-        }
-        if (IsSameChartAdapter(entry.CompatibilityAdapter, targetFile))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(entry.Chart.Path)
-            && !string.IsNullOrWhiteSpace(targetFile.path)
-            && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
-    }
 }
