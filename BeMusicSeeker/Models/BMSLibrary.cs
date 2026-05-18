@@ -7076,7 +7076,7 @@ reportProgress,
                 ResourceHealthIndexSnapshot snapshot = GetResourceHealthIndexSnapshot(forceUpdate ? "force_resource_health_filter" : "resource_health_filter");
                 if (includeInstalledBmson)
                 {
-                    return [.. (isInIgnoredList ? snapshot.IgnoredFiles : snapshot.ActiveFiles)];
+                    return [.. (isInIgnoredList ? snapshot.IgnoredTargets : snapshot.ActiveTargets)];
                 }
                 List<BMSFile> targets = CreateResourceMaintenanceTargets(chartFiles, includeInstalledBmson);
                 if (targets.Count == 0)

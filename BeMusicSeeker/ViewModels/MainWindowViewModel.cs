@@ -16467,9 +16467,9 @@ public class MainWindowViewModel : ViewModel
         if (snapshot != null)
         {
             overlayCount = mode == viewUpdateMode.FileMissingFilterSelected
-                ? snapshot.ActiveFiles.Count
+                ? snapshot.ActiveTargets.Count
                 : mode == viewUpdateMode.FileMissingIgnoredFilterSelected
-                    ? snapshot.IgnoredFiles.Count
+                    ? snapshot.IgnoredTargets.Count
                     : snapshot.NeedFixCount;
         }
         LogMainViewBuild("resource_health_projection reason=" + mode

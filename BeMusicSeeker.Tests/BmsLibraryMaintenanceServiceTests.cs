@@ -77,8 +77,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, file.MaintenanceInfoOrigin);
         Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
         Assert.AreEqual(0, warnings.Count);
-        Assert.AreEqual(0, snapshot.ActiveFiles.Count);
-        Assert.AreEqual(0, snapshot.IgnoredFiles.Count);
+        Assert.AreEqual(0, snapshot.ActiveTargets.Count);
+        Assert.AreEqual(0, snapshot.IgnoredTargets.Count);
     }
 
     [TestMethod]
@@ -336,8 +336,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         var snapshot = ResourceHealthIndexSnapshot.Build([active, ignored], service, version: 3);
 
-        CollectionAssert.AreEqual(new[] { active }, snapshot.ActiveFiles.ToArray());
-        CollectionAssert.AreEqual(new[] { ignored }, snapshot.IgnoredFiles.ToArray());
+        CollectionAssert.AreEqual(new[] { active }, snapshot.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignored }, snapshot.IgnoredTargets.ToArray());
         Assert.IsTrue(snapshot.GetProjection(active).HasIssues);
         Assert.IsFalse(snapshot.GetProjection(active).IsIgnored);
         Assert.IsTrue(snapshot.GetProjection(ignored).IsIgnored);
@@ -380,8 +380,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         Assert.AreEqual(2, afterFix.TargetCount);
         Assert.IsFalse(afterFix.GetProjection(active).HasIssues);
-        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterFix.ActiveFiles.ToArray());
-        CollectionAssert.AreEqual(new[] { ignored }, afterFix.IgnoredFiles.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterFix.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignored }, afterFix.IgnoredTargets.ToArray());
 
         TestableBmsFile added = CreateFile("cccccccccccccccccccccccccccccccc");
         added.path = @"C:\Library\added.bms";
@@ -396,15 +396,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         Assert.AreEqual(3, afterAdd.TargetCount);
         Assert.IsTrue(afterAdd.GetProjection(added).HasIssues);
-        CollectionAssert.AreEqual(new[] { added }, afterAdd.ActiveFiles.ToArray());
-        CollectionAssert.AreEqual(new[] { ignored }, afterAdd.IgnoredFiles.ToArray());
+        CollectionAssert.AreEqual(new[] { added }, afterAdd.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignored }, afterAdd.IgnoredTargets.ToArray());
 
         ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, [ignored], service, version: 4);
 
         Assert.AreEqual(2, afterRemove.TargetCount);
         Assert.IsFalse(afterRemove.GetProjection(ignored).HasIssues);
-        CollectionAssert.AreEqual(new[] { added }, afterRemove.ActiveFiles.ToArray());
-        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterRemove.IgnoredFiles.ToArray());
+        CollectionAssert.AreEqual(new[] { added }, afterRemove.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterRemove.IgnoredTargets.ToArray());
     }
 
     [TestMethod]

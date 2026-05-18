@@ -43,16 +43,16 @@ internal sealed class ResourceHealthIndexSnapshot
 
     private ResourceHealthIndexSnapshot(
         int version,
-        IReadOnlyList<BMSFile> activeFiles,
-        IReadOnlyList<BMSFile> ignoredFiles,
+        IReadOnlyList<BMSFile> activeTargets,
+        IReadOnlyList<BMSFile> ignoredTargets,
         Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> projectionsByKey,
         HashSet<ResourceHealthChartKey> targetKeys,
         int targetCount,
         long buildMs)
     {
         Version = version;
-        ActiveFiles = activeFiles ?? [];
-        IgnoredFiles = ignoredFiles ?? [];
+        ActiveTargets = activeTargets ?? [];
+        IgnoredTargets = ignoredTargets ?? [];
         this.projectionsByKey = projectionsByKey ?? [];
         this.targetKeys = targetKeys ?? [];
         TargetCount = targetCount;
@@ -61,15 +61,15 @@ internal sealed class ResourceHealthIndexSnapshot
 
     internal int Version { get; }
 
-    internal IReadOnlyList<BMSFile> ActiveFiles { get; }
+    internal IReadOnlyList<BMSFile> ActiveTargets { get; }
 
-    internal IReadOnlyList<BMSFile> IgnoredFiles { get; }
+    internal IReadOnlyList<BMSFile> IgnoredTargets { get; }
 
     internal int TargetCount { get; }
 
-    internal int NeedFixCount => ActiveFiles.Count + IgnoredFiles.Count;
+    internal int NeedFixCount => ActiveTargets.Count + IgnoredTargets.Count;
 
-    internal int IgnoredCount => IgnoredFiles.Count;
+    internal int IgnoredCount => IgnoredTargets.Count;
 
     internal long BuildMs { get; }
 
@@ -79,8 +79,8 @@ internal sealed class ResourceHealthIndexSnapshot
         int version)
     {
         var stopwatch = Stopwatch.StartNew();
-        List<BMSFile> activeFiles = [];
-        List<BMSFile> ignoredFiles = [];
+        List<BMSFile> activeTargets = [];
+        List<BMSFile> ignoredTargets = [];
         Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> projections = [];
         HashSet<ResourceHealthChartKey> targetKeys = [];
         int targetCount = 0;
@@ -110,15 +110,15 @@ internal sealed class ResourceHealthIndexSnapshot
             projections[key] = projection;
             if (isIgnored)
             {
-                ignoredFiles.Add(target);
+                ignoredTargets.Add(target);
             }
             else
             {
-                activeFiles.Add(target);
+                activeTargets.Add(target);
             }
         }
         stopwatch.Stop();
-        return new ResourceHealthIndexSnapshot(version, activeFiles, ignoredFiles, projections, targetKeys, targetCount, stopwatch.ElapsedMilliseconds);
+        return new ResourceHealthIndexSnapshot(version, activeTargets, ignoredTargets, projections, targetKeys, targetCount, stopwatch.ElapsedMilliseconds);
     }
 
     internal ResourceHealthIndexSnapshot ApplyDelta(
@@ -163,8 +163,8 @@ internal sealed class ResourceHealthIndexSnapshot
             bool isIgnored = maintenanceInfo?.is_files_warning_ignored == true;
             nextProjections[key] = new ResourceHealthWarningProjection(version, warnings, isIgnored);
         }
-        List<BMSFile> activeFiles = [.. ActiveFiles.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityBmsFile(file)))];
-        List<BMSFile> ignoredFiles = [.. IgnoredFiles.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityBmsFile(file)))];
+        List<BMSFile> activeTargets = [.. ActiveTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityBmsFile(file)))];
+        List<BMSFile> ignoredTargets = [.. IgnoredTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityBmsFile(file)))];
         foreach (BMSFile updatedTarget in updatedTargets ?? [])
         {
             var key = ResourceHealthChartKey.FromCompatibilityBmsFile(updatedTarget);
@@ -174,15 +174,15 @@ internal sealed class ResourceHealthIndexSnapshot
             }
             if (projection.IsIgnored)
             {
-                ignoredFiles.Add(updatedTarget);
+                ignoredTargets.Add(updatedTarget);
             }
             else
             {
-                activeFiles.Add(updatedTarget);
+                activeTargets.Add(updatedTarget);
             }
         }
         stopwatch.Stop();
-        return new ResourceHealthIndexSnapshot(version, activeFiles, ignoredFiles, nextProjections, nextTargetKeys, nextTargetKeys.Count, stopwatch.ElapsedMilliseconds);
+        return new ResourceHealthIndexSnapshot(version, activeTargets, ignoredTargets, nextProjections, nextTargetKeys, nextTargetKeys.Count, stopwatch.ElapsedMilliseconds);
     }
 
     internal ResourceHealthWarningProjection GetProjection(BMSFile file)
