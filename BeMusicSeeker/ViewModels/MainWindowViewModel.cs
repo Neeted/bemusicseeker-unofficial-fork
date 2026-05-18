@@ -14756,7 +14756,7 @@ public class MainWindowViewModel : ViewModel
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
         if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
         {
-            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => pkg.ChartFiles.Contains(bmsFile)).FirstOrDefault();
+            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => pkg.ContainsChartAdapter(bmsFile)).FirstOrDefault();
             if (chartPackage == null)
             {
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
@@ -17778,7 +17778,7 @@ public class MainWindowViewModel : ViewModel
             tables.AcquireReaderLockBMSTables();
             try
             {
-                files.AddReferenceBMSTables(BMSTables, list.SelectMany(p => p.ChartFiles));
+                files.AddReferenceBMSTables(BMSTables, list.SelectMany(p => p.GetChartAdapters()));
                 InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
             }
             finally
@@ -19628,7 +19628,7 @@ public class MainWindowViewModel : ViewModel
         List<ChartPackage> packages = [];
         foreach (BeMusicSeeker.Models.BMSFile file in chartFiles)
         {
-            ChartPackage chartPackage = source.FirstOrDefault(p => p.ChartFiles.Contains(file));
+            ChartPackage chartPackage = source.FirstOrDefault(p => p.ContainsChartAdapter(file));
             if (chartPackage == null)
             {
                 remainingChartFiles.Add(file);
@@ -19652,7 +19652,7 @@ public class MainWindowViewModel : ViewModel
         RunPendingInstallMutation(delegate
         {
             files.ForceInstallPendingPackages(list);
-        }, list.SelectMany(p => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, list.SelectMany(p => p.GetChartAdapters()), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     public void ForceInstallPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
@@ -19679,7 +19679,7 @@ public class MainWindowViewModel : ViewModel
         RunPendingInstallMutation(delegate
         {
             files.InstallPendingPackagesToEstimatedDestinations(list);
-        }, list.SelectMany(p => p.ChartFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, list.SelectMany(p => p.GetChartAdapters()), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     private void SetPlaylistSummaryMode(bool enabled)

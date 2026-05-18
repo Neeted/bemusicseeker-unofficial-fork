@@ -1339,7 +1339,7 @@ internal sealed class BmsLibraryPackageInstallService
                 delta.RemainingPackages.Add(package);
                 continue;
             }
-            List<BMSFile> packageFiles = [.. package.ChartFiles.Where(file => file != null)];
+            List<BMSFile> packageFiles = package.GetChartAdapters();
             if (packageFiles.Count == 0)
             {
                 delta.RemainingPackages.Add(package);
@@ -1360,8 +1360,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 continue;
             }
-            package.ChartFiles.Clear();
-            package.ChartFiles.AddRange(remainingFiles);
+            package.ReplaceChartAdapters(remainingFiles);
             delta.RemainingPackages.Add(package);
         }
         delta.InstallPathsToDelete = [.. installPathsToDelete];

@@ -48,6 +48,30 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
+    internal bool ContainsChartAdapter(BMSFile chartFile)
+    {
+        return (ChartFiles ?? []).Any(file => IsSameChartAdapter(file, chartFile));
+    }
+
+    internal List<BMSFile> GetChartAdapters()
+    {
+        return [.. (ChartFiles ?? []).Where(file => file != null)];
+    }
+
+    internal void ReplaceChartAdapters(IEnumerable<BMSFile> nextChartFiles)
+    {
+        ChartFiles.Clear();
+        ChartFiles.AddRange((nextChartFiles ?? []).Where(file => file != null));
+    }
+
+    private static bool IsSameChartAdapter(BMSFile left, BMSFile right)
+    {
+        return left != null
+            && right != null
+            && (ReferenceEquals(left, right)
+                || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && left.path.Equals(right.path, StringComparison.OrdinalIgnoreCase)));
+    }
+
     public ChartPackage()
     {
     }

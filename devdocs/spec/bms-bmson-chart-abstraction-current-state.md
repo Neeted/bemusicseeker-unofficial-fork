@@ -272,6 +272,8 @@ production code の `ChartPackage` 経由の chart-all 参照は、install mutat
 
 `PackageChartDiscoverySnapshot` は現時点では `ChartFiles` を cached mutable compatibility list として保持し、`ChartEntries` をそこから導出される chart-native sidecar view として返す。setter では `PackageChartEntry.CompatibilityAdapter` から `ChartFiles` を materialize するため、discovery builder は `PackageChartEntry` を作って渡せる。旧 `BmsFiles` alias は削除済みであり、ここに入る bmson は現行互換上 `PendingChartEntry` adapter を持つが、snapshot の読み取り経路は `PackageChartEntry` へ移し始めている。
 
+`ChartPackage` は `ContainsChartAdapter(...)` / `GetChartAdapters()` / `ReplaceChartAdapters(...)` を持ち、operation / mutation 側が `ChartFiles.Contains(...)` や `ChartFiles.Clear(); AddRange(...)` を直接増やさないための所有者境界になり始めている。`ReplaceChartAdapters(...)` は現時点では compatibility adapter list を更新する操作であり、package 内 chart set の最終形ではない。
+
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。これは現行最大の構造互換であり、`PendingChartEntry : BMSFile` 廃止の前提として、package discovery snapshot / install estimation / pending tree が chart-native entry を扱うようにする。
 
 ### `PackageInstallEstimationSnapshot`
