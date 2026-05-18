@@ -49,6 +49,20 @@ internal sealed class ChartFile
 
     internal IReadOnlyList<ChartWarning> Warnings { get; }
 
+    internal int? WAVHealth { get; }
+
+    internal int? BGAHealth { get; }
+
+    internal int? MovieHealth { get; }
+
+    internal bool? StagefileHealth { get; }
+
+    internal bool? BannerHealth { get; }
+
+    internal bool? BackbmpHealth { get; }
+
+    internal string EncodingName { get; }
+
     internal BMSFile BmsFile { get; }
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; }
@@ -73,7 +87,14 @@ internal sealed class ChartFile
         string installDestination = null,
         string installDestinationTitle = null,
         string installDestinationArtist = null,
-        IReadOnlyList<ChartWarning> warnings = null)
+        IReadOnlyList<ChartWarning> warnings = null,
+        int? wavHealth = null,
+        int? bgaHealth = null,
+        int? movieHealth = null,
+        bool? stagefileHealth = null,
+        bool? bannerHealth = null,
+        bool? backbmpHealth = null,
+        string encodingName = null)
     {
         Kind = kind;
         Path = string.IsNullOrWhiteSpace(path) ? null : path;
@@ -94,6 +115,13 @@ internal sealed class ChartFile
         InstallDestinationTitle = installDestinationTitle ?? string.Empty;
         InstallDestinationArtist = installDestinationArtist ?? string.Empty;
         Warnings = warnings ?? [];
+        WAVHealth = wavHealth;
+        BGAHealth = bgaHealth;
+        MovieHealth = movieHealth;
+        StagefileHealth = stagefileHealth;
+        BannerHealth = bannerHealth;
+        BackbmpHealth = backbmpHealth;
+        EncodingName = encodingName ?? string.Empty;
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
     }

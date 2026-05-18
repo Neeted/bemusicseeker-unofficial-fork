@@ -48,7 +48,14 @@ internal static class ChartFileProjection
             file.instl_dst,
             file.InstallDestinationTitle,
             file.InstallDestinationArtist,
-            GetWarnings(file, includeWarningSnapshot));
+            GetWarnings(file, includeWarningSnapshot),
+            file.WAVHealth,
+            file.BGAHealth,
+            file.MovieHealth,
+            file.StagefileHealth,
+            file.BannerHealth,
+            file.BackbmpHealth,
+            file.encoding);
     }
 
     internal static ChartFile FromBmsonSong(
@@ -81,7 +88,14 @@ internal static class ChartFileProjection
             compatibilityBmsFile?.instl_dst,
             compatibilityBmsFile?.InstallDestinationTitle,
             compatibilityBmsFile?.InstallDestinationArtist,
-            GetWarnings(compatibilityBmsFile, includeWarningSnapshot));
+            GetWarnings(compatibilityBmsFile, includeWarningSnapshot),
+            song.MaintenanceInfo?.WAVHealth ?? compatibilityBmsFile?.WAVHealth,
+            song.MaintenanceInfo?.BGAHealth ?? compatibilityBmsFile?.BGAHealth,
+            song.MaintenanceInfo?.MovieHealth ?? compatibilityBmsFile?.MovieHealth,
+            song.MaintenanceInfo?.StagefileHealth ?? compatibilityBmsFile?.StagefileHealth,
+            song.MaintenanceInfo?.BannerHealth ?? compatibilityBmsFile?.BannerHealth,
+            song.MaintenanceInfo?.BackbmpHealth ?? compatibilityBmsFile?.BackbmpHealth,
+            song.MaintenanceInfo?.encoding ?? compatibilityBmsFile?.encoding);
     }
 
     internal static ChartFile FromBmsMetadata(
@@ -140,7 +154,14 @@ internal static class ChartFileProjection
             pending.instl_dst,
             pending.InstallDestinationTitle,
             pending.InstallDestinationArtist,
-            GetWarnings(pending, includeWarningSnapshot));
+            GetWarnings(pending, includeWarningSnapshot),
+            pending.WAVHealth,
+            pending.BGAHealth,
+            pending.MovieHealth,
+            pending.StagefileHealth,
+            pending.BannerHealth,
+            pending.BackbmpHealth,
+            pending.encoding);
     }
 
     private static IReadOnlyList<ChartWarning> GetWarnings(BMSFile file, bool includeWarningSnapshot)

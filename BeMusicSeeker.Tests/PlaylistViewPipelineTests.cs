@@ -749,6 +749,96 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ChartOperationTarget_LibraryChartRowBmson_DelaysCompatibilityAdapterCreation()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\lazy.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Lazy Bmson",
+            artist = "Artist",
+            md5 = "56565656565656565656565656565656",
+            sha256 = new string('5', 64)
+        };
+        var row = LibraryChartRow.FromBmsonSong(bmson);
+        int adapterRequestCount = 0;
+        PendingChartEntry adapter = null!;
+        row.SetBmsonChartAdapterProvider(song =>
+        {
+            adapterRequestCount++;
+            adapter ??= PendingChartEntry.CreateFromBmsonSong(song);
+            return adapter;
+        });
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
+        Assert.IsNull(target.Chart.BmsFile);
+        Assert.AreSame(bmson, target.Chart.BmsonSong);
+
+        BMSFile compatibilityFile = target.CompatibilityBmsFile;
+
+        Assert.AreSame(adapter, compatibilityFile);
+        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreSame(adapter, target.CompatibilityBmsFile);
+        Assert.AreEqual(1, adapterRequestCount);
+    }
+
+    [TestMethod]
+    public void LibraryChartRow_BmsonChartPrefersFreshSongMaintenanceOverExistingAdapterSnapshot()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\maintenance.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Maintenance Bmson",
+            artist = "Artist",
+            md5 = "67676767676767676767676767676767",
+            sha256 = new string('6', 64),
+            MaintenanceInfo = new BMSFileMaintenanceInfo
+            {
+                wav_files_defined = 10,
+                wav_files_existing = 10,
+                bga_files_defined = 8,
+                bga_files_existing = 8,
+                movie_files_defined = 0,
+                encoding = "utf-8"
+            }
+        };
+        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
+        adapter.maintenanceInfo.wav_files_defined = 10;
+        adapter.maintenanceInfo.wav_files_existing = 1;
+        adapter.maintenanceInfo.bga_files_defined = 8;
+        adapter.maintenanceInfo.bga_files_existing = 1;
+        adapter.maintenanceInfo.movie_files_defined = 0;
+        adapter.maintenanceInfo.encoding = "shift_jis";
+        adapter.instl_dst = "C:\\Installed\\Bmson";
+        adapter.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
+
+        bmson.MaintenanceInfo = new BMSFileMaintenanceInfo
+        {
+            wav_files_defined = 10,
+            wav_files_existing = 10,
+            bga_files_defined = 8,
+            bga_files_existing = 8,
+            movie_files_defined = 0,
+            encoding = "utf-16"
+        };
+        var row = LibraryChartRow.FromBmsonSong(bmson);
+        row.SetBmsonChartAdapterProvider(_ => adapter);
+
+        ChartFile chart = row.Chart;
+
+        Assert.AreEqual(100, chart.WAVHealth);
+        Assert.AreEqual(100, chart.BGAHealth);
+        Assert.AreEqual(100, chart.MovieHealth);
+        Assert.AreEqual("utf-16", chart.EncodingName);
+        Assert.AreEqual("C:\\Installed\\Bmson", chart.InstallDestination);
+        Assert.IsTrue(chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+    }
+
+    [TestMethod]
     public void ChartOperationTarget_BmsonRowsKeepCompatibilityFileForInstallLocationRepair()
     {
         var bmson = new LR2SongDBExtended.bmson_song
@@ -1994,7 +2084,7 @@ public sealed class PlaylistViewPipelineTests
         bool isPlaylistMissing = sourceScope == ChartOperationSourceScope.PlaylistMissing;
         return new ChartOperationTarget(
             chart,
-            null,
+            () => null!,
             null,
             sourceScope,
             !isPending && !isPlaylistMissing,

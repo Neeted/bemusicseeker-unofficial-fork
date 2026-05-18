@@ -73,6 +73,11 @@ internal static class GridRowResolver
 
     internal static bool TryGetChartFile(object row, out ChartFile chart)
     {
+        return TryGetChartFile(row, materializeCompatibilityAdapter: true, out chart);
+    }
+
+    private static bool TryGetChartFile(object row, bool materializeCompatibilityAdapter, out ChartFile chart)
+    {
         chart = null;
         switch (row)
         {
@@ -83,7 +88,7 @@ internal static class GridRowResolver
                 chart = playlistSourceRow.Chart;
                 return chart != null;
             case LibraryChartRow libraryChartRow:
-                chart = libraryChartRow.Chart;
+                chart = libraryChartRow.CreateChartFile(materializeCompatibilityAdapter);
                 return chart != null;
             case BMSFile bmsFile:
                 chart = CreateChartFile(bmsFile);
@@ -106,11 +111,10 @@ internal static class GridRowResolver
     internal static bool TryGetChartOperationTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
     {
         target = null;
-        if (!TryGetChartFile(row, out ChartFile chart))
+        if (!TryGetChartFile(row, materializeCompatibilityAdapter: false, out ChartFile chart))
         {
             return false;
         }
-        BMSFile compatibilityBmsFile = ResolveCompatibilityBmsFile(row);
         BMSTableEntry playlistEntry = GetPlaylistEntry(row);
         bool isPlaylistRow = IsPlaylistRow(row) || row is PlaylistDetailSourceRow;
         bool isOwned = row switch
@@ -131,7 +135,7 @@ internal static class GridRowResolver
         }
         bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
         ChartOperationCapabilities capabilities = BuildCapabilities(chart, playlistEntry, sourceScope, isPlaylistRow, isOwned, isPlaylistMissing);
-        target = new ChartOperationTarget(chart, compatibilityBmsFile, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities);
+        target = new ChartOperationTarget(chart, () => ResolveCompatibilityBmsFile(row), playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities);
         return true;
     }
 

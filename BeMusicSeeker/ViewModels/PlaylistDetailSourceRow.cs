@@ -285,10 +285,10 @@ internal sealed class PlaylistDetailSourceRow
         instl_dst = FirstNonEmpty(Chart?.InstallDestination, snapshotSource?.instl_dst);
         InstallDestinationTitle = FirstNonEmpty(Chart?.InstallDestinationTitle, snapshotSource?.InstallDestinationTitle);
         InstallDestinationArtist = FirstNonEmpty(Chart?.InstallDestinationArtist, snapshotSource?.InstallDestinationArtist);
-        WAVHealth = snapshotSource?.WAVHealth;
-        BGAHealth = snapshotSource?.BGAHealth;
-        MovieHealth = snapshotSource?.MovieHealth;
-        encoding = snapshotSource?.encoding ?? string.Empty;
+        WAVHealth = Chart?.WAVHealth ?? snapshotSource?.WAVHealth;
+        BGAHealth = Chart?.BGAHealth ?? snapshotSource?.BGAHealth;
+        MovieHealth = Chart?.MovieHealth ?? snapshotSource?.MovieHealth;
+        encoding = FirstNonEmpty(Chart?.EncodingName, snapshotSource?.encoding);
         RefTablesSymbols = realFile?.RefTablesSymbols ?? playlistReferenceDisplay.Symbols;
         RefTablesNames = realFile?.RefTablesNames ?? playlistReferenceDisplay.Names;
         clear = ResolveClear(isBmsOwned, isBmsonOwned, scoreProbe, effectiveScore);

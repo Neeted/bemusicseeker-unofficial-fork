@@ -32,24 +32,25 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal bool IsBms => BmsFile != null && !PendingChartEntry.IsBmsonChartFile(BmsFile);
 
-    internal ChartFile Chart
-    {
-        get
-        {
-            LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
-            if (bmsonSong != null)
-            {
-                var pending = BmsFile as PendingChartEntry;
-                bool isPendingBmson = pending?.IsBmsonChart == true;
-                return isPendingBmson
-                    ? ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant)
-                    : ChartFileProjection.FromBmsonSong(bmsonSong, GetOrCreateBmsonChartAdapter());
-            }
-            return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
-        }
-    }
+    internal ChartFile Chart => CreateChartFile(materializeBmsonChartAdapter: true);
 
     internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonChartAdapter();
+
+    internal ChartFile CreateChartFile(bool materializeBmsonChartAdapter)
+    {
+        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
+        if (bmsonSong != null)
+        {
+            var pending = BmsFile as PendingChartEntry;
+            bool isPendingBmson = pending?.IsBmsonChart == true;
+            return isPendingBmson
+                ? ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant)
+                : ChartFileProjection.FromBmsonSong(
+                    bmsonSong,
+                    materializeBmsonChartAdapter ? GetOrCreateBmsonChartAdapter() : GetExistingBmsonChartAdapter());
+        }
+        return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
+    }
 
     private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong)
     {
@@ -106,6 +107,23 @@ internal sealed class LibraryChartRow : NotificationObject
             SetBmsonChartAdapter(PendingChartEntry.CreateFromBmsonSong(BmsonSong));
         }
         else if (!string.Equals(bmsonChartAdapter.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
+        {
+            bmsonChartAdapter.UpdateFromBmsonSong(BmsonSong);
+        }
+        return bmsonChartAdapter;
+    }
+
+    private PendingChartEntry GetExistingBmsonChartAdapter()
+    {
+        if (BmsonSong == null || bmsonChartAdapter == null)
+        {
+            return null;
+        }
+        if (!ReferenceEquals(bmsonChartAdapter.BmsonSong, BmsonSong))
+        {
+            return null;
+        }
+        if (!string.Equals(bmsonChartAdapter.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
         {
             bmsonChartAdapter.UpdateFromBmsonSong(BmsonSong);
         }
@@ -217,19 +235,19 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string InstallDestinationArtist => Chart?.InstallDestinationArtist ?? string.Empty;
 
-    public int? WAVHealth => BmsFile?.WAVHealth ?? BmsonSong?.MaintenanceInfo?.WAVHealth;
+    public int? WAVHealth => Chart?.WAVHealth;
 
-    public int? BGAHealth => BmsFile?.BGAHealth ?? BmsonSong?.MaintenanceInfo?.BGAHealth;
+    public int? BGAHealth => Chart?.BGAHealth;
 
-    public int? MovieHealth => BmsFile?.MovieHealth ?? BmsonSong?.MaintenanceInfo?.MovieHealth;
+    public int? MovieHealth => Chart?.MovieHealth;
 
-    public bool? StagefileHealth => BmsFile?.StagefileHealth ?? BmsonSong?.MaintenanceInfo?.StagefileHealth;
+    public bool? StagefileHealth => Chart?.StagefileHealth;
 
-    public bool? BannerHealth => BmsFile?.BannerHealth ?? BmsonSong?.MaintenanceInfo?.BannerHealth;
+    public bool? BannerHealth => Chart?.BannerHealth;
 
-    public bool? BackbmpHealth => BmsFile?.BackbmpHealth ?? BmsonSong?.MaintenanceInfo?.BackbmpHealth;
+    public bool? BackbmpHealth => Chart?.BackbmpHealth;
 
-    public string encoding => BmsFile?.encoding ?? BmsonSong?.MaintenanceInfo?.encoding ?? string.Empty;
+    public string encoding => Chart?.EncodingName ?? string.Empty;
 
     public string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
 
