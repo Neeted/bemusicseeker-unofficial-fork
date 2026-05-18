@@ -1348,20 +1348,20 @@ internal sealed class BmsLibraryPackageInstallService
                 delta.RemainingPackages.Add(package);
                 continue;
             }
-            List<BMSFile> packageFiles = package.GetChartAdapters();
-            if (packageFiles.Count == 0)
+            List<PackageChartEntry> packageEntries = package.ChartEntries;
+            if (packageEntries.Count == 0)
             {
                 delta.RemainingPackages.Add(package);
                 continue;
             }
-            List<BMSFile> remainingFiles = [.. packageFiles.Where(file => !IsMatchedRemovedFile(file, removedPaths, removedFileRefs))];
-            if (remainingFiles.Count == packageFiles.Count)
+            List<PackageChartEntry> remainingEntries = [.. packageEntries.Where(entry => !IsMatchedRemovedEntry(entry, removedPaths, removedFileRefs))];
+            if (remainingEntries.Count == packageEntries.Count)
             {
                 delta.RemainingPackages.Add(package);
                 continue;
             }
             delta.HasChanges = true;
-            if (remainingFiles.Count == 0)
+            if (remainingEntries.Count == 0)
             {
                 if (!string.IsNullOrWhiteSpace(package.path))
                 {
@@ -1369,7 +1369,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 continue;
             }
-            package.ReplaceChartAdapters(remainingFiles);
+            package.ReplaceChartAdapters(remainingEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null));
             delta.RemainingPackages.Add(package);
         }
         delta.InstallPathsToDelete = [.. installPathsToDelete];
@@ -2284,6 +2284,19 @@ internal sealed class BmsLibraryPackageInstallService
             return true;
         }
         return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
+    }
+
+    private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
+    {
+        if (entry == null)
+        {
+            return false;
+        }
+        if (entry.CompatibilityAdapter != null && removedFiles != null && removedFiles.Contains(entry.CompatibilityAdapter))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart?.Path) && removedPaths.Contains(entry.Chart.Path);
     }
 
     private static bool IsBmsHashAvailable(string hash)

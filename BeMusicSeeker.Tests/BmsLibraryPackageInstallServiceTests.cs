@@ -148,6 +148,40 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void BuildPendingPackageMutationDelta_RemovesAdapterlessBmsonByPathWithoutMaterializing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        var keepEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Pkg\\keep.bmson",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('a', 64)
+        }));
+        var removeEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Pkg\\remove.bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        }));
+        ChartPackage package = ChartPackage.FromChartEntries([keepEntry, removeEntry]);
+        package.path = "C:\\Pending\\Pkg";
+        BMSFile selectedRemoveFile = PendingChartEntry.CreateFromBmsonSong(removeEntry.Chart.BmsonSong);
+
+        PendingPackageMutationDelta delta = service.BuildPendingPackageMutationDelta(
+            [package],
+            filesToRemove: [selectedRemoveFile]);
+
+        Assert.IsTrue(delta.HasChanges);
+        Assert.AreEqual(1, delta.RemainingPackages.Count);
+        Assert.AreSame(package, delta.RemainingPackages[0]);
+        Assert.IsNotNull(keepEntry.CompatibilityAdapter);
+        Assert.IsNull(removeEntry.CompatibilityAdapter);
+        CollectionAssert.AreEqual(new[] { keepEntry.CompatibilityAdapter }, package.GetChartAdapters());
+        Assert.AreEqual(0, delta.InstallPathsToDelete.Count);
+    }
+
+    [TestMethod]
     public void BuildEstimatedInstallBatchPlan_GroupsNewChartsAndKeepsCleanupOnlyCandidates()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -282,6 +282,7 @@ auto install discovery で directory scan 済みの package を明示 chart list
 BMS 系 chart 専用の保留 snapshot は、`ChartEntries` の `ChartFile.Kind` と拡張子で BMS-format chart だけを選んでから adapter を取得する。これにより、zero-note / invalid-extension 対象外の adapterless bmson は snapshot 取得だけでは materialize されない。
 nested chart warning も `ChartEntries` の `ChartFile.Path` で入れ子判定してから対象 entry の adapter だけ materialize する。package 直下の adapterless bmson は警告付与対象外なので adapter 化しない。
 auto install workflow の pending / auto-install 分類では、resource reference count は `PackageChartEntry.ResourceSnapshot` を先に読み、SingleBmsFile / SingleBmsonFile / resource health warning を書き戻す時だけ対象 entry の adapter を materialize する。installed 判定は既存 callback が `BMSFile` を受けるため、ここは adapter writeback 境界として残っている。
+pending package から選択 chart を削る mutation delta も、削除対象判定は `PackageChartEntry` の既存 adapter reference / `ChartFile.Path` で行う。残す entry を package へ書き戻す必要がある場合だけ残存 entry の adapter を materialize するため、削除される adapterless bmson は削除判定だけでは adapter 化しない。
 
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。これは現行最大の構造互換であり、`PendingChartEntry : BMSFile` 廃止の前提として、package discovery snapshot / install estimation / pending tree が chart-native entry を扱うようにする。
 
