@@ -497,6 +497,50 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void AddReferenceBMSTablesToPackageCharts_DoesNotMaterializeUnmatchedBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            PackageChartEntry adapterlessBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Installed\Package\unmatched.bmson",
+                "cccccccccccccccccccccccccccccccc");
+            ChartPackage installedPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+            BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+            library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
+
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
+    public void AddReferenceBMSTablesToPackageCharts_MaterializesOnlyMatchedBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            PackageChartEntry matchingBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Installed\Package\matching.bmson",
+                matchingHash);
+            PackageChartEntry unmatchedBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Installed\Package\unmatched.bmson",
+                "cccccccccccccccccccccccccccccccc");
+            ChartPackage installedPackage = ChartPackage.FromChartEntries([matchingBmsonEntry, unmatchedBmsonEntry]);
+            BMSTable table = CreateTable("Matched", "M", matchingHash);
+
+            library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
+
+            Assert.IsNotNull(matchingBmsonEntry.CompatibilityAdapter);
+            Assert.IsTrue(matchingBmsonEntry.CompatibilityAdapter.HasRefTable(table));
+            Assert.IsNull(unmatchedBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
     public void ReplaceReferenceBMSTable_DoesNotAddNewTableToOldOnlyPendingBmsonEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();

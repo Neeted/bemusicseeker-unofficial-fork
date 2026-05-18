@@ -17956,7 +17956,7 @@ public class MainWindowViewModel : ViewModel
             tables.AcquireReaderLockBMSTables();
             try
             {
-                files.AddReferenceBMSTables(BMSTables, list.SelectMany(p => p.GetChartAdapters()));
+                files.AddReferenceBMSTablesToPackageCharts(BMSTables, list);
                 InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
             }
             finally

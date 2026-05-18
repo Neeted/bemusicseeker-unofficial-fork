@@ -10066,6 +10066,53 @@ reportProgress,
         LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + applyPendingMs + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + list.Count + " matchedSongFiles=" + matchedSongFiles + " addSongCalls=" + addedSongRefs + " matchedPendingFiles=" + matchedPendingFiles + " addPendingCalls=" + addedPendingRefs + " suppressNotify=" + suppressFilePropertyChanged);
     }
 
+    /// <summary>
+    /// Applies loaded playlist references to package chart entries after package install without materializing unmatched bmson entries.
+    /// </summary>
+    /// <param name="tables">Loaded playlist tables whose entries should be matched by chart hash.</param>
+    /// <param name="packages">Packages containing newly installed chart entries.</param>
+    /// <param name="suppressFilePropertyChanged">Whether file property change notifications should be suppressed.</param>
+    public void AddReferenceBMSTablesToPackageCharts(IEnumerable<BMSTable> tables, IEnumerable<ChartPackage> packages, bool suppressFilePropertyChanged = false)
+    {
+        if (tables == null || packages == null)
+        {
+            return;
+        }
+        List<BMSTable> tableList = [.. tables.Where(table => table != null)];
+        List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
+        if (tableList.Count == 0 || packageList.Count == 0)
+        {
+            return;
+        }
+
+        var stopwatchBuildMap = Stopwatch.StartNew();
+        PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(tableList);
+        stopwatchBuildMap.Stop();
+
+        int matchedPackageFiles = 0;
+        int addedPackageRefs = 0;
+        PlaylistReferenceApplyStats packageApplyStats = default;
+        long applyPackageMs = 0L;
+        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
+        {
+            var stopwatchApplyPackage = Stopwatch.StartNew();
+            using (rwlockPendingInstallCharts.GetReaderGuard())
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    List<BMSFile> packageFilesSnapshot = FilterPackagePlaylistReferenceTargets(SnapshotPackageChartEntriesForPlaylistReferenceApply(packageList), referenceMaps);
+                    if (packageFilesSnapshot.Count > 0)
+                    {
+                        addedPackageRefs = playlistReferenceService.ApplyReferenceMap(packageFilesSnapshot, referenceMaps, out matchedPackageFiles, out packageApplyStats, suppressFilePropertyChanged);
+                    }
+                }
+            }
+            stopwatchApplyPackage.Stop();
+            applyPackageMs = stopwatchApplyPackage.ElapsedMilliseconds;
+        }
+        LogInstallPerformance("playlist_ref_package_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applyPackageMs=" + applyPackageMs + " applyPackageChunks=" + packageApplyStats.Chunks + " applyPackageChunkMaxMs=" + packageApplyStats.MaxChunkMs + " applyPackageYieldCount=" + packageApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + tableList.Count + " packageCount=" + packageList.Count + " matchedPackageFiles=" + matchedPackageFiles + " addPackageCalls=" + addedPackageRefs + " suppressNotify=" + suppressFilePropertyChanged);
+    }
+
     private List<BMSFile> SnapshotSongFilesForPlaylistReferenceApply()
     {
         if (BMSFiles == null || BMSFiles.Count == 0)
@@ -10106,6 +10153,14 @@ reportProgress,
             }
             return [.. matchedAdapters.Distinct()];
         }
+    }
+
+    private static List<PackageChartEntry> SnapshotPackageChartEntriesForPlaylistReferenceApply(IEnumerable<ChartPackage> packages)
+    {
+        return [.. (packages ?? [])
+            .Where(package => package != null)
+            .SelectMany(package => package.ChartEntries)
+            .Where(entry => entry?.Chart != null)];
     }
 
     internal void ReplaceReferenceBMSTable(BMSTable oldTable, BMSTable newTable, IEnumerable<BMSTableEntry> oldEntries = null, IEnumerable<BMSTableEntry> newEntries = null)
@@ -10197,6 +10252,29 @@ reportProgress,
                 continue;
             }
             BMSFile adapter = materializeMatches ? entry.GetOrCreateCompatibilityAdapter() : entry.CompatibilityAdapter;
+            if (adapter != null)
+            {
+                matchedAdapters.Add(adapter);
+            }
+        }
+        return [.. matchedAdapters.Distinct()];
+    }
+
+    private static List<BMSFile> FilterPackagePlaylistReferenceTargets(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps)
+    {
+        if (entries == null || ((referenceMaps?.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps?.Sha256ToTablesMap?.Count ?? 0) == 0))
+        {
+            return [];
+        }
+        List<BMSFile> matchedAdapters = [];
+        foreach (PackageChartEntry entry in entries)
+        {
+            ChartFile chart = entry?.Chart;
+            if (chart == null || !HasPlaylistReferenceMapMatch(chart, referenceMaps))
+            {
+                continue;
+            }
+            BMSFile adapter = entry.GetOrCreateCompatibilityAdapter();
             if (adapter != null)
             {
                 matchedAdapters.Add(adapter);
