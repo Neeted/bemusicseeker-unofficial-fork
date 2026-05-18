@@ -777,11 +777,20 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(target.Chart.BmsFile);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
 
+        LibraryChartRef libraryRef = target.ToLibraryChartRef();
+
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
+        Assert.IsNull(libraryRef.CompatibilityBmsFile);
+        Assert.AreSame(bmson, libraryRef.BmsonSong);
+
         BMSFile compatibilityFile = target.CompatibilityBmsFile;
 
         Assert.AreSame(adapter, compatibilityFile);
         Assert.AreEqual(1, adapterRequestCount);
         Assert.AreSame(adapter, target.CompatibilityBmsFile);
+        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreSame(adapter, target.ToLibraryChartRef().CompatibilityBmsFile);
         Assert.AreEqual(1, adapterRequestCount);
     }
 

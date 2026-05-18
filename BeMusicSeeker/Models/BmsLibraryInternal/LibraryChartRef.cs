@@ -93,6 +93,10 @@ internal sealed class LibraryChartRef
         {
             return FromCompatibilityBmsFile(compatibilityBmsFile);
         }
+        if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null)
+        {
+            return FromCompatibilityBmsFile(chart.BmsFile);
+        }
         if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
         {
             return FromBmsonSong(chart.BmsonSong);
