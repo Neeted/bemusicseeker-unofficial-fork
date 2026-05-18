@@ -9368,9 +9368,9 @@ reportProgress,
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select(pendingPackage => pendingPackage.path));
         dbGateway.UpsertInstallRows([regroupedPackage]);
-        List<BMSFile> regroupedPackageFiles = regroupedPackage.GetChartAdapters();
-        bool metadataResolved = regroupedPackageFiles.Any(file => !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist));
-        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackageFiles.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
+        List<PackageChartEntry> regroupedPackageEntries = regroupedPackage.ChartEntries;
+        bool metadataResolved = regroupedPackageEntries.Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestinationArtist));
+        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackageEntries.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
     }
 
     private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<ChartPackage> sourcePackages, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
