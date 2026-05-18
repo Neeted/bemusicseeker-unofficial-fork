@@ -1,5 +1,8 @@
 # BMS / bmson 譜面抽象化 移行計画
 
+> この文書は過去の bmson 段階導入計画の履歴資料であり、現在進行中の ChartFile domain model 化の active plan ではない。
+> 現在の仕様・残作業・進行方針は `devdocs/spec/bms-bmson-chart-abstraction-current-state.md` を正とする。
+
 ## 目的
 
 `bmson` 対応は段階導入の過程で、当初は通常一覧では `PendingChartEntry : BMSFile`、プレイリスト詳細では `ResolvedBmson`、DB では `bmson_song` として扱われていた。

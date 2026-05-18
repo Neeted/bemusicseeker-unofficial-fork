@@ -2,11 +2,20 @@
 
 ## 目的
 
-この文書は、現行実装における BMS / bmson の譜面抽象化の状態を記録する。
+この文書は、現行実装における BMS / bmson の譜面抽象化の状態と、今後の ChartFile domain model 化で守る境界を記録する。
 
 今後 `BMSFile` に残る chart 共通責務を `ChartFile` などのアプリ内 domain model へさらに分離していくために、現在どこまで chart として共通化され、どこに BMS / LR2 前提の境界が残っているかを明文化する。
 
-この文書は移行計画ではなく、現在仕様を表す。将来の rename や抽象化を行う場合も、ここに書いた storage / read model / operation target の責務を崩さないことを前提にする。
+旧 `devdocs/plan/bmson/bms-bmson-chart-abstraction-migration-plan.md` は、bmson 段階導入時の履歴資料であり、現在進行中の active plan ではない。今後の作業判断はこの文書を正とし、古い計画書へ進捗や方針を追記しない。
+
+最終ゴール:
+
+- アプリ全体で譜面を扱う入口を `ChartFile` domain model ベースにする。
+- `BMSFile` は BMS 専用処理と LR2 `song` / `folder` 永続化に寄せる。
+- `LR2SongDBExtended.bmson_song` は bmson 専用処理と `bmson_song` 永続化に寄せる。
+- `PendingChartEntry : BMSFile` や `CompatibilityBmsFile` のような構造互換 adapter は最終形として残さない。
+- production から使われない旧名 wrapper / 互換 API / test-only production code は残さない。
+- 設定値名と UI 文言は、永続設定移行やユーザー体験の変更を避けるため、抽象化作業だけを理由には変えない。
 
 ## 用語
 
@@ -16,11 +25,11 @@
 | bmson chart | `LR2SongDBExtended.bmson_song` | アプリ独自 table `bmson_song` 由来の所持 bmson 譜面。 |
 | storage row | LR2 `song` row, `LR2SongDBExtended.bmson_song` row | DB table へ保存する永続化単位。BMS の現行 in-memory owner は `BMSFile : LR2SongDB.song` だが、DB commit は LR2 `song` row 型として行う。bmson は app-owned `bmson_song` row。 |
 | application chart file | `ChartFile` | 本アプリで譜面を操作・表示するための domain model。直接の DB 永続化型ではなく、Kind と storage owner を持つ。 |
-| pending chart | `PendingChartEntry : BMSFile` | package / pending install 上の譜面 adapter。BMS と bmson の両方を `BMSFile` 互換 API に載せる。 |
+| pending chart | 現行 `PendingChartEntry : BMSFile` | package / pending install 上の譜面 adapter。現行では BMS と bmson の両方を `BMSFile` 互換 API に載せるが、これは除去対象の構造互換であり、最終形では chart domain model へ置き換える。 |
 | chart row | `LibraryChartRow`, `ChartListSourceRow` | 通常一覧や仮想 filter / sort 用の read model。storage の正本ではない。 |
 | operation target | `ChartOperationTarget` | UI command / context menu が扱う操作対象。capability を持つ。 |
 | library chart ref | `LibraryChartRef` | model 層の移動 / 削除などで使う BMS / bmson 共通参照。 |
-| compatibility BMSFile | `PendingChartEntry.CreateFromBmsonSong(...)` など | bmson を既存 `BMSFile` 引数 API へ渡すための一時 adapter。 |
+| compatibility BMSFile | `PendingChartEntry.CreateFromBmsonSong(...)` など | bmson を既存 `BMSFile` 引数 API へ渡すための一時 adapter。新規 API の設計中心には置かず、利用箇所を狭めて削除する。 |
 
 ## Storage model
 
@@ -48,7 +57,7 @@ BMS の所持譜面の正本は `BMSLibrary.BMSFiles` であり、要素は `BMS
 
 bmson の所持譜面の正本は `BMSLibrary.BmsonSongs` であり、要素は `LR2SongDBExtended.bmson_song` である。
 
-`bmson_song` は BMS の `song` table には入れない。path を中心に、md5 / sha256 / title / artist / mode_hint を永続列として持つ。
+`bmson_song` は BMS の `song` table には入れない。永続列として path / folder / md5 / sha256 / title / subtitle / artist / genre / level / mode_hint / banner / backbmp / stagefile / preview_music / updated_at を持つ。
 
 resource references、`HasFreshResourceReferences`、`ChartInfo`、`MaintenanceInfo` は `bmson_song` の runtime-only 情報であり、`bmson_song` table の列としては保存されない。DB から hydrate した `chart_info` / `maintenance` や、parser 直後の resource references を同一オブジェクトへ載せるための in-memory owner として扱う。
 
@@ -80,9 +89,9 @@ parent folder cache は更新通知としては bmson 変更でも無効化さ�
 
 `LibraryChartRow.Chart` は `ChartFile` を返す。BMS では storage owner として実体 `BMSFile` を `BmsFile` に持つ。bmson では storage owner として `BmsonSong` を持つ。`ChartFile` 自体は既存 `BMSFile` API 用 adapter を保持せず、必要な場合は row / `ChartOperationTarget` / `GridRowResolver.GetCompatibilityBmsFile(...)` の compatibility 境界から取得する。pending bmson の場合は、現在の adapter path / hash を projection に使いつつ `BmsonSong` も保持する。
 
-所持 bmson row の `CompatibilityBmsFile` は、ViewModel が持つ shared bmson chart adapter cache から供給される。`LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` は `BmsonChartAdapterProvider` を受け取って同じ `PendingChartEntry` adapter を共有し、インストール先修復候補や warning state を row 再生成後も保持する。`CompatibilityBmsFile` という property 名は、既存 `BMSFile` 引数 API へ渡す互換境界を明示するために残す。
+所持 bmson row の `CompatibilityBmsFile` は、ViewModel が持つ shared bmson chart adapter cache から供給される。`LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` は `BmsonChartAdapterProvider` を受け取って同じ `PendingChartEntry` adapter を共有し、インストール先修復候補や warning state を row 再生成後も保持する。これは現行実装の互換境界であり、最終形では adapter に状態を持たせず `ChartFile` / chart operation state / storage row のいずれかへ責務を移して削除する。
 
-表示用の読み取りでは、`ChartFile` が subtitle / warning snapshot / install destination 表示値を持つ。BMS では `BMSFile` 由来、bmson では shared compatibility adapter 由来の mutable state を `ChartFileProjection` が read model に写す。したがって `LibraryChartRow` / `ChartListSourceRow` / playlist detail row の WARNING 表示や install destination 表示 getter は `ChartFile` を読むが、編集・修復・filter など既存 `BMSFile` API が必要な経路は引き続き `CompatibilityBmsFile` を使う。
+表示用の読み取りでは、`ChartFile` が subtitle / warning snapshot / install destination 表示値を持つ。BMS では `BMSFile` 由来、bmson では shared compatibility adapter 由来の mutable state を `ChartFileProjection` が read model に写す。したがって `LibraryChartRow` / `ChartListSourceRow` / playlist detail row の WARNING 表示や install destination 表示 getter は `ChartFile` を読むが、編集・修復・filter など既存 `BMSFile` API が必要な経路は引き続き `CompatibilityBmsFile` を使う。この残存経路は今後の除去対象であり、新規の chart 共通処理では `BMSFile` 互換 adapter を要求しない。
 
 表示列は BMS / bmson で共通化されているものが多い。
 
@@ -183,7 +192,7 @@ playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson
 
 UI は原則として `Kind` 直接判定ではなく capability を見る。handler 側でも capability を再確認する。
 
-library mutation へ渡す `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。BMS / bmson の storage owner があればその owner を使い、owner がない playlist missing row などでは `ChartFile` の kind / path / hash から path-only ref に落とす。これにより、ViewModel 側に `ChartFileKind` と compatibility adapter の分岐を重複させない。
+library mutation へ渡す `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。現行 `LibraryChartRef.FromChartFile(...)` は `compatibilityBmsFile` が渡された場合にそれを優先し、未指定の場合に `ChartFile` の bmson storage owner や path / hash へ fallback する。これは legacy `BMSFile` API へ橋渡しするための実装順序であり、最終形では chart operation target から storage owner / path identity へ直接変換し、operation adapter 優先の経路をなくす。
 
 ### Capability
 
@@ -259,11 +268,11 @@ pending / installed package record の永続正本は `install` table の row �
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
 - `PendingCharts` は `ChartFiles.OfType<PendingChartEntry>()` である。
 
-production code の `ChartPackage` 経由の chart-all 参照は `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart list は `ChartFiles` に一本化されている。
+production code の `ChartPackage` 経由の chart-all 参照は、現行では `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart list は `ChartFiles` に一本化されている。ただし `ChartFiles` の戻り値が `List<BMSFile>` である点は、ChartFile domain model 化後も維持する契約ではなく、`ChartPackage` が package 内 chart を `BMSFile` 互換 adapter なしで返す形へ置き換える対象である。
 
 `PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。旧 `BmsFiles` alias は削除済みであり、ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
 
-このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。
+このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。これは現行最大の構造互換であり、`PendingChartEntry : BMSFile` 廃止の前提として、package discovery snapshot / install estimation / pending tree が chart-native entry を扱うようにする。
 
 ### `PackageInstallEstimationSnapshot`
 
@@ -385,7 +394,11 @@ resource health は BMS / bmson 共通の表示概念である。
 
 このため、現在の仕様では通常一覧 / playlist detail の表示 binding は「BMSFile collection」ではなく「BMS / bmson 共通 chart row view」として扱う。
 
-一方、View の control 名、menu item 名、event handler 名、ログ名にはまだ BMS 名が残る。これらは XAML wiring や既存 handler 名との互換境界であり、機械的 rename できる場合も MethodBinder / XAML / resources / tests の参照を同時に確認する。
+一方、View の control 名、menu item 名、event handler 名、ログ名にはまだ BMS 名が残る。内部 symbol / log 名は互換維持の対象ではないため、ChartFile 化の妨げになる場合は semantic rename で整理する。ただし、ユーザー設定値名と UI 文言は別扱いにする。
+
+設定値名は既存ユーザー設定の永続 key であり、`DirPath_BMS` / `Standalone_BMSDirectories` / `IsWriteLockHeldInitializeBMSFiles` / `ShowRecommUpdatedMsg` などは、抽象化作業だけを理由には rename しない。変更する場合は設定移行を伴う独立作業として扱う。
+
+UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっていない限り rename しない。内部で chart 共通化しても、BMS というユーザー向け概念が BMS + bmson を含む場面では、既存文言を維持する。
 
 ## 現在の抽象化済み領域
 
@@ -426,7 +439,7 @@ resource health は BMS / bmson 共通の表示概念である。
 
 bmson は `PendingChartEntry` として混ざるため、`ChartPackage.ChartFiles` を「BMS のみ」と解釈してはいけない。
 
-`ChartPackage` は `ChartFiles` を primary API として維持する。旧 `BMSFiles` alias は production 利用がないことを確認したうえで削除済みであり、テストコードにも旧 alias そのものを残すためのテストは置かない。
+現行 `ChartPackage` は `ChartFiles` を primary API として使うが、型が `List<BMSFile>` である限り package 内 chart を domain model として扱えていない。旧 `BMSFiles` alias は production 利用がないことを確認したうえで削除済みであり、テストコードにも旧 alias そのものを残すためのテストは置かない。次の段階では alias 追加ではなく、`ChartFiles` 自体を chart-native entry へ寄せる。
 
 ### model APIs の残存 BMS 名
 
@@ -467,17 +480,18 @@ pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `
 - title / artist / level / mode
 - chart_info
 - maintenance / resource health
-- resource references
 - storage owner: BMS は `BmsFile`, bmson は `BmsonSong`
 
-source scope と legacy `BMSFile` API 用 compatibility adapter は `ChartFile` ではなく、row / `ChartOperationTarget` 側が持つ。`ChartFile` は display / identity / storage owner に集中し、操作時の互換 adapter は `ChartOperationTarget.CompatibilityBmsFile` が受け持つ。
+resource references は現行 `ChartFile` には直接載っていない。BMS では `BMSFile`、bmson では `bmson_song.wav_files` / `bga_files` と parser 直後の runtime-only 状態、集計では `ChartResourceSnapshot` が担う。resource health / install estimation を完全に chart-native にする過程で、resource reference の owner を `ChartFile` に載せるか、別の chart resource model として分離するかを決める。
+
+source scope と legacy `BMSFile` API 用 compatibility adapter は現行 `ChartFile` ではなく、row / `ChartOperationTarget` 側が持つ。これは移行中の互換境界であり、最終形では chart 共通 operation が `ChartOperationTarget.CompatibilityBmsFile` を必要としない状態にする。
 
 Kind ごとの storage 境界は次の通り。
 
 | Kind | storage owner | 永続化先 | 現行責務 |
 | :--- | :--- | :--- | :--- |
 | BMS | `BMSFile` | LR2 `song` / `folder`、app-owned `chart_digest_map` など | LR2 `song` row として保存できる BMS 専用 data と、移行前から残る chart helper を併せ持つ。 |
-| bmson | `LR2SongDBExtended.bmson_song` | app-owned `bmson_song` | path / md5 / sha256 / title / artist / resource refs など bmson catalog 保存に特化する。 |
+| bmson | `LR2SongDBExtended.bmson_song` | app-owned `bmson_song` | path / folder / md5 / sha256 / title / subtitle / artist / genre / level / mode_hint / image/audio metadata / updated_at など bmson catalog 保存に特化する。resource refs / chart_info / maintenance は runtime owner として持つが table へは保存しない。 |
 
 したがって、単純に `BMSFile` を `ChartFile` へ rename すると、LR2 `song` row という永続化境界と、BMS / bmson 共通の operation/read model 境界が混ざったまま名前だけ変わる。整理の主眼は、`BMSFile` から chart 共通責務を外し、BMS storage row と Chart domain model を分けることである。
 
@@ -500,19 +514,30 @@ Kind ごとの storage 境界は次の通り。
 
 移行中は `BMSFile` 引数 API が残るため、bmson は `PendingChartEntry.CreateFromBmsonSong(...)` で compatibility BMSFile に変換される。
 
-この変換は便利だが、次のルールを守る。
+この変換は最終形では残さない。現行で残っている間は、次のルールを守る。
 
 - compatibility BMSFile を storage 正本として扱わない。
 - BMS-only operation へ compatibility bmson を渡さない。
 - playlist entry へ変換する場合は sha256-only identity を保つ。
 - resource health / chart_info / install estimation のために使う場合は、元の `bmson_song` へ結果を戻す経路を確認する。
 
+## Active migration plan
+
+次の作業は、差分行数の小ささではなく、`BMSFile` 互換 adapter への依存を減らす順で進める。
+
+1. `ChartFile` を domain model として厚くする。表示・operation・index で必要な chart 共通状態を `BMSFile` / `bmson_song` から投影するだけでなく、共通 API が直接読める形に寄せる。BMS / bmson storage owner 参照は移行中だけ残し、compatibility adapter は載せない。
+2. UI row / operation target の互換境界を狭める。`LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` / `GridRowResolver` / `ChartOperationTarget` では、chart 共通処理が `CompatibilityBmsFile` を要求しないようにする。BMS-only 処理だけが BMS storage row へ降りる。
+3. package / pending install を chart-native にする。`ChartPackage.ChartFiles` / `PackageChartDiscoverySnapshot.ChartFiles` / install estimation target list が `List<BMSFile>` を返す現状を、package 内 chart entry / `ChartFile` / resource snapshot の組み合わせへ置き換える。heavy lazy discovery の意味は維持する。
+4. model-layer service API を chart 入力へ置換する。削除・移動・導入先推定・package install・resource health など chart 共通 service は `BMSFile` 引数を要求しない。BMS-only service は capability で明示し、`BMSFile` / LR2 `song` row へ直接降りる。
+5. library catalog を chart view へ寄せる。`BMSFiles` と `BmsonSongs` は storage row collection として維持しつつ、アプリ操作・index・一覧 source は `ChartFile` catalog / chart row source を入口にする。
+6. 互換 adapter と旧構造を削除する。`PendingChartEntry : BMSFile`、`CompatibilityBmsFile`、`ToCompatibilityBmsFile()`、compatibility adapter cache などは production 参照をなくした順に削除し、テストだけのために残さない。
+
 ## 今後の仕様整理で守る境界
 
 1. Storage は BMS / bmson の二本立てを維持する。
 2. UI / operation の入口は chart target に寄せる。
 3. BMS-only 処理は capability で明示する。
-4. `BMSFile` 型を見ただけで BMS 専用と判断しない。`PendingChartEntry` の kind または `ChartFile.Kind` を確認する。
-5. `ChartPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。旧 `BMSFiles` alias は削除済みであり、package 内 chart list の入口は増やさない。
-6. public binding / settings 名の BMS は互換契約として残り得る。内部 helper から段階的に chart 名へ寄せる。
+4. `BMSFile` 型を見ただけで chart 共通処理に使わない。現行互換 adapter が残る間は `PendingChartEntry` の kind または `ChartFile.Kind` を確認し、最終的には `BMSFile` を BMS storage row / BMS-only 処理に閉じ込める。
+5. `ChartPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。入口を増やして互換を延命せず、既存入口を chart-native に置き換える。
+6. settings 名と UI 文言の BMS は互換契約として残す。内部 helper / log / operation symbol は必要に応じて chart 名へ寄せる。
 7. `ChartFile` / `ChartPackage` を使う場合も、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。
