@@ -289,6 +289,7 @@ pending package tree の「導入先を開く」は、package 内 chart の `Cha
 playlist reference の pending package 反映は `ChartFile.Md5` / `Sha256` で一致判定し、一致した entry にだけ ref table 状態を書き戻すため adapter を取得する。参照テーブルと一致しない adapterless bmson entry は playlist reference refresh だけでは materialize しない。
 pending / newly installed package の一覧表示 row は `PackageChartEntry` から作り、既存 adapter がある entry だけ `BMSFile` row として扱う。adapterless bmson entry は `bmson_song` から `LibraryChartRow` を作るため、表示するだけでは compatibility adapter を materialize しない。ソートや mutation target 用に `BMSFile` source snapshot が必要な経路はまだ別に残る。
 split した pending package の regroup 判定は `PackageChartEntry.Chart` の path / primary hash / install destination を読む。全 entry が同じ expected destination に解決できることを確認した後、regrouped package に書き戻す entry だけ compatibility adapter を materialize する。
+pending package フォルダー削除の失敗時集計は `PackageChartEntry.Chart.Path` を使う。削除成功時は削除済み chart を `FilesToRemove` に返す必要があるため対象 entry の adapter を materialize するが、削除失敗時は adapterless bmson entry を materialize しない。
 
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。これは現行最大の構造互換であり、`PendingChartEntry : BMSFile` 廃止の前提として、package discovery snapshot / install estimation / pending tree が chart-native entry を扱うようにする。
 

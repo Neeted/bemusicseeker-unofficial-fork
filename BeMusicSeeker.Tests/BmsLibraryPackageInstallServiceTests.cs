@@ -1435,6 +1435,43 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void DeletePendingFiles_FailedPackageFolderDeleteDoesNotMaterializeAdapterlessBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryPackageInstallService();
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "PendingBmsonPkg");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
+            PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+            package.path = packageDirectoryPath;
+            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
+
+            PendingFileDeletionResult result = service.DeletePendingFiles(
+                [selectedChart],
+                [package],
+                sendToRecycleBin: false,
+                deleteContainingPackageFoldersWhenNoBms: true,
+                new FailingDeleteDirectoryFileMutationService(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.Requested);
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(0, result.Removed);
+            Assert.AreEqual(1, result.Failed);
+            Assert.AreEqual(0, result.Skipped);
+            Assert.AreEqual(0, result.FilesToRemove.Count);
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsTrue(File.Exists(bmsonPath));
+        });
+    }
+
+    [TestMethod]
     public void GetPendingBmsFormatChartFilesSnapshot_ExcludesBmsonCharts()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -2217,6 +2254,54 @@ public sealed class BmsLibraryPackageInstallServiceTests
         {
             Messages.Add(messageBoxText);
             return defaultResult;
+        }
+    }
+
+    private sealed class FailingDeleteDirectoryFileMutationService : IFileMutationService
+    {
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                Directory.CreateDirectory(directoryPath);
+            }
+        }
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
+        {
+            throw new IOException("required_directory_delete_failure");
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            DeleteDirectoryDirect(directoryPath, recursive: true, options);
+        }
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
+        {
         }
     }
 

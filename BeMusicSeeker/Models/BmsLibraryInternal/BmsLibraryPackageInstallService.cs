@@ -2188,10 +2188,12 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     continue;
                 }
-                List<BMSFile> packageFiles = pendingPackage.GetChartAdapters();
+                List<PackageChartEntry> packageEntries = pendingPackage.ChartEntries;
+                List<string> packageChartPaths = GetPackageChartPaths(packageEntries);
                 try
                 {
                     fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
+                    List<BMSFile> packageFiles = GetOrCreatePackageChartAdapters(packageEntries);
                     foreach (BMSFile packageFile in packageFiles)
                     {
                         result.FilesToRemove.Add(packageFile);
@@ -2205,15 +2207,12 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 catch (Exception ex)
                 {
-                    foreach (BMSFile packageFile in packageFiles)
+                    foreach (string packageChartPath in packageChartPaths)
                     {
-                        if (!string.IsNullOrWhiteSpace(packageFile.path))
-                        {
-                            blockedByFailedFolderDeletePaths.Add(packageFile.path);
-                        }
+                        blockedByFailedFolderDeletePaths.Add(packageChartPath);
                     }
-                    result.Processed += packageFiles.Count;
-                    result.Failed += packageFiles.Count;
+                    result.Processed += packageChartPaths.Count;
+                    result.Failed += packageChartPaths.Count;
                     result.Failures.Add(new PendingFileDeletionFailure
                     {
                         Path = pendingPackage.path,
@@ -2258,6 +2257,22 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         return result;
+    }
+
+    private static List<string> GetPackageChartPaths(IEnumerable<PackageChartEntry> entries)
+    {
+        return [.. (entries ?? [])
+            .Select(entry => entry?.Chart?.Path)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static List<BMSFile> GetOrCreatePackageChartAdapters(IEnumerable<PackageChartEntry> entries)
+    {
+        return [.. (entries ?? [])
+            .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
+            .Where(file => file != null)
+            .Distinct()];
     }
 
     private static void ApplyAlreadyInstalledWarning(IEnumerable<PackageChartEntry> entries)
