@@ -9029,7 +9029,7 @@ reportProgress,
         {
             return null;
         }
-        List<BMSFile> list = [.. BMSFiles.Where(delegate (BMSFile f)
+        List<PackageChartEntry> entries = [.. BMSFiles.Where(delegate (BMSFile f)
         {
             if (f == null || string.IsNullOrWhiteSpace(f.path))
             {
@@ -9041,8 +9041,8 @@ reportProgress,
                 return false;
             }
             return string.Equals(DirectoryExt.GetDirectoryNameSimple(f.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
-        })];
-        list.AddRange((BmsonSongs ?? []).Where(delegate (LR2SongDBExtended.bmson_song song)
+        }).Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
+        entries.AddRange((BmsonSongs ?? []).Where(delegate (LR2SongDBExtended.bmson_song song)
         {
             if (song == null || string.IsNullOrWhiteSpace(song.path))
             {
@@ -9054,16 +9054,15 @@ reportProgress,
                 return string.Equals(DirectoryExt.GetDirectoryNameSimple(song.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
             }
             return false;
-        }).Select(PendingChartEntry.CreateFromBmsonSong).Where(file => file != null));
-        if (list.Count == 0)
+        }).Select(song => PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song))).Where(entry => entry?.Chart != null));
+        if (entries.Count == 0)
         {
             return null;
         }
-        return new ChartPackage(list)
-        {
-            path = destinationDirectory,
-            delete_parent = false
-        };
+        ChartPackage displayPackage = ChartPackage.FromChartEntries(entries);
+        displayPackage.path = destinationDirectory;
+        displayPackage.delete_parent = false;
+        return displayPackage;
     }
 
     /// <summary>
