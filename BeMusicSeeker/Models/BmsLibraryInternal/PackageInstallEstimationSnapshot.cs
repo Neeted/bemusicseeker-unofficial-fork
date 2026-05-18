@@ -45,18 +45,6 @@ internal sealed class PackageChartDiscoverySnapshot
 
     public string SourcePath { get; set; } = string.Empty;
 
-    public List<BMSFile> ChartFiles
-    {
-        get
-        {
-            return [.. chartEntries.Select(entry => entry?.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
-        }
-        set
-        {
-            chartEntries = NormalizeChartEntries((value ?? []).Select(PackageChartEntry.FromCompatibilityAdapter));
-        }
-    }
-
     public List<PackageChartEntry> ChartEntries
     {
         get

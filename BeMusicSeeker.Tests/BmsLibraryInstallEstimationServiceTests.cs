@@ -1113,7 +1113,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void PackageChartDiscoverySnapshot_ChartEntriesPreservesEntryWithoutCompatibilityAdapter()
+    public void PackageChartDiscoverySnapshot_ChartEntriesPreservesAdapterlessEntry()
     {
         var song = new LR2SongDBExtended.bmson_song
         {
@@ -1130,14 +1130,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             ChartEntries = [entry]
         };
 
-        _ = discoverySnapshot.ChartFiles;
         List<PackageChartEntry> entries = discoverySnapshot.ChartEntries;
 
-        Assert.AreEqual(1, discoverySnapshot.ChartFiles.Count);
         Assert.AreEqual(1, entries.Count);
         Assert.AreEqual(chart.Path, entries[0].Chart.Path);
         Assert.AreEqual(chart.Kind, entries[0].Chart.Kind);
-        Assert.IsNotNull(entries[0].CompatibilityAdapter);
+        Assert.IsNull(entries[0].CompatibilityAdapter);
     }
 
     [TestMethod]
@@ -1161,12 +1159,10 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             ]
         };
 
-        _ = discoverySnapshot.ChartFiles;
         discoverySnapshot.ReplaceCompatibilityAdapters([]);
         List<PackageChartEntry> entries = discoverySnapshot.ChartEntries;
 
         Assert.AreEqual(0, entries.Count);
-        Assert.AreEqual(0, discoverySnapshot.ChartFiles.Count);
     }
 
     [TestMethod]
