@@ -2633,7 +2633,6 @@ public sealed class BmsLibraryInitializationServiceTests
 
             Assert.AreEqual(2, result.PendingPackages.Count);
             Assert.AreEqual(1, result.StaleInstallPaths.Count);
-            Assert.AreEqual(2, result.PendingWarningInitTargets.Count);
             Assert.AreEqual(1, result.InstalledWarningCount);
             Assert.AreEqual(1, result.SingleFileWarningCount);
             Assert.AreEqual(0, result.StrictWarningCount);
@@ -2768,7 +2767,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 });
 
             Assert.AreEqual(1, result.PendingPackages.Count);
-            Assert.AreEqual(1, result.PendingWarningInitTargets.Count);
             Assert.AreEqual(1, result.SingleFileWarningCount);
             Assert.IsTrue(result.PendingPackages[0].GetChartAdapters()[0].Warnings.Contains(ChartWarningKind.SingleBmsonFile));
         });

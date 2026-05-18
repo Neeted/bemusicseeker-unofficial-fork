@@ -10,8 +10,6 @@ internal sealed class InstallTableLoadResult
 
     public List<string> StaleInstallPaths { get; } = [];
 
-    public List<BMSFile> PendingWarningInitTargets { get; } = [];
-
     public int InstalledWarningCount { get; set; }
 
     public int SingleFileWarningCount { get; set; }

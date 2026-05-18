@@ -2329,7 +2329,6 @@ internal sealed class BmsLibraryInitializationService
                 {
                     bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
                 }
-                result.PendingWarningInitTargets.Add(bmsFile);
                 if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
                     bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
