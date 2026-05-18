@@ -11407,7 +11407,7 @@ public class MainWindowViewModel : ViewModel
         {
             try
             {
-                if (package?.ChartEntries != null)
+                if (package != null)
                 {
                     snapshot.AddRange(EnumeratePackageChartAdapters(package));
                 }
@@ -11421,9 +11421,12 @@ public class MainWindowViewModel : ViewModel
 
     private static IEnumerable<BeMusicSeeker.Models.BMSFile> EnumeratePackageChartAdapters(ChartPackage package)
     {
-        return (package?.ChartEntries ?? [])
-            .Select(entry => entry?.CompatibilityAdapter)
-            .Where(file => file != null);
+        return package?.GetChartAdapters() ?? [];
+    }
+
+    private static List<BeMusicSeeker.Models.BMSFile> CreateStrictPackageFileSnapshot(IEnumerable<ChartPackage> packages)
+    {
+        return [.. (packages ?? []).Where(package => package != null).SelectMany(package => package.GetChartAdapters())];
     }
 
     private bool TryGetVirtualDuplicateSourceFiles(
@@ -16066,26 +16069,12 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (parameter != null && parameter is ChartPackage)
                 {
-                    ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage).ChartFiles, CreateLibraryChartRowWithResourceHealthProjection);
+                    ChartRowsFolderView = ToLibraryChartRows(EnumeratePackageChartAdapters(parameter as ChartPackage), CreateLibraryChartRowWithResourceHealthProjection);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(ChartPackagesInstalled.SelectMany(delegate (ChartPackage p)
-                    {
-                        try
-                        {
-                            if (p != null)
-                            {
-                                return p.ChartFiles;
-                            }
-                            return [];
-                        }
-                        catch
-                        {
-                            return [];
-                        }
-                    }), CreateLibraryChartRowWithResourceHealthProjection);
+                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageFileSnapshot(ChartPackagesInstalled), CreateLibraryChartRowWithResourceHealthProjection);
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16102,26 +16091,12 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (parameter != null && parameter is ChartPackage)
                 {
-                    ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage).ChartFiles);
+                    ChartRowsFolderView = ToLibraryChartRows(EnumeratePackageChartAdapters(parameter as ChartPackage));
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(ChartPackagesPending.SelectMany(delegate (ChartPackage p)
-                    {
-                        try
-                        {
-                            if (p != null)
-                            {
-                                return p.ChartFiles;
-                            }
-                            return [];
-                        }
-                        catch
-                        {
-                            return [];
-                        }
-                    }));
+                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageFileSnapshot(ChartPackagesPending));
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -20297,7 +20272,7 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("packages");
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        List<BeMusicSeeker.Models.BMSFile> list2 = [.. list.SelectMany(pkg => pkg.ChartFiles ?? []).Where(f => f != null)];
+        List<BeMusicSeeker.Models.BMSFile> list2 = CreateStrictPackageFileSnapshot(list);
         return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), list2);
     }
 
@@ -20353,7 +20328,7 @@ public class MainWindowViewModel : ViewModel
             List<ChartPackage> list = [.. packages.Where(f => f != null)];
             for (int num = 0; num < list.Count; num++)
             {
-                files.RemoveInstallDestination(list[num].ChartFiles);
+                files.RemoveInstallDestination(CreateStrictPackageFileSnapshot([list[num]]));
             }
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
@@ -20376,7 +20351,7 @@ public class MainWindowViewModel : ViewModel
             List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             for (int num = 0; num < chartPackages.Count; num++)
             {
-                files.RemoveInstallDestination(chartPackages[num].ChartFiles);
+                files.RemoveInstallDestination(CreateStrictPackageFileSnapshot([chartPackages[num]]));
             }
             files.RemoveInstallDestination(chartFiles2);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
