@@ -228,6 +228,20 @@ internal sealed class BmsLibraryPackageInstallService
         return excludedPathSet;
     }
 
+    private static List<PackageChartEntry> SelectInstallTargetEntries(ChartPackage package, ISet<string> installComponentPathSet, string sourcePath, bool isSingleFile)
+    {
+        List<PackageChartEntry> entries = package?.ChartEntries ?? [];
+        if (isSingleFile)
+        {
+            return [.. entries.Where(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.Path) && installComponentPathSet.Contains(entry.Chart.Path))];
+        }
+
+        string normalizedSourceRoot = sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        return [.. entries.Where(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.Path)
+            && (installComponentPathSet.Contains(entry.Chart.Path)
+                || entry.Chart.Path.StartsWith(normalizedSourceRoot, StringComparison.OrdinalIgnoreCase)))];
+    }
+
     private static string BuildDestinationChartPath(string sourceRootPath, string destinationDirectory, BMSFile chartFile)
     {
         string chartPath = chartFile?.path;
@@ -754,18 +768,8 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         var installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
-        if (isSingleFile)
-        {
-            installBmsFiles = [.. package.GetChartAdapters().Where(file => installComponentPathSet.Contains(file.path))];
-        }
-        else
-        {
-            string normalizedSourceRoot = sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            installBmsFiles = [.. package.GetChartAdapters()
-                .Where(file => !string.IsNullOrWhiteSpace(file?.path)
-                    && (installComponentPathSet.Contains(file.path)
-                        || file.path.StartsWith(normalizedSourceRoot, StringComparison.OrdinalIgnoreCase)))];
-        }
+        List<PackageChartEntry> installTargetEntries = SelectInstallTargetEntries(package, installComponentPathSet, sourcePath, isSingleFile);
+        installBmsFiles = [.. installTargetEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
         var installBmsPathSet = new HashSet<string>(installBmsFiles.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
         installComponentFiles = [.. installComponentFiles.Where(path => !installBmsPathSet.Contains(path))];
         ISet<string> componentExclusionPaths = BuildComponentExclusionSet(excludedComponentPaths, installBmsFiles);
@@ -796,7 +800,7 @@ internal sealed class BmsLibraryPackageInstallService
             if (string.IsNullOrWhiteSpace(installationDirectory))
             {
                 destinationDirectory = createFolderPath?.Invoke(
-                    package.GetChartAdapters(),
+                    installBmsFiles,
                     options?.BMSInstallDir,
                     installComponentFiles.Select(Path.GetFileName).OrderByDescending(fileName => fileName.Length).FirstOrDefault() ?? string.Empty);
             }
@@ -897,8 +901,9 @@ internal sealed class BmsLibraryPackageInstallService
 
         if (isSingleFile)
         {
-            package.ApplySingleFileInstallDestination(destinationDirectory);
+            package.ApplySingleFileInstallDestination(destinationDirectory, installBmsFiles);
             package.path = Path.Combine(destinationDirectory, Path.GetFileName(package.path));
+            package.ReplaceChartAdapters(installBmsFiles);
         }
         else
         {
@@ -906,8 +911,9 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 return false;
             }
-            package.ApplyDirectoryInstallDestination(sourcePath, destinationDirectory);
+            package.ApplyDirectoryInstallDestination(sourcePath, destinationDirectory, installBmsFiles);
             package.path = destinationDirectory;
+            package.ReplaceChartAdapters(installBmsFiles);
         }
 
         string directoryToDelete = string.Empty;

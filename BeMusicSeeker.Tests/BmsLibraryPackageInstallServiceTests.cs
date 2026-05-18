@@ -1146,6 +1146,68 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPackages_RegistersOnlyMovedTargetEntriesWithoutMaterializingOutsideBmson()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledPkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Move\r\n");
+
+            TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            PackageChartEntry outsideBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempDirectoryPath, "OtherPkg", "outside.bmson"),
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                sha256 = new string('b', 64)
+            }));
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(chart), outsideBmsonEntry]);
+            package.path = sourceDirectoryPath;
+
+            var service = new BmsLibraryPackageInstallService();
+            PackageInstallExecutionResult result = service.InstallPackages(
+                [package],
+                destinationDirectoryPath,
+                (movePackage, destination, deleteSourceContentsAfterSuccessfulInstall, existingHashes, excludedComponentPaths) =>
+                    service.MovePackageFiles(
+                        movePackage,
+                        destination,
+                        new BmsLibraryOptionsSnapshot
+                        {
+                            EnableSmartComponentOverwrite = false,
+                            KeepSmartOverwriteProtectedFilesByRenaming = false
+                        },
+                        (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                        ex => ex.Message,
+                        new RealFileMutationService(),
+                        null,
+                        null,
+                        null,
+                        _ => { },
+                        showMessageBoxOnInstallFail: false,
+                        deleteAllContents: deleteSourceContentsAfterSuccessfulInstall,
+                        existingHashes: existingHashes,
+                        excludedComponentPaths: excludedComponentPaths),
+                _ => { },
+                _ => { },
+                _ => { },
+                _ => { },
+                _ => { });
+
+            Assert.AreEqual(1, result.AddedFiles.Count);
+            Assert.AreSame(chart, result.AddedFiles[0]);
+            Assert.AreEqual(destinationDirectoryPath, package.path);
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), chart.path);
+            Assert.AreEqual(1, package.ChartEntries.Count);
+            Assert.AreSame(chart, package.ChartEntries[0].CompatibilityAdapter);
+            Assert.IsNull(outsideBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
     public void ExecuteInstalledOnlyResourceOverwrite_CategorizesCleanupInstallAndMissingCases()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1248,6 +1310,59 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sub", "another.bms")));
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "readme.txt")));
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_AutoNamingUsesInstallTargetEntriesWithoutMaterializingOutsideBmson()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Move\r\n");
+
+            TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            PackageChartEntry outsideBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempDirectoryPath, "OtherPkg", "outside.bmson"),
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                sha256 = new string('b', 64)
+            }));
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(chart), outsideBmsonEntry]);
+            package.path = sourceDirectoryPath;
+
+            var service = new BmsLibraryPackageInstallService();
+            bool moved = service.MovePackageFiles(
+                package,
+                string.Empty,
+                new BmsLibraryOptionsSnapshot
+                {
+                    BMSInstallDir = tempDirectoryPath,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (files, _, _) =>
+                {
+                    List<BMSFile> receivedFiles = [.. files];
+                    Assert.AreEqual(1, receivedFiles.Count);
+                    Assert.AreSame(chart, receivedFiles[0]);
+                    return Path.Combine(tempDirectoryPath, "InstalledAuto");
+                },
+                ex => ex.Message,
+                new RealFileMutationService(),
+                null,
+                null,
+                null,
+                _ => { },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(moved);
+            Assert.AreEqual(Path.Combine(tempDirectoryPath, "InstalledAuto"), package.path);
+            Assert.AreEqual(Path.Combine(tempDirectoryPath, "InstalledAuto", "chart.bms"), chart.path);
+            Assert.IsNull(outsideBmsonEntry.CompatibilityAdapter);
         });
     }
 
