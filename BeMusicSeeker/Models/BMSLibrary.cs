@@ -9649,7 +9649,7 @@ reportProgress,
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    IEnumerable<BMSFile> enumerable = targetFiles ?? ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters());
+                    IEnumerable<BMSFile> enumerable = targetFiles ?? packageInstallService.GetPendingBmsFormatChartFilesSnapshot(ChartPackagesPending);
                     PendingZeroNoteRenameResult result = packageInstallService.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
                         enumerable,
                         (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),

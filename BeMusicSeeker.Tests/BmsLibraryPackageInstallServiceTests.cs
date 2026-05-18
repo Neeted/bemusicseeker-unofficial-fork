@@ -1314,15 +1314,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
         {
             var service = new BmsLibraryPackageInstallService();
             string bmsonPath = Path.Combine(tempDirectoryPath, "chart.bmson");
-            File.WriteAllText(bmsonPath, "{}");
+            File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
             TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempDirectoryPath, "chart.bms"));
             var bmsonEntry = PendingChartEntry.CreateFromFilePath(bmsonPath);
+            PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
             TestableBmsFile plainBmsonPath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempDirectoryPath, "plain.bmson"));
             var package = new ChartPackage([bmsFile, bmsonEntry, plainBmsonPath]);
+            ChartPackage adapterlessBmsonPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
-            List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
+            List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
 
             CollectionAssert.AreEqual(new[] { bmsFile }, result);
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
         });
     }
 

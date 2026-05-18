@@ -327,11 +327,22 @@ internal sealed class BmsLibraryPackageInstallService
             && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
+    private static bool IsBmsFormatChartEntry(PackageChartEntry entry)
+    {
+        ChartFile chart = entry?.Chart;
+        string extension = Path.GetExtension(chart?.Path);
+        return chart?.Kind == ChartFileKind.Bms
+            && !string.IsNullOrWhiteSpace(extension)
+            && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+    }
+
     public List<BMSFile> GetPendingBmsFormatChartFilesSnapshot(IEnumerable<ChartPackage> pendingPackages)
     {
         return DeduplicateFilesByPathOrReference((pendingPackages ?? [])
             .Where(package => package != null)
-            .SelectMany(package => package.GetChartAdapters())
+            .SelectMany(package => package.ChartEntries)
+            .Where(IsBmsFormatChartEntry)
+            .Select(entry => entry.GetOrCreateCompatibilityAdapter())
             .Where(IsBmsFormatChartFile));
     }
 
