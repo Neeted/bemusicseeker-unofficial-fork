@@ -4007,7 +4007,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + ((pkg.ChartFiles.Count > 1) ? pkg.ChartFiles[0].title : pkg.ChartFiles[0].Title), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (base.DataContext is not MainWindowViewModel viewModel || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_clear_pendings + Environment.NewLine + Environment.NewLine + GetPendingPackageClearConfirmationTarget(pkg), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
@@ -4023,6 +4023,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
             }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
         }
+    }
+
+    private static string GetPendingPackageClearConfirmationTarget(ChartPackage pkg)
+    {
+        return pkg?.DisplayTitle ?? string.Empty;
     }
 
     private async void treeViewInstalledFolderContextMenuClearFolderClick(object sender, RoutedEventArgs e)
@@ -5406,7 +5411,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
             return false;
         }
-        foreach (BMSFile item in pkg.ChartFiles.Where(f => f != null))
+        foreach (BMSFile item in pkg.GetChartAdapters())
         {
             if (TryResolveInstallDestination(item, out installDir, out reason))
             {

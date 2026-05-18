@@ -25,6 +25,21 @@ public class ChartPackage : LR2SongDBExtended.install
 
     public List<PendingChartEntry> PendingCharts => [.. ChartEntries.Select(entry => entry.CompatibilityAdapter).OfType<PendingChartEntry>()];
 
+    public string DisplayTitle
+    {
+        get
+        {
+            List<BMSFile> chartAdapters = GetChartAdapters();
+            if (chartAdapters.Count == 0)
+            {
+                return path ?? string.Empty;
+            }
+
+            BMSFile representativeChart = chartAdapters[0];
+            return chartAdapters.Count > 1 ? representativeChart.title : representativeChart.Title;
+        }
+    }
+
     internal List<PackageChartEntry> ChartEntries
     {
         get

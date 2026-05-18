@@ -30,6 +30,16 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void InstallPackageTreeHeaders_BindToPackageDisplayTitle()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+
+        Assert.AreEqual(4, CountOccurrences(xaml, "DisplayTitle"));
+        Assert.AreEqual(-1, xaml.IndexOf("P={Binding ChartFiles}", StringComparison.Ordinal));
+        Assert.AreEqual(-1, xaml.IndexOf("ChartFiles[", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void ChartInfoParseFailureContextMenu_UsesDedicatedResourceAndVisibilityPolicy()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
