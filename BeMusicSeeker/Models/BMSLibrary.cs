@@ -6265,12 +6265,12 @@ reportProgress,
         {
             return false;
         }
-        List<BMSFile> list = package.GetChartAdapters();
-        if (list.Count == 0)
+        List<PackageChartEntry> entries = package.ChartEntries ?? [];
+        if (entries.Count == 0)
         {
             return false;
         }
-        return list.All(ContainsInstalledChartUnsafe);
+        return entries.All(entry => ContainsInstalledChartUnsafe(entry?.Chart));
     }
 
     private void InvalidatePlaylistSummaryOwnedHashSnapshot()
@@ -6471,7 +6471,12 @@ reportProgress,
         {
             return false;
         }
-        string lookupKey = PendingChartEntry.GetPrimaryLookupHash(file);
+        return ContainsInstalledChartUnsafe(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
+    }
+
+    private bool ContainsInstalledChartUnsafe(ChartFile chart)
+    {
+        string lookupKey = chart?.PrimaryLookupHash;
         if (string.IsNullOrWhiteSpace(lookupKey))
         {
             return false;
@@ -8229,9 +8234,10 @@ reportProgress,
     {
         List<string> addedBmsonPaths = [.. (installedPackages ?? [])
             .Where(package => package != null)
-            .SelectMany(package => package.GetChartAdapters())
-            .Where(PendingChartEntry.IsBmsonChartFile)
-            .Select(file => file.path)
+            .SelectMany(package => package.ChartEntries)
+            .Select(entry => entry?.Chart)
+            .Where(chart => chart?.Kind == ChartFileKind.Bmson)
+            .Select(chart => chart.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         if (addedBmsonPaths.Count == 0)
@@ -8860,9 +8866,11 @@ reportProgress,
                 }
                 list = [.. Directory.EnumerateFileSystemEntries(path)];
             }
-            List<BMSFile> list2 = package.GetChartAdapters();
+            List<ChartFile> charts = [.. (package.ChartEntries ?? [])
+                .Select(entry => entry?.Chart)
+                .Where(chart => chart != null)];
             var hashSet = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
-            var hashSet2 = new HashSet<string>(list2.Where(f => hashSet.Contains(f.path)).Select(f => f.path), StringComparer.OrdinalIgnoreCase);
+            var hashSet2 = new HashSet<string>(charts.Where(chart => hashSet.Contains(chart.Path)).Select(chart => chart.Path), StringComparer.OrdinalIgnoreCase);
             List<string> installComponentFiles = [.. list.Where(p => !hashSet2.Contains(p))];
             var excludedPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (excludedComponentPaths != null)
@@ -8875,11 +8883,11 @@ reportProgress,
                     }
                 }
             }
-            foreach (BMSFile chartFile in list2)
+            foreach (ChartFile chart in charts)
             {
-                if (!string.IsNullOrWhiteSpace(chartFile.path))
+                if (!string.IsNullOrWhiteSpace(chart.Path))
                 {
-                    excludedPathSet.Add(chartFile.path);
+                    excludedPathSet.Add(chart.Path);
                 }
             }
             installComponentFiles = [.. installComponentFiles.Where(p => !excludedPathSet.Contains(p))];
@@ -8897,8 +8905,8 @@ reportProgress,
         {
             return null;
         }
-        var hashSet = new HashSet<string>(originalPackage.GetChartAdapters()
-            .Select(PendingChartEntry.GetPrimaryLookupHash)
+        var hashSet = new HashSet<string>((originalPackage.ChartEntries ?? [])
+            .Select(entry => entry?.Chart?.PrimaryLookupHash)
             .Where(key => !string.IsNullOrWhiteSpace(key)), StringComparer.OrdinalIgnoreCase);
         if (hashSet.Count == 0)
         {
@@ -9138,7 +9146,7 @@ reportProgress,
         {
             using (rwlockPendingInstallCharts.GetReaderGuard())
             {
-                List<ChartPackage> list = packageInstallService.GetPendingPackagesContainingOnlyInstalledCharts(ChartPackagesPending, ContainsInstalledChartUnsafe);
+                List<ChartPackage> list = packageInstallService.GetPendingPackagesContainingOnlyInstalledCharts(ChartPackagesPending, chart => ContainsInstalledChartUnsafe(chart));
                 NLogWrapper.FileLogger?.Info("advanced_pending_cleanup scan pendingTotal=" + ChartPackagesPending.Count + " eligible=" + list.Count);
                 return list;
             }
@@ -9394,18 +9402,15 @@ reportProgress,
         {
             return false;
         }
-        List<BMSFile> list = package.GetChartAdapters();
-        if (list.Count == 0)
+        List<ChartFile> charts = [.. (package.ChartEntries ?? [])
+            .Select(entry => entry?.Chart)
+            .Where(chart => chart != null)];
+        if (charts.Count == 0)
         {
             return false;
         }
-        var excludedPaths = new HashSet<string>(list.Where(f => !string.IsNullOrWhiteSpace(f.path)).Select(f => f.path), StringComparer.OrdinalIgnoreCase);
-        var chartPackage = new ChartPackage(list)
-        {
-            path = package.path,
-            delete_parent = package.delete_parent
-        };
-        return CountComponentMoveTargetsForPackage(chartPackage, destinationDir, excludedPaths) > 0;
+        var excludedPaths = new HashSet<string>(charts.Where(chart => !string.IsNullOrWhiteSpace(chart.Path)).Select(chart => chart.Path), StringComparer.OrdinalIgnoreCase);
+        return CountComponentMoveTargetsForPackage(package, destinationDir, excludedPaths) > 0;
     }
 
     private bool IsPackageStillPending(ChartPackage package)

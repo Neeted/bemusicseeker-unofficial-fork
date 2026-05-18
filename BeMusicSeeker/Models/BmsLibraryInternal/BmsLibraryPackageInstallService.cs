@@ -300,17 +300,17 @@ internal sealed class BmsLibraryPackageInstallService
         return deduplicated;
     }
 
-    public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<ChartPackage> pendingPackages, Func<BMSFile, bool> isInstalledChart)
+    public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<ChartPackage> pendingPackages, Func<ChartFile, bool> isInstalledChart)
     {
         List<ChartPackage> result = [];
         foreach (ChartPackage package in pendingPackages ?? [])
         {
-            List<BMSFile> files = package?.GetChartAdapters() ?? [];
-            if (files.Count == 0)
+            List<PackageChartEntry> entries = package?.ChartEntries ?? [];
+            if (entries.Count == 0)
             {
                 continue;
             }
-            if (files.All(file => isInstalledChart != null && isInstalledChart(file)))
+            if (entries.All(entry => isInstalledChart != null && isInstalledChart(entry?.Chart)))
             {
                 result.Add(package);
             }

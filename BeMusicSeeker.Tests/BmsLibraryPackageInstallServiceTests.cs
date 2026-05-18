@@ -1,13 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Windows;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using Livet;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -16,6 +19,59 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPackageInstallServiceTests
 {
+    [TestMethod]
+    public void GetPendingPackagesContainingOnlyInstalledCharts_UsesPackageChartEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryPackageInstallService();
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "package");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonPath, "{\"info\":{\"title\":\"Song\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}");
+            var package = new ChartPackage
+            {
+                path = packageDirectoryPath
+            };
+
+            List<ChartPackage> result = service.GetPendingPackagesContainingOnlyInstalledCharts(
+                [package],
+                chart => chart?.Kind == ChartFileKind.Bmson && string.Equals(chart.Path, bmsonPath, StringComparison.OrdinalIgnoreCase));
+
+            Assert.AreEqual(1, result.Count);
+            Assert.AreSame(package, result[0]);
+        });
+    }
+
+    [TestMethod]
+    public void GetPendingPackagesContainingOnlyInstalledCharts_MatchesInstalledBmsonByChartEntryHash()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempRootPath, "package");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonPath, "{\"info\":{\"title\":\"Song\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}");
+            LR2SongDBExtended.bmson_song installedBmson = BmsonSongParser.Parse(bmsonPath);
+            var pendingPackage = new ChartPackage
+            {
+                path = packageDirectoryPath
+            };
+            var library = new BMSLibrary(songDbPath)
+            {
+                BmsonSongs = [installedBmson],
+                ChartPackagesPending = CreatePackageCollection([pendingPackage])
+            };
+
+            List<ChartPackage> result = library.GetPendingPackagesContainingOnlyInstalledCharts();
+
+            Assert.AreEqual(1, result.Count);
+            Assert.AreSame(pendingPackage, result[0]);
+        });
+    }
+
     [TestMethod]
     public void BuildComponentMovePlan_SkipsExcludedPaths()
     {
@@ -1803,6 +1859,37 @@ public sealed class BmsLibraryPackageInstallServiceTests
             if (Directory.Exists(tempDirectoryPath))
             {
                 Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
+    {
+        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>([.. (packages ?? [])]), Dispatcher.CurrentDispatcher);
+    }
+
+    private static void WithTemporarySongDb(Action<string, string> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PackageInstallSongDbTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+            testAction(songDbPath, tempRootPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
             }
         }
     }
