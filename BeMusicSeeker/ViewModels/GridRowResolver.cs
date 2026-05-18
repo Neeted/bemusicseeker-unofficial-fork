@@ -204,10 +204,12 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetHash(object row)
     {
+        if (TryGetChartFile(row, out ChartFile chart))
+        {
+            return chart.Md5;
+        }
         return row switch
         {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.hash,
-            LibraryChartRow libraryChartRow => libraryChartRow.hash,
             BMSFile bmsFile => bmsFile.hash,
             _ => null
         };
@@ -218,10 +220,12 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetSha256(object row)
     {
+        if (TryGetChartFile(row, out ChartFile chart))
+        {
+            return chart.Sha256;
+        }
         return row switch
         {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
-            LibraryChartRow libraryChartRow => libraryChartRow.sha256,
             BMSFile bmsFile => bmsFile.sha256,
             _ => null
         };
@@ -416,10 +420,12 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetDisplayTitle(object row)
     {
+        if (TryGetChartFile(row, out ChartFile chart))
+        {
+            return chart.Title;
+        }
         return row switch
         {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.Title,
-            LibraryChartRow libraryChartRow => libraryChartRow.Title,
             BMSFile bmsFile => bmsFile.Title,
             _ => string.Empty
         };
@@ -442,10 +448,12 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetDisplayArtist(object row)
     {
+        if (TryGetChartFile(row, out ChartFile chart))
+        {
+            return chart.Artist;
+        }
         return row switch
         {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.Artist,
-            LibraryChartRow libraryChartRow => libraryChartRow.Artist,
             BMSFile bmsFile => bmsFile.Artist,
             _ => string.Empty
         };
