@@ -21133,9 +21133,9 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            if (target.Chart.CompatibilityBmsFile != null)
+            if (target.CompatibilityBmsFile != null)
             {
-                stopPlayingBMSFile([target.Chart.CompatibilityBmsFile]);
+                stopPlayingBMSFile([target.CompatibilityBmsFile]);
             }
             string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
@@ -21229,9 +21229,9 @@ public class MainWindowViewModel : ViewModel
         {
             return null;
         }
-        if (target.Chart.CompatibilityBmsFile != null)
+        if (target.CompatibilityBmsFile != null)
         {
-            return LibraryChartRef.FromCompatibilityBmsFile(target.Chart.CompatibilityBmsFile);
+            return LibraryChartRef.FromCompatibilityBmsFile(target.CompatibilityBmsFile);
         }
         if (target.Chart.BmsonSong != null)
         {

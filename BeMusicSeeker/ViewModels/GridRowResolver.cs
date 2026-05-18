@@ -67,7 +67,7 @@ internal static class GridRowResolver
     internal static BMSFile GetCompatibilityBmsFile(object row, ChartOperationSourceScope sourceScope)
     {
         return TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
-            ? target.Chart?.CompatibilityBmsFile
+            ? target.CompatibilityBmsFile
             : null;
     }
 
@@ -108,6 +108,7 @@ internal static class GridRowResolver
         {
             return false;
         }
+        BMSFile compatibilityBmsFile = ResolveCompatibilityBmsFile(row);
         BMSTableEntry playlistEntry = GetPlaylistEntry(row);
         bool isPlaylistRow = IsPlaylistRow(row) || row is PlaylistDetailSourceRow;
         bool isOwned = row switch
@@ -128,7 +129,7 @@ internal static class GridRowResolver
         }
         bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
         ChartOperationCapabilities capabilities = BuildCapabilities(chart, playlistEntry, sourceScope, isPlaylistRow, isOwned, isPlaylistMissing);
-        target = new ChartOperationTarget(chart, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities);
+        target = new ChartOperationTarget(chart, compatibilityBmsFile, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities);
         return true;
     }
 
@@ -310,6 +311,18 @@ internal static class GridRowResolver
     private static ChartFile CreateChartFile(LR2SongDBExtended.bmson_song song, BMSFile compatibilityBmsFile = null)
     {
         return ChartFileProjection.FromBmsonSong(song, compatibilityBmsFile);
+    }
+
+    private static BMSFile ResolveCompatibilityBmsFile(object row)
+    {
+        return row switch
+        {
+            PlaylistDetailRow playlistDetailRow => playlistDetailRow.CompatibilityBmsFile,
+            PlaylistDetailSourceRow playlistSourceRow => playlistSourceRow.CompatibilityBmsFile,
+            LibraryChartRow libraryChartRow => libraryChartRow.CompatibilityBmsFile,
+            BMSFile bmsFile => bmsFile,
+            _ => null
+        };
     }
 
     private static ChartOperationCapabilities BuildCapabilities(

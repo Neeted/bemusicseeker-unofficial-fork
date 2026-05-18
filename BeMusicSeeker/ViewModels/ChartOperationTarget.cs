@@ -40,6 +40,8 @@ internal sealed class ChartOperationTarget
 {
     internal ChartFile Chart { get; }
 
+    internal BMSFile CompatibilityBmsFile { get; }
+
     internal BMSTableEntry PlaylistEntry { get; }
 
     internal ChartOperationSourceScope SourceScope { get; }
@@ -54,6 +56,7 @@ internal sealed class ChartOperationTarget
 
     internal ChartOperationTarget(
         ChartFile chart,
+        BMSFile compatibilityBmsFile,
         BMSTableEntry playlistEntry,
         ChartOperationSourceScope sourceScope,
         bool isOwned,
@@ -62,6 +65,7 @@ internal sealed class ChartOperationTarget
         ChartOperationCapabilities capabilities)
     {
         Chart = chart ?? throw new ArgumentNullException(nameof(chart));
+        CompatibilityBmsFile = compatibilityBmsFile;
         PlaylistEntry = playlistEntry;
         SourceScope = sourceScope;
         IsOwned = isOwned;

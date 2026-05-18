@@ -39,7 +39,6 @@ internal static class ChartFileProjection
             file.mode,
             file.ChartInfo,
             file,
-            file,
             null,
             file.subtitle,
             file.instl_dst,
@@ -69,7 +68,6 @@ internal static class ChartFileProjection
             BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             song.ChartInfo,
             null,
-            compatibilityBmsFile,
             song,
             compatibilityBmsFile?.subtitle,
             compatibilityBmsFile?.instl_dst,
@@ -99,7 +97,6 @@ internal static class ChartFileProjection
             mode,
             chartInfo,
             null,
-            null,
             null);
     }
 
@@ -119,7 +116,6 @@ internal static class ChartFileProjection
             pending.mode ?? BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             pending.ChartInfo,
             null,
-            pending,
             song,
             pending.subtitle,
             pending.instl_dst,

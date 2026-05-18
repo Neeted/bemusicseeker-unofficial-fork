@@ -114,7 +114,6 @@ ChartFile
   StorageOwner
     BmsFile?         // Kind=Bms の LR2 song row owner
     BmsonSongRow?    // Kind=Bmson の app-owned bmson_song row
-  CompatibilityBmsFile? // legacy BMSFile API へ渡す必要がある場合だけ作る adapter
   WarningSnapshot
   InstallDestinationDisplay
 ```
@@ -157,6 +156,7 @@ ChartFile
 ```text
 ChartOperationTarget
   ChartFile Chart
+  CompatibilityBmsFile? // legacy BMSFile API へ渡す operation adapter
   PlaylistEntry?
   IsOwned
   IsPending
@@ -295,7 +295,7 @@ LibraryChartRow
 ```
 
 通常 DataGrid は `BMSFile` と `PendingChartEntry` の混在ではなく、`LibraryChartRow` を表示する。  
-既存 `BMSFile` 型 API が必要なときだけ `row.Chart.CompatibilityBmsFile` を取り出す。
+既存 `BMSFile` 型 API が必要なときだけ row の `CompatibilityBmsFile`、または `ChartOperationTarget.CompatibilityBmsFile` を取り出す。
 
 実装後の境界:
 
@@ -303,7 +303,7 @@ LibraryChartRow
 - 通常一覧の所持 bmson row は `LibraryChartRow.FromBmsonSong(bmson_song)`
 - `LibraryChartRow` は表示・検索・ソート・右クリック resolver のための read model であり、DB 更新の source of truth ではない
 - pending install / package parse / maintenance 内部 adapter としての `PendingChartEntry : BMSFile` は残す
-- 保留 / 新規インストール画面で `PendingChartEntry` を `LibraryChartRow` が包む場合でも、元の `PendingChartEntry` を `Chart.CompatibilityBmsFile` / `GridRowResolver.GetCompatibilityBmsFile()` に残す。`warning`, `instl_dst`, resource health などの pending state は adapter 側の値を正とし、表示 getter は `ChartFileProjection` が作る snapshot を読む
+- 保留 / 新規インストール画面で `PendingChartEntry` を `LibraryChartRow` が包む場合でも、元の `PendingChartEntry` を row の `CompatibilityBmsFile` / `GridRowResolver.GetCompatibilityBmsFile()` / `ChartOperationTarget.CompatibilityBmsFile` に残す。`warning`, `instl_dst`, resource health などの pending state は adapter 側の値を正とし、表示 getter は `ChartFileProjection` が作る snapshot を読む
 - `ChartOperationTarget` には `SourceScope` を持たせ、同じ `LibraryChartRow` でも `PendingPackage`, `NewlyInstalledPackage`, `Library`, `PlaylistOwned`, `PlaylistMissing` を区別する。保留行は local install destination 更新対象、新規導入後行と通常所持行は library mutation 対象として扱う
 - bmson install 後は、登録された `bmson_song` を `PendingChartEntry.BmsonSong` に差し替え、`path` / `folder` / `md5` / `sha256` / `MaintenanceInfo` を同期する。これにより、新規画面の PATH 表示、Explorer、削除/移動操作が同じ実体を指す
 - pending / newly-installed bmson の操作 target は `bmson_song.path` ではなく、現在の `PendingChartEntry.path` を優先する。`bmson_song` は保存済み実体の参照として使い、表示・操作のカレント path は adapter 側を正とする
