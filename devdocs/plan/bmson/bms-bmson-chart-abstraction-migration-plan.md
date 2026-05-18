@@ -366,7 +366,7 @@ Phase F-3 に進む前に、DataGrid sort engine を整理する。
 - 旧 `BMSFileSortEngine.UseLegacySortForDataGrid` は廃止し、通常一覧の切り替えは `LibraryChartRowSortEngine.SortForMainView(..., useLegacySortForDataGrid, ...)` の引数で表す
 - 旧 `BMSFile` sort 互換検証は、production helper を残さず test-local legacy baseline と `LibraryChartRowSortEngine` の比較に寄せる
 
-Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の chart 名化を進める。
+Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の chart 名化を進める。現行実装では F-3 の実装候補とテスト補強は完了しており、この範囲での BMS / bmson chart 抽象化はいったん完了扱いにする。
 
 F-3 で進める候補 / 進捗:
 
@@ -406,7 +406,7 @@ F-3 の確認観点:
 - BMS 専用操作は `GetSelectedBmsChartFiles` へ集約され、bmson が encoding / zero-note / LR2IR / ScoreViewer に入らない
 - package discovery cache (`ChartPackage.ChartFiles`) は参照による heavy source scan 回避の既存挙動を維持する
 
-F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいったん完了扱いにする。
+F-3 後のテスト補強まで完了したため、今回の BMS / bmson chart 抽象化はいったん完了扱いにする。
 
 完了条件:
 
@@ -416,9 +416,10 @@ F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいった
 - 通常一覧の所持 bmson は `PendingChartEntry` ではなく `LibraryChartRow` として表示され、pending/package adapter とは境界が分かれている
 - sort / search / maintenance / mutation / pending install の回帰テストが、共通処理と専用処理の境界を守っている
 
+上記は現行テストで固定済みである。次に進む場合は、ここで意図的に残した compatibility 境界を対象にし、実害や明確な設計上の必要がある箇所から小さく進める。
+
 完了後に残す次候補:
 
-- `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植し、test-only だった `BMSFileSortEngine` は削除済み
 - converter / private helper など、XAML binding に影響しない内部 UI 名を小さく chart 名へ寄せる
 - `ChartPackage.ChartFiles` は primary API へ移行済みだが、型は `List<BMSFile>` の compatibility adapter list のままである。次はこの list を直接 BMS 専用と誤読しない境界整理と、`PendingChartEntry : BMSFile` の本格抽象化を検討する。ただし package discovery / pending install への影響が大きいため、実害が出た箇所から段階的に進める
 - settings 名の `BMSRootPath`, `StandaloneBmsRootPaths`, `BMSInstallDir`, `ShowDiffBMSInstallConfirmMsg` は互換リスクが高いため維持する。再検討を明示しない限り、今後の chart 抽象化 rename 候補には含めない
