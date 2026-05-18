@@ -305,7 +305,7 @@ internal sealed class BmsLibraryPackageInstallService
         List<ChartPackage> result = [];
         foreach (ChartPackage package in pendingPackages ?? [])
         {
-            List<BMSFile> files = [.. (package?.ChartFiles ?? []).Where(file => file != null)];
+            List<BMSFile> files = package?.GetChartAdapters() ?? [];
             if (files.Count == 0)
             {
                 continue;
@@ -331,7 +331,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         return DeduplicateFilesByPathOrReference((pendingPackages ?? [])
             .Where(package => package != null)
-            .SelectMany(package => package.ChartFiles)
+            .SelectMany(package => package.GetChartAdapters())
             .Where(IsBmsFormatChartFile));
     }
 
@@ -479,7 +479,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         bool hasNestedChart = false;
-        foreach (BMSFile chartFile in (package.ChartFiles ?? []).Where(file => file != null))
+        foreach (BMSFile chartFile in package.GetChartAdapters())
         {
             if (!IsNestedChartFileInPackage(package.path, chartFile.path))
             {
@@ -738,12 +738,12 @@ internal sealed class BmsLibraryPackageInstallService
         var installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
         if (isSingleFile)
         {
-            installBmsFiles = [.. package.ChartFiles.Where(file => installComponentPathSet.Contains(file.path))];
+            installBmsFiles = [.. package.GetChartAdapters().Where(file => installComponentPathSet.Contains(file.path))];
         }
         else
         {
             string normalizedSourceRoot = sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            installBmsFiles = [.. package.ChartFiles
+            installBmsFiles = [.. package.GetChartAdapters()
                 .Where(file => !string.IsNullOrWhiteSpace(file?.path)
                     && (installComponentPathSet.Contains(file.path)
                         || file.path.StartsWith(normalizedSourceRoot, StringComparison.OrdinalIgnoreCase)))];
@@ -769,7 +769,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 var skipPathSet = new HashSet<string>(skippedBmsFiles.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
                 installBmsFiles = [.. installBmsFiles.Where(file => !skipPathSet.Contains(file.path))];
-                package.ChartFiles.RemoveAll(file => skipPathSet.Contains(file.path));
+                package.RemoveChartAdaptersByPath(skipPathSet);
             }
         }
 
@@ -778,7 +778,7 @@ internal sealed class BmsLibraryPackageInstallService
             if (string.IsNullOrWhiteSpace(installationDirectory))
             {
                 destinationDirectory = createFolderPath?.Invoke(
-                    package.ChartFiles,
+                    package.GetChartAdapters(),
                     options?.BMSInstallDir,
                     installComponentFiles.Select(Path.GetFileName).OrderByDescending(fileName => fileName.Length).FirstOrDefault() ?? string.Empty);
             }
@@ -879,14 +879,7 @@ internal sealed class BmsLibraryPackageInstallService
 
         if (isSingleFile)
         {
-            package.ChartFiles.ForEach(delegate (BMSFile bmsInfo)
-            {
-                bmsInfo.path = Path.Combine(destinationDirectory, Path.GetFileName(bmsInfo.path));
-                bmsInfo.parent = null;
-                bmsInfo.folder = null;
-                bmsInfo.adddate = null;
-                bmsInfo.date = null;
-            });
+            package.ApplySingleFileInstallDestination(destinationDirectory);
             package.path = Path.Combine(destinationDirectory, Path.GetFileName(package.path));
         }
         else
@@ -895,14 +888,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 return false;
             }
-            package.ChartFiles.ForEach(delegate (BMSFile bmsInfo)
-            {
-                bmsInfo.path = bmsInfo.path.ReplaceFromStart(sourcePath + Path.DirectorySeparatorChar, destinationDirectory + Path.DirectorySeparatorChar, isIgnoreCase: true);
-                bmsInfo.parent = null;
-                bmsInfo.folder = null;
-                bmsInfo.adddate = null;
-                bmsInfo.date = null;
-            });
+            package.ApplyDirectoryInstallDestination(sourcePath, destinationDirectory);
             package.path = destinationDirectory;
         }
 
@@ -922,7 +908,7 @@ internal sealed class BmsLibraryPackageInstallService
                 : "not_empty deleteAllContents=False";
             if (deleteAllContents)
             {
-                if (!TryBuildInstalledHashSnapshotForSafeCleanup(existingHashes, package.ChartFiles, out HashSet<string> installedHashesForCleanup, out folderDeletionDecisionReason))
+                if (!TryBuildInstalledHashSnapshotForSafeCleanup(existingHashes, package.GetChartAdapters(), out HashSet<string> installedHashesForCleanup, out folderDeletionDecisionReason))
                 {
                     logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
                     return true;
@@ -1174,7 +1160,7 @@ internal sealed class BmsLibraryPackageInstallService
         foreach (ChartPackage pkg in discoveredPackages)
         {
             bool hasInstalledChart = false;
-            foreach (BMSFile bmsFile in pkg.ChartFiles.Where(file => file != null))
+            foreach (BMSFile bmsFile in pkg.GetChartAdapters())
             {
                 if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
@@ -1196,7 +1182,7 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
             bool isSingleFilePackage = !Directory.Exists(pkg.path);
-            foreach (BMSFile bmsFile in pkg.ChartFiles.Where(file => file != null))
+            foreach (BMSFile bmsFile in pkg.GetChartAdapters())
             {
                 if (isSingleFilePackage)
                 {
@@ -1402,7 +1388,7 @@ internal sealed class BmsLibraryPackageInstallService
         var groupsByDestination = new Dictionary<string, PendingInstallBatchGroup>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage originalPackage in plan.SelectedPendingPackages)
         {
-            List<BMSFile> packageFiles = [.. (originalPackage.ChartFiles ?? []).Where(file => file != null)];
+            List<BMSFile> packageFiles = originalPackage.GetChartAdapters();
             if (packageFiles.Count == 0)
             {
                 continue;
@@ -1603,18 +1589,12 @@ internal sealed class BmsLibraryPackageInstallService
                 if (item.IsResourceOnlyInstall)
                 {
                     ChartPackage installedDisplayPackage = createInstalledDisplayPackage?.Invoke(item.OriginalPackage, groupEntry.DestinationDirectory);
-                    if (installedDisplayPackage != null && installedDisplayPackage.ChartFiles != null && installedDisplayPackage.ChartFiles.Count > 0)
+                    if (installedDisplayPackage != null && installedDisplayPackage.GetChartAdapterCount() > 0)
                     {
                         result.DeferredInstalledPackages.Add(installedDisplayPackage);
                     }
                 }
-                foreach (BMSFile packageFile in item.OriginalPackage.ChartFiles ?? Enumerable.Empty<BMSFile>())
-                {
-                    if (packageFile != null)
-                    {
-                        packageFile.instl_dst = null;
-                    }
-                }
+                item.OriginalPackage.ClearChartAdapterInstallDestinations();
             }
             installDbStopwatch.Stop();
             var pendingMarkStopwatch = Stopwatch.StartNew();
@@ -1664,13 +1644,7 @@ internal sealed class BmsLibraryPackageInstallService
                         result.InstallRowsToDelete.Add(cleanupOnlyPackage.path);
                     }
                     result.PendingPackagesToRemove.Add(cleanupOnlyPackage);
-                    foreach (BMSFile packageFile in cleanupOnlyPackage.ChartFiles ?? Enumerable.Empty<BMSFile>())
-                    {
-                        if (packageFile != null)
-                        {
-                            packageFile.instl_dst = null;
-                        }
-                    }
+                    cleanupOnlyPackage.ClearChartAdapterInstallDestinations();
                     logInfo?.Invoke("estimated_install_cleanup_only_success package=" + cleanupOnlyPackage.path + " kind=" + SourceKind.ToString().ToLowerInvariant());
                 }
                 else
@@ -1707,10 +1681,11 @@ internal sealed class BmsLibraryPackageInstallService
             excludedComponentPathsByPackage?.TryGetValue(package, out excludedComponentPaths);
             if (movePackageFiles != null && movePackageFiles(package, installationDirectory, deleteSourceContentsAfterSuccessfulInstall, existingHashes, excludedComponentPaths))
             {
-                result.AddedFiles.AddRange((package.ChartFiles ?? []).Where(file => file != null));
+                List<BMSFile> packageFiles = package.GetChartAdapters();
+                result.AddedFiles.AddRange(packageFiles);
                 if (existingHashes != null)
                 {
-                    foreach (BMSFile bmsFile in package.ChartFiles ?? Enumerable.Empty<BMSFile>())
+                    foreach (BMSFile bmsFile in packageFiles)
                     {
                         string lookupKey = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
                         if (!string.IsNullOrWhiteSpace(lookupKey))
@@ -1719,7 +1694,7 @@ internal sealed class BmsLibraryPackageInstallService
                         }
                     }
                 }
-                bool shouldSkipInstalledPackageRegistration = skipInstalledPackageWhenNoBms && (package.ChartFiles == null || package.ChartFiles.Count == 0);
+                bool shouldSkipInstalledPackageRegistration = skipInstalledPackageWhenNoBms && packageFiles.Count == 0;
                 if (!shouldSkipInstalledPackageRegistration)
                 {
                     result.InstalledPackagesToRegister.Add(package);
@@ -1796,7 +1771,7 @@ internal sealed class BmsLibraryPackageInstallService
                 logInfo?.Invoke("force_install_batch skip_not_pending path=" + (requestedPackage.path ?? "(null)"));
                 continue;
             }
-            List<BMSFile> packageFiles = [.. (pendingPackage.ChartFiles ?? []).Where(file => file != null)];
+            List<BMSFile> packageFiles = pendingPackage.GetChartAdapters();
             if (packageFiles.Any(file => !string.IsNullOrWhiteSpace(file.instl_dst)) && confirmNormalInstallOverride != null && !confirmNormalInstallOverride(pendingPackage))
             {
                 result.Skipped++;
@@ -1811,10 +1786,7 @@ internal sealed class BmsLibraryPackageInstallService
                 result.PendingPackagesToRemove.Add(pendingPackage);
                 result.DeferredInstalledPackages.AddRange(deferredInstalledPackages.Where(pkg => pkg != null));
                 result.Succeeded++;
-                foreach (BMSFile packageFile in packageFiles)
-                {
-                    packageFile.instl_dst = null;
-                }
+                pendingPackage.ClearChartAdapterInstallDestinations();
                 logInfo?.Invoke("force_install_batch success path=" + (pendingPackage.path ?? "(null)"));
             }
             else
@@ -1877,7 +1849,7 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
             string destinationDir = resolution.DestinationDirectory;
-            logInfo?.Invoke("advanced_pending_resource_overwrite resolve_selected path=" + pendingPackage.path + " dst=" + destinationDir + " charts=" + (pendingPackage.ChartFiles ?? []).Count(f => f != null));
+            logInfo?.Invoke("advanced_pending_resource_overwrite resolve_selected path=" + pendingPackage.path + " dst=" + destinationDir + " charts=" + pendingPackage.GetChartAdapterCount());
             if (!hasResourceOverwriteTargets(pendingPackage, destinationDir))
             {
                 if (deletePendingPackageSourceAfterInstall)
@@ -1910,7 +1882,7 @@ internal sealed class BmsLibraryPackageInstallService
                 onEachProcessed?.Invoke();
                 continue;
             }
-            List<BMSFile> packageFiles = [.. (pendingPackage.ChartFiles ?? []).Where(file => file != null)];
+            List<BMSFile> packageFiles = pendingPackage.GetChartAdapters();
             var installDestinations = packageFiles.ToDictionary(file => file, file => file.instl_dst);
             foreach (BMSFile packageFile in packageFiles)
             {
@@ -2192,7 +2164,7 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     continue;
                 }
-                List<BMSFile> packageFiles = [.. pendingPackage.ChartFiles.Where(file => file != null)];
+                List<BMSFile> packageFiles = pendingPackage.GetChartAdapters();
                 try
                 {
                     fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);

@@ -5,6 +5,7 @@ using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
@@ -58,10 +59,58 @@ public class ChartPackage : LR2SongDBExtended.install
         return [.. (ChartFiles ?? []).Where(file => file != null)];
     }
 
+    internal int GetChartAdapterCount()
+    {
+        return GetChartAdapters().Count;
+    }
+
+    internal void ClearChartAdapterInstallDestinations()
+    {
+        foreach (BMSFile chartFile in GetChartAdapters())
+        {
+            chartFile.instl_dst = null;
+        }
+    }
+
+    internal void RemoveChartAdaptersByPath(ISet<string> pathsToRemove)
+    {
+        if (pathsToRemove == null || pathsToRemove.Count == 0)
+        {
+            return;
+        }
+        ReplaceChartAdapters(GetChartAdapters().Where(file => string.IsNullOrWhiteSpace(file.path) || !pathsToRemove.Contains(file.path)));
+    }
+
+    internal void ApplySingleFileInstallDestination(string destinationDirectory)
+    {
+        foreach (BMSFile chartFile in GetChartAdapters())
+        {
+            chartFile.path = Path.Combine(destinationDirectory, Path.GetFileName(chartFile.path));
+            ClearInstalledChartAdapterMetadata(chartFile);
+        }
+    }
+
+    internal void ApplyDirectoryInstallDestination(string sourcePath, string destinationDirectory)
+    {
+        foreach (BMSFile chartFile in GetChartAdapters())
+        {
+            chartFile.path = chartFile.path.ReplaceFromStart(sourcePath + Path.DirectorySeparatorChar, destinationDirectory + Path.DirectorySeparatorChar, isIgnoreCase: true);
+            ClearInstalledChartAdapterMetadata(chartFile);
+        }
+    }
+
     internal void ReplaceChartAdapters(IEnumerable<BMSFile> nextChartFiles)
     {
         ChartFiles.Clear();
         ChartFiles.AddRange((nextChartFiles ?? []).Where(file => file != null));
+    }
+
+    private static void ClearInstalledChartAdapterMetadata(BMSFile chartFile)
+    {
+        chartFile.parent = null;
+        chartFile.folder = null;
+        chartFile.adddate = null;
+        chartFile.date = null;
     }
 
     private static bool IsSameChartAdapter(BMSFile left, BMSFile right)
