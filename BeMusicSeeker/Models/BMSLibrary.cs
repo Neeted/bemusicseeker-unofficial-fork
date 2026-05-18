@@ -3794,13 +3794,13 @@ public class BMSLibrary : NotificationObject
         bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && !options.SkipInitFileCheck);
         bool setMaintenanceInfo = !isScoreOnly;
         bool flag = !isScoreOnly;
-        Task<ChartScanPrefetchInfo> bmsScanPrefetchTask = null;
+        Task<ChartScanPrefetchInfo> chartScanPrefetchTask = null;
         if (songTblFileCheck)
         {
             List<string> prefetchDirectories = getBMSDirectories();
             if (prefetchDirectories.Count > 0)
             {
-                bmsScanPrefetchTask = Task.Run(delegate
+                chartScanPrefetchTask = Task.Run(delegate
                 {
                     var stopwatchPrefetch = Stopwatch.StartNew();
                     ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
@@ -3839,7 +3839,7 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                     {
-                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, bmsScanPrefetchInfo: null, trackLibraryDatabaseProgress: true);
+                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, chartScanPrefetchInfo: null, trackLibraryDatabaseProgress: true);
                         if (songTblLoad)
                         {
                             startupInstallReadinessState.MarkCatalogLoaded();
@@ -3848,20 +3848,20 @@ public class BMSLibrary : NotificationObject
                 },
                 delegate
                 {
-                    ChartScanPrefetchInfo bmsScanPrefetchInfo = null;
-                    if (songTblFileCheck && bmsScanPrefetchTask != null)
+                    ChartScanPrefetchInfo chartScanPrefetchInfo = null;
+                    if (songTblFileCheck && chartScanPrefetchTask != null)
                     {
                         try
                         {
-                            bmsScanPrefetchInfo = bmsScanPrefetchTask.GetAwaiter().GetResult();
+                            chartScanPrefetchInfo = chartScanPrefetchTask.GetAwaiter().GetResult();
                         }
                         catch (Exception ex)
                         {
-                            LogEverythingScan("bms_scan_prefetch failed message=" + ex.Message);
-                            bmsScanPrefetchInfo = null;
+                            LogEverythingScan("chart_scan_prefetch failed message=" + ex.Message);
+                            chartScanPrefetchInfo = null;
                         }
                     }
-                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, bmsScanPrefetchInfo, trackLibraryFileCheckProgress: true);
+                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, chartScanPrefetchInfo, trackLibraryFileCheckProgress: true);
                     if (!isScoreOnly)
                     {
                         startupInstallReadinessState.MarkDestinationResourceIndexReady();
@@ -4025,7 +4025,7 @@ public class BMSLibrary : NotificationObject
         bool setMainteInfo = true,
         bool updateIrScore = true,
         bool installTblCheck = true,
-        ChartScanPrefetchInfo bmsScanPrefetchInfo = null,
+        ChartScanPrefetchInfo chartScanPrefetchInfo = null,
         bool trackLibraryDatabaseProgress = false,
         bool trackLibraryFileCheckProgress = false)
     {
@@ -4148,7 +4148,7 @@ public class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             var stopwatchSongTblFileCheck = Stopwatch.StartNew();
-            ApplyLibraryFileScanDiff(options, bMSDirectories, bmsScanPrefetchInfo, trackLibraryFileCheckProgress, "initialize");
+            ApplyLibraryFileScanDiff(options, bMSDirectories, chartScanPrefetchInfo, trackLibraryFileCheckProgress, "initialize");
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
         }
@@ -4248,7 +4248,7 @@ public class BMSLibrary : NotificationObject
     private SongTableFileCheckResult ApplyLibraryFileScanDiff(
         BmsLibraryOptionsSnapshot options,
         List<string> bmsDirectories,
-        ChartScanPrefetchInfo bmsScanPrefetchInfo,
+        ChartScanPrefetchInfo chartScanPrefetchInfo,
         bool trackLibraryFileCheckProgress,
         string reason)
     {
@@ -4285,8 +4285,8 @@ public class BMSLibrary : NotificationObject
             dbGateway,
             options,
             BMSFiles,
-            bmsScanPrefetchInfo?.ScanResult,
-            bmsScanPrefetchInfo?.ElapsedMs ?? 0L,
+            chartScanPrefetchInfo?.ScanResult,
+            chartScanPrefetchInfo?.ElapsedMs ?? 0L,
             () => ExecuteChartScanWithManagedFallback(
                 bmsDirectories,
                 scannerLabel =>
