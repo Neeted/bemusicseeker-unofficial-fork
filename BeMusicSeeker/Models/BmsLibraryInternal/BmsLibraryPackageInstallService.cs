@@ -1795,8 +1795,8 @@ internal sealed class BmsLibraryPackageInstallService
                 logInfo?.Invoke("force_install_batch skip_not_pending path=" + (requestedPackage.path ?? "(null)"));
                 continue;
             }
-            List<BMSFile> packageFiles = pendingPackage.GetChartAdapters();
-            if (packageFiles.Any(file => !string.IsNullOrWhiteSpace(file.instl_dst)) && confirmNormalInstallOverride != null && !confirmNormalInstallOverride(pendingPackage))
+            bool hasInstallDestination = pendingPackage.ChartEntries.Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestination));
+            if (hasInstallDestination && confirmNormalInstallOverride != null && !confirmNormalInstallOverride(pendingPackage))
             {
                 result.Skipped++;
                 logInfo?.Invoke("force_install_batch skipped_by_confirm path=" + (pendingPackage.path ?? "(null)"));

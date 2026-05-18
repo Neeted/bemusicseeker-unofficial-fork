@@ -385,6 +385,35 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void ForceInstallPackages_ChecksInstallDestinationWithoutMaterializingAdapterlessBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
+        pendingFile.instl_dst = "C:\\Installed\\Target";
+        var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Pkg1\\chart.bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64),
+            title = "Bmson"
+        }));
+        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(pendingFile), adapterlessBmsonEntry]);
+        pendingPackage.path = "C:\\Pending\\Pkg1";
+        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+
+        ForceInstallBatchResult result = service.ForceInstallPackages(
+            [pendingPackage],
+            [pendingPackage],
+            _ => false,
+            (_, __) => []);
+
+        Assert.AreEqual(1, result.Skipped);
+        Assert.AreEqual(0, result.Processed);
+        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+    }
+
+    [TestMethod]
     public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
     {
         TestResourceInitializer.EnsureJapaneseResources();
