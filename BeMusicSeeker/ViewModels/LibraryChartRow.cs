@@ -41,34 +41,11 @@ internal sealed class LibraryChartRow : NotificationObject
             {
                 var pending = BmsFile as PendingChartEntry;
                 bool isPendingBmson = pending?.IsBmsonChart == true;
-                BMSFile compatibilityBmsFile = BmsFile ?? GetOrCreateBmsonChartAdapter();
-                return new ChartFile(
-                    ChartFileKind.Bmson,
-                    isPendingBmson ? pending.path : bmsonSong.path,
-                    isPendingBmson ? pending.hash : bmsonSong.md5,
-                    isPendingBmson ? pending.sha256 : bmsonSong.sha256,
-                    isPendingBmson ? pending.Title : BmsonSongParser.ComposeDisplayTitle(bmsonSong),
-                    isPendingBmson ? pending.Artist : bmsonSong.artist,
-                    isPendingBmson ? pending.level ?? bmsonSong.level : bmsonSong.level,
-                    isPendingBmson ? pending.mode ?? BmsonSongParser.ResolvePlaylistMode(bmsonSong.mode_hint) : BmsonSongParser.ResolvePlaylistMode(bmsonSong.mode_hint),
-                    isPendingBmson ? pending.ChartInfo : bmsonSong.ChartInfo,
-                    null,
-                    compatibilityBmsFile,
-                    bmsonSong);
+                return isPendingBmson
+                    ? ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant)
+                    : ChartFileProjection.FromBmsonSong(bmsonSong, GetOrCreateBmsonChartAdapter());
             }
-            return new ChartFile(
-                ChartFileKind.Bms,
-                BmsFile?.path,
-                BmsFile?.hash,
-                BmsFile?.sha256,
-                BmsFile?.Title,
-                BmsFile?.Artist,
-                ParseNullableDouble(BmsFile?.Level),
-                BmsFile?.mode,
-                BmsFile?.ChartInfo,
-                BmsFile,
-                BmsFile,
-                null);
+            return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
         }
     }
 
@@ -414,20 +391,4 @@ internal sealed class LibraryChartRow : NotificationObject
             : playlistReferenceDisplayProvider.Invoke(this) ?? PlaylistReferenceDisplay.Empty;
     }
 
-    private static double? ParseNullableDouble(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        if (double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out double currentCultureValue))
-        {
-            return currentCultureValue;
-        }
-        if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double invariantCultureValue))
-        {
-            return invariantCultureValue;
-        }
-        return null;
-    }
 }

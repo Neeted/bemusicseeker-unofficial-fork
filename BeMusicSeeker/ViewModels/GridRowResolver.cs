@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -262,8 +261,7 @@ internal static class GridRowResolver
             chart = CreateChartFile(row.ResolvedBmson, row.CompatibilityBmsFile);
             return chart != null;
         }
-        chart = new ChartFile(
-            ChartFileKind.Bms,
+        chart = ChartFileProjection.FromBmsMetadata(
             row.path,
             row.hash,
             row.sha256,
@@ -271,9 +269,6 @@ internal static class GridRowResolver
             row.Artist,
             row.Entry?.level,
             row.mode,
-            null,
-            null,
-            null,
             null);
         return true;
     }
@@ -295,8 +290,7 @@ internal static class GridRowResolver
             chart = CreateChartFile(row.ResolvedBmson, row.CompatibilityBmsFile);
             return chart != null;
         }
-        chart = new ChartFile(
-            ChartFileKind.Bms,
+        chart = ChartFileProjection.FromBmsMetadata(
             row.path,
             row.hash,
             row.sha256,
@@ -304,71 +298,18 @@ internal static class GridRowResolver
             row.Artist,
             row.Entry?.level,
             row.mode,
-            row.ChartInfo,
-            null,
-            null,
-            null);
+            row.ChartInfo);
         return true;
     }
 
     private static ChartFile CreateChartFile(BMSFile file)
     {
-        if (file == null)
-        {
-            return null;
-        }
-        var pending = file as PendingChartEntry;
-        if (pending?.IsBmsonChart == true && pending.BmsonSong != null)
-        {
-            LR2SongDBExtended.bmson_song song = pending.BmsonSong;
-            return new ChartFile(
-                ChartFileKind.Bmson,
-                pending.path,
-                pending.hash,
-                pending.sha256,
-                pending.Title,
-                pending.Artist,
-                pending.level ?? song.level,
-                pending.mode ?? BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
-                pending.ChartInfo,
-                null,
-                file,
-                song);
-        }
-        return new ChartFile(
-            ChartFileKind.Bms,
-            file.path,
-            file.hash,
-            file.sha256,
-            file.Title,
-            file.Artist,
-            ParseNullableDouble(file.Level),
-            file.mode,
-            file.ChartInfo,
-            file,
-            file,
-            null);
+        return ChartFileProjection.FromBmsFile(file);
     }
 
     private static ChartFile CreateChartFile(LR2SongDBExtended.bmson_song song, BMSFile compatibilityBmsFile = null)
     {
-        if (song == null)
-        {
-            return null;
-        }
-        return new ChartFile(
-            ChartFileKind.Bmson,
-            song.path,
-            song.md5,
-            song.sha256,
-            BmsonSongParser.ComposeDisplayTitle(song),
-            song.artist,
-            song.level,
-            BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
-            song.ChartInfo,
-            null,
-            compatibilityBmsFile,
-            song);
+        return ChartFileProjection.FromBmsonSong(song, compatibilityBmsFile);
     }
 
     private static ChartOperationCapabilities BuildCapabilities(
@@ -434,15 +375,6 @@ internal static class GridRowResolver
             }
         }
         return capabilities;
-    }
-
-    private static double? ParseNullableDouble(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        return double.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) ? parsed : null;
     }
 
     private static bool IsValidSha256(string value)

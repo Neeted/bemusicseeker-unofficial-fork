@@ -121,6 +121,8 @@ Kind が BMS の場合でも、`ChartFile` 自体を `song` table に保存す�
 
 このため `BMSFile` を機械的に `ChartFile` へ rename することは目標ではない。目標は、現行 `BMSFile` に残っている chart 共通責務を `ChartFile` / `LibraryChartRow` / `ChartOperationTarget` 側へ移し、`BMSFile` 側には LR2 `song` row と BMS-format 専用処理を残すことである。
 
+`ChartFile` の生成は `ChartFileProjection` に寄せる。通常一覧 row、playlist row、pending adapter がそれぞれ独自に `new ChartFile(...)` するのではなく、BMS row / bmson row / missing playlist metadata / pending bmson adapter の mapping を projection helper に集約する。これは `ChartFile` から storage row reference をさらに分離する前段階であり、mapping drift を減らすための structural cleanup とする。
+
 ### 共通 read model
 
 永続モデルとは別に、アプリ内で扱う共通 read model を使う。

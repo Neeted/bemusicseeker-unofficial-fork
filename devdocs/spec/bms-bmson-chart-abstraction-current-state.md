@@ -146,6 +146,10 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 - `LibraryChartRow`
 - `BMSFile`
 
+`ChartFile` 生成は `ChartFileProjection` に集約する。`LibraryChartRow.Chart` と `GridRowResolver` は storage row / playlist row / compatibility adapter からの値取り出しを行うが、最終的な `ChartFile` の組み立ては projection helper を通す。これにより、BMS / bmson / playlist missing の mapping drift を避ける。
+
+`ChartFileProjection.FromBmsFile(...)` は通常 BMS では `BmsFile` と `CompatibilityBmsFile` に同じ実体を入れ、`PendingChartEntry` の bmson adapter では `Kind=Bmson`, `BmsFile=null`, `CompatibilityBmsFile=pending adapter`, `BmsonSong=adapter owner` とする。`FromBmsonSong(...)` は storage owner として `bmson_song` を持ち、必要な場合だけ caller が shared compatibility adapter を渡す。
+
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。
 
 `GridRowResolver.GetRealBmsFile(...)` は、既存 View / drag-drop / preview 経路の BMS-only 互換 API として残っている。これは実体 BMS `BMSFile` だけを返し、bmson adapter は返さないため、chart 種別を判断する正本ではない。新しい operation 判定は `TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。bmson owned row でも `ChartFile.CompatibilityBmsFile` には operation 用 compatibility file が入ることがあるため、handler が既存 API へ chart を渡す場合は `ChartOperationTarget` / `LibraryChartRef` 経由で扱う。`FOLDER` セル編集は `TryGetFolderEditChartOperationTarget(...)` で `MoveInLibrary` capability を確認してから `RenameChartFolder(ChartOperationTarget, ...)` へ渡すため、owned bmson row も BMS row と同じ folder rename 経路に入る。`ChartFile.BmsFile` は BMS storage owner だけを表し、bmson adapter には使わない。
