@@ -73,9 +73,26 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal void ClearChartAdapterInstallDestinations()
     {
-        foreach (BMSFile chartFile in GetChartAdapters())
+        foreach (BMSFile chartFile in EnumerateExistingInstallDestinationTargets())
         {
             chartFile.instl_dst = null;
+        }
+    }
+
+    private IEnumerable<BMSFile> EnumerateExistingInstallDestinationTargets()
+    {
+        foreach (PackageChartEntry entry in ChartEntries ?? [])
+        {
+            BMSFile adapter = entry?.CompatibilityAdapter;
+            if (adapter != null)
+            {
+                yield return adapter;
+                continue;
+            }
+            if (entry?.Chart?.BmsFile != null)
+            {
+                yield return entry.Chart.BmsFile;
+            }
         }
     }
 
@@ -130,11 +147,6 @@ public class ChartPackage : LR2SongDBExtended.install
         return (ChartEntries?.Count ?? 0) == 0;
     }
 
-    internal void ApplySingleFileInstallDestination(string destinationDirectory)
-    {
-        ApplySingleFileInstallDestination(destinationDirectory, GetChartAdapters());
-    }
-
     internal void ApplySingleFileInstallDestination(string destinationDirectory, IEnumerable<BMSFile> chartFiles)
     {
         foreach (BMSFile chartFile in chartFiles ?? [])
@@ -146,11 +158,6 @@ public class ChartPackage : LR2SongDBExtended.install
             chartFile.path = Path.Combine(destinationDirectory, Path.GetFileName(chartFile.path));
             ClearInstalledChartAdapterMetadata(chartFile);
         }
-    }
-
-    internal void ApplyDirectoryInstallDestination(string sourcePath, string destinationDirectory)
-    {
-        ApplyDirectoryInstallDestination(sourcePath, destinationDirectory, GetChartAdapters());
     }
 
     internal void ApplyDirectoryInstallDestination(string sourcePath, string destinationDirectory, IEnumerable<BMSFile> chartFiles)

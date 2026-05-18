@@ -416,6 +416,36 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void ChartPackage_ClearChartAdapterInstallDestinations_DoesNotMaterializeAdapterlessBmsonEntries()
+    {
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg\\a.bms");
+        bmsFile.instl_dst = "C:\\Installed\\Target";
+        PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Pkg\\linked.bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        });
+        bmsonAdapter.instl_dst = "C:\\Installed\\Target";
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Pkg\\adapterless.bmson",
+            md5 = "cccccccccccccccccccccccccccccccc"
+        }));
+        ChartPackage package = ChartPackage.FromChartEntries(
+        [
+            PackageChartEntry.FromCompatibilityAdapter(bmsFile),
+            PackageChartEntry.FromCompatibilityAdapter(bmsonAdapter),
+            adapterlessBmsonEntry
+        ]);
+
+        package.ClearChartAdapterInstallDestinations();
+
+        Assert.IsNull(bmsFile.instl_dst);
+        Assert.IsNull(bmsonAdapter.instl_dst);
+        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+    }
+
+    [TestMethod]
     public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
     {
         TestResourceInitializer.EnsureJapaneseResources();
