@@ -1,5 +1,6 @@
 using System;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
@@ -77,5 +78,15 @@ internal sealed class ChartOperationTarget
     internal bool HasCapability(ChartOperationCapabilities capability)
     {
         return (Capabilities & capability) == capability;
+    }
+
+    internal LibraryChartRef ToLibraryChartRef()
+    {
+        return LibraryChartRef.FromChartFile(Chart, CompatibilityBmsFile);
+    }
+
+    internal BMSFile ToCompatibilityBmsFile()
+    {
+        return ToLibraryChartRef()?.ToCompatibilityBmsFile();
     }
 }

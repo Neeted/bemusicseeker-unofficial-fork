@@ -631,6 +631,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(target.Chart.BmsFile);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
         Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(target.CompatibilityBmsFile));
+        LibraryChartRef libraryRef = target.ToLibraryChartRef();
+        Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
+        Assert.AreSame(target.CompatibilityBmsFile, libraryRef.CompatibilityBmsFile);
+        Assert.AreSame(bmson, libraryRef.BmsonSong);
+        Assert.AreEqual(bmson.path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
@@ -662,6 +667,10 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.IsPlaylistMissing);
         Assert.AreSame(file, target.Chart.BmsFile);
         Assert.AreSame(file, target.CompatibilityBmsFile);
+        LibraryChartRef libraryRef = target.ToLibraryChartRef();
+        Assert.AreEqual(LibraryChartKind.Bms, libraryRef.Kind);
+        Assert.AreSame(file, libraryRef.CompatibilityBmsFile);
+        Assert.AreEqual(file.path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
@@ -1331,6 +1340,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+        Assert.IsNull(target.ToLibraryChartRef());
     }
 
     [TestMethod]

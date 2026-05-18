@@ -380,6 +380,7 @@ F-3 で進める候補 / 進捗:
 - chart 行に対する folder 操作は `RenameChartFolder` / `MergeChartDirectory` / `AutoRenameChartFolders` / `AutoRenameAllChartFolders` に寄せる。`BMSDirectory` 系 UI / root 設定 vocabulary は既存 UI / LR2 search-root 境界として維持し、別判断で段階移行する
 - playlist detail row は `PlaylistDetailSourceRow.Chart` / `PlaylistDetailRow.Chart` を持ち、`GridRowResolver` は playlist row から `ChartFile` を再構築せず row の snapshot を使う。missing row の entry chart_info patch や手動 level 編集では snapshot を更新する
 - install estimation snapshot の代表譜面は `RepresentativeChart` として `ChartFile` を持つ。`ChartPackage.ChartFiles` 自体は compatibility adapter list のままだが、推定中の読み取り専用代表情報は BMS / bmson 共通の domain read model へ寄せる
+- library mutation 用 `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。ViewModel は `ChartFileKind` / `CompatibilityBmsFile` / `BmsonSong` の分岐を直接持たず、operation target から mutation ref へ変換する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:

@@ -21214,34 +21214,13 @@ public class MainWindowViewModel : ViewModel
     {
         return (targets ?? [])
             .Where(target => target != null && target.HasCapability(requiredCapability))
-            .Select(ToLibraryChartRef)
+            .Select(target => target.ToLibraryChartRef())
             .Where(chart => chart != null);
     }
 
     private static BeMusicSeeker.Models.BMSFile ToCompatibilityBmsFile(ChartOperationTarget target)
     {
-        return ToLibraryChartRef(target)?.ToCompatibilityBmsFile();
-    }
-
-    private static LibraryChartRef ToLibraryChartRef(ChartOperationTarget target)
-    {
-        if (target?.Chart == null)
-        {
-            return null;
-        }
-        if (target.CompatibilityBmsFile != null)
-        {
-            return LibraryChartRef.FromCompatibilityBmsFile(target.CompatibilityBmsFile);
-        }
-        if (target.Chart.BmsonSong != null)
-        {
-            return LibraryChartRef.FromBmsonSong(target.Chart.BmsonSong);
-        }
-        return LibraryChartRef.FromPath(
-            target.Chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
-            target.Chart.Path,
-            target.Chart.Md5,
-            target.Chart.Sha256);
+        return target?.ToCompatibilityBmsFile();
     }
 
     /// <summary>

@@ -83,6 +83,27 @@ internal sealed class LibraryChartRef
             song);
     }
 
+    internal static LibraryChartRef FromChartFile(ChartFile chart, BMSFile compatibilityBmsFile = null)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+        if (compatibilityBmsFile != null)
+        {
+            return FromCompatibilityBmsFile(compatibilityBmsFile);
+        }
+        if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
+        {
+            return FromBmsonSong(chart.BmsonSong);
+        }
+        return FromPath(
+            chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
+            chart.Path,
+            chart.Md5,
+            chart.Sha256);
+    }
+
     internal static LibraryChartRef FromPath(LibraryChartKind kind, string path, string md5, string sha256)
     {
         if (string.IsNullOrWhiteSpace(path))

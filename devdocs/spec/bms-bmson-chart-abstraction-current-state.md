@@ -183,6 +183,8 @@ playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson
 
 UI は原則として `Kind` 直接判定ではなく capability を見る。handler 側でも capability を再確認する。
 
+library mutation へ渡す `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。BMS / bmson の storage owner があればその owner を使い、owner がない playlist missing row などでは `ChartFile` の kind / path / hash から path-only ref に落とす。これにより、ViewModel 側に `ChartFileKind` と compatibility adapter の分岐を重複させない。
+
 ### Capability
 
 現行 capability は次の通り。
@@ -220,6 +222,7 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 `LibraryChartRef` は次から作れる。
 
 - `FromCompatibilityBmsFile(...)`: 実体 `BMSFile` または `PendingChartEntry` の bmson adapter
+- `FromChartFile(...)`: `ChartFile` と operation 用 compatibility adapter
 - `LR2SongDBExtended.bmson_song`
 - path / md5 / sha256
 
