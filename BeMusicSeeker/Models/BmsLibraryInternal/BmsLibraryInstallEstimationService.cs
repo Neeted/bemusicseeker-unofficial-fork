@@ -1091,17 +1091,19 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private static PackageInstallEstimationSnapshot BuildLooseFileSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, ChartInstallationEstimateMode estimateMode)
     {
-        List<BMSFile> targetFiles = [.. (chartFiles ?? []).Where(file => file != null)];
-        if (targetFiles.Count == 0 || targetFiles.Any(chartFile => !string.IsNullOrWhiteSpace(chartFile.instl_dst)))
+        List<PackageChartEntry> targetEntries = [.. (chartFiles ?? [])
+            .Select(PackageChartEntry.FromCompatibilityAdapter)
+            .Where(entry => entry?.Chart != null)];
+        if (targetEntries.Count == 0 || targetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination)))
         {
             return null;
         }
         bool isCorrectionLikeMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection || estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
-            targetFiles = [.. targetFiles.Where(file => !installedHashes.Contains(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)?.PrimaryLookupHash))];
+            targetEntries = [.. targetEntries.Where(entry => !installedHashes.Contains(entry.Chart?.PrimaryLookupHash))];
         }
-        return targetFiles.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFiles);
+        return targetEntries.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(targetEntries);
     }
 
     public void CorrectChartInstallationDirectory(IEnumerable<BMSFile> chartFiles, Action<BMSFile> searchInstallDestination)

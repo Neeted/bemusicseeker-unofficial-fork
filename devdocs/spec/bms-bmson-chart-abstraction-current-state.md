@@ -297,6 +297,8 @@ production code の `ChartPackage` 経由の chart-all 参照は、読み取り�
 
 target chart list は `PackageChartEntry` として snapshot builder に渡され、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。`ChartPackage.GetOrBuildInstallEstimationSnapshot(...)` は呼び出し互換上 `BMSFile` adapter list を受け取るが、package 内 `ChartEntries` から対応 entry を解決し、見つからない adapter だけを fallback projection する。`DefinedResources` は `PackageChartEntry.Chart` から作るため、bmson pending chart では `PendingChartEntry` adapter の component cache ではなく `bmson_song` の resource refs を使う。metadata profile は `ChartFile` projection の title / artist / path から作る。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
 
+loose file 推定の既存入口は互換上 `IEnumerable<BMSFile>` を受け取るが、内部では `PackageChartEntry` に変換してから snapshot を組み立てる。installed hash での除外や既に install destination が入っている対象の skip 判定は `ChartFile.PrimaryLookupHash` / `ChartFile.InstallDestination` を読む。
+
 ### installed directory index
 
 installed directory index は BMS と bmson の両方を扱う。
