@@ -520,7 +520,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.Packages.Count);
             Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
-            Assert.AreEqual(1, result.Packages[0].PendingCharts.Count(chart => chart.IsBmsonChart));
+            Assert.AreEqual(1, result.Packages[0].ChartEntries.Count(entry => entry?.Chart?.Kind == ChartFileKind.Bmson));
         });
     }
 
@@ -600,7 +600,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(bmsonFilePath, result.DiscoveredPackages[0].path);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(bmsonFilePath, result.PendingPackagesToAdd[0].path);
-            Assert.IsTrue(result.PendingPackagesToAdd[0].PendingCharts.Single().IsBmsonChart);
+            Assert.AreEqual(ChartFileKind.Bmson, result.PendingPackagesToAdd[0].ChartEntries.Single().Chart.Kind);
         });
     }
 
@@ -628,7 +628,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            PendingChartEntry chart = result.PendingPackagesToAdd[0].PendingCharts.Single();
+            PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
+                .Select(entry => entry.CompatibilityAdapter)
+                .OfType<PendingChartEntry>()
+                .Single();
             Assert.IsTrue(chart.IsBmsonChart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
@@ -705,7 +708,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            PendingChartEntry chart = result.PendingPackagesToAdd[0].PendingCharts.Single();
+            PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
+                .Select(entry => entry.CompatibilityAdapter)
+                .OfType<PendingChartEntry>()
+                .Single();
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, chart.maintenanceInfo.movie_files_defined);
@@ -747,7 +753,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            PendingChartEntry chart = result.PendingPackagesToAdd[0].PendingCharts.Single();
+            PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
+                .Select(entry => entry.CompatibilityAdapter)
+                .OfType<PendingChartEntry>()
+                .Single();
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
             Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -788,7 +797,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
-            PendingChartEntry chart = result.AutoInstallCandidates[0].PendingCharts.Single();
+            PendingChartEntry chart = result.AutoInstallCandidates[0].ChartEntries
+                .Select(entry => entry.CompatibilityAdapter)
+                .OfType<PendingChartEntry>()
+                .Single();
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, chart.maintenanceInfo.movie_files_existing);
             Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -857,7 +869,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.AutoInstallCandidates[0].path, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
-            PendingChartEntry chart = result.AutoInstallCandidates[0].PendingCharts.Single();
+            PendingChartEntry chart = result.AutoInstallCandidates[0].ChartEntries
+                .Select(entry => entry.CompatibilityAdapter)
+                .OfType<PendingChartEntry>()
+                .Single();
             Assert.IsTrue(chart.IsBmsonChart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);

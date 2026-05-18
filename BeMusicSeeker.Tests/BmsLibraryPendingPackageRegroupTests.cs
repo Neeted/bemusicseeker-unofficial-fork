@@ -141,8 +141,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
             ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            Assert.AreEqual(1, regroupedPackage.PendingCharts.Count);
-            Assert.AreEqual(pendingBmsonPath, regroupedPackage.PendingCharts[0].path);
+            PendingChartEntry regroupedBmson = regroupedPackage.ChartEntries
+                .Select(entry => entry.CompatibilityAdapter)
+                .OfType<PendingChartEntry>()
+                .Single();
+            Assert.AreEqual(pendingBmsonPath, regroupedBmson.path);
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
         });
     }
