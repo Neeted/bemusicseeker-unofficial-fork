@@ -2295,6 +2295,15 @@ public class BMSLibrary : NotificationObject
         public bool AttemptInstalledResolve => AlreadyInstalledFiles.Count > 0 && MissingFiles.Count > 0;
     }
 
+    private sealed class PendingPackageChartAdapterPartition
+    {
+        public List<BMSFile> PackageFiles { get; } = [];
+
+        public List<BMSFile> AlreadyInstalledFiles { get; } = [];
+
+        public List<BMSFile> MissingFiles { get; } = [];
+    }
+
     private sealed class PendingInstallEstimateEvaluationContext
     {
         public InstalledChartDirectoryIndexSnapshot InstalledDirectoryIndexSnapshot { get; set; } = new InstalledChartDirectoryIndexSnapshot();
@@ -2787,16 +2796,14 @@ public class BMSLibrary : NotificationObject
 
                     foreach (ChartPackage package in request.Packages)
                     {
-                        List<BMSFile> packageFiles = package?.GetChartAdapters() ?? [];
-                        List<BMSFile> alreadyInstalledFiles = [.. packageFiles.Where(ContainsInstalledChartUnsafe)];
-                        List<BMSFile> missingFiles = [.. packageFiles.Where(file => !ContainsInstalledChartUnsafe(file))];
+                        PendingPackageChartAdapterPartition partition = BuildPendingPackageChartAdapterPartitionUnsafe(package);
                         requests.Add(new PendingInstallEstimateEvaluationRequest
                         {
                             OrderIndex = orderIndex++,
                             Package = package,
                             DisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package?.path),
-                            AlreadyInstalledFiles = alreadyInstalledFiles,
-                            MissingFiles = missingFiles,
+                            AlreadyInstalledFiles = partition.AlreadyInstalledFiles,
+                            MissingFiles = partition.MissingFiles,
                             EstimateMode = ChartInstallationEstimateMode.Normal,
                             WasPendingAtPreparation = package != null && ChartPackagesPending.Contains(package),
                             BatchState = null
@@ -2806,6 +2813,34 @@ public class BMSLibrary : NotificationObject
             }
         }
         return requests;
+    }
+
+    private PendingPackageChartAdapterPartition BuildPendingPackageChartAdapterPartitionUnsafe(ChartPackage package)
+    {
+        var partition = new PendingPackageChartAdapterPartition();
+        foreach (PackageChartEntry entry in package?.ChartEntries ?? [])
+        {
+            if (entry?.Chart == null)
+            {
+                continue;
+            }
+            bool isInstalled = ContainsInstalledChartUnsafe(entry.Chart);
+            BMSFile adapter = entry.GetOrCreateCompatibilityAdapter();
+            if (adapter == null)
+            {
+                continue;
+            }
+            partition.PackageFiles.Add(adapter);
+            if (isInstalled)
+            {
+                partition.AlreadyInstalledFiles.Add(adapter);
+            }
+            else
+            {
+                partition.MissingFiles.Add(adapter);
+            }
+        }
+        return partition;
     }
 
     internal static int ResolveInstallEstimationDefaultDegree()
@@ -3291,23 +3326,21 @@ public class BMSLibrary : NotificationObject
 
         foreach (ChartPackage package in packageList ?? Enumerable.Empty<ChartPackage>())
         {
-            List<BMSFile> packageFiles = package?.GetChartAdapters() ?? [];
-            List<BMSFile> alreadyInstalledFiles = [.. packageFiles.Where(ContainsInstalledChartUnsafe)];
-            List<BMSFile> missingFiles = [.. packageFiles.Where(file => !ContainsInstalledChartUnsafe(file))];
+            PendingPackageChartAdapterPartition partition = BuildPendingPackageChartAdapterPartitionUnsafe(package);
             var state = new PendingEstimateSourceBatchPackageState
             {
                 Package = package,
                 DisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package?.path),
                 SourceDirectory = ResolvePendingEstimateSourceDirectory(package?.path),
-                PackageFiles = packageFiles,
-                AlreadyInstalledFiles = alreadyInstalledFiles,
-                MissingFiles = missingFiles,
-                ChartResources = ChartResourceSnapshot.CreateAggregate(missingFiles),
+                PackageFiles = partition.PackageFiles,
+                AlreadyInstalledFiles = partition.AlreadyInstalledFiles,
+                MissingFiles = partition.MissingFiles,
+                ChartResources = ChartResourceSnapshot.CreateAggregate(partition.MissingFiles),
                 EstimateMode = ChartInstallationEstimateMode.Normal
             };
             if (state.AttemptInstalledResolve)
             {
-                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndexSnapshot);
+                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, state.MissingFiles, installedDirectoryIndexSnapshot);
             }
 
             if (state.HasMissingFiles && !HasInstalledDestinationResolveFailed(state) && !string.IsNullOrWhiteSpace(state.SourceDirectory) && Directory.Exists(state.SourceDirectory))
@@ -8424,13 +8457,13 @@ reportProgress,
                             return;
                         }
                         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-                        List<BMSFile> packageFiles = package.GetChartAdapters();
-                        if (packageFiles.Count == 0)
+                        PendingPackageChartAdapterPartition partition = BuildPendingPackageChartAdapterPartitionUnsafe(package);
+                        if (partition.PackageFiles.Count == 0)
                         {
                             return;
                         }
-                        List<BMSFile> alreadyInstalledFiles = [.. packageFiles.Where(ContainsInstalledChartUnsafe)];
-                        List<BMSFile> missingFiles = [.. packageFiles.Where(file => !ContainsInstalledChartUnsafe(file))];
+                        List<BMSFile> alreadyInstalledFiles = partition.AlreadyInstalledFiles;
+                        List<BMSFile> missingFiles = partition.MissingFiles;
                         ApplyPackageMixedInstallWarnings(alreadyInstalledFiles);
                         if (missingFiles.Count == 0)
                         {
