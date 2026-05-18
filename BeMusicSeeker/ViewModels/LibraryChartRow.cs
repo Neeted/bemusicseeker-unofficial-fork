@@ -130,11 +130,6 @@ internal sealed class LibraryChartRow : NotificationObject
         }
     }
 
-    private BMSFile GetWarningSourceFile()
-    {
-        return BmsFile ?? CompatibilityBmsFile;
-    }
-
     internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
     {
         resourceHealthProjectionProvider = provider;
@@ -177,15 +172,15 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public bool HasZeroNoteMismatchWarning => BmsFile?.HasZeroNoteMismatchWarning ?? false;
 
-    public bool HasHighlightedWarning => ChartWarningProjectionFormatter.HasHighlightedWarning(GetWarningSourceFile(), GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
+    public bool HasHighlightedWarning => ChartWarningProjectionFormatter.HasHighlightedWarning(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
     public bool HasFailureStatus => false;
 
-    public string DisplayWarning => ChartWarningProjectionFormatter.BuildDisplayText(GetWarningSourceFile(), GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
+    public string DisplayWarning => ChartWarningProjectionFormatter.BuildDisplayText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
-    public string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(GetWarningSourceFile(), GetResourceHealthProjection(), resourceHealthProjectionProvider != null, instl_dst);
+    public string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
-    public string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(GetWarningSourceFile(), GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
+    public string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
     public string hash => BmsFile?.hash ?? BmsonSong?.md5 ?? string.Empty;
 
@@ -207,7 +202,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string instl_dst
     {
-        get => CompatibilityBmsFile?.instl_dst ?? string.Empty;
+        get => Chart?.InstallDestination ?? string.Empty;
         set
         {
             BMSFile compatibilityBmsFile = CompatibilityBmsFile;
@@ -218,9 +213,9 @@ internal sealed class LibraryChartRow : NotificationObject
         }
     }
 
-    public string InstallDestinationTitle => CompatibilityBmsFile?.InstallDestinationTitle ?? string.Empty;
+    public string InstallDestinationTitle => Chart?.InstallDestinationTitle ?? string.Empty;
 
-    public string InstallDestinationArtist => CompatibilityBmsFile?.InstallDestinationArtist ?? string.Empty;
+    public string InstallDestinationArtist => Chart?.InstallDestinationArtist ?? string.Empty;
 
     public int? WAVHealth => BmsFile?.WAVHealth ?? BmsonSong?.MaintenanceInfo?.WAVHealth;
 

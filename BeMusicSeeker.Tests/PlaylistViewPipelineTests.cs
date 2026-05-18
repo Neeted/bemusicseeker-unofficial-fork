@@ -753,6 +753,8 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreSame(firstLibraryTarget.Chart.CompatibilityBmsFile, secondLibraryTarget.Chart.CompatibilityBmsFile);
         Assert.AreEqual("C:\\Installed\\Bmson", secondLibraryTarget.Chart.CompatibilityBmsFile.instl_dst);
+        Assert.AreEqual("C:\\Installed\\Bmson", secondLibraryTarget.Chart.InstallDestination);
+        Assert.IsTrue(secondLibraryTarget.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         Assert.AreEqual("C:\\Installed\\Bmson", libraryRow.instl_dst);
         CollectionAssert.Contains(changedProperties, nameof(LibraryChartRow.instl_dst));
         Assert.IsTrue(libraryRow.HasHighlightedWarning);
@@ -761,6 +763,7 @@ public sealed class PlaylistViewPipelineTests
         var rebuiltWarningRow = LibraryChartRow.FromBmsonSong(bmson);
         rebuiltWarningRow.SetBmsonChartAdapterProvider(song => firstLibraryTarget.Chart.CompatibilityBmsFile as PendingChartEntry);
         Assert.IsTrue(rebuiltWarningRow.HasHighlightedWarning);
+        Assert.AreEqual("C:\\Installed\\Bmson", rebuiltWarningRow.Chart.InstallDestination);
         StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, "ambiguous install destination");
 
         var entry = new TestablePlaylistEntry();
@@ -811,6 +814,8 @@ public sealed class PlaylistViewPipelineTests
             [bmson],
             bmsonChartAdapterProvider: GetAdapter).Single();
         firstSourceRow.CompatibilityBmsFile.instl_dst = "C:\\Installed\\Bmson";
+        firstSourceRow.CompatibilityBmsFile.InstallDestinationTitle = "Installed Bmson";
+        firstSourceRow.CompatibilityBmsFile.InstallDestinationArtist = "Installed Artist";
         firstSourceRow.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
@@ -822,6 +827,10 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreSame(firstSourceRow.CompatibilityBmsFile, rebuiltSourceRow.CompatibilityBmsFile);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.InstallDestination);
+        Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.Chart.InstallDestination);
+        Assert.AreEqual("Installed Bmson", rebuiltSourceRow.InstallDestinationTitle);
+        Assert.AreEqual("Installed Artist", rebuiltSourceRow.InstallDestinationArtist);
+        Assert.IsTrue(rebuiltSourceRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         StringAssert.Contains(rebuiltSourceRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationAmbiguous);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltViewRow.instl_dst);
         Assert.IsTrue(rebuiltViewRow.HasHighlightedWarning);

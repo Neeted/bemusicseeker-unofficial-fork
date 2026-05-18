@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Globalization;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -12,7 +13,10 @@ internal enum ChartFileLevelParsing
 
 internal static class ChartFileProjection
 {
-    internal static ChartFile FromBmsFile(BMSFile file, ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant)
+    internal static ChartFile FromBmsFile(
+        BMSFile file,
+        ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant,
+        bool includeWarningSnapshot = true)
     {
         if (file == null)
         {
@@ -21,7 +25,7 @@ internal static class ChartFileProjection
 
         if (file is PendingChartEntry { IsBmsonChart: true, BmsonSong: { } song } pending)
         {
-            return FromPendingBmsonAdapter(pending, song);
+            return FromPendingBmsonAdapter(pending, song, includeWarningSnapshot);
         }
 
         return new ChartFile(
@@ -36,10 +40,18 @@ internal static class ChartFileProjection
             file.ChartInfo,
             file,
             file,
-            null);
+            null,
+            file.subtitle,
+            file.instl_dst,
+            file.InstallDestinationTitle,
+            file.InstallDestinationArtist,
+            GetWarnings(file, includeWarningSnapshot));
     }
 
-    internal static ChartFile FromBmsonSong(LR2SongDBExtended.bmson_song song, BMSFile compatibilityBmsFile = null)
+    internal static ChartFile FromBmsonSong(
+        LR2SongDBExtended.bmson_song song,
+        BMSFile compatibilityBmsFile = null,
+        bool includeWarningSnapshot = true)
     {
         if (song == null)
         {
@@ -58,7 +70,12 @@ internal static class ChartFileProjection
             song.ChartInfo,
             null,
             compatibilityBmsFile,
-            song);
+            song,
+            compatibilityBmsFile?.subtitle,
+            compatibilityBmsFile?.instl_dst,
+            compatibilityBmsFile?.InstallDestinationTitle,
+            compatibilityBmsFile?.InstallDestinationArtist,
+            GetWarnings(compatibilityBmsFile, includeWarningSnapshot));
     }
 
     internal static ChartFile FromBmsMetadata(
@@ -86,7 +103,10 @@ internal static class ChartFileProjection
             null);
     }
 
-    private static ChartFile FromPendingBmsonAdapter(PendingChartEntry pending, LR2SongDBExtended.bmson_song song)
+    private static ChartFile FromPendingBmsonAdapter(
+        PendingChartEntry pending,
+        LR2SongDBExtended.bmson_song song,
+        bool includeWarningSnapshot)
     {
         return new ChartFile(
             ChartFileKind.Bmson,
@@ -100,7 +120,17 @@ internal static class ChartFileProjection
             pending.ChartInfo,
             null,
             pending,
-            song);
+            song,
+            pending.subtitle,
+            pending.instl_dst,
+            pending.InstallDestinationTitle,
+            pending.InstallDestinationArtist,
+            GetWarnings(pending, includeWarningSnapshot));
+    }
+
+    private static IReadOnlyList<ChartWarning> GetWarnings(BMSFile file, bool includeWarningSnapshot)
+    {
+        return includeWarningSnapshot ? file?.Warnings.ToStructuredList() ?? [] : [];
     }
 
     private static double? ParseNullableDouble(string value, ChartFileLevelParsing levelParsing)

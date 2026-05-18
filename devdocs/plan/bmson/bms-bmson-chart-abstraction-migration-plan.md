@@ -115,6 +115,8 @@ ChartFile
     BmsFile?         // Kind=Bms の LR2 song row owner
     BmsonSongRow?    // Kind=Bmson の app-owned bmson_song row
   CompatibilityBmsFile? // legacy BMSFile API へ渡す必要がある場合だけ作る adapter
+  WarningSnapshot
+  InstallDestinationDisplay
 ```
 
 Kind が BMS の場合でも、`ChartFile` 自体を `song` table に保存するわけではない。BMS の永続化は LR2 `song` row に特化した型が担い、bmson の永続化は `bmson_song` row に特化した型が担う。`ChartFile` はそれらを owner として参照し、UI / operation / search / package install で必要な共通機能を提供する。
@@ -122,6 +124,8 @@ Kind が BMS の場合でも、`ChartFile` 自体を `song` table に保存す�
 このため `BMSFile` を機械的に `ChartFile` へ rename することは目標ではない。目標は、現行 `BMSFile` に残っている chart 共通責務を `ChartFile` / `LibraryChartRow` / `ChartOperationTarget` 側へ移し、`BMSFile` 側には LR2 `song` row と BMS-format 専用処理を残すことである。
 
 `ChartFile` の生成は `ChartFileProjection` に寄せる。通常一覧 row、playlist row、pending adapter がそれぞれ独自に `new ChartFile(...)` するのではなく、BMS row / bmson row / missing playlist metadata / pending bmson adapter の mapping を projection helper に集約する。これは `ChartFile` から storage row reference をさらに分離する前段階であり、mapping drift を減らすための structural cleanup とする。
+
+表示用 getter は段階的に `CompatibilityBmsFile` 直接参照から `ChartFile` snapshot 参照へ移す。第一段階では subtitle、WARNING 表示、install destination 表示値を `ChartFileProjection` に集約する。adapter は warning / `instl_dst` の mutable source と legacy API 境界として残すが、通常一覧や virtual source row の読み取り API からは直接見えにくくする。
 
 ### 共通 read model
 
@@ -299,7 +303,7 @@ LibraryChartRow
 - 通常一覧の所持 bmson row は `LibraryChartRow.FromBmsonSong(bmson_song)`
 - `LibraryChartRow` は表示・検索・ソート・右クリック resolver のための read model であり、DB 更新の source of truth ではない
 - pending install / package parse / maintenance 内部 adapter としての `PendingChartEntry : BMSFile` は残す
-- 保留 / 新規インストール画面で `PendingChartEntry` を `LibraryChartRow` が包む場合でも、元の `PendingChartEntry` を `Chart.CompatibilityBmsFile` / `GridRowResolver.GetCompatibilityBmsFile()` に残す。`warning`, `instl_dst`, resource health などの pending state は adapter 側の値を正とする
+- 保留 / 新規インストール画面で `PendingChartEntry` を `LibraryChartRow` が包む場合でも、元の `PendingChartEntry` を `Chart.CompatibilityBmsFile` / `GridRowResolver.GetCompatibilityBmsFile()` に残す。`warning`, `instl_dst`, resource health などの pending state は adapter 側の値を正とし、表示 getter は `ChartFileProjection` が作る snapshot を読む
 - `ChartOperationTarget` には `SourceScope` を持たせ、同じ `LibraryChartRow` でも `PendingPackage`, `NewlyInstalledPackage`, `Library`, `PlaylistOwned`, `PlaylistMissing` を区別する。保留行は local install destination 更新対象、新規導入後行と通常所持行は library mutation 対象として扱う
 - bmson install 後は、登録された `bmson_song` を `PendingChartEntry.BmsonSong` に差し替え、`path` / `folder` / `md5` / `sha256` / `MaintenanceInfo` を同期する。これにより、新規画面の PATH 表示、Explorer、削除/移動操作が同じ実体を指す
 - pending / newly-installed bmson の操作 target は `bmson_song.path` ではなく、現在の `PendingChartEntry.path` を優先する。`bmson_song` は保存済み実体の参照として使い、表示・操作のカレント path は adapter 側を正とする

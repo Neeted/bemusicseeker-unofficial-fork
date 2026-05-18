@@ -8,50 +8,48 @@ namespace BeMusicSeeker.ViewModels;
 internal static class ChartWarningProjectionFormatter
 {
     internal static string BuildDigestText(
-        BMSFile source,
+        ChartFile chart,
         ResourceHealthWarningProjection resourceHealthProjection,
-        bool hasResourceHealthProjection,
-        string installDestination)
+        bool hasResourceHealthProjection)
     {
         return ChartWarningCollection.BuildDigestText(
-            EnumerateProjectedWarnings(source, resourceHealthProjection, hasResourceHealthProjection),
-            installDestination);
+            EnumerateProjectedWarnings(chart?.Warnings, resourceHealthProjection, hasResourceHealthProjection),
+            chart?.InstallDestination);
     }
 
     internal static string BuildDisplayText(
-        BMSFile source,
+        ChartFile chart,
         ResourceHealthWarningProjection resourceHealthProjection,
         bool hasResourceHealthProjection)
     {
         return ChartWarningCollection.BuildDisplayText(
-            EnumerateProjectedWarnings(source, resourceHealthProjection, hasResourceHealthProjection));
+            EnumerateProjectedWarnings(chart?.Warnings, resourceHealthProjection, hasResourceHealthProjection));
     }
 
     internal static string BuildTooltipText(
-        BMSFile source,
+        ChartFile chart,
         ResourceHealthWarningProjection resourceHealthProjection,
         bool hasResourceHealthProjection)
     {
         return ChartWarningCollection.BuildTooltipText(
-            EnumerateProjectedWarnings(source, resourceHealthProjection, hasResourceHealthProjection));
+            EnumerateProjectedWarnings(chart?.Warnings, resourceHealthProjection, hasResourceHealthProjection));
     }
 
     internal static bool HasHighlightedWarning(
-        BMSFile source,
+        ChartFile chart,
         ResourceHealthWarningProjection resourceHealthProjection,
         bool hasResourceHealthProjection)
     {
         return ChartWarningCollection.HasAnyHighlightedWarning(
-            EnumerateProjectedWarnings(source, resourceHealthProjection, hasResourceHealthProjection));
+            EnumerateProjectedWarnings(chart?.Warnings, resourceHealthProjection, hasResourceHealthProjection));
     }
 
     private static IEnumerable<ChartWarning> EnumerateProjectedWarnings(
-        BMSFile source,
+        IEnumerable<ChartWarning> sourceWarnings,
         ResourceHealthWarningProjection resourceHealthProjection,
         bool hasResourceHealthProjection)
     {
-        IEnumerable<ChartWarning> sourceWarnings = source?.Warnings.ToStructuredList() ?? Enumerable.Empty<ChartWarning>();
-        foreach (ChartWarning warning in sourceWarnings.Where(warning => warning != null && (!hasResourceHealthProjection || warning.Category != ChartWarningCategory.ResourceHealth)))
+        foreach (ChartWarning warning in (sourceWarnings ?? Enumerable.Empty<ChartWarning>()).Where(warning => warning != null && (!hasResourceHealthProjection || warning.Category != ChartWarningCategory.ResourceHealth)))
         {
             yield return warning;
         }

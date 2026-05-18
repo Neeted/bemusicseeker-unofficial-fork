@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
@@ -30,6 +31,16 @@ internal sealed class ChartFile
 
     internal LR2SongDBExtended.chart_info ChartInfo { get; }
 
+    internal string Subtitle { get; }
+
+    internal string InstallDestination { get; }
+
+    internal string InstallDestinationTitle { get; }
+
+    internal string InstallDestinationArtist { get; }
+
+    internal IReadOnlyList<ChartWarning> Warnings { get; }
+
     internal BMSFile BmsFile { get; }
 
     // Existing BMSFile-based APIs use this for both real BMS files and bmson adapters.
@@ -49,7 +60,12 @@ internal sealed class ChartFile
         LR2SongDBExtended.chart_info chartInfo,
         BMSFile bmsFile,
         BMSFile compatibilityBmsFile,
-        LR2SongDBExtended.bmson_song bmsonSong)
+        LR2SongDBExtended.bmson_song bmsonSong,
+        string subtitle = null,
+        string installDestination = null,
+        string installDestinationTitle = null,
+        string installDestinationArtist = null,
+        IReadOnlyList<ChartWarning> warnings = null)
     {
         Kind = kind;
         Path = string.IsNullOrWhiteSpace(path) ? null : path;
@@ -61,6 +77,11 @@ internal sealed class ChartFile
         Level = level;
         Mode = mode;
         ChartInfo = chartInfo;
+        Subtitle = subtitle ?? string.Empty;
+        InstallDestination = installDestination ?? string.Empty;
+        InstallDestinationTitle = installDestinationTitle ?? string.Empty;
+        InstallDestinationArtist = installDestinationArtist ?? string.Empty;
+        Warnings = warnings ?? [];
         BmsFile = bmsFile;
         CompatibilityBmsFile = compatibilityBmsFile;
         BmsonSong = bmsonSong;

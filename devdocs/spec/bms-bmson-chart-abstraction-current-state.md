@@ -82,6 +82,8 @@ parent folder cache は更新通知としては bmson 変更でも無効化さ�
 
 所持 bmson row の `CompatibilityBmsFile` は、ViewModel が持つ shared bmson chart adapter cache から供給される。`LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` は `BmsonChartAdapterProvider` を受け取って同じ `PendingChartEntry` adapter を共有し、インストール先修復候補や warning state を row 再生成後も保持する。`CompatibilityBmsFile` という property 名は、既存 `BMSFile` 引数 API へ渡す互換境界を明示するために残す。
 
+表示用の読み取りでは、`ChartFile` が subtitle / warning snapshot / install destination 表示値を持つ。BMS では `BMSFile` 由来、bmson では shared compatibility adapter 由来の mutable state を `ChartFileProjection` が read model に写す。したがって `LibraryChartRow` / `ChartListSourceRow` の WARNING 表示や install destination 表示 getter は `ChartFile` を読むが、編集・修復・filter など既存 `BMSFile` API が必要な経路は引き続き `CompatibilityBmsFile` を使う。
+
 表示列は BMS / bmson で共通化されているものが多い。
 
 - title / artist / genre / folder / path
@@ -98,7 +100,6 @@ playlist reference 表示は、BMS では従来どおり `BMSFile.RefTables` を
 
 - LR2 score / ranking 系
 - LR2 BMSID / diff name
-- install destination 系
 
 ### `ChartListSourceRow`
 
@@ -149,6 +150,8 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 `ChartFile` 生成は `ChartFileProjection` に集約する。`LibraryChartRow.Chart` と `GridRowResolver` は storage row / playlist row / compatibility adapter からの値取り出しを行うが、最終的な `ChartFile` の組み立ては projection helper を通す。これにより、BMS / bmson / playlist missing の mapping drift を避ける。
 
 `ChartFileProjection.FromBmsFile(...)` は通常 BMS では `BmsFile` と `CompatibilityBmsFile` に同じ実体を入れ、`PendingChartEntry` の bmson adapter では `Kind=Bmson`, `BmsFile=null`, `CompatibilityBmsFile=pending adapter`, `BmsonSong=adapter owner` とする。`FromBmsonSong(...)` は storage owner として `bmson_song` を持ち、必要な場合だけ caller が shared compatibility adapter を渡す。
+
+`ChartFileProjection` は path / hash / title / artist / level / mode / chart_info に加えて、表示に必要な subtitle / warning snapshot / install destination 表示値も集約する。これは `CompatibilityBmsFile` を即座に廃止するためではなく、表示 getter が adapter API を直接読む箇所を減らし、adapter を mutation / legacy API 境界へ閉じ込めるための段階である。
 
 playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。
 

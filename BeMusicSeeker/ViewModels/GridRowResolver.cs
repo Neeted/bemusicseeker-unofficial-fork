@@ -417,9 +417,9 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetDisplaySubtitle(object row)
     {
-        if (TryGetChartFile(row, out ChartFile chart) && chart.CompatibilityBmsFile != null)
+        if (TryGetChartFile(row, out ChartFile chart))
         {
-            return chart.CompatibilityBmsFile.subtitle ?? string.Empty;
+            return chart.Subtitle ?? string.Empty;
         }
         return string.Empty;
     }

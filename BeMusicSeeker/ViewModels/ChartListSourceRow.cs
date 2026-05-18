@@ -50,6 +50,8 @@ internal sealed class ChartListSourceRow
 
     internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonChartAdapter();
 
+    internal ChartFile Chart => CreateChartFile();
+
     internal string Title => BmsFile?.Title ?? bmsonTitle;
 
     internal string Artist => BmsFile?.Artist ?? BmsonSong?.artist ?? string.Empty;
@@ -63,10 +65,9 @@ internal sealed class ChartListSourceRow
     internal int? Mode => BmsFile?.mode ?? bmsonMode;
 
     internal string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(
-        CompatibilityBmsFile,
+        Chart,
         GetResourceHealthProjection(),
-        resourceHealthProjectionProvider != null,
-        InstallDestination);
+        resourceHealthProjectionProvider != null);
 
     internal string Tag => BmsFile?.tag ?? string.Empty;
 
@@ -78,11 +79,11 @@ internal sealed class ChartListSourceRow
 
     internal string Sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? string.Empty;
 
-    internal string InstallDestination => CompatibilityBmsFile?.instl_dst ?? string.Empty;
+    internal string InstallDestination => CreateChartFile(includeWarningSnapshot: false)?.InstallDestination ?? string.Empty;
 
-    internal string InstallDestinationTitle => CompatibilityBmsFile?.InstallDestinationTitle ?? string.Empty;
+    internal string InstallDestinationTitle => CreateChartFile(includeWarningSnapshot: false)?.InstallDestinationTitle ?? string.Empty;
 
-    internal string InstallDestinationArtist => CompatibilityBmsFile?.InstallDestinationArtist ?? string.Empty;
+    internal string InstallDestinationArtist => CreateChartFile(includeWarningSnapshot: false)?.InstallDestinationArtist ?? string.Empty;
 
     internal string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
 
@@ -163,6 +164,13 @@ internal sealed class ChartListSourceRow
     internal BMSFile CreateFilterFile()
     {
         return CompatibilityBmsFile;
+    }
+
+    private ChartFile CreateChartFile(bool includeWarningSnapshot = true)
+    {
+        return BmsFile != null
+            ? ChartFileProjection.FromBmsFile(BmsFile, includeWarningSnapshot: includeWarningSnapshot)
+            : ChartFileProjection.FromBmsonSong(BmsonSong, CompatibilityBmsFile, includeWarningSnapshot);
     }
 
     private PendingChartEntry GetOrCreateBmsonChartAdapter()
