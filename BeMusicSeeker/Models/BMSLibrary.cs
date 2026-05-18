@@ -9196,9 +9196,9 @@ reportProgress,
         }
     }
 
-    private PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<ChartPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, bool clearAll = false)
+    private PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<ChartPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, IEnumerable<string> chartPathsToRemove = null, bool clearAll = false)
     {
-        return packageInstallService.BuildPendingPackageMutationDelta(ChartPackagesPending, packagesToRemove, filesToRemove, clearAll);
+        return packageInstallService.BuildPendingPackageMutationDelta(ChartPackagesPending, packagesToRemove, filesToRemove, chartPathsToRemove, clearAll);
     }
 
     private void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
@@ -11153,7 +11153,7 @@ reportProgress,
                             dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
+                    RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove, result.ChartPathsToRemove);
                 }
             }
         }
@@ -11164,14 +11164,15 @@ reportProgress,
         return libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(ChartPackagesPending, selectedPaths, selectedFileRefs);
     }
 
-    private void RemovePendingFilesFromPendingPackagesAndInstallRows(IEnumerable<BMSFile> bmsFiles)
+    private void RemovePendingFilesFromPendingPackagesAndInstallRows(IEnumerable<BMSFile> bmsFiles, IEnumerable<string> chartPaths = null)
     {
         List<BMSFile> list = [.. bmsFiles.Where(f => f != null)];
-        if (list.Count == 0)
+        List<string> paths = [.. (chartPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (list.Count == 0 && paths.Count == 0)
         {
             return;
         }
-        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list));
+        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list, chartPathsToRemove: paths));
     }
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)

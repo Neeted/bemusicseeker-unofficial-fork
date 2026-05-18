@@ -16,5 +16,7 @@ internal sealed class PendingFileDeletionResult
 
     public List<BMSFile> FilesToRemove { get; } = [];
 
+    public List<string> ChartPathsToRemove { get; } = [];
+
     public List<PendingFileDeletionFailure> Failures { get; } = [];
 }
