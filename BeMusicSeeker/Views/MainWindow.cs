@@ -1279,7 +1279,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return null;
         }
-        return new ScoreViewerTarget(hash, target.CompatibilityBmsFile?.path, target.Chart.Title);
+        return new ScoreViewerTarget(hash, target.Chart.Path, target.Chart.Title);
     }
 
     private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
@@ -4739,7 +4739,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         string chartPath = rowTarget?.Chart?.Path;
-        BMSFile bmsFile = rowTarget?.CompatibilityBmsFile;
         List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
         if (rowTarget != null && selectedTargets.Count == 0)
         {
