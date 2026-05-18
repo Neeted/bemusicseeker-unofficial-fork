@@ -1656,6 +1656,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void GetPendingBmsFormatChartFilesSnapshot_UsesBmsStorageOwnerWithoutCompatibilityAdapter()
+    {
+        var service = new BmsLibraryPackageInstallService();
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
+        PackageChartEntry bmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile));
+        ChartPackage package = ChartPackage.FromChartEntries([bmsEntry]);
+
+        List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
+
+        CollectionAssert.AreEqual(new[] { bmsFile }, result);
+        Assert.IsNull(bmsEntry.CompatibilityAdapter);
+    }
+
+    [TestMethod]
     public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions_ExcludesBmsonCharts()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)

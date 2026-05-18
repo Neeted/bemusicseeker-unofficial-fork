@@ -356,8 +356,17 @@ internal sealed class BmsLibraryPackageInstallService
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
             .Where(IsBmsFormatChartEntry)
-            .Select(entry => entry.GetOrCreateCompatibilityAdapter())
+            .Select(GetBmsFormatChartAdapter)
             .Where(IsBmsFormatChartFile));
+    }
+
+    private static BMSFile GetBmsFormatChartAdapter(PackageChartEntry entry)
+    {
+        if (entry?.Chart == null)
+        {
+            return null;
+        }
+        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile ?? entry.GetOrCreateCompatibilityAdapter();
     }
 
     /// <summary>
