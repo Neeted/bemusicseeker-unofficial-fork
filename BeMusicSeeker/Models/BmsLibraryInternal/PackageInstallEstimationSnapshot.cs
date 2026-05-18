@@ -62,6 +62,11 @@ internal sealed class PackageChartDiscoverySnapshot
         chartEntries = NormalizeChartEntries((adapters ?? []).Select(PackageChartEntry.FromCompatibilityAdapter));
     }
 
+    internal void ReplaceChartEntries(IEnumerable<PackageChartEntry> entries)
+    {
+        chartEntries = NormalizeChartEntries(entries);
+    }
+
     internal void RemoveChartEntriesByPath(ISet<string> pathsToRemove)
     {
         if (pathsToRemove == null || pathsToRemove.Count == 0)

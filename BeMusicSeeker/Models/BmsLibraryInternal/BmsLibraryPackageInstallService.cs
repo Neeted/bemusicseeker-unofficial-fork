@@ -1369,7 +1369,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 continue;
             }
-            package.ReplaceChartAdapters(remainingEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null));
+            package.ReplaceChartEntries(remainingEntries);
             delta.RemainingPackages.Add(package);
         }
         delta.InstallPathsToDelete = [.. installPathsToDelete];

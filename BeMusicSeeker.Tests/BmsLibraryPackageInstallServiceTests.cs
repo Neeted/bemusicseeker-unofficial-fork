@@ -175,9 +175,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(delta.HasChanges);
         Assert.AreEqual(1, delta.RemainingPackages.Count);
         Assert.AreSame(package, delta.RemainingPackages[0]);
-        Assert.IsNotNull(keepEntry.CompatibilityAdapter);
+        Assert.IsNull(keepEntry.CompatibilityAdapter);
         Assert.IsNull(removeEntry.CompatibilityAdapter);
-        CollectionAssert.AreEqual(new[] { keepEntry.CompatibilityAdapter }, package.GetChartAdapters());
+        Assert.AreEqual(1, package.ChartEntries.Count);
+        Assert.AreEqual(keepEntry.Chart.Path, package.ChartEntries[0].Chart.Path);
+        Assert.IsNull(package.ChartEntries[0].CompatibilityAdapter);
         Assert.AreEqual(0, delta.InstallPathsToDelete.Count);
     }
 

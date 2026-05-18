@@ -144,6 +144,32 @@ public class ChartPackage : LR2SongDBExtended.install
         GetOrBuildPackageChartDiscoverySnapshot(out _).ReplaceCompatibilityAdapters(nextAdapters);
     }
 
+    internal void ReplaceChartEntries(IEnumerable<PackageChartEntry> nextEntries)
+    {
+        List<PackageChartEntry> normalizedEntries = [.. NormalizeChartEntries(nextEntries)];
+        if (hasExplicitChartFiles)
+        {
+            chartEntries.Clear();
+            chartEntries.AddRange(normalizedEntries);
+            return;
+        }
+        GetOrBuildPackageChartDiscoverySnapshot(out _).ReplaceChartEntries(normalizedEntries);
+    }
+
+    private static IEnumerable<PackageChartEntry> NormalizeChartEntries(IEnumerable<PackageChartEntry> entries)
+    {
+        foreach (PackageChartEntry entry in entries ?? [])
+        {
+            if (entry?.Chart == null)
+            {
+                continue;
+            }
+            yield return entry.CompatibilityAdapter != null
+                ? PackageChartEntry.FromCompatibilityAdapter(entry.CompatibilityAdapter)
+                : PackageChartEntry.FromChart(entry.Chart);
+        }
+    }
+
     private static void ClearInstalledChartAdapterMetadata(BMSFile chartFile)
     {
         chartFile.parent = null;
