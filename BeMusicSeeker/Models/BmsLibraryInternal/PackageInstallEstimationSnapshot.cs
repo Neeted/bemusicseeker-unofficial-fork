@@ -51,7 +51,7 @@ internal sealed class PackageChartDiscoverySnapshot
     {
         get
         {
-            compatibilityAdapters ??= [.. chartEntries.Select(entry => entry?.CompatibilityAdapter).Where(file => file != null)];
+            compatibilityAdapters ??= [.. chartEntries.Select(entry => entry?.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
             return compatibilityAdapters;
         }
         set

@@ -1133,10 +1133,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         _ = discoverySnapshot.ChartFiles;
         List<PackageChartEntry> entries = discoverySnapshot.ChartEntries;
 
-        Assert.AreEqual(0, discoverySnapshot.ChartFiles.Count);
+        Assert.AreEqual(1, discoverySnapshot.ChartFiles.Count);
         Assert.AreEqual(1, entries.Count);
-        Assert.AreSame(chart, entries[0].Chart);
-        Assert.IsNull(entries[0].CompatibilityAdapter);
+        Assert.AreEqual(chart.Path, entries[0].Chart.Path);
+        Assert.AreEqual(chart.Kind, entries[0].Chart.Kind);
+        Assert.IsNotNull(entries[0].CompatibilityAdapter);
     }
 
     [TestMethod]
@@ -1231,6 +1232,41 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
                 Assert.AreEqual(1, snapshot.DefinedResources.TotalReferenceCount);
                 Assert.AreEqual("bmson", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
+            });
+        });
+    }
+
+    [TestMethod]
+    public void ChartPackage_PathPackage_DiscoversBmsonAsChartEntryWithoutCompatibilityAdapter()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                string soundDir = Path.Combine(sourceDir, "sound");
+                Directory.CreateDirectory(soundDir);
+                File.WriteAllText(
+                    Path.Combine(sourceDir, "chart.bmson"),
+                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7},"
+                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[]}]}");
+
+                var package = new ChartPackage
+                {
+                    path = sourceDir
+                };
+
+                List<PackageChartEntry> entries = package.ChartEntries;
+                PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([]);
+
+                Assert.AreEqual(1, entries.Count);
+                Assert.AreEqual(ChartFileKind.Bmson, entries[0].Chart.Kind);
+                Assert.IsNull(entries[0].CompatibilityAdapter);
+                Assert.AreEqual(1, package.GetChartAdapters().Count);
+                Assert.IsNotNull(entries[0].CompatibilityAdapter);
+                Assert.AreEqual(1, snapshot.ChartCount);
+                Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
             });
         });
     }

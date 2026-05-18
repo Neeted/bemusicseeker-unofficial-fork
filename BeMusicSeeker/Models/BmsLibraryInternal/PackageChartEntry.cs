@@ -4,10 +4,12 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PackageChartEntry
 {
+    private BMSFile compatibilityAdapter;
+
     internal PackageChartEntry(ChartFile chart, BMSFile compatibilityAdapter = null)
     {
         Chart = chart ?? throw new ArgumentNullException(nameof(chart));
-        CompatibilityAdapter = compatibilityAdapter;
+        this.compatibilityAdapter = compatibilityAdapter;
     }
 
     internal PackageChartEntry(BMSFile compatibilityAdapter)
@@ -17,7 +19,7 @@ internal sealed class PackageChartEntry
 
     internal ChartFile Chart { get; }
 
-    internal BMSFile CompatibilityAdapter { get; }
+    internal BMSFile CompatibilityAdapter => compatibilityAdapter;
 
     internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
 
@@ -31,10 +33,27 @@ internal sealed class PackageChartEntry
         return chart == null ? null : new PackageChartEntry(chart);
     }
 
+    internal BMSFile GetOrCreateCompatibilityAdapter()
+    {
+        if (compatibilityAdapter != null)
+        {
+            return compatibilityAdapter;
+        }
+        if (Chart.Kind == ChartFileKind.Bmson && Chart.BmsonSong != null)
+        {
+            compatibilityAdapter = PendingChartEntry.CreateFromBmsonSong(Chart.BmsonSong);
+        }
+        return compatibilityAdapter;
+    }
+
     internal static PackageChartEntry FromPath(string filePath)
     {
         try
         {
+            if (PendingChartEntry.IsBmsonFilePath(filePath))
+            {
+                return FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(filePath)));
+            }
             return FromCompatibilityAdapter(PendingChartEntry.CreateFromFilePath(filePath));
         }
         catch

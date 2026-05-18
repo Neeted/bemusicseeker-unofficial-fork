@@ -23,7 +23,7 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
 
-    public List<PendingChartEntry> PendingCharts => [.. ChartEntries.Select(entry => entry.CompatibilityAdapter).OfType<PendingChartEntry>()];
+    public List<PendingChartEntry> PendingCharts => [.. ChartEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).OfType<PendingChartEntry>()];
 
     public string DisplayTitle
     {
@@ -250,9 +250,24 @@ public class ChartPackage : LR2SongDBExtended.install
         var targetEntries = new List<PackageChartEntry>(targetFileList.Count);
         foreach (BMSFile targetFile in targetFileList)
         {
-            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSameChartAdapter(entry?.CompatibilityAdapter, targetFile));
+            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSameChartTarget(entry, targetFile));
             targetEntries.Add(packageEntry ?? PackageChartEntry.FromCompatibilityAdapter(targetFile));
         }
         return [.. targetEntries.Where(entry => entry?.Chart != null)];
+    }
+
+    private static bool IsSameChartTarget(PackageChartEntry entry, BMSFile targetFile)
+    {
+        if (entry?.Chart == null || targetFile == null)
+        {
+            return false;
+        }
+        if (IsSameChartAdapter(entry.CompatibilityAdapter, targetFile))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path)
+            && !string.IsNullOrWhiteSpace(targetFile.path)
+            && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
     }
 }
