@@ -2624,7 +2624,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
-                file => string.Equals(file?.hash, installedHash, StringComparison.OrdinalIgnoreCase),
+                chart => string.Equals(chart?.Md5, installedHash, StringComparison.OrdinalIgnoreCase),
                 file =>
                 {
                     file.SetWarning(ChartWarningKind.ResourceWavMissing, "strict");
@@ -2643,6 +2643,49 @@ public sealed class BmsLibraryInitializationServiceTests
             ChartPackage singleFileWarningPackage = result.PendingPackages.Single(pkg => pkg.path.Equals(singleFileChartPath, StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(installedWarningPackage.GetChartAdapters()[0].Warnings.Contains(ChartWarningKind.AlreadyInstalled));
             Assert.IsTrue(singleFileWarningPackage.GetChartAdapters()[0].Warnings.Contains(ChartWarningKind.SingleBmsFile));
+        });
+    }
+
+    [TestMethod]
+    public void LoadInstallTable_ChecksInstalledChartsWithoutMaterializingUnmatchedBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string directoryPackagePath = Path.Combine(lr2RootPath, "PendingBmsonDir");
+            Directory.CreateDirectory(directoryPackagePath);
+            string installedBmsonPath = CreateBmsonFile(directoryPackagePath, "installed.bmson", "Installed", "Artist");
+            string unmatchedBmsonPath = Path.Combine(directoryPackagePath, "unmatched.bmson");
+            File.WriteAllText(unmatchedBmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Unmatched\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[],\"lines\":[{\"y\":0}]}");
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new ChartPackage
+                {
+                    path = directoryPackagePath,
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+            }
+
+            var service = new BmsLibraryInitializationService();
+
+            InstallTableLoadResult result = service.LoadInstallTable(
+                new BmsLibraryDbGateway(songDbPath),
+                chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase),
+                file =>
+                {
+                    Assert.AreNotEqual(unmatchedBmsonPath, file?.path);
+                    return false;
+                });
+
+            ChartPackage pendingPackage = result.PendingPackages.Single();
+            PackageChartEntry installedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
+            PackageChartEntry unmatchedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(1, result.InstalledWarningCount);
+            Assert.IsNotNull(installedEntry.CompatibilityAdapter);
+            Assert.IsTrue(installedEntry.CompatibilityAdapter.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+            Assert.IsNull(unmatchedEntry.CompatibilityAdapter);
         });
     }
 
@@ -2885,6 +2928,14 @@ public sealed class BmsLibraryInitializationServiceTests
             + "\"bpm_events\":[],"
             + "\"lines\":[{\"y\":0}]"
             + "}";
+    }
+
+    private static string CreateBmsonFile(string directoryPath, string fileName, string title, string artist)
+    {
+        Directory.CreateDirectory(directoryPath);
+        string filePath = Path.Combine(directoryPath, fileName);
+        File.WriteAllText(filePath, CreateBmsonJson(title, string.Empty, string.Empty, artist, string.Empty, 1, "beat-7k"));
+        return filePath;
     }
 
     private static string CreateValidBmsText(string title)

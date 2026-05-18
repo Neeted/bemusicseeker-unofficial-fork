@@ -2293,7 +2293,7 @@ internal sealed class BmsLibraryInitializationService
 
     public InstallTableLoadResult LoadInstallTable(
         BmsLibraryDbGateway dbGateway,
-        Func<BMSFile, bool> isInstalledChart = null,
+        Func<ChartFile, bool> isInstalledChart = null,
         Func<BMSFile, bool> applyStrictWarning = null)
     {
         var result = new InstallTableLoadResult();
@@ -2322,28 +2322,47 @@ internal sealed class BmsLibraryInitializationService
         foreach (ChartPackage pendingPackage in result.PendingPackages)
         {
             bool isSingleFilePackage = !Directory.Exists(pendingPackage.path);
-            foreach (BMSFile bmsFile in pendingPackage.GetChartAdapters())
+            foreach (PackageChartEntry entry in pendingPackage.ChartEntries)
             {
-                bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
+                ChartFile chart = entry?.Chart;
+                if (chart == null)
+                {
+                    continue;
+                }
+                BMSFile bmsFile = null;
+                bool isBmson = chart.Kind == ChartFileKind.Bmson;
                 if (!isBmson)
                 {
-                    bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
+                    bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                    bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
                 }
-                if (isInstalledChart != null && isInstalledChart(bmsFile))
+                if (isInstalledChart != null && isInstalledChart(chart))
                 {
-                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-                    bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
-                    result.InstalledWarningCount++;
+                    bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
+                    if (bmsFile != null)
+                    {
+                        bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+                        bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
+                        result.InstalledWarningCount++;
+                    }
                 }
                 else if (isSingleFilePackage)
                 {
-                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-                    bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
-                    result.SingleFileWarningCount++;
+                    bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
+                    if (bmsFile != null)
+                    {
+                        bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
+                        bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                        result.SingleFileWarningCount++;
+                    }
                 }
-                else if (applyStrictWarning != null && applyStrictWarning(bmsFile))
+                else if (applyStrictWarning != null && entry.ResourceSnapshot.TotalReferenceCount > 0)
                 {
-                    result.StrictWarningCount++;
+                    bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
+                    if (bmsFile != null && applyStrictWarning(bmsFile))
+                    {
+                        result.StrictWarningCount++;
+                    }
                 }
             }
             BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(pendingPackage);
