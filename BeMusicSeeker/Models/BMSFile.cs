@@ -525,6 +525,11 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    internal string GetRawTitleForDisplay()
+    {
+        return _title ?? string.Empty;
+    }
+
     public virtual string Artist
     {
         get

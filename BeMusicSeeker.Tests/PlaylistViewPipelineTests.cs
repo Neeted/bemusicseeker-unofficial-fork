@@ -2069,6 +2069,7 @@ public sealed class PlaylistViewPipelineTests
             "abababababababababababababababab",
             null,
             "Title",
+            "Title",
             "Artist",
             string.Empty,
             "Song",

@@ -29,14 +29,14 @@ public class ChartPackage : LR2SongDBExtended.install
     {
         get
         {
-            List<BMSFile> chartAdapters = GetChartAdapters();
-            if (chartAdapters.Count == 0)
+            List<PackageChartEntry> entries = ChartEntries;
+            if (entries.Count == 0)
             {
                 return path ?? string.Empty;
             }
 
-            BMSFile representativeChart = chartAdapters[0];
-            return chartAdapters.Count > 1 ? representativeChart.title : representativeChart.Title;
+            ChartFile representativeChart = entries[0].Chart;
+            return entries.Count > 1 ? representativeChart?.RawTitle ?? path ?? string.Empty : representativeChart?.Title ?? path ?? string.Empty;
         }
     }
 

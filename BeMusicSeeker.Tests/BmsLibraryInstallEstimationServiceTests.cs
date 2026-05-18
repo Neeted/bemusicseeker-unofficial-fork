@@ -1272,6 +1272,45 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void ChartPackage_DisplayTitle_UsesChartEntriesWithoutMaterializingBmsonAdapter()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                Directory.CreateDirectory(sourceDir);
+                File.WriteAllText(
+                    Path.Combine(sourceDir, "chart.bmson"),
+                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
+                var package = new ChartPackage
+                {
+                    path = sourceDir
+                };
+                List<PackageChartEntry> entries = package.ChartEntries;
+
+                string displayTitle = package.DisplayTitle;
+
+                Assert.AreEqual("BMSON", displayTitle);
+                Assert.AreEqual(1, entries.Count);
+                Assert.IsNull(entries[0].CompatibilityAdapter);
+            });
+        });
+    }
+
+    [TestMethod]
+    public void ChartPackage_DisplayTitle_PreservesMultiChartRawTitle()
+    {
+        TestableBmsFile primary = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "a.bms"));
+        primary.SetTitleParts("Main Title", "Sub Title");
+        TestableBmsFile secondary = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Pending", "b.bms"));
+        var package = new ChartPackage([primary, secondary]);
+
+        Assert.AreEqual("Main Title", package.DisplayTitle);
+    }
+
+    [TestMethod]
     public void ChartPackage_BuildInstallEstimationSnapshot_ResolvesBatchPathMatchedBmsonTargetToPackageEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2899,6 +2938,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         public void SetStagefile(string value)
         {
             stagefile = value;
+        }
+
+        public void SetTitleParts(string titleValue, string subtitleValue)
+        {
+            title = titleValue;
+            subtitle = subtitleValue;
         }
     }
 }

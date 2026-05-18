@@ -35,6 +35,8 @@ internal sealed class ChartFile
 
     internal string Title { get; }
 
+    internal string RawTitle { get; }
+
     internal string Artist { get; }
 
     internal string Genre { get; }
@@ -85,6 +87,7 @@ internal sealed class ChartFile
         string md5,
         string sha256,
         string title,
+        string rawTitle,
         string artist,
         string genre,
         string folder,
@@ -114,6 +117,7 @@ internal sealed class ChartFile
         Md5 = string.IsNullOrWhiteSpace(md5) ? null : md5.Trim();
         Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
         Title = title ?? string.Empty;
+        RawTitle = rawTitle ?? Title;
         Artist = artist ?? string.Empty;
         Genre = genre ?? string.Empty;
         Folder = string.IsNullOrWhiteSpace(folder) ? System.IO.Path.GetFileName(Directory) ?? string.Empty : folder;

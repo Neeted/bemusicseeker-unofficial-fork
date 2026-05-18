@@ -1485,6 +1485,7 @@ public sealed class MainWindowContextMenuResourceTests
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             new string('b', 64),
             "Title",
+            "Title",
             "Artist",
             string.Empty,
             "Charts",
