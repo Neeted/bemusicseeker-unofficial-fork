@@ -11374,7 +11374,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (parameter is ChartPackage package)
         {
-            sourceFiles = package.ChartFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
+            sourceFiles = EnumeratePackageChartAdapters(package);
             subsetName = packageSubsetName;
             return true;
         }
@@ -11407,9 +11407,9 @@ public class MainWindowViewModel : ViewModel
         {
             try
             {
-                if (package?.ChartFiles != null)
+                if (package?.ChartEntries != null)
                 {
-                    snapshot.AddRange(package.ChartFiles.Where(file => file != null));
+                    snapshot.AddRange(EnumeratePackageChartAdapters(package));
                 }
             }
             catch
@@ -11417,6 +11417,13 @@ public class MainWindowViewModel : ViewModel
             }
         }
         return snapshot;
+    }
+
+    private static IEnumerable<BeMusicSeeker.Models.BMSFile> EnumeratePackageChartAdapters(ChartPackage package)
+    {
+        return (package?.ChartEntries ?? [])
+            .Select(entry => entry?.CompatibilityAdapter)
+            .Where(file => file != null);
     }
 
     private bool TryGetVirtualDuplicateSourceFiles(
