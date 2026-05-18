@@ -243,7 +243,7 @@ library chart 削除は `RemoveChartFiles(...)` / `RemoveLibraryCharts(...)` が
 
 ViewModel / UI 層の pending package 操作は `SearchInstallDestinationForPendingPackages` / `SearchInstallDestinationForPendingCharts`, `SearchMergeDestinationForPendingPackages` / `SearchMergeDestinationForPendingCharts`, `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts`, `RemovePendingPackages` / `RemovePendingPackagesAll`, `RemovePendingCharts`, `ClearInstallDestinationForPendingPackages` / `ClearInstallDestinationForPendingCharts`, `SetPendingInstallDestination`, `GetPendingPackagesContainingOnlyInstalledCharts`, `DeletePendingPackageSources` を入口にする。これらは package 内 chart を扱う操作であり、BMS 専用 API ではない。
 
-merge 先探索は package 内 chart を `ChartFiles` として扱い、BMS / bmson 共通の installed hash index で既所持 directory を採点する。installed hash index 自体は md5 / sha256 の両方を登録するが、chart 側の lookup は `PendingChartEntry.GetPrimaryLookupHash(...)` により md5 優先、sha256 fallback の primary key を使う箇所が多い。
+merge 先探索や installed-only package destination resolve は package 内 chart を `PackageChartEntry` として列挙し、BMS / bmson 共通の installed hash index で既所持 directory を採点する。installed hash index 自体は md5 / sha256 の両方を登録するが、chart 側の lookup は `ChartFile.PrimaryLookupHash` により md5 優先、sha256 fallback の primary key を使う。
 
 `SearchMergeDestinationForPendingCharts(...)` は、選択 chart が pending package に属する場合、選択 chart 単体ではなく所属 package に展開して package-level merge を走らせる。mixed package の既所持先が複数 directory に分かれている場合でも、hash 一致数が単独最多の directory があればそれを package 全体の merge 先として採用する。最多 directory が同点の場合や hash 一致がない場合は、hash 由来の自動決定をせず、`MergeCandidateOnly` の resource 評価へ fallback する。
 
@@ -266,7 +266,7 @@ pending / installed package record の永続正本は `install` table の row �
 - `ChartPackage.ChartFiles` は package 内 chart discovery の primary API であり、`List<BMSFile>` を返す。
 - 明示的に `chartFiles` を渡された package ではその list を返す。
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
-- `PendingCharts` は `ChartFiles.OfType<PendingChartEntry>()` である。
+- `PendingCharts` は `ChartEntries` から compatibility adapter を取り出し、`PendingChartEntry` だけに絞った view である。
 
 production code の `ChartPackage` 経由の chart-all 参照は、現行では `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart list は `ChartFiles` に一本化されている。ただし `ChartFiles` の戻り値が `List<BMSFile>` である点は、ChartFile domain model 化後も維持する契約ではなく、`ChartPackage` が package 内 chart を `BMSFile` 互換 adapter なしで返す形へ置き換える対象である。
 
@@ -296,7 +296,7 @@ installed directory index は BMS と bmson の両方を扱う。
 
 `BuildInstalledHashToDirectoryMap(...)` は、`IEnumerable<BMSFile>` と `IEnumerable<bmson_song>` を受け取り、md5 / sha256 から installed directory を作る。
 
-この領域ではすでに「installed chart」という考え方が入り始めているが、入力型はまだ BMS / bmson の二本立てである。map は md5 / sha256 の両方を登録する一方、個別 chart の候補判定や package resolve では primary lookup hash を使う経路もあるため、「常に両 hash で union lookup する」仕様ではない。
+この領域ではすでに「installed chart」という考え方が入り始めているが、入力型はまだ BMS / bmson の二本立てである。map は md5 / sha256 の両方を登録する一方、個別 chart の候補判定や package resolve では `ChartFile.PrimaryLookupHash` を使うため、「常に両 hash で union lookup する」仕様ではない。installed-only package destination / package-level installed directory scoring / pending destination validation は package 内 chart を `PackageChartEntry` として列挙し、最終的な mutation 対象としてのみ `CompatibilityAdapter` を返す。
 
 ## Playlist
 

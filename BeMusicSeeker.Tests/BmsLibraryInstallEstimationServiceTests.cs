@@ -67,6 +67,31 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void EstimateInstallationDirectory_NormalModeSkipsSha256OnlyInstalledLooseFile()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        TestableBmsFile file = CreateFile(null, Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
+        file.SetSha256(new string('b', 64));
+
+        InstallEstimationResult normal = service.EstimateInstallationDirectory(
+            [file],
+            new HashSet<string>([file.sha256], StringComparer.OrdinalIgnoreCase),
+            directoryLookupCache: null,
+            asParallel: false,
+            ChartInstallationEstimateMode.Normal);
+        InstallEstimationResult correction = service.EstimateInstallationDirectory(
+            [file],
+            new HashSet<string>([file.sha256], StringComparer.OrdinalIgnoreCase),
+            directoryLookupCache: null,
+            asParallel: false,
+            ChartInstallationEstimateMode.ReinstallCorrection);
+
+        Assert.IsNull(normal.ConfidenceReason);
+        Assert.AreEqual("resource_index_unavailable", correction.ConfidenceReason);
+    }
+
+    [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_PrefersDirectoryWithMostMatchingCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();

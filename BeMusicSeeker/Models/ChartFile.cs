@@ -21,6 +21,18 @@ internal sealed class ChartFile
 
     internal string Sha256 { get; }
 
+    internal string PrimaryLookupHash
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(Md5))
+            {
+                return Md5;
+            }
+            return string.IsNullOrWhiteSpace(Sha256) ? null : Sha256;
+        }
+    }
+
     internal string Title { get; }
 
     internal string Artist { get; }

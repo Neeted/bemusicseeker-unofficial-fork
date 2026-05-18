@@ -410,16 +410,16 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
             return result;
         }
-        List<BMSFile> packageFiles = [.. (package.ChartFiles ?? []).Where(file => file != null)];
-        if (packageFiles.Count == 0 || installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
+        List<PackageChartEntry> packageEntries = [.. (package.ChartEntries ?? [])];
+        if (packageEntries.Count == 0 || installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
             return result;
         }
         var distinctDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile item in packageFiles)
+        foreach (PackageChartEntry item in packageEntries)
         {
-            List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item);
+            List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item.Chart);
             if (directoriesByHash.Count == 0)
             {
                 result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
@@ -456,9 +456,9 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         var directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile item in package.ChartFiles ?? [])
+        foreach (PackageChartEntry item in package.ChartEntries ?? [])
         {
-            List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item);
+            List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item?.Chart);
             if (item == null || directories.Count == 0)
             {
                 continue;
@@ -1099,7 +1099,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         bool isCorrectionLikeMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection || estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
-            targetFiles = [.. targetFiles.Where(file => !installedHashes.Contains(file.hash))];
+            targetFiles = [.. targetFiles.Where(file => !installedHashes.Contains(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)?.PrimaryLookupHash))];
         }
         return targetFiles.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFiles);
     }
@@ -1149,7 +1149,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         ChartPackage package = (pendingPackages ?? [])
-            .FirstOrDefault(pkg => pkg != null && pkg.ChartFiles.Any(file => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
+            .FirstOrDefault(pkg => pkg != null && pkg.ChartEntries.Any(entry => IsSameChartAdapter(entry?.CompatibilityAdapter, targetFile)));
         if (package == null)
         {
             if (!allowStandaloneLibraryFile)
@@ -1161,7 +1161,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         else
         {
-            result.TargetFiles.AddRange(package.ChartFiles.Where(file => file != null));
+            result.TargetFiles.AddRange(package.ChartEntries.Select(entry => entry.CompatibilityAdapter).Where(file => file != null));
         }
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
@@ -1217,7 +1217,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSFile file)
     {
-        return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, PendingChartEntry.GetPrimaryLookupHash(file));
+        return GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
+    }
+
+    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
+    {
+        return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, chart?.PrimaryLookupHash);
     }
 
     public static List<string> GetDistinctInstalledDirectoriesByPrimaryHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string lookupHash)
@@ -1239,26 +1244,33 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     public static BMSFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.ChartFiles ?? []).FirstOrDefault(file => file == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count == 0);
+        return (package?.ChartEntries ?? [])
+            .FirstOrDefault(entry => entry?.CompatibilityAdapter == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count == 0)
+            ?.CompatibilityAdapter;
     }
 
     public static BMSFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.ChartFiles ?? []).FirstOrDefault(file => file != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count > 1);
+        return (package?.ChartEntries ?? [])
+            .FirstOrDefault(entry => entry?.CompatibilityAdapter != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count > 1)
+            ?.CompatibilityAdapter;
     }
 
     public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
-        return (package?.ChartFiles ?? [])
-            .Where(file => file != null)
-            .SelectMany(file => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file))
+        return (package?.ChartEntries ?? [])
+            .Where(entry => entry?.Chart != null)
+            .SelectMany(entry => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }
 
-    private static int GetDefinedResourceCount(BMSFile bmsFile)
+    private static bool IsSameChartAdapter(BMSFile left, BMSFile right)
     {
-        return ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount;
+        return left != null
+            && right != null
+            && (ReferenceEquals(left, right)
+                || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && left.path.Equals(right.path, StringComparison.OrdinalIgnoreCase)));
     }
 
     private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
