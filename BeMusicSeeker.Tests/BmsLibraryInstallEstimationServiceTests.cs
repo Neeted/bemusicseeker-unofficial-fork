@@ -1300,6 +1300,40 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void ChartPackage_RemoveChartAdaptersByPath_RemovesAdapterlessBmsonEntryWithoutMaterializing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                string keepBmsonPath = Path.Combine(sourceDir, "keep.bmson");
+                string removeBmsonPath = Path.Combine(sourceDir, "remove.bmson");
+                Directory.CreateDirectory(sourceDir);
+                File.WriteAllText(
+                    keepBmsonPath,
+                    "{\"info\":{\"title\":\"Keep\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
+                File.WriteAllText(
+                    removeBmsonPath,
+                    "{\"info\":{\"title\":\"Remove\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
+                var package = new ChartPackage
+                {
+                    path = sourceDir
+                };
+                List<PackageChartEntry> entries = package.ChartEntries;
+                PackageChartEntry removeEntry = entries.Single(entry => string.Equals(entry.Chart.Path, removeBmsonPath, StringComparison.OrdinalIgnoreCase));
+
+                package.RemoveChartAdaptersByPath(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { removeBmsonPath });
+
+                Assert.IsNull(removeEntry.CompatibilityAdapter);
+                Assert.AreEqual(1, package.ChartEntries.Count);
+                Assert.AreEqual(keepBmsonPath, package.ChartEntries[0].Chart.Path);
+            });
+        });
+    }
+
+    [TestMethod]
     public void ChartPackage_DisplayTitle_PreservesMultiChartRawTitle()
     {
         TestableBmsFile primary = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "a.bms"));
