@@ -485,6 +485,34 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void ApplyNestedChartFileWarnings_MaterializesOnlyNestedAdapterlessBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
+            string nestedDirectoryPath = Path.Combine(packageDirectoryPath, "sub");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            string rootBmsonPath = Path.Combine(packageDirectoryPath, "root.bmson");
+            string nestedBmsonPath = Path.Combine(nestedDirectoryPath, "nested.bmson");
+            File.WriteAllText(rootBmsonPath, CreateBmsonJsonWithSound("root.wav"));
+            File.WriteAllText(nestedBmsonPath, CreateBmsonJsonWithSound("nested.wav"));
+            PackageChartEntry rootEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(rootBmsonPath)));
+            PackageChartEntry nestedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(nestedBmsonPath)));
+            ChartPackage package = ChartPackage.FromChartEntries([rootEntry, nestedEntry]);
+            package.path = packageDirectoryPath;
+
+            bool applied = BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
+
+            Assert.IsTrue(applied);
+            Assert.IsNull(rootEntry.CompatibilityAdapter);
+            Assert.IsNotNull(nestedEntry.CompatibilityAdapter);
+            Assert.IsTrue(nestedEntry.CompatibilityAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+            StringAssert.Contains(nestedEntry.CompatibilityAdapter.WarningTooltipText, Resources.Warning_NestedChartFileInPackage);
+        });
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection()
     {
         TestResourceInitializer.EnsureJapaneseResources();

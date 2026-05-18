@@ -491,9 +491,15 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         bool hasNestedChart = false;
-        foreach (BMSFile chartFile in package.GetChartAdapters())
+        foreach (PackageChartEntry entry in package.ChartEntries)
         {
-            if (!IsNestedChartFileInPackage(package.path, chartFile.path))
+            if (!IsNestedChartFileInPackage(package.path, entry?.Chart?.Path))
+            {
+                continue;
+            }
+
+            BMSFile chartFile = entry.GetOrCreateCompatibilityAdapter();
+            if (chartFile == null)
             {
                 continue;
             }
