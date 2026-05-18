@@ -9474,23 +9474,56 @@ reportProgress,
         }
         bool isSingleFilePackage = !Directory.Exists(package.path);
         HashSet<string> installedHashSet = installedHashes as HashSet<string> ?? new HashSet<string>(installedHashes ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile bmsFile in package.GetChartAdapters())
+        foreach (PackageChartEntry entry in package.ChartEntries)
         {
-            bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
-            bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
-            bmsFile.ClearStructuredWarnings();
-            string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
-            if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
+            ChartFile chart = entry?.Chart;
+            if (chart == null)
             {
-                bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
+                continue;
             }
-            else if (isSingleFilePackage)
+
+            BMSFile bmsFile = null;
+            bool isBmson = chart.Kind == ChartFileKind.Bmson;
+            if (!isBmson)
             {
-                bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
             }
             else
             {
-                ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
+                bmsFile = entry.CompatibilityAdapter;
+            }
+            if (bmsFile != null)
+            {
+                bmsFile.ClearStructuredWarnings();
+            }
+
+            string key = chart.PrimaryLookupHash;
+            if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
+            {
+                bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
+                if (bmsFile != null)
+                {
+                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+                    bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
+                }
+            }
+            else if (isSingleFilePackage)
+            {
+                bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
+                if (bmsFile != null)
+                {
+                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
+                    bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                }
+            }
+            else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
+            {
+                bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
+                if (bmsFile != null)
+                {
+                    ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
+                }
             }
         }
         BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);

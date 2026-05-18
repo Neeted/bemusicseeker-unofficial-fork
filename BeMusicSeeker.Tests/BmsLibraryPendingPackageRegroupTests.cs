@@ -148,6 +148,31 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void ReinitializePendingWarningsForPackage_DoesNotMaterializeHealthyAdapterlessBmsonDirectoryEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "HealthyBmsonDirectory");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string bmsonPath = Path.Combine(sourceDirectoryPath, "healthy.bmson");
+            File.WriteAllText(bmsonPath, "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{\"title\":\"Healthy\",\"artist\":\"Bmson\",\"mode_hint\":\"beat-7k\"},"
+                + "\"sound_channels\":[]"
+                + "}");
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
+            ChartPackage package = ChartPackage.FromChartEntries([entry]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+
+            InvokeReinitializePendingWarningsForPackage(library, package, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+            Assert.IsNull(entry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_ReinitializesWarningsWhenEligibleDirectoryIsSupplied()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1115,6 +1140,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         MethodInfo regroupMethod = typeof(BMSLibrary).GetMethod("TryRegroupPendingPackagesForSourceDirectoriesUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(regroupMethod);
         regroupMethod.Invoke(library, [sourceDirectoryPaths]);
+    }
+
+    private static void InvokeReinitializePendingWarningsForPackage(BMSLibrary library, ChartPackage package, ISet<string> installedHashes)
+    {
+        MethodInfo reinitializeMethod = typeof(BMSLibrary).GetMethod("ReinitializePendingWarningsForPackageUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(reinitializeMethod);
+        reinitializeMethod.Invoke(library, [package, installedHashes]);
     }
 
     private static ChartPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, string expectedDestinationDirectory, int expectedFileCount)
