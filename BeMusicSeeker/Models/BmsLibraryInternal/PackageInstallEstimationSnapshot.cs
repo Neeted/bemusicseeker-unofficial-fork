@@ -43,21 +43,17 @@ internal sealed class PackageChartDiscoverySnapshot
 {
     private List<PackageChartEntry> chartEntries = [];
 
-    private List<BMSFile> compatibilityAdapters;
-
     public string SourcePath { get; set; } = string.Empty;
 
     public List<BMSFile> ChartFiles
     {
         get
         {
-            compatibilityAdapters ??= [.. chartEntries.Select(entry => entry?.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
-            return compatibilityAdapters;
+            return [.. chartEntries.Select(entry => entry?.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
         }
         set
         {
-            compatibilityAdapters = [.. (value ?? []).Where(file => file != null)];
-            chartEntries = [.. compatibilityAdapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+            chartEntries = NormalizeChartEntries((value ?? []).Select(PackageChartEntry.FromCompatibilityAdapter));
         }
     }
 
@@ -65,23 +61,17 @@ internal sealed class PackageChartDiscoverySnapshot
     {
         get
         {
-            if (compatibilityAdapters == null)
-            {
-                return [.. chartEntries.Where(entry => entry?.Chart != null)];
-            }
-            return BuildEntriesFromCompatibilityAdapters(compatibilityAdapters, chartEntries);
+            return [.. chartEntries.Where(entry => entry?.Chart != null)];
         }
         set
         {
             chartEntries = NormalizeChartEntries(value);
-            compatibilityAdapters = null;
         }
     }
 
     internal void ReplaceCompatibilityAdapters(IEnumerable<BMSFile> adapters)
     {
-        compatibilityAdapters = [.. (adapters ?? []).Where(file => file != null)];
-        chartEntries = [.. compatibilityAdapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+        chartEntries = NormalizeChartEntries((adapters ?? []).Select(PackageChartEntry.FromCompatibilityAdapter));
     }
 
     private static List<PackageChartEntry> NormalizeChartEntries(IEnumerable<PackageChartEntry> entries)
@@ -100,32 +90,6 @@ internal sealed class PackageChartDiscoverySnapshot
         return normalizedEntries;
     }
 
-    private static List<PackageChartEntry> BuildEntriesFromCompatibilityAdapters(IEnumerable<BMSFile> adapters, IEnumerable<PackageChartEntry> existingEntries)
-    {
-        List<PackageChartEntry> rebuiltEntries = [.. (adapters ?? [])
-            .Select(PackageChartEntry.FromCompatibilityAdapter)
-            .Where(entry => entry?.Chart != null)];
-
-        var adapterPaths = new HashSet<string>(
-            rebuiltEntries
-                .Select(entry => entry.Chart?.Path)
-                .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (PackageChartEntry entry in existingEntries ?? [])
-        {
-            if (entry?.Chart == null || entry.CompatibilityAdapter != null)
-            {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(entry.Chart.Path) && adapterPaths.Contains(entry.Chart.Path))
-            {
-                continue;
-            }
-            rebuiltEntries.Add(entry);
-        }
-        return rebuiltEntries;
-    }
 }
 
 internal sealed class PackageInstallEstimationSnapshot
