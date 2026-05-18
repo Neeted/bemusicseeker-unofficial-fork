@@ -35,6 +35,10 @@ internal static class ChartFileProjection
             file.sha256,
             file.Title,
             file.Artist,
+            file.genre,
+            GetDisplayFolderFromPath(file.path),
+            file.tag,
+            file.Level,
             ParseNullableDouble(file.Level, levelParsing),
             file.mode,
             file.ChartInfo,
@@ -64,6 +68,10 @@ internal static class ChartFileProjection
             song.sha256,
             BmsonSongParser.ComposeDisplayTitle(song),
             song.artist,
+            song.genre,
+            BmsonSongParser.ComposeDisplayFolder(song),
+            string.Empty,
+            FormatNullableDouble(song.level),
             song.level,
             BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             song.ChartInfo,
@@ -82,6 +90,9 @@ internal static class ChartFileProjection
         string sha256,
         string title,
         string artist,
+        string genre,
+        string folder,
+        string tag,
         double? level,
         int? mode,
         LR2SongDBExtended.chart_info chartInfo)
@@ -93,6 +104,10 @@ internal static class ChartFileProjection
             sha256,
             title,
             artist,
+            genre,
+            folder,
+            tag,
+            FormatNullableDouble(level),
             level,
             mode,
             chartInfo,
@@ -112,6 +127,10 @@ internal static class ChartFileProjection
             pending.sha256,
             pending.Title,
             pending.Artist,
+            pending.genre,
+            pending.Folder,
+            pending.tag,
+            pending.Level,
             pending.level ?? song.level,
             pending.mode ?? BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             pending.ChartInfo,
@@ -146,5 +165,19 @@ internal static class ChartFileProjection
         return double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double invariantCultureValue)
             ? invariantCultureValue
             : null;
+    }
+
+    private static string FormatNullableDouble(double? value)
+    {
+        return value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
+    }
+
+    private static string GetDisplayFolderFromPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return string.Empty;
+        }
+        return System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(path)) ?? string.Empty;
     }
 }

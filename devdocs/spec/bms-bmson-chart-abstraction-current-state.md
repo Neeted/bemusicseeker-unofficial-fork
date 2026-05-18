@@ -107,7 +107,7 @@ playlist reference 表示は、BMS では従来どおり `BMSFile.RefTables` を
 
 `BuildStandardLibraryRows(...)` は `BMSFile` と `bmson_song` を結合し、BMS / bmson 共通の source row を作る。bmson は path 順で追加される。
 
-keyword / sort / virtual source row の基本判定は `ChartListSourceRow` の chart 共通プロパティを直接見る。virtual normal-library path の folder tree filter も `NormalLibraryTreeFilter.Matches(ChartListSourceRow)` で `row.Path` / `row.Artist` を見る。一方、materialized row 経路には既存 `BMSFile` predicate を使う filter path が残っており、通常 ViewModel 経由の bmson row では provider が shared bmson chart adapter cache を参照するため、PLINQ filter の前に逐次で `CompatibilityBmsFile` を確定してから predicate へ渡す。
+keyword / sort / virtual source row の基本判定は `ChartListSourceRow` の chart 共通プロパティを直接見る。`Title` / `Artist` / `Genre` / `Folder` / `Path` / `Mode` / `Level` / `Tag` / hash などの identity 系 getter は、row 生成時に作る warning なしの `ChartFile` snapshot を読む。`ChartInfo` は hydration 後の attach を反映できるよう storage owner から読む。install destination や warning 表示のように compatibility adapter の mutable state を反映する getter は、必要に応じて `ChartFileProjection` で現在 snapshot を作る。virtual normal-library path の folder tree filter も `NormalLibraryTreeFilter.Matches(ChartListSourceRow)` で `row.Path` / `row.Artist` を見る。一方、materialized row 経路には既存 `BMSFile` predicate を使う filter path が残っており、通常 ViewModel 経由の bmson row では provider が shared bmson chart adapter cache を参照するため、PLINQ filter の前に逐次で `CompatibilityBmsFile` を確定してから predicate へ渡す。
 
 bmson library rows は全ての tree mode に無条件で混ざるわけではない。`ShouldIncludeBmsonLibraryRowsInMainView(...)` は、通常 root / folder / keyword / mode filter と `FullScanAllChartsFilterSelected` では bmson を含めるが、playlist tree active、maintenance filter、install filter では除外する。maintenance / install / playlist detail 側は、それぞれ専用 source や pending adapter の経路で bmson を扱う。
 
@@ -134,7 +134,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 - `Directory`
 - `Md5`
 - `Sha256`
-- title / artist / level / mode
+- title / artist / genre / folder / level / mode / tag
 - `ChartInfo`
 - `BmsFile`
 - `BmsonSong`

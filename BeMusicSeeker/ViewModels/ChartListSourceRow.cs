@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -10,13 +9,7 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class ChartListSourceRow
 {
-    private readonly string bmsonTitle;
-
     private readonly string bmsonFolder;
-
-    private readonly string bmsonPath;
-
-    private readonly int? bmsonMode;
 
     private readonly Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
@@ -25,6 +18,8 @@ internal sealed class ChartListSourceRow
     private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
 
     private PendingChartEntry bmsonChartAdapter;
+
+    private readonly ChartFile identityChart;
 
     private ChartListSourceRow(
         BMSFile bmsFile,
@@ -38,10 +33,10 @@ internal sealed class ChartListSourceRow
         this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.bmsonChartAdapterProvider = bmsonChartAdapterProvider;
-        bmsonTitle = BmsonSongParser.ComposeDisplayTitle(bmsonSong);
         bmsonFolder = BmsonSongParser.ComposeDisplayFolder(bmsonSong);
-        bmsonPath = bmsonSong?.path ?? string.Empty;
-        bmsonMode = BmsonSongParser.ResolvePlaylistMode(bmsonSong?.mode_hint);
+        identityChart = bmsFile != null
+            ? ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)
+            : ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false);
     }
 
     internal BMSFile BmsFile { get; }
@@ -52,32 +47,32 @@ internal sealed class ChartListSourceRow
 
     internal ChartFile Chart => CreateChartFile();
 
-    internal string Title => BmsFile?.Title ?? bmsonTitle;
+    internal string Title => identityChart?.Title ?? string.Empty;
 
-    internal string Artist => BmsFile?.Artist ?? BmsonSong?.artist ?? string.Empty;
+    internal string Artist => identityChart?.Artist ?? string.Empty;
 
-    internal string Genre => BmsFile?.genre ?? BmsonSong?.genre ?? string.Empty;
+    internal string Genre => identityChart?.Genre ?? string.Empty;
 
-    internal string Folder => BmsFile?.Folder ?? bmsonFolder;
+    internal string Folder => identityChart?.Folder ?? bmsonFolder;
 
-    internal string Path => BmsFile?.path ?? bmsonPath;
+    internal string Path => identityChart?.Path ?? string.Empty;
 
-    internal int? Mode => BmsFile?.mode ?? bmsonMode;
+    internal int? Mode => identityChart?.Mode;
 
     internal string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(
         Chart,
         GetResourceHealthProjection(),
         resourceHealthProjectionProvider != null);
 
-    internal string Tag => BmsFile?.tag ?? string.Empty;
+    internal string Tag => identityChart?.Tag ?? string.Empty;
 
-    internal string Level => BmsFile?.Level ?? (BmsonSong?.level.HasValue == true ? BmsonSong.level.Value.ToString(CultureInfo.InvariantCulture) : string.Empty);
+    internal string Level => identityChart?.LevelText ?? string.Empty;
 
-    internal double? LevelValue => BmsFile?.level ?? BmsonSong?.level;
+    internal double? LevelValue => identityChart?.Level;
 
-    internal string Hash => BmsFile?.hash ?? BmsonSong?.md5 ?? string.Empty;
+    internal string Hash => identityChart?.Md5 ?? string.Empty;
 
-    internal string Sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? string.Empty;
+    internal string Sha256 => identityChart?.Sha256 ?? string.Empty;
 
     internal string InstallDestination => CreateChartFile(includeWarningSnapshot: false)?.InstallDestination ?? string.Empty;
 

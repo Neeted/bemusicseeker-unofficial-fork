@@ -272,6 +272,9 @@ internal static class GridRowResolver
             row.sha256,
             row.Title,
             row.Artist,
+            row.genre,
+            row.Folder,
+            row.tag,
             row.Entry?.level,
             row.mode,
             null);
@@ -301,6 +304,9 @@ internal static class GridRowResolver
             row.sha256,
             row.Title,
             row.Artist,
+            row.genre,
+            row.Folder,
+            row.tag,
             row.Entry?.level,
             row.mode,
             row.ChartInfo);

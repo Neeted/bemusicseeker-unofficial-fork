@@ -753,7 +753,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void SourceRow_ReadsCurrentBmsFileSortKeys()
+    public void SourceRow_UsesIdentitySnapshotAndCurrentMutableState()
     {
         var file = new TestableBmsFile();
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
@@ -774,15 +774,15 @@ public sealed class ChartListVirtualViewTests
         file.InstallDestinationArtist = "Destination Artist";
         file.AddRefTable(new BMSTable { symbol = "REF", name = "Reference Table" });
 
-        Assert.AreEqual("New", sourceRows[0].Title);
-        Assert.AreEqual("Artist", sourceRows[0].Artist);
-        Assert.AreEqual("Genre", sourceRows[0].Genre);
-        Assert.AreEqual(@"folder-a\new.bms", sourceRows[0].Path);
-        Assert.AreEqual("folder-a", sourceRows[0].Folder);
-        Assert.AreEqual(7, sourceRows[0].Mode);
-        Assert.AreEqual("Tag", sourceRows[0].Tag);
-        Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sourceRows[0].Hash);
-        Assert.AreEqual("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", sourceRows[0].Sha256);
+        Assert.AreEqual("Old", sourceRows[0].Title);
+        Assert.AreEqual(string.Empty, sourceRows[0].Artist);
+        Assert.AreEqual(string.Empty, sourceRows[0].Genre);
+        Assert.AreEqual(@"folder-b\old.bms", sourceRows[0].Path);
+        Assert.AreEqual("folder-b", sourceRows[0].Folder);
+        Assert.IsNull(sourceRows[0].Mode);
+        Assert.AreEqual(string.Empty, sourceRows[0].Tag);
+        Assert.AreEqual("0123456789abcdef0123456789abcdef", sourceRows[0].Hash);
+        Assert.AreEqual(string.Empty, sourceRows[0].Sha256);
         Assert.AreEqual("Destination", sourceRows[0].InstallDestination);
         Assert.AreEqual("Destination Title", sourceRows[0].InstallDestinationTitle);
         Assert.AreEqual("Destination Artist", sourceRows[0].InstallDestinationArtist);

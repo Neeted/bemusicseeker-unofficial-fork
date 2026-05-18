@@ -108,6 +108,10 @@ ChartFile
   Sha256
   Title
   Artist
+  Genre
+  Folder
+  Tag
+  LevelText
   Level
   Mode
   Capabilities
@@ -139,6 +143,10 @@ ChartFile
   Sha256
   Title
   Artist
+  Genre
+  Folder
+  Tag
+  LevelText
   Level
   Mode
   ChartInfo
@@ -368,6 +376,7 @@ F-3 で進める候補 / 進捗:
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
 - subset view の仮想 filter / sort cache / test helper は `VirtualChartSubset*` へ移行し、BMS / bmson を含む chart row subset として扱う。ログ検索互換のため、既存 performance log scope は当面 `bms_file_subset` のまま維持する
 - 所持 bmson row の adapter 共有は `BmsonChartAdapterProvider` / `sharedBmsonChartAdaptersByKey` へ寄せる。`CompatibilityBmsFile` property は legacy `BMSFile` API 互換境界として残す
+- `ChartListSourceRow` の identity 系 getter は warning なしの `ChartFile` snapshot を読む。`ChartInfo` は hydration 後の attach を反映するため storage owner から読み、warning / install destination のように adapter の mutable state が必要な表示は、都度 `ChartFileProjection` で現在 snapshot を作る。これに合わせて `ChartFile` は title / artist / genre / folder / path / mode / level / tag / hash を domain read model として持つ
 - chart 行に対する folder 操作は `RenameChartFolder` / `MergeChartDirectory` / `AutoRenameChartFolders` / `AutoRenameAllChartFolders` に寄せる。`BMSDirectory` 系 UI / root 設定 vocabulary は既存 UI / LR2 search-root 境界として維持し、別判断で段階移行する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 

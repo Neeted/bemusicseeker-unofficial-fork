@@ -108,6 +108,14 @@ public sealed class GridKeywordSearchQueryTests
 
         var query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
 
+        Assert.AreEqual(sourceRow.Chart.Title, sourceRow.Title);
+        Assert.AreEqual(sourceRow.Chart.Artist, sourceRow.Artist);
+        Assert.AreEqual(sourceRow.Chart.Genre, sourceRow.Genre);
+        Assert.AreEqual(sourceRow.Chart.Folder, sourceRow.Folder);
+        Assert.AreEqual(sourceRow.Chart.Tag, sourceRow.Tag);
+        Assert.AreEqual(sourceRow.Chart.Path, sourceRow.Path);
+        Assert.AreEqual(sourceRow.Chart.Md5, sourceRow.Hash);
+        Assert.AreEqual(sourceRow.Chart.Sha256, sourceRow.Sha256);
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)), query.MatchesChartListSourceRow(sourceRow));
     }
@@ -123,6 +131,8 @@ public sealed class GridKeywordSearchQueryTests
             subtitle = "Sub",
             artist = "BmsonArtist",
             genre = "BmsonGenre",
+            mode_hint = "beat-7k",
+            level = 7,
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         };
@@ -130,8 +140,71 @@ public sealed class GridKeywordSearchQueryTests
 
         var query = GridKeywordSearchQuery.Parse("title:BmsonTitle artist:BmsonArtist genre:BmsonGenre path:bmson md5:bbbb sha256:cccc");
 
+        Assert.AreEqual(sourceRow.Chart.Title, sourceRow.Title);
+        Assert.AreEqual(sourceRow.Chart.Artist, sourceRow.Artist);
+        Assert.AreEqual(sourceRow.Chart.Genre, sourceRow.Genre);
+        Assert.AreEqual(sourceRow.Chart.Folder, sourceRow.Folder);
+        Assert.AreEqual(sourceRow.Chart.LevelText, sourceRow.Level);
+        Assert.AreEqual(sourceRow.Chart.Path, sourceRow.Path);
+        Assert.AreEqual(sourceRow.Chart.Mode, sourceRow.Mode);
+        Assert.AreEqual(sourceRow.Chart.Level, sourceRow.LevelValue);
+        Assert.AreEqual(sourceRow.Chart.Md5, sourceRow.Hash);
+        Assert.AreEqual(sourceRow.Chart.Sha256, sourceRow.Sha256);
         Assert.IsTrue(query.MatchesChartListSourceRow(sourceRow));
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromBmsonSong(song)), query.MatchesChartListSourceRow(sourceRow));
+    }
+
+    [TestMethod]
+    public void ChartListSourceRow_IdentitySnapshotIsStableButChartInfoFollowsOwner()
+    {
+        TestableBmsFile file = CreateFile();
+        var bmsSourceRow = ChartListSourceRow.FromBmsFile(file);
+        LR2SongDBExtended.chart_info bmsChartInfo = CreateChartInfo(level: 10);
+
+        file.SetTitleForTest("Changed Title");
+        file.SetGenreForTest("Changed Genre");
+        file.tag = "Changed Tag";
+        file.path = @"C:\Songs\Changed\chart.bms";
+        file.SetHashForTest("ffffffffffffffffffffffffffffffff");
+        file.SetChartInfo(bmsChartInfo);
+
+        Assert.AreEqual("Alpha Title", bmsSourceRow.Title);
+        Assert.AreEqual("GenreX", bmsSourceRow.Genre);
+        Assert.AreEqual("TagX", bmsSourceRow.Tag);
+        Assert.AreEqual(@"C:\Songs\Alpha\chart.bms", bmsSourceRow.Path);
+        Assert.AreEqual("abcdefabcdefabcdefabcdefabcdefab", bmsSourceRow.Hash);
+        Assert.AreSame(bmsChartInfo, bmsSourceRow.ChartInfo);
+        Assert.AreEqual(10, bmsSourceRow.ChartLevelSortKey);
+
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\Bmson\chart.bmson",
+            title = "BmsonTitle",
+            artist = "BmsonArtist",
+            mode_hint = "beat-7k",
+            level = 7,
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        };
+        var bmsonSourceRow = ChartListSourceRow.FromBmsonSong(song);
+        LR2SongDBExtended.chart_info bmsonChartInfo = CreateChartInfo(level: 11);
+
+        song.title = "Changed Bmson";
+        song.genre = "Changed Genre";
+        song.level = 9;
+        song.mode_hint = "beat-5k";
+        song.path = @"C:\Songs\Changed\chart.bmson";
+        song.md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        song.ChartInfo = bmsonChartInfo;
+
+        Assert.AreEqual("BmsonTitle", bmsonSourceRow.Title);
+        Assert.AreEqual(string.Empty, bmsonSourceRow.Genre);
+        Assert.AreEqual("7", bmsonSourceRow.Level);
+        Assert.AreEqual(7, bmsonSourceRow.Mode);
+        Assert.AreEqual(@"C:\Songs\Bmson\chart.bmson", bmsonSourceRow.Path);
+        Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bmsonSourceRow.Hash);
+        Assert.AreSame(bmsonChartInfo, bmsonSourceRow.ChartInfo);
+        Assert.AreEqual(11, bmsonSourceRow.ChartLevelSortKey);
     }
 
     [TestMethod]
@@ -608,6 +681,16 @@ public sealed class GridKeywordSearchQueryTests
         internal void SetTitleForTest(string value)
         {
             Title = value;
+        }
+
+        internal void SetHashForTest(string value)
+        {
+            hash = value;
+        }
+
+        internal void SetGenreForTest(string value)
+        {
+            genre = value;
         }
 
         internal void SetScoreForTest(ClearType clear, RankType rank, int perfect, int great, int totalnotes, int maxcombo, int minbp)

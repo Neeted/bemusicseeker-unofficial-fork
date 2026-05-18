@@ -25,6 +25,14 @@ internal sealed class ChartFile
 
     internal string Artist { get; }
 
+    internal string Genre { get; }
+
+    internal string Folder { get; }
+
+    internal string Tag { get; }
+
+    internal string LevelText { get; }
+
     internal double? Level { get; }
 
     internal int? Mode { get; }
@@ -52,6 +60,10 @@ internal sealed class ChartFile
         string sha256,
         string title,
         string artist,
+        string genre,
+        string folder,
+        string tag,
+        string levelText,
         double? level,
         int? mode,
         LR2SongDBExtended.chart_info chartInfo,
@@ -70,6 +82,10 @@ internal sealed class ChartFile
         Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
         Title = title ?? string.Empty;
         Artist = artist ?? string.Empty;
+        Genre = genre ?? string.Empty;
+        Folder = string.IsNullOrWhiteSpace(folder) ? System.IO.Path.GetFileName(Directory) ?? string.Empty : folder;
+        Tag = tag ?? string.Empty;
+        LevelText = levelText ?? string.Empty;
         Level = level;
         Mode = mode;
         ChartInfo = chartInfo;
