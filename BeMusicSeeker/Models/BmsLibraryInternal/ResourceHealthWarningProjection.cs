@@ -91,7 +91,7 @@ internal sealed class ResourceHealthIndexSnapshot
                 continue;
             }
             targetCount++;
-            var key = ResourceHealthChartKey.FromCompatibilityBmsFile(target);
+            var key = ResourceHealthChartKey.FromCompatibilityChartFile(target);
             if (!key.IsValid)
             {
                 continue;
@@ -133,7 +133,7 @@ internal sealed class ResourceHealthIndexSnapshot
         HashSet<ResourceHealthChartKey> changedKeys = [];
         foreach (BMSFile removedTarget in removedTargets ?? [])
         {
-            var key = ResourceHealthChartKey.FromCompatibilityBmsFile(removedTarget);
+            var key = ResourceHealthChartKey.FromCompatibilityChartFile(removedTarget);
             if (!key.IsValid)
             {
                 continue;
@@ -144,7 +144,7 @@ internal sealed class ResourceHealthIndexSnapshot
         }
         foreach (BMSFile updatedTarget in updatedTargets ?? [])
         {
-            var key = ResourceHealthChartKey.FromCompatibilityBmsFile(updatedTarget);
+            var key = ResourceHealthChartKey.FromCompatibilityChartFile(updatedTarget);
             if (!key.IsValid)
             {
                 continue;
@@ -163,11 +163,11 @@ internal sealed class ResourceHealthIndexSnapshot
             bool isIgnored = maintenanceInfo?.is_files_warning_ignored == true;
             nextProjections[key] = new ResourceHealthWarningProjection(version, warnings, isIgnored);
         }
-        List<BMSFile> activeTargets = [.. ActiveTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityBmsFile(file)))];
-        List<BMSFile> ignoredTargets = [.. IgnoredTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityBmsFile(file)))];
+        List<BMSFile> activeTargets = [.. ActiveTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityChartFile(file)))];
+        List<BMSFile> ignoredTargets = [.. IgnoredTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromCompatibilityChartFile(file)))];
         foreach (BMSFile updatedTarget in updatedTargets ?? [])
         {
-            var key = ResourceHealthChartKey.FromCompatibilityBmsFile(updatedTarget);
+            var key = ResourceHealthChartKey.FromCompatibilityChartFile(updatedTarget);
             if (!key.IsValid || !nextProjections.TryGetValue(key, out ResourceHealthWarningProjection projection))
             {
                 continue;
@@ -187,7 +187,7 @@ internal sealed class ResourceHealthIndexSnapshot
 
     internal ResourceHealthWarningProjection GetProjection(BMSFile file)
     {
-        var key = ResourceHealthChartKey.FromCompatibilityBmsFile(file);
+        var key = ResourceHealthChartKey.FromCompatibilityChartFile(file);
         return GetProjection(key);
     }
 
@@ -221,7 +221,7 @@ internal sealed class ResourceHealthIndexSnapshot
 
         internal bool IsValid => !string.IsNullOrWhiteSpace(kind) && !string.IsNullOrWhiteSpace(path);
 
-        internal static ResourceHealthChartKey FromCompatibilityBmsFile(BMSFile file)
+        internal static ResourceHealthChartKey FromCompatibilityChartFile(BMSFile file)
         {
             if (file == null)
             {
