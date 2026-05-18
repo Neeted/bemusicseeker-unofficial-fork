@@ -111,6 +111,43 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_UsesAdapterlessBmsonEntriesForEligibility()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonRegroup");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageBmsonRegroup");
+            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Regroup Bmson", "Bmson Artist");
+            LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
+            ChartPackage adapterlessPackage = ChartPackage.FromChartEntries(
+            [
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(
+                    pendingSong,
+                    compatibilityBmsFile: null,
+                    includeWarningSnapshot: false))
+            ]);
+            adapterlessPackage.path = pendingBmsonPath;
+            adapterlessPackage.delete_parent = true;
+            ChartPackage bmsPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "chart.bms", "Regroup Bms"), destinationDirectoryPath);
+            string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Regroup Bmson", "Bmson Artist");
+            LR2SongDBExtended.bmson_song installedSong = BmsonSongParser.Parse(installedBmsonPath);
+            Assert.IsNull(adapterlessPackage.ChartEntries.Single().CompatibilityAdapter);
+
+            library.BMSFiles = [];
+            library.BmsonSongs = [installedSong];
+            SeedPendingPackages(library, songDbPath, adapterlessPackage, bmsPackage);
+
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
+
+            ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
+            Assert.AreEqual(1, regroupedPackage.PendingCharts.Count);
+            Assert.AreEqual(pendingBmsonPath, regroupedPackage.PendingCharts[0].path);
+            CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_ReinitializesWarningsWhenEligibleDirectoryIsSupplied()
     {
         TestResourceInitializer.EnsureJapaneseResources();

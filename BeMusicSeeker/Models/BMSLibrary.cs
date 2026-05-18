@@ -9378,28 +9378,36 @@ reportProgress,
         regroupedPackage = null;
         resolvedDestinationDirectory = null;
         skipReason = "unknown";
-        List<BMSFile> regroupedFiles = [];
-        HashSet<BMSFile> seenFileReferences = [];
+        List<PackageChartEntry> regroupedEntries = [];
+        HashSet<BMSFile> seenAdapterReferences = [];
         var seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage sourcePackage in sourcePackages)
         {
-            foreach (BMSFile sourceFile in sourcePackage.GetChartAdapters())
+            foreach (PackageChartEntry sourceEntry in sourcePackage.ChartEntries)
             {
-                if (seenFileReferences.Add(sourceFile) && (string.IsNullOrWhiteSpace(sourceFile.path) || seenFilePaths.Add(sourceFile.path)))
+                ChartFile sourceChart = sourceEntry?.Chart;
+                if (sourceChart == null)
                 {
-                    regroupedFiles.Add(sourceFile);
+                    continue;
+                }
+                BMSFile sourceAdapter = sourceEntry.CompatibilityAdapter;
+                bool uniqueReference = sourceAdapter == null || seenAdapterReferences.Add(sourceAdapter);
+                bool uniquePath = string.IsNullOrWhiteSpace(sourceChart.Path) || seenFilePaths.Add(sourceChart.Path);
+                if (uniqueReference && uniquePath)
+                {
+                    regroupedEntries.Add(sourceEntry);
                 }
             }
         }
-        if (regroupedFiles.Count == 0)
+        if (regroupedEntries.Count == 0)
         {
             skipReason = "no_files";
             return false;
         }
         var expectedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile regroupedFile in regroupedFiles)
+        foreach (PackageChartEntry regroupedEntry in regroupedEntries)
         {
-            if (!TryResolvePendingFileExpectedInstallDirectory(regroupedFile, installedDirectoryIndexSnapshot, out string expectedDirectory, out string unresolvedReason))
+            if (!TryResolvePendingFileExpectedInstallDirectory(regroupedEntry.Chart, installedDirectoryIndexSnapshot, out string expectedDirectory, out string unresolvedReason))
             {
                 skipReason = unresolvedReason;
                 return false;
@@ -9412,6 +9420,12 @@ reportProgress,
             }
         }
         resolvedDestinationDirectory = expectedDirectories.Single();
+        List<BMSFile> regroupedFiles = [.. regroupedEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
+        if (regroupedFiles.Count == 0)
+        {
+            skipReason = "no_files";
+            return false;
+        }
         ApplyResolvedInstallDestinationPathAndMetadataToFiles(regroupedFiles, resolvedDestinationDirectory);
         regroupedPackage = new ChartPackage(regroupedFiles)
         {
@@ -9421,23 +9435,23 @@ reportProgress,
         return true;
     }
 
-    private bool TryResolvePendingFileExpectedInstallDirectory(BMSFile bmsFile, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
+    private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
     {
         expectedDirectory = null;
         reason = "missing_expected_destination";
-        if (bmsFile == null)
+        if (chart == null)
         {
-            reason = "null_file";
+            reason = "null_chart";
             return false;
         }
-        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, bmsFile);
+        List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, chart.PrimaryLookupHash);
         if (installedDirectories.Count > 1)
         {
             reason = "multiple_installed_directories";
             return false;
         }
         string installedDirectory = installedDirectories.FirstOrDefault();
-        string estimatedDirectory = string.IsNullOrWhiteSpace(bmsFile.instl_dst) ? null : bmsFile.instl_dst;
+        string estimatedDirectory = string.IsNullOrWhiteSpace(chart.InstallDestination) ? null : chart.InstallDestination;
         if (!string.IsNullOrWhiteSpace(installedDirectory) && !string.IsNullOrWhiteSpace(estimatedDirectory) && !installedDirectory.Equals(estimatedDirectory, StringComparison.OrdinalIgnoreCase))
         {
             reason = "installed_directory_conflict";
