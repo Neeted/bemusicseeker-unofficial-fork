@@ -638,6 +638,42 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void PrepareAutoInstallWorkflow_ChecksInstalledChartsWithoutMaterializingUnmatchedBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonInstalled");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string installedBmsonPath = Path.Combine(packageDirectoryPath, "installed.bmson");
+            string unmatchedBmsonPath = Path.Combine(packageDirectoryPath, "unmatched.bmson");
+            File.WriteAllText(installedBmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllText(unmatchedBmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "audio");
+
+            var service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                [packageDirectoryPath],
+                [],
+                [],
+                chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase),
+                0.6,
+                _ => false);
+
+            PackageChartEntry installedEntry = result.DiscoveredPackages
+                .SelectMany(package => package.ChartEntries)
+                .First(entry => string.Equals(entry.Chart.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
+            PackageChartEntry unmatchedEntry = result.DiscoveredPackages
+                .SelectMany(package => package.ChartEntries)
+                .First(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
+            Assert.IsNotNull(installedEntry.CompatibilityAdapter);
+            Assert.IsTrue(installedEntry.CompatibilityAdapter.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+            Assert.IsNull(unmatchedEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_KeepsChartPackagePendingWhenOnlySameStemChartFileExists()
     {
         TestResourceInitializer.EnsureJapaneseResources();

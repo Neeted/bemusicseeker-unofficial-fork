@@ -1068,7 +1068,7 @@ internal sealed class BmsLibraryPackageInstallService
         IEnumerable<string> installPaths,
         IEnumerable<ChartPackage> currentPendingPackages,
         IEnumerable<string> knownChartDirectories,
-        Func<BMSFile, bool> isInstalledChart,
+        Func<ChartFile, bool> isInstalledChart,
         double dupRateThreshInOnePkg,
         Func<BMSFile, bool> requiresPendingWarning,
         CancellationToken token = default)
@@ -1178,11 +1178,11 @@ internal sealed class BmsLibraryPackageInstallService
         foreach (ChartPackage pkg in discoveredPackages)
         {
             bool hasInstalledChart = false;
-            foreach (BMSFile bmsFile in pkg.GetChartAdapters())
+            foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
-                if (isInstalledChart != null && isInstalledChart(bmsFile))
+                if (isInstalledChart != null && isInstalledChart(entry?.Chart))
                 {
-                    ApplyAlreadyInstalledWarning([PackageChartEntry.FromCompatibilityAdapter(bmsFile)]);
+                    ApplyAlreadyInstalledWarning([entry]);
                     hasInstalledChart = true;
                 }
             }
