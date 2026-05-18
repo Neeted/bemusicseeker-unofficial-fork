@@ -118,6 +118,54 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
     }
 
     [TestMethod]
+    public void FindChartWithMissingInstalledDirectory_ReturnsChartFile()
+    {
+        WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)
+        {
+            string installedDir = Path.Combine(tempRoot, "Installed", "Dir1");
+            List<BMSFile> installedFiles =
+            [
+                CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir, "a.bms"))
+            ];
+            TestableBmsFile missingPendingFile = CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme"));
+            ChartPackage package = CreatePendingPackage(
+                CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
+                missingPendingFile);
+
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            ChartFile chart = BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, snapshot);
+
+            Assert.IsNotNull(chart);
+            Assert.AreEqual(missingPendingFile.path, chart.Path);
+            Assert.AreEqual(missingPendingFile.hash, chart.PrimaryLookupHash);
+        });
+    }
+
+    [TestMethod]
+    public void FindChartWithMultipleInstalledDirectories_ReturnsChartFile()
+    {
+        WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)
+        {
+            string installedDir1 = Path.Combine(tempRoot, "Installed", "Dir1");
+            string installedDir2 = Path.Combine(tempRoot, "Installed", "Dir2");
+            List<BMSFile> installedFiles =
+            [
+                CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms")),
+                CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir2, "a.bms"))
+            ];
+            TestableBmsFile pendingFile = CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms"));
+            ChartPackage package = CreatePendingPackage(pendingFile);
+
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            ChartFile chart = BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, snapshot);
+
+            Assert.IsNotNull(chart);
+            Assert.AreEqual(pendingFile.path, chart.Path);
+            Assert.AreEqual(pendingFile.hash, chart.PrimaryLookupHash);
+        });
+    }
+
+    [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_PendingInstlDstDoesNotBypassSplitDetection()
     {
         WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)

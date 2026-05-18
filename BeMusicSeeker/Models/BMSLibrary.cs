@@ -9171,12 +9171,17 @@ reportProgress,
         return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file);
     }
 
-    private static BMSFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
+    {
+        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, chart);
+    }
+
+    private static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, installedDirectoryIndexSnapshot);
     }
 
-    private static BMSFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    private static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, installedDirectoryIndexSnapshot);
     }
@@ -9452,12 +9457,17 @@ reportProgress,
                                 {
                                     return null;
                                 }
-                                return resolution.Reason switch
+                                switch (resolution.Reason)
                                 {
-                                    InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories => "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)?.path ?? "(null)") + " hash=" + (FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)?.hash ?? "(null)") + " dirCount=" + ((FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot) == null) ? 0 : GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)).Count),
-                                    InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories => "advanced_pending_resource_overwrite skip_package_split_dst path=" + pendingPackage.path + " dirCount=" + CountDistinctInstalledDirectoriesForPackage(pendingPackage, installedDirectoryIndexSnapshot),
-                                    _ => "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot)?.path ?? "(null)") + " hash=" + (FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot)?.hash ?? "(null)")
-                                };
+                                    case InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories:
+                                        ChartFile multipleDirectoryChart = FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot);
+                                        return "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (multipleDirectoryChart?.Path ?? "(null)") + " hash=" + (multipleDirectoryChart?.PrimaryLookupHash ?? "(null)") + " dirCount=" + ((multipleDirectoryChart == null) ? 0 : GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, multipleDirectoryChart).Count);
+                                    case InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories:
+                                        return "advanced_pending_resource_overwrite skip_package_split_dst path=" + pendingPackage.path + " dirCount=" + CountDistinctInstalledDirectoriesForPackage(pendingPackage, installedDirectoryIndexSnapshot);
+                                    default:
+                                        ChartFile missingDirectoryChart = FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot);
+                                        return "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (missingDirectoryChart?.Path ?? "(null)") + " hash=" + (missingDirectoryChart?.PrimaryLookupHash ?? "(null)");
+                                }
                             },
                             (pendingPackage, destinationDir) => HasResourceOverwriteTargetsForInstalledOnlyPackage(pendingPackage, destinationDir),
                             delegate (ChartPackage pendingPackage, string destinationDir)

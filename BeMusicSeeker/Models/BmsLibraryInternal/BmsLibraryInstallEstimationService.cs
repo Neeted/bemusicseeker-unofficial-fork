@@ -1242,18 +1242,18 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return [];
     }
 
-    public static BMSFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartEntries ?? [])
-            .FirstOrDefault(entry => entry?.CompatibilityAdapter == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count == 0)
-            ?.CompatibilityAdapter;
+            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count == 0)
+            ?.Chart;
     }
 
-    public static BMSFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartEntries ?? [])
-            .FirstOrDefault(entry => entry?.CompatibilityAdapter != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count > 1)
-            ?.CompatibilityAdapter;
+            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count > 1)
+            ?.Chart;
     }
 
     public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
