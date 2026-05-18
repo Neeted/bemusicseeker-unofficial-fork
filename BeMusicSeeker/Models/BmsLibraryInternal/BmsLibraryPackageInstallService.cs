@@ -909,7 +909,7 @@ internal sealed class BmsLibraryPackageInstallService
                 : "not_empty deleteAllContents=False";
             if (deleteAllContents)
             {
-                if (!TryBuildInstalledHashSnapshotForSafeCleanup(existingHashes, package.GetChartAdapters(), out HashSet<string> installedHashesForCleanup, out folderDeletionDecisionReason))
+                if (!TryBuildInstalledHashSnapshotForSafeCleanup(existingHashes, package.ChartEntries, out HashSet<string> installedHashesForCleanup, out folderDeletionDecisionReason))
                 {
                     logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
                     return true;
@@ -963,21 +963,21 @@ internal sealed class BmsLibraryPackageInstallService
         return true;
     }
 
-    private static bool TryBuildInstalledHashSnapshotForSafeCleanup(HashSet<string> existingHashes, IEnumerable<BMSFile> installedPackageFiles, out HashSet<string> installedHashes, out string reason)
+    private static bool TryBuildInstalledHashSnapshotForSafeCleanup(HashSet<string> existingHashes, IEnumerable<PackageChartEntry> installedPackageEntries, out HashSet<string> installedHashes, out string reason)
     {
         installedHashes = existingHashes != null
             ? new HashSet<string>(existingHashes, StringComparer.OrdinalIgnoreCase)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile installedPackageFile in installedPackageFiles ?? [])
+        foreach (PackageChartEntry installedPackageEntry in installedPackageEntries ?? [])
         {
-            if (installedPackageFile == null)
+            if (installedPackageEntry?.Chart == null)
             {
                 continue;
             }
-            string lookupKey = PendingChartEntry.GetPrimaryLookupHash(installedPackageFile);
+            string lookupKey = installedPackageEntry.Chart.PrimaryLookupHash;
             if (string.IsNullOrWhiteSpace(lookupKey))
             {
-                reason = "current_package_hash_unavailable path=" + installedPackageFile.path;
+                reason = "current_package_hash_unavailable path=" + installedPackageEntry.Chart.Path;
                 return false;
             }
             installedHashes.Add(lookupKey);

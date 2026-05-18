@@ -867,8 +867,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<ChartPackage> result = [];
         foreach (ChartPackage package in (pendingPackages ?? []).Where(pkg => pkg != null))
         {
-            List<BMSFile> packageFiles = package.GetChartAdapters();
-            if (packageFiles.Count > 0 && packageFiles.All(file => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))
+            List<PackageChartEntry> packageEntries = package.ChartEntries;
+            if (packageEntries.Count > 0 && packageEntries.All(entry => IsMatchedRemovedEntry(entry, selectedPaths, selectedFileRefs)))
             {
                 result.Add(package);
             }
@@ -887,6 +887,19 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return true;
         }
         return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
+    }
+
+    private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
+    {
+        if (entry?.Chart == null)
+        {
+            return false;
+        }
+        if (entry.CompatibilityAdapter != null && removedFiles != null && removedFiles.Contains(entry.CompatibilityAdapter))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path) && removedPaths != null && removedPaths.Contains(entry.Chart.Path);
     }
 
     private string TryGetSourceHashForInvalidExtensionRename(BMSFile sourceFile)
