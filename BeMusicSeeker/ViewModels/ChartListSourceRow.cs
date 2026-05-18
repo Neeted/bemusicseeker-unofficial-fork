@@ -161,11 +161,6 @@ internal sealed class ChartListSourceRow
 
     internal int? ChartSoflanCount => ChartInfo?.speedchange_count;
 
-    internal BMSFile CreateFilterFile()
-    {
-        return CompatibilityBmsFile;
-    }
-
     private ChartFile CreateChartFile(bool includeWarningSnapshot = true)
     {
         return BmsFile != null
