@@ -76,7 +76,7 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal int GetChartAdapterCount()
     {
-        return GetChartAdapters().Count;
+        return ChartEntries?.Count ?? 0;
     }
 
     internal void ClearChartAdapterInstallDestinations()
@@ -114,7 +114,7 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal bool IsChartAdapterEmpty()
     {
-        return GetChartAdapterCount() == 0;
+        return (ChartEntries?.Count ?? 0) == 0;
     }
 
     internal void ApplySingleFileInstallDestination(string destinationDirectory)

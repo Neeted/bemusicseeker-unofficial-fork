@@ -1016,6 +1016,31 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void ChartPackage_PathPackage_CountsChartEntriesBeforeCompatibilityAdaptersAreRequested()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                Directory.CreateDirectory(sourceDir);
+                File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1");
+                File.WriteAllText(Path.Combine(sourceDir, "chart2.bmson"), "{}");
+
+                var package = new ChartPackage
+                {
+                    path = sourceDir,
+                    delete_parent = true
+                };
+
+                Assert.AreEqual(2, package.GetChartAdapterCount());
+                Assert.IsFalse(package.IsChartAdapterEmpty());
+            });
+        });
+    }
+
+    [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_BuildsFromPackageChartEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
