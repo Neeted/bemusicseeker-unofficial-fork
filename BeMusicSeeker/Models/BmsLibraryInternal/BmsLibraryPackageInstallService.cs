@@ -398,9 +398,10 @@ internal sealed class BmsLibraryPackageInstallService
                 .Where(entry => entry != null)];
             bool hasCompleteChartList = parsedCharts.Count == chartFiles.Count;
             bool anyChartHasExistingResources = parsedCharts.Any(entry => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
+            List<PackageChartEntry> parsedChartEntries = CreatePackageChartEntries(parsedCharts);
             if (chartFiles.Count == 1 || anyChartHasExistingResources)
             {
-                result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedCharts : null));
+                result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedChartEntries : null));
             }
             else
             {
@@ -414,12 +415,14 @@ internal sealed class BmsLibraryPackageInstallService
                 if (resourcesByChart.Count > 0
                     && (double)resourcesByChart.Aggregate(Enumerable.Intersect).Count() / (double)resourcesByChart.Select(resourceList => resourceList.Count()).Min() >= dupRateThreshInOnePkg)
                 {
-                    result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedCharts : null));
+                    result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedChartEntries : null));
                 }
                 else
                 {
-                    var entryByPath = parsedCharts.ToDictionary(entry => entry.path, StringComparer.OrdinalIgnoreCase);
-                    result.Packages.AddRange(chartFiles.Select(filePath => CreatePackageWithKnownCharts(filePath, recursive, entryByPath.TryGetValue(filePath, out PendingChartEntry entry) ? new[] { entry } : null)));
+                    var entryByPath = parsedChartEntries
+                        .Where(entry => !string.IsNullOrWhiteSpace(entry.Chart?.Path))
+                        .ToDictionary(entry => entry.Chart.Path, StringComparer.OrdinalIgnoreCase);
+                    result.Packages.AddRange(chartFiles.Select(filePath => CreatePackageWithKnownCharts(filePath, recursive, entryByPath.TryGetValue(filePath, out PackageChartEntry entry) ? new[] { entry } : null)));
                     result.RegroupEligibleSourceDirectories.Add(NormalizeDirectoryPath(dirfullpath));
                 }
             }
@@ -469,10 +472,16 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
-    private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<BMSFile> knownCharts)
+    private static List<PackageChartEntry> CreatePackageChartEntries(IEnumerable<BMSFile> knownCharts)
     {
-        List<PackageChartEntry> knownEntries = [.. (knownCharts ?? [])
+        return [.. (knownCharts ?? [])
             .Select(PackageChartEntry.FromCompatibilityAdapter)
+            .Where(entry => entry?.Chart != null)];
+    }
+
+    private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<PackageChartEntry> knownChartEntries)
+    {
+        List<PackageChartEntry> knownEntries = [.. (knownChartEntries ?? [])
             .Where(entry => entry?.Chart != null)];
         if (Directory.Exists(packagePath))
         {
@@ -1123,6 +1132,7 @@ internal sealed class BmsLibraryPackageInstallService
             List<PendingChartEntry> parsedCharts = [.. chartFiles
                 .Select(CreatePendingChartForDiscovery)
                 .Where(entry => entry != null)];
+            List<PackageChartEntry> parsedChartEntries = CreatePackageChartEntries(parsedCharts);
             bool anyChartHasExistingResources = parsedCharts.Any(entry => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
             if (chartFiles.Count > 0 && anyChartHasExistingResources)
             {
@@ -1131,8 +1141,10 @@ internal sealed class BmsLibraryPackageInstallService
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
             }
-            var entryByPath = parsedCharts.ToDictionary(entry => entry.path, StringComparer.OrdinalIgnoreCase);
-            List<ChartPackage> singleFilePackages = [.. chartFiles.Select(filePath => CreatePackageWithKnownCharts(filePath, deleteParent: false, entryByPath.TryGetValue(filePath, out PendingChartEntry entry) ? new[] { entry } : null))];
+            var entryByPath = parsedChartEntries
+                .Where(entry => !string.IsNullOrWhiteSpace(entry.Chart?.Path))
+                .ToDictionary(entry => entry.Chart.Path, StringComparer.OrdinalIgnoreCase);
+            List<ChartPackage> singleFilePackages = [.. chartFiles.Select(filePath => CreatePackageWithKnownCharts(filePath, deleteParent: false, entryByPath.TryGetValue(filePath, out PackageChartEntry entry) ? new[] { entry } : null))];
             List<ChartPackage> directoryPackages = [];
             foreach (string dir in directories)
             {
