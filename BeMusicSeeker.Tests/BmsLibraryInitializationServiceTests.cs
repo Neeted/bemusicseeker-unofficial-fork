@@ -2683,8 +2683,8 @@ public sealed class BmsLibraryInitializationServiceTests
             PackageChartEntry installedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
             PackageChartEntry unmatchedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(1, result.InstalledWarningCount);
-            Assert.IsNotNull(installedEntry.CompatibilityAdapter);
-            Assert.IsTrue(installedEntry.CompatibilityAdapter.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+            Assert.IsNull(installedEntry.CompatibilityAdapter);
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             Assert.IsNull(unmatchedEntry.CompatibilityAdapter);
         });
     }

@@ -530,14 +530,8 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
 
-            BMSFile chartFile = entry.GetOrCreateCompatibilityAdapter();
-            if (chartFile == null)
-            {
-                continue;
-            }
-
-            chartFile.ClearWarning(ChartWarningKind.NestedChartFileInPackage);
-            chartFile.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+            entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
+            entry.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
             hasNestedChart = true;
         }
 
@@ -1230,10 +1224,9 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 if (isSingleFilePackage)
                 {
-                    BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
                     bool isBmson = entry.Chart?.Kind == ChartFileKind.Bmson;
-                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-                    bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                    entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
+                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     pendingByPackage[pkg] = true;
                     break;
                 }
@@ -2295,12 +2288,8 @@ internal sealed class BmsLibraryPackageInstallService
     {
         foreach (PackageChartEntry entry in entries ?? [])
         {
-            BMSFile file = entry?.GetOrCreateCompatibilityAdapter();
-            if (file != null)
-            {
-                file.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-                file.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
-            }
+            entry?.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+            entry?.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
         }
     }
 

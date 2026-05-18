@@ -13,6 +13,44 @@ internal enum ChartFileLevelParsing
 
 internal static class ChartFileProjection
 {
+    internal static ChartFile WithWarnings(ChartFile source, IReadOnlyList<ChartWarning> warnings)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            source.Kind,
+            source.Path,
+            source.Md5,
+            source.Sha256,
+            source.Title,
+            source.RawTitle,
+            source.Artist,
+            source.Genre,
+            source.Folder,
+            source.Tag,
+            source.LevelText,
+            source.Level,
+            source.Mode,
+            source.ChartInfo,
+            source.BmsFile,
+            source.BmsonSong,
+            source.Subtitle,
+            source.InstallDestination,
+            source.InstallDestinationTitle,
+            source.InstallDestinationArtist,
+            warnings,
+            source.WAVHealth,
+            source.BGAHealth,
+            source.MovieHealth,
+            source.StagefileHealth,
+            source.BannerHealth,
+            source.BackbmpHealth,
+            source.EncodingName);
+    }
+
     internal static ChartFile FromBmsFile(
         BMSFile file,
         ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant,

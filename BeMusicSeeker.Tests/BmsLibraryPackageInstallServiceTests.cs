@@ -615,7 +615,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void ApplyNestedChartFileWarnings_MaterializesOnlyNestedAdapterlessBmsonEntries()
+    public void ApplyNestedChartFileWarnings_AddsNestedWarningWithoutMaterializingAdapterlessBmsonEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -636,9 +636,21 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.IsTrue(applied);
             Assert.IsNull(rootEntry.CompatibilityAdapter);
-            Assert.IsNotNull(nestedEntry.CompatibilityAdapter);
-            Assert.IsTrue(nestedEntry.CompatibilityAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
-            StringAssert.Contains(nestedEntry.CompatibilityAdapter.WarningTooltipText, Resources.Warning_NestedChartFileInPackage);
+            Assert.IsNull(nestedEntry.CompatibilityAdapter);
+            Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
+            StringAssert.Contains(ChartWarningCollection.BuildTooltipText(nestedEntry.Chart.Warnings), Resources.Warning_NestedChartFileInPackage);
+            BMSFile materializedNestedAdapter = nestedEntry.GetOrCreateCompatibilityAdapter();
+            Assert.IsNotNull(materializedNestedAdapter);
+            Assert.IsTrue(materializedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+            PackageChartEntry normalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
+            Assert.IsNull(normalizedNestedEntry.CompatibilityAdapter);
+            BMSFile normalizedNestedAdapter = normalizedNestedEntry.GetOrCreateCompatibilityAdapter();
+            Assert.IsTrue(normalizedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+            PackageChartEntry clearedNormalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
+            clearedNormalizedNestedEntry.ClearStructuredWarnings();
+            Assert.IsFalse(clearedNormalizedNestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
+            BMSFile clearedNormalizedNestedAdapter = clearedNormalizedNestedEntry.GetOrCreateCompatibilityAdapter();
+            Assert.IsFalse(clearedNormalizedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
         });
     }
 
@@ -737,8 +749,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PackageChartEntry unmatchedEntry = result.DiscoveredPackages
                 .SelectMany(package => package.ChartEntries)
                 .First(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
-            Assert.IsNotNull(installedEntry.CompatibilityAdapter);
-            Assert.IsTrue(installedEntry.CompatibilityAdapter.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+            Assert.IsNull(installedEntry.CompatibilityAdapter);
+            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             Assert.IsNull(unmatchedEntry.CompatibilityAdapter);
         });
     }

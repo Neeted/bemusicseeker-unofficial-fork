@@ -2329,36 +2329,27 @@ internal sealed class BmsLibraryInitializationService
                 {
                     continue;
                 }
-                BMSFile bmsFile = null;
                 bool isBmson = chart.Kind == ChartFileKind.Bmson;
                 if (!isBmson)
                 {
-                    bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                    BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
                     bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
                 }
                 if (isInstalledChart != null && isInstalledChart(chart))
                 {
-                    bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
-                    if (bmsFile != null)
-                    {
-                        bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-                        bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
-                        result.InstalledWarningCount++;
-                    }
+                    entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+                    entry.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
+                    result.InstalledWarningCount++;
                 }
                 else if (isSingleFilePackage)
                 {
-                    bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
-                    if (bmsFile != null)
-                    {
-                        bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
-                        bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
-                        result.SingleFileWarningCount++;
-                    }
+                    entry.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
+                    entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
+                    result.SingleFileWarningCount++;
                 }
                 else if (applyStrictWarning != null && entry.ResourceSnapshot.TotalReferenceCount > 0)
                 {
-                    bmsFile ??= entry.GetOrCreateCompatibilityAdapter();
+                    BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
                     if (bmsFile != null && applyStrictWarning(bmsFile))
                     {
                         result.StrictWarningCount++;
