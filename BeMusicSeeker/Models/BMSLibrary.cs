@@ -9944,7 +9944,7 @@ reportProgress,
         List<BMSFile> pendingFilesSnapshot = null;
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
         {
-            pendingFilesSnapshot = SnapshotPendingFilesForPlaylistReferenceApply();
+            pendingFilesSnapshot = SnapshotPendingFilesForPlaylistReferenceApply(referenceMaps);
         }
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && pendingFilesSnapshot != null && pendingFilesSnapshot.Count > 0)
         {
@@ -9994,7 +9994,7 @@ reportProgress,
                 stopwatchApplySong.Stop();
                 applySongMs = stopwatchApplySong.ElapsedMilliseconds;
                 var stopwatchApplyPending = Stopwatch.StartNew();
-                List<BMSFile> pendingFilesSnapshot = SnapshotPendingFilesForPlaylistReferenceApply();
+                List<BMSFile> pendingFilesSnapshot = SnapshotPendingFilesForPlaylistReferenceApply(referenceMaps);
                 if (pendingFilesSnapshot != null && pendingFilesSnapshot.Count > 0)
                 {
                     addedPendingRefs = playlistReferenceService.ApplyReferenceMap(pendingFilesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats, suppressFilePropertyChanged);
@@ -10031,15 +10031,33 @@ reportProgress,
         }
     }
 
-    private List<BMSFile> SnapshotPendingFilesForPlaylistReferenceApply()
+    private List<BMSFile> SnapshotPendingFilesForPlaylistReferenceApply(PlaylistReferenceMaps referenceMaps)
     {
         if (ChartPackagesPending == null || ChartPackagesPending.Count == 0)
         {
             return null;
         }
+        if ((referenceMaps?.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps?.Sha256ToTablesMap?.Count ?? 0) == 0)
+        {
+            return null;
+        }
         using (rwlockPendingInstallCharts.GetReaderGuard())
         {
-            return [.. ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters())];
+            List<BMSFile> matchedAdapters = [];
+            foreach (PackageChartEntry entry in ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartEntries))
+            {
+                ChartFile chart = entry?.Chart;
+                if (chart == null || !HasPlaylistReferenceMapMatch(chart, referenceMaps))
+                {
+                    continue;
+                }
+                BMSFile adapter = entry.GetOrCreateCompatibilityAdapter();
+                if (adapter != null)
+                {
+                    matchedAdapters.Add(adapter);
+                }
+            }
+            return [.. matchedAdapters.Distinct()];
         }
     }
 
@@ -10047,18 +10065,19 @@ reportProgress,
     {
         List<BMSTableEntry> oldEntriesSnapshot = SnapshotPlaylistReferenceEntries(oldTable, oldEntries);
         List<BMSTableEntry> newEntriesSnapshot = SnapshotPlaylistReferenceEntries(newTable, newEntries);
-        (List<BMSFile> SongFiles, List<BMSFile> PendingFiles) = ResolvePlaylistReferenceTargets(oldEntriesSnapshot.Concat(newEntriesSnapshot));
-        LogInstallPerformance("playlist_ref_replace targetsSong=" + SongFiles.Count + " targetsPending=" + PendingFiles.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
+        (List<BMSFile> OldSongFiles, List<BMSFile> OldPendingFiles) = ResolvePlaylistReferenceTargets(oldEntriesSnapshot, materializePendingMatches: false);
+        (List<BMSFile> NewSongFiles, List<BMSFile> NewPendingFiles) = ResolvePlaylistReferenceTargets(newEntriesSnapshot);
+        LogInstallPerformance("playlist_ref_replace targetsOldSong=" + OldSongFiles.Count + " targetsOldPending=" + OldPendingFiles.Count + " targetsNewSong=" + NewSongFiles.Count + " targetsNewPending=" + NewPendingFiles.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
         if (oldTable != null)
         {
             RemovePlaylistReferenceIndexTable(oldTable);
-            RemoveReferenceBMSTables(oldTable, SongFiles);
-            RemoveReferenceBMSTables(oldTable, PendingFiles);
+            RemoveReferenceBMSTables(oldTable, OldSongFiles);
+            RemoveReferenceBMSTables(oldTable, OldPendingFiles);
         }
         if (newTable != null)
         {
-            AddReferenceBMSTables(newTable, SongFiles);
-            AddReferenceBMSTables(newTable, PendingFiles);
+            AddReferenceBMSTables(newTable, NewSongFiles);
+            AddReferenceBMSTables(newTable, NewPendingFiles);
         }
     }
 
@@ -10078,26 +10097,22 @@ reportProgress,
         }
     }
 
-    private (List<BMSFile> SongFiles, List<BMSFile> PendingFiles) ResolvePlaylistReferenceTargets(IEnumerable<BMSTableEntry> entries)
+    private (List<BMSFile> SongFiles, List<BMSFile> PendingFiles) ResolvePlaylistReferenceTargets(IEnumerable<BMSTableEntry> entries, bool materializePendingMatches = true)
     {
-        var md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSTableEntry entry in entries ?? [])
+        BuildPlaylistReferenceHashSets(entries, out HashSet<string> md5Hashes, out HashSet<string> sha256Hashes);
+        return (FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), md5Hashes, sha256Hashes), FilterPendingPlaylistReferenceTargets(SnapshotPendingChartEntriesForPlaylistReferenceApply(), md5Hashes, sha256Hashes, materializePendingMatches));
+    }
+
+    private List<PackageChartEntry> SnapshotPendingChartEntriesForPlaylistReferenceApply()
+    {
+        if (ChartPackagesPending == null || ChartPackagesPending.Count == 0)
         {
-            if (entry == null)
-            {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(entry.md5))
-            {
-                md5Hashes.Add(entry.md5);
-            }
-            if (!string.IsNullOrWhiteSpace(entry.sha256))
-            {
-                sha256Hashes.Add(entry.sha256);
-            }
+            return null;
         }
-        return (FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), md5Hashes, sha256Hashes), FilterPlaylistReferenceTargets(SnapshotPendingFilesForPlaylistReferenceApply(), md5Hashes, sha256Hashes));
+        using (rwlockPendingInstallCharts.GetReaderGuard())
+        {
+            return [.. ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartEntries).Where(entry => entry?.Chart != null)];
+        }
     }
 
     private static List<BMSFile> FilterPlaylistReferenceTargets(IEnumerable<BMSFile> files, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
@@ -10118,6 +10133,82 @@ reportProgress,
             }
             return !string.IsNullOrWhiteSpace(file.sha256) && sha256Hashes.Contains(file.sha256);
         }).Distinct()];
+    }
+
+    private static List<BMSFile> FilterPendingPlaylistReferenceTargets(IEnumerable<PackageChartEntry> entries, HashSet<string> md5Hashes, HashSet<string> sha256Hashes, bool materializeMatches = true)
+    {
+        if (entries == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
+        {
+            return [];
+        }
+        List<BMSFile> matchedAdapters = [];
+        foreach (PackageChartEntry entry in entries)
+        {
+            ChartFile chart = entry?.Chart;
+            if (chart == null || !HasPlaylistReferenceHashMatch(chart, md5Hashes, sha256Hashes))
+            {
+                continue;
+            }
+            BMSFile adapter = materializeMatches ? entry.GetOrCreateCompatibilityAdapter() : entry.CompatibilityAdapter;
+            if (adapter != null)
+            {
+                matchedAdapters.Add(adapter);
+            }
+        }
+        return [.. matchedAdapters.Distinct()];
+    }
+
+    private static bool HasPlaylistReferenceMapMatch(ChartFile chart, PlaylistReferenceMaps referenceMaps)
+    {
+        return chart != null
+            && referenceMaps != null
+            && ((!string.IsNullOrWhiteSpace(chart.Md5) && referenceMaps.Md5ToTablesMap != null && referenceMaps.Md5ToTablesMap.ContainsKey(chart.Md5))
+                || (!string.IsNullOrWhiteSpace(chart.Sha256) && referenceMaps.Sha256ToTablesMap != null && referenceMaps.Sha256ToTablesMap.ContainsKey(chart.Sha256)));
+    }
+
+    private static bool HasPlaylistReferenceHashMatch(ChartFile chart, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
+    {
+        return chart != null
+            && ((!string.IsNullOrWhiteSpace(chart.Md5) && md5Hashes != null && md5Hashes.Contains(chart.Md5))
+                || (!string.IsNullOrWhiteSpace(chart.Sha256) && sha256Hashes != null && sha256Hashes.Contains(chart.Sha256)));
+    }
+
+    private static void BuildPlaylistReferenceHashSets(IEnumerable<BMSTableEntry> entries, out HashSet<string> md5Hashes, out HashSet<string> sha256Hashes)
+    {
+        md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSTableEntry entry in entries ?? [])
+        {
+            if (entry == null || entry.is_removed)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(entry.md5))
+            {
+                md5Hashes.Add(entry.md5);
+            }
+            if (!string.IsNullOrWhiteSpace(entry.sha256))
+            {
+                sha256Hashes.Add(entry.sha256);
+            }
+        }
+    }
+
+    private List<BMSFile> SnapshotPendingExistingChartAdaptersForPlaylistReferenceMutation()
+    {
+        if (ChartPackagesPending == null || ChartPackagesPending.Count == 0)
+        {
+            return null;
+        }
+        using (rwlockPendingInstallCharts.GetReaderGuard())
+        {
+            return [.. ChartPackagesPending
+                .Where(pkg => pkg != null)
+                .SelectMany(pkg => pkg.ChartEntries)
+                .Select(entry => entry?.CompatibilityAdapter)
+                .Where(adapter => adapter != null)
+                .Distinct()];
+        }
     }
 
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSFile> files)
@@ -10169,7 +10260,11 @@ reportProgress,
         {
             if (ChartPackagesPending != null)
             {
-                list.AddRange(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()).Where(file => file.HasRefTable(table)));
+                list.AddRange(ChartPackagesPending
+                    .Where(pkg => pkg != null)
+                    .SelectMany(pkg => pkg.ChartEntries)
+                    .Select(entry => entry?.CompatibilityAdapter)
+                    .Where(file => file != null && file.HasRefTable(table)));
             }
         }
         RefreshReferenceDisplayForFiles(list, suppressFilePropertyChanged);
@@ -10195,10 +10290,7 @@ reportProgress,
         }
         if (ChartPackagesPending != null && ChartPackagesPending.Count > 0)
         {
-            using (rwlockPendingInstallCharts.GetReaderGuard())
-            {
-                action(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
-            }
+            action(SnapshotPendingExistingChartAdaptersForPlaylistReferenceMutation());
         }
         if (list.Count > 0)
         {
@@ -10240,28 +10332,23 @@ reportProgress,
             {
                 return;
             }
-            using (rwlockPendingInstallCharts.GetReaderGuard())
-            {
-                action(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
-            }
+            action(SnapshotPendingExistingChartAdaptersForPlaylistReferenceMutation());
             return;
         }
         ReplacePlaylistReferenceIndexTable(table);
+        BuildPlaylistReferenceHashSets(entries, out HashSet<string> md5Hashes, out HashSet<string> sha256Hashes);
         if (BMSFiles != null && BMSFiles.Count > 0)
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                removeReferenceBMSTables(table, entries, BMSFiles);
+                RemoveReferenceBMSTables(table, FilterPlaylistReferenceTargets(BMSFiles, md5Hashes, sha256Hashes));
             }
         }
         if (ChartPackagesPending == null || ChartPackagesPending.Count <= 0)
         {
             return;
         }
-        using (rwlockPendingInstallCharts.GetReaderGuard())
-        {
-            removeReferenceBMSTables(table, entries, ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
-        }
+        RemoveReferenceBMSTables(table, FilterPlaylistReferenceTargets(SnapshotPendingExistingChartAdaptersForPlaylistReferenceMutation(), md5Hashes, sha256Hashes));
     }
 
     public void RemoveReferenceBMSTables(IEnumerable<BMSTable> tables)
@@ -10293,10 +10380,7 @@ reportProgress,
         {
             return;
         }
-        using (rwlockPendingInstallCharts.GetReaderGuard())
-        {
-            action(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
-        }
+        action(SnapshotPendingExistingChartAdaptersForPlaylistReferenceMutation());
     }
 
     public void RemoveReferenceBMSTables(BMSTable table, IEnumerable<BMSFile> files)
@@ -10308,16 +10392,6 @@ reportProgress,
         foreach (BMSFile file in files)
         {
             file.RemoveRefTable(table);
-        }
-    }
-
-    private void removeReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries, IEnumerable<BMSFile> files)
-    {
-        using (table.ReaderWriterLock.GetReaderGuard())
-        {
-            RemoveReferenceBMSTables(table, files.Where(f => (from e in entries
-                                                              where !string.IsNullOrWhiteSpace(e.md5) && !e.is_removed
-                                                              select e.md5).Contains(f.hash)));
         }
     }
 

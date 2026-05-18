@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -6,10 +7,12 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using Livet;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -443,6 +446,134 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    [TestMethod]
+    public void AddReferenceBMSTables_DoesNotMaterializeUnmatchedPendingBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            PackageChartEntry adapterlessBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Pending\Package\chart.bmson",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            library.ChartPackagesPending = CreatePackageCollection(
+            [
+                ChartPackage.FromChartEntries([adapterlessBmsonEntry])
+            ]);
+            BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+            library.AddReferenceBMSTables(table);
+
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
+    public void AddReferenceBMSTables_MaterializesOnlyMatchedPendingBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            PackageChartEntry matchingBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Pending\Package\matching.bmson",
+                matchingHash);
+            PackageChartEntry unmatchedBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Pending\Package\unmatched.bmson",
+                "cccccccccccccccccccccccccccccccc");
+            library.ChartPackagesPending = CreatePackageCollection(
+            [
+                ChartPackage.FromChartEntries([matchingBmsonEntry, unmatchedBmsonEntry])
+            ]);
+            BMSTable table = CreateTable("Matched", "M", matchingHash);
+
+            library.AddReferenceBMSTables(table);
+
+            Assert.IsNotNull(matchingBmsonEntry.CompatibilityAdapter);
+            Assert.IsTrue(matchingBmsonEntry.CompatibilityAdapter.HasRefTable(table));
+            Assert.IsNull(unmatchedBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
+    public void ReplaceReferenceBMSTable_DoesNotAddNewTableToOldOnlyPendingBmsonEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            string oldHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            string newHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            PackageChartEntry oldOnlyBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Pending\Package\old.bmson",
+                oldHash);
+            library.ChartPackagesPending = CreatePackageCollection(
+            [
+                ChartPackage.FromChartEntries([oldOnlyBmsonEntry])
+            ]);
+            BMSTable oldTable = CreateTable("Old", "O", oldHash);
+            BMSTable newTable = CreateTable("New", "N", newHash);
+            library.AddReferenceBMSTables(oldTable);
+            Assert.IsNotNull(oldOnlyBmsonEntry.CompatibilityAdapter);
+            Assert.IsTrue(oldOnlyBmsonEntry.CompatibilityAdapter.HasRefTable(oldTable));
+
+            library.ReplaceReferenceBMSTable(oldTable, newTable);
+
+            Assert.IsFalse(oldOnlyBmsonEntry.CompatibilityAdapter.HasRefTable(oldTable));
+            Assert.IsFalse(oldOnlyBmsonEntry.CompatibilityAdapter.HasRefTable(newTable));
+        });
+    }
+
+    [TestMethod]
+    public void SynchronizeReferenceBMSTables_DoesNotMaterializeUnmatchedPendingBmsonEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            PackageChartEntry adapterlessBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Pending\Package\unmatched.bmson",
+                "cccccccccccccccccccccccccccccccc");
+            library.ChartPackagesPending = CreatePackageCollection(
+            [
+                ChartPackage.FromChartEntries([adapterlessBmsonEntry])
+            ]);
+            BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+            library.SynchronizeReferenceBMSTables([table], suppressFilePropertyChanged: true);
+
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
+    public void RemoveReferenceBMSTables_WithEntriesRemovesPendingReferenceMatchedBySha256()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            string sha256 = new string('d', 64);
+            PackageChartEntry matchingBmsonEntry = CreateAdapterlessBmsonEntry(
+                @"C:\Pending\Package\sha.bmson",
+                md5: string.Empty,
+                sha256: sha256);
+            library.ChartPackagesPending = CreatePackageCollection(
+            [
+                ChartPackage.FromChartEntries([matchingBmsonEntry])
+            ]);
+            BMSTable table = CreateTableWithHashes("Sha", "S", md5: string.Empty, sha256: sha256);
+            library.AddReferenceBMSTables(table);
+            Assert.IsNotNull(matchingBmsonEntry.CompatibilityAdapter);
+            Assert.IsTrue(matchingBmsonEntry.CompatibilityAdapter.HasRefTable(table));
+
+            library.RemoveReferenceBMSTables(table, table.entries);
+
+            Assert.IsFalse(matchingBmsonEntry.CompatibilityAdapter.HasRefTable(table));
+        });
+    }
+
     private static bool WaitUntilTrue(Func<bool> predicate, int timeoutMs = 2000)
     {
         return SpinWait.SpinUntil(predicate, timeoutMs);
@@ -460,6 +591,23 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BmsonSongs", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         fieldInfo.SetValue(library, songs.ToList());
+    }
+
+    private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
+    {
+        return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>([.. (packages ?? [])]), Dispatcher.CurrentDispatcher);
+    }
+
+    private static PackageChartEntry CreateAdapterlessBmsonEntry(string path, string md5, string sha256 = "")
+    {
+        return PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = path,
+            md5 = md5,
+            sha256 = string.IsNullOrWhiteSpace(sha256) ? new string('b', 64) : sha256,
+            title = "Pending Bmson",
+            artist = "Artist"
+        }));
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
@@ -493,9 +641,19 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         {
             hash = value;
         }
+
+        public void SetSha256(string value)
+        {
+            ApplySha256(value);
+        }
     }
 
     private static BMSTable CreateTable(string name, string symbol, string hash)
+    {
+        return CreateTableWithHashes(name, symbol, hash, sha256: string.Empty);
+    }
+
+    private static BMSTable CreateTableWithHashes(string name, string symbol, string md5, string sha256)
     {
         var bMSTable = new BMSTable
         {
@@ -503,12 +661,18 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             symbol = symbol
         };
         var testableBmsFile = new TestableBmsFile();
-        testableBmsFile.SetHash(hash);
+        testableBmsFile.SetHash(md5);
+        testableBmsFile.SetSha256(sha256);
         testableBmsFile.path = @"C:\Library\chart.bms";
-        bMSTable.entries.Add(new BMSTableEntry(testableBmsFile)
+        BMSTableEntry entry = new BMSTableEntry(testableBmsFile)
         {
             is_removed = false
-        });
+        };
+        if (string.IsNullOrWhiteSpace(md5) && !string.IsNullOrWhiteSpace(sha256))
+        {
+            entry.MarkAsBmsonPlaylistIdentity(sha256);
+        }
+        bMSTable.entries.Add(entry);
         return bMSTable;
     }
 
