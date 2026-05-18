@@ -110,22 +110,6 @@ public class ChartPackage : LR2SongDBExtended.install
         GetOrBuildPackageChartDiscoverySnapshot(out _).RemoveChartEntriesByPath(pathsToRemove);
     }
 
-    internal bool RemoveChartAdapters(Func<BMSFile, bool> predicate)
-    {
-        if (predicate == null)
-        {
-            return false;
-        }
-        List<BMSFile> currentAdapters = GetChartAdapters();
-        List<BMSFile> nextAdapters = [.. currentAdapters.Where(file => !predicate(file))];
-        if (nextAdapters.Count == currentAdapters.Count)
-        {
-            return false;
-        }
-        ReplaceChartAdapters(nextAdapters);
-        return true;
-    }
-
     internal bool RemoveChartEntries(Func<PackageChartEntry, bool> predicate)
     {
         if (predicate == null)
