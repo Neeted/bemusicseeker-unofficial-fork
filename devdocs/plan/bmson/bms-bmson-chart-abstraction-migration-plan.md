@@ -378,6 +378,7 @@ F-3 で進める候補 / 進捗:
 - 所持 bmson row の adapter 共有は `BmsonChartAdapterProvider` / `sharedBmsonChartAdaptersByKey` へ寄せる。`CompatibilityBmsFile` property は legacy `BMSFile` API 互換境界として残す
 - `ChartListSourceRow` の identity 系 getter は warning なしの `ChartFile` snapshot を読む。`ChartInfo` は hydration 後の attach を反映するため storage owner から読み、warning / install destination のように adapter の mutable state が必要な表示は、都度 `ChartFileProjection` で現在 snapshot を作る。これに合わせて `ChartFile` は title / artist / genre / folder / path / mode / level / tag / hash を domain read model として持つ
 - chart 行に対する folder 操作は `RenameChartFolder` / `MergeChartDirectory` / `AutoRenameChartFolders` / `AutoRenameAllChartFolders` に寄せる。`BMSDirectory` 系 UI / root 設定 vocabulary は既存 UI / LR2 search-root 境界として維持し、別判断で段階移行する
+- playlist detail row は `PlaylistDetailSourceRow.Chart` / `PlaylistDetailRow.Chart` を持ち、`GridRowResolver` は playlist row から `ChartFile` を再構築せず row の snapshot を使う。missing row の entry chart_info patch や手動 level 編集では snapshot を更新する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:

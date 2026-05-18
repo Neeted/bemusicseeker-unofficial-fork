@@ -45,6 +45,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
     /// </summary>
     internal bool IsOwned { get; }
 
+    internal ChartFile Chart { get; private set; }
+
     internal double? EntryLevelSortKey { get; private set; }
 
     public string Title { get; }
@@ -236,6 +238,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
         ResolvedBmson = source.ResolvedBmson;
         CompatibilityBmsFile = source.CompatibilityBmsFile;
         IsOwned = source.IsOwned;
+        Chart = source.Chart;
         EntryLevelSortKey = source.EntryLevelSortKey;
         level = source.Level;
         url = source.Url;
@@ -348,8 +351,29 @@ internal sealed class PlaylistDetailRow : NotificationObject
                     }
                 }
             }
+            RefreshEditableChartSnapshot();
             RaisePropertyChanged(nameof(Level));
         }
+    }
+
+    private void RefreshEditableChartSnapshot()
+    {
+        if (Chart?.BmsFile != null || Chart?.BmsonSong != null)
+        {
+            return;
+        }
+        Chart = ChartFileProjection.FromBmsMetadata(
+            path,
+            hash,
+            sha256,
+            Title,
+            Artist,
+            genre,
+            Folder,
+            tag,
+            Entry?.level,
+            mode,
+            Chart?.ChartInfo);
     }
 
     public Uri Url

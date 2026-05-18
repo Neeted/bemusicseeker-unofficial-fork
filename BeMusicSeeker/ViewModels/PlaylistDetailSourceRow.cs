@@ -134,6 +134,8 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string Level { get; private set; }
 
+    internal ChartFile Chart { get; private set; }
+
     internal LR2SongDBExtended.chart_info EntryChartInfo { get; private set; }
 
     internal LR2SongDBExtended.chart_info ChartInfo => RealFile?.ChartInfo ?? ResolvedBmson?.ChartInfo ?? EntryChartInfo;
@@ -303,6 +305,7 @@ internal sealed class PlaylistDetailSourceRow
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
         Level = BuildLevelText(entry, realFile, resolvedBmson);
+        Chart = CreateChartFile();
         SearchText = BuildSearchText();
     }
 
@@ -317,6 +320,7 @@ internal sealed class PlaylistDetailSourceRow
         {
             sha256 = chartInfo.sha256;
         }
+        Chart = CreateChartFile();
         return true;
     }
 
@@ -350,7 +354,32 @@ internal sealed class PlaylistDetailSourceRow
         comment = editedRow.comment ?? string.Empty;
         memo = editedRow.memo ?? string.Empty;
         EntryLevelSortKey = ResolveEntryLevelSortKey(editedRow.Level, Entry.level, editedRow.EntryLevelSortKey);
+        Chart = CreateChartFile();
         SearchText = BuildSearchText();
+    }
+
+    private ChartFile CreateChartFile()
+    {
+        if (RealFile != null)
+        {
+            return ChartFileProjection.FromBmsFile(RealFile);
+        }
+        if (ResolvedBmson != null)
+        {
+            return ChartFileProjection.FromBmsonSong(ResolvedBmson, CompatibilityBmsFile);
+        }
+        return ChartFileProjection.FromBmsMetadata(
+            path,
+            hash,
+            sha256,
+            Title,
+            Artist,
+            genre,
+            Folder,
+            tag,
+            Entry?.level,
+            mode,
+            ChartInfo);
     }
 
     private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)

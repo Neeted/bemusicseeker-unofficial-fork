@@ -543,6 +543,13 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(sourceRow.IsOwned);
         Assert.IsNull(row.RealFile);
         Assert.AreSame(bmson, row.ResolvedBmson);
+        Assert.AreSame(sourceRow.Chart, row.Chart);
+        Assert.IsTrue(GridRowResolver.TryGetChartFile(sourceRow, out ChartFile sourceChart));
+        Assert.AreSame(sourceRow.Chart, sourceChart);
+        Assert.IsTrue(GridRowResolver.TryGetChartFile(row, out ChartFile rowChart));
+        Assert.AreSame(row.Chart, rowChart);
+        Assert.AreEqual(ChartFileKind.Bmson, rowChart.Kind);
+        Assert.AreSame(bmson, rowChart.BmsonSong);
         Assert.AreEqual("Bmson [Another]", row.Title);
         Assert.AreEqual("Artist", row.Artist);
         Assert.AreEqual("[Another]", GridRowResolver.GetDisplaySubtitle(row));
@@ -616,6 +623,8 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.AreSame(row.Chart, target.Chart);
+        Assert.AreSame(row.CompatibilityBmsFile, target.CompatibilityBmsFile);
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPlaylistMissing);
@@ -1486,6 +1495,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ClearType.NO_SONG, sourceRow.clear);
         Assert.AreSame(chartInfo, sourceRow.EntryChartInfo);
         Assert.AreSame(chartInfo, sourceRow.ChartInfo);
+        Assert.AreSame(chartInfo, sourceRow.Chart.ChartInfo);
+        Assert.AreSame(sourceRow.Chart, row.Chart);
+        Assert.IsTrue(GridRowResolver.TryGetChartFile(row, out ChartFile rowChart));
+        Assert.AreSame(row.Chart, rowChart);
+        Assert.AreSame(chartInfo, rowChart.ChartInfo);
         Assert.AreEqual(chartInfo.sha256, sourceRow.sha256);
         Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetRepositorySha256(row));
         Assert.AreEqual("12", row.ChartLevelText);
@@ -1524,11 +1538,34 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailRow viewRow = sourceRow.CreateViewRow();
         Assert.AreSame(newInfo, sourceRow.EntryChartInfo);
         Assert.AreSame(newInfo, sourceRow.ChartInfo);
+        Assert.AreSame(newInfo, sourceRow.Chart.ChartInfo);
+        Assert.AreSame(sourceRow.Chart, viewRow.Chart);
+        Assert.IsTrue(GridRowResolver.TryGetChartFile(viewRow, out ChartFile viewChart));
+        Assert.AreSame(viewRow.Chart, viewChart);
+        Assert.AreSame(newInfo, viewChart.ChartInfo);
         Assert.AreEqual(newInfo.sha256, viewRow.sha256);
         Assert.AreEqual(newInfo.sha256, GridRowResolver.GetRepositorySha256(viewRow));
         Assert.AreEqual("12", viewRow.ChartLevelText);
         Assert.AreEqual(2500, viewRow.ChartNotes);
         Assert.AreEqual("500", viewRow.ChartTotalText);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailRow_MissingLevelEditRefreshesChartSnapshot()
+    {
+        var entry = new TestablePlaylistEntry();
+        entry.SetTitle("MissingEditableLevel");
+        entry.SetMd5("abababababababababababababababab");
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null).CreateViewRow();
+
+        row.Level = "13";
+
+        Assert.IsTrue(GridRowResolver.TryGetChartFile(row, out ChartFile chart));
+        Assert.AreSame(row.Chart, chart);
+        Assert.AreEqual("13", chart.LevelText);
+        Assert.AreEqual(13d, chart.Level);
+        Assert.AreEqual(13d, row.Entry.level);
+        Assert.AreEqual(13d, row.EntryLevelSortKey);
     }
 
     [TestMethod]

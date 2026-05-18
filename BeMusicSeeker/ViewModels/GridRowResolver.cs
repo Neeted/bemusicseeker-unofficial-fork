@@ -77,9 +77,11 @@ internal static class GridRowResolver
         switch (row)
         {
             case PlaylistDetailRow playlistDetailRow:
-                return TryCreatePlaylistChartFile(playlistDetailRow, out chart);
+                chart = playlistDetailRow.Chart;
+                return chart != null;
             case PlaylistDetailSourceRow playlistSourceRow:
-                return TryCreatePlaylistChartFile(playlistSourceRow, out chart);
+                chart = playlistSourceRow.Chart;
+                return chart != null;
             case LibraryChartRow libraryChartRow:
                 chart = libraryChartRow.Chart;
                 return chart != null;
@@ -249,78 +251,9 @@ internal static class GridRowResolver
         return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
     }
 
-    private static bool TryCreatePlaylistChartFile(PlaylistDetailRow row, out ChartFile chart)
-    {
-        chart = null;
-        if (row == null)
-        {
-            return false;
-        }
-        if (row.RealFile != null)
-        {
-            chart = CreateChartFile(row.RealFile);
-            return chart != null;
-        }
-        if (row.ResolvedBmson != null)
-        {
-            chart = CreateChartFile(row.ResolvedBmson, row.CompatibilityBmsFile);
-            return chart != null;
-        }
-        chart = ChartFileProjection.FromBmsMetadata(
-            row.path,
-            row.hash,
-            row.sha256,
-            row.Title,
-            row.Artist,
-            row.genre,
-            row.Folder,
-            row.tag,
-            row.Entry?.level,
-            row.mode,
-            null);
-        return true;
-    }
-
-    private static bool TryCreatePlaylistChartFile(PlaylistDetailSourceRow row, out ChartFile chart)
-    {
-        chart = null;
-        if (row == null)
-        {
-            return false;
-        }
-        if (row.RealFile != null)
-        {
-            chart = CreateChartFile(row.RealFile);
-            return chart != null;
-        }
-        if (row.ResolvedBmson != null)
-        {
-            chart = CreateChartFile(row.ResolvedBmson, row.CompatibilityBmsFile);
-            return chart != null;
-        }
-        chart = ChartFileProjection.FromBmsMetadata(
-            row.path,
-            row.hash,
-            row.sha256,
-            row.Title,
-            row.Artist,
-            row.genre,
-            row.Folder,
-            row.tag,
-            row.Entry?.level,
-            row.mode,
-            row.ChartInfo);
-        return true;
-    }
-
     private static ChartFile CreateChartFile(BMSFile file)
     {
         return ChartFileProjection.FromBmsFile(file);
-    }
-
-    private static ChartFile CreateChartFile(LR2SongDBExtended.bmson_song song, BMSFile compatibilityBmsFile = null)
-    {
-        return ChartFileProjection.FromBmsonSong(song, compatibilityBmsFile);
     }
 
     private static BMSFile ResolveCompatibilityBmsFile(object row)

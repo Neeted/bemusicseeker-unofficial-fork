@@ -139,14 +139,16 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 - `BmsFile`
 - `BmsonSong`
 
-`GridRowResolver.TryGetChartFile(...)` は、次の row から `ChartFile` を作る。
+`GridRowResolver.TryGetChartFile(...)` は、次の row から `ChartFile` を解決する。
 
 - `PlaylistDetailRow`
 - `PlaylistDetailSourceRow`
 - `LibraryChartRow`
 - `BMSFile`
 
-`ChartFile` 生成は `ChartFileProjection` に集約する。`LibraryChartRow.Chart` と `GridRowResolver` は storage row / playlist row / compatibility adapter からの値取り出しを行うが、最終的な `ChartFile` の組み立ては projection helper を通す。これにより、BMS / bmson / playlist missing の mapping drift を避ける。
+`ChartFile` 生成は `ChartFileProjection` に集約する。`LibraryChartRow.Chart` と playlist detail row の `Chart` は storage row / playlist row / compatibility adapter からの値取り出しを行うが、最終的な `ChartFile` の組み立ては projection helper を通す。これにより、BMS / bmson / playlist missing の mapping drift を避ける。
+
+通常一覧 row と playlist detail row は、どちらも row 側に `ChartFile` snapshot を持つ。`GridRowResolver` は `LibraryChartRow` / `PlaylistDetailSourceRow` / `PlaylistDetailRow` では row の `Chart` をそのまま返し、resolver 内では再構築しない。直接 `BMSFile` が渡された場合だけ、互換境界として `ChartFileProjection.FromBmsFile(...)` を使う。
 
 `ChartFileProjection.FromBmsFile(...)` は通常 BMS では `BmsFile` に実体を入れ、`PendingChartEntry` の bmson adapter では `Kind=Bmson`, `BmsFile=null`, `BmsonSong=adapter owner` とする。`FromBmsonSong(...)` は storage owner として `bmson_song` を持ち、必要な場合だけ caller が shared compatibility adapter を渡して表示 snapshot を作る。
 
@@ -305,8 +307,11 @@ playlist detail は `PlaylistDetailSourceRow` / `PlaylistDetailRow` で表示さ
 - `RealFile`: 所持 BMS へ解決できた場合の `BMSFile`
 - `ResolvedBmson`: 所持 bmson へ解決できた場合の `bmson_song`
 - `IsOwned`: `RealFile` または `ResolvedBmson` が path を持つ場合 true
+- `Chart`: playlist detail row の chart read model
 
-`GridRowResolver` は playlist row から `ChartOperationTarget` を作る際、`RealFile` を BMS、`ResolvedBmson` を bmson として扱う。
+`PlaylistDetailSourceRow` は source snapshot 構築時に `Chart` を作る。`RealFile` があれば BMS、`ResolvedBmson` があれば bmson、どちらもなければ playlist missing の metadata chart として扱う。`PlaylistDetailRow` は source row の `Chart` を引き継ぎ、missing row の手動 level 編集や source row の entry chart_info patch 時には `Chart` を作り直す。これにより、view row からも source row と同じ chart_info / identity snapshot を `GridRowResolver` に渡せる。
+
+`GridRowResolver` は playlist row から `ChartOperationTarget` を作る際、row の `Chart.Kind` と `RealFile` / `ResolvedBmson` / `CompatibilityBmsFile` を組み合わせて source scope と capability を決める。
 
 playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `RealFile.RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
 
