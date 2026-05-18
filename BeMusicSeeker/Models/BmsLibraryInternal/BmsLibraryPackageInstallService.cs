@@ -443,7 +443,7 @@ internal sealed class BmsLibraryPackageInstallService
             List<BMSFile> recursiveChartList = [.. PackageInstallEstimationSnapshotBuilder
                 .BuildPackageChartDiscoverySnapshot(packagePath, useEverythingForPendingPackageSourceScan: false)
                 .ChartEntries
-                .Select(entry => entry?.CompatibilityAdapter)
+                .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
                 .Where(file => file != null)];
             if (recursiveChartList.Count > 0)
             {

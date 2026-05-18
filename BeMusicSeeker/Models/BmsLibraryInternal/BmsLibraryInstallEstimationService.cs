@@ -1151,7 +1151,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         ChartPackage package = (pendingPackages ?? [])
-            .FirstOrDefault(pkg => pkg != null && pkg.ChartEntries.Any(entry => IsSameChartAdapter(entry?.CompatibilityAdapter, targetFile)));
+            .FirstOrDefault(pkg => pkg != null && pkg.ChartEntries.Any(entry => IsSameChartTarget(entry, targetFile)));
         if (package == null)
         {
             if (!allowStandaloneLibraryFile)
@@ -1163,7 +1163,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         else
         {
-            result.TargetFiles.AddRange(package.ChartEntries.Select(entry => entry.CompatibilityAdapter).Where(file => file != null));
+            result.TargetFiles.AddRange(package.ChartEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null));
         }
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
@@ -1273,6 +1273,21 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             && right != null
             && (ReferenceEquals(left, right)
                 || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && left.path.Equals(right.path, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static bool IsSameChartTarget(PackageChartEntry entry, BMSFile targetFile)
+    {
+        if (entry == null || targetFile == null)
+        {
+            return false;
+        }
+        if (IsSameChartAdapter(entry.CompatibilityAdapter, targetFile))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart?.Path)
+            && !string.IsNullOrWhiteSpace(targetFile.path)
+            && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
     }
 
     private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
