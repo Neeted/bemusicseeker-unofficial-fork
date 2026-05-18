@@ -1237,6 +1237,10 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsFalse(bmsonTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsTrue(bmsTarget.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+        Assert.IsTrue(bmsTarget.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsTrue(bmsTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsFalse(bmsTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsTrue(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.MoveInLibrary));
@@ -1520,6 +1524,12 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(chartInfo, rowChart.ChartInfo);
         Assert.AreEqual(chartInfo.sha256, sourceRow.sha256);
         Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetRepositorySha256(row));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.IsTrue(target.IsPlaylistMissing);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenFile));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.AreEqual("12", row.ChartLevelText);
         Assert.AreEqual("ANOTHER", row.ChartDifficultyText);
         Assert.AreEqual(2500, row.ChartNotes);

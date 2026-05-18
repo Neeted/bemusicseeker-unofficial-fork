@@ -381,6 +381,9 @@ F-3 で進める候補 / 進捗:
 - playlist detail row は `PlaylistDetailSourceRow.Chart` / `PlaylistDetailRow.Chart` を持ち、`GridRowResolver` は playlist row から `ChartFile` を再構築せず row の snapshot を使う。missing row の entry chart_info patch や手動 level 編集では snapshot を更新する
 - install estimation snapshot の代表譜面は `RepresentativeChart` として `ChartFile` を持つ。`ChartPackage.ChartFiles` 自体は compatibility adapter list のままだが、推定中の読み取り専用代表情報は BMS / bmson 共通の domain read model へ寄せる
 - library mutation 用 `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。ViewModel は `ChartFileKind` / `CompatibilityBmsFile` / `BmsonSong` の分岐を直接持たず、operation target から mutation ref へ変換する
+- playlist 未所持 row は local file operation を持たない一方、entry / chart_info に有効な sha256 があれば repository link capability を持つことをテストで固定する
+- BMS 専用 context menu handler は `GetSelectedBmsChartFiles`、chart 共通 resource health handler は `GetSelectedChartCompatibilityAdapters` を使うことを source-level test で固定する
+- folder move mutation は同一 delta 内で BMS の `FilePathChanges` と bmson の `BmsonSongPathChanges` を同時に持てることをテストで固定する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:

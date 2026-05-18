@@ -804,6 +804,37 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ChartContextMenu_BmsOnlyAndChartCommonHandlersUseExpectedSelectionHelpers()
+    {
+        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string renameInvalidExtensionClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemRenameBMSFileClick",
+            "private void tableContextMenuItemRemoveBMSFileClick");
+        string encodingFixClick = ExtractBetween(
+            mainWindowCode,
+            "private void fixEncodingSelectedBMS",
+            "private void ignoreFileScanCheckSelectedCharts");
+        string audioConvertClick = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemConvertToAudioFileClick",
+            "private void playlistTableDrop");
+        string resourceHealthClick = ExtractBetween(
+            mainWindowCode,
+            "private void ignoreFileScanCheckSelectedCharts",
+            "private async void forceInstallSelectedPendingCharts");
+
+        StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension)");
+        Assert.IsFalse(renameInvalidExtensionClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RenameInvalidExtension)"));
+        StringAssert.Contains(encodingFixClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.RunBmsEncodingFix)");
+        Assert.IsFalse(encodingFixClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunBmsEncodingFix)"));
+        StringAssert.Contains(audioConvertClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio)");
+        Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
+        StringAssert.Contains(resourceHealthClick, "GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)");
+        Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
+    }
+
+    [TestMethod]
     public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

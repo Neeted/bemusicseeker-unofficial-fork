@@ -752,6 +752,39 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void BuildFolderMoveDelta_MixedBmsAndBmsonTracksBothStorageModels()
+    {
+        var service = new BmsLibraryLibraryFileOperationsService();
+        TestableBmsFile bmsFile = CreateFile("C:\\Lib\\Src\\Pkg\\chart.bms");
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Lib\\Src\\Pkg\\chart.bmson",
+            folder = "C:\\Lib\\Src\\Pkg"
+        };
+
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            "C:\\Lib\\Src",
+            "C:\\Lib\\Dst",
+            [bmsFile],
+            [bmsonSong],
+            [],
+            [],
+            unregister: false,
+            raiseBmsFilesChanged: true);
+
+        Assert.AreEqual(1, delta.FilePathChanges.Count);
+        Assert.AreSame(bmsFile, delta.FilePathChanges[0].File);
+        Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bms", delta.FilePathChanges[0].NewPath);
+        Assert.AreEqual(1, delta.BmsonSongPathChanges.Count);
+        Assert.AreSame(bmsonSong, delta.BmsonSongPathChanges[0].Song);
+        Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", delta.BmsonSongPathChanges[0].NewPath);
+        Assert.IsTrue(delta.RaiseBmsFilesChanged);
+        Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
+        Assert.IsTrue(delta.InvalidateParentFolderCache);
+        Assert.IsTrue(delta.ClearDuplicatedCache);
+    }
+
+    [TestMethod]
     public void BuildFolderMoveDelta_UnregisterTracksBmsonSongsSeparately()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
