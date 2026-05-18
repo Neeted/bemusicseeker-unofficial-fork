@@ -4,11 +4,13 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PackageChartEntry
 {
+    private readonly ChartFile chart;
+
     private BMSFile compatibilityAdapter;
 
     internal PackageChartEntry(ChartFile chart, BMSFile compatibilityAdapter = null)
     {
-        Chart = chart ?? throw new ArgumentNullException(nameof(chart));
+        this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
         this.compatibilityAdapter = compatibilityAdapter;
     }
 
@@ -17,7 +19,9 @@ internal sealed class PackageChartEntry
     {
     }
 
-    internal ChartFile Chart { get; }
+    internal ChartFile Chart => compatibilityAdapter != null
+        ? ChartFileProjection.FromBmsFile(compatibilityAdapter)
+        : chart;
 
     internal BMSFile CompatibilityAdapter => compatibilityAdapter;
 

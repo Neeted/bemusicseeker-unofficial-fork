@@ -265,11 +265,11 @@ pending / installed package record の永続正本は `install` table の row �
 
 - `ChartPackage.ChartEntries` は package 内 chart discovery の読み取り primary API になりつつあり、`PackageChartEntry` / `ChartFile` を返す。
 - `ChartPackage.GetChartAdapters()` は既存 UI / mutation との橋渡しとして `List<BMSFile>` compatibility adapter snapshot を返す。
-- 明示的に `chartFiles` を渡された package では private adapter cache を保持し、`GetChartAdapters()` はそこから null を除いた snapshot を返す。
+- 明示的に chart adapter list を渡された package でも private `PackageChartEntry` list を保持し、`GetChartAdapters()` は entry から compatibility adapter を materialize した snapshot を返す。
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
 - `PendingCharts` は `ChartEntries` から compatibility adapter を取り出し、`PendingChartEntry` だけに絞った view である。
 
-production code の `ChartPackage` 経由の chart-all 参照は、読み取り系と install estimation 系では `ChartEntries`、互換 adapter が必要な UI / mutation target list では `GetChartAdapters()` に寄せ始めている。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 compatibility adapter cache は private `ChartFiles` に閉じ込めている。`ChartFiles` の戻り値が `List<BMSFile>` である点は、ChartFile domain model 化後も維持する契約ではなく、`ChartPackage` が package 内 chart を `BMSFile` 互換 adapter なしで返す形へ置き換える対象である。
+production code の `ChartPackage` 経由の chart-all 参照は、読み取り系と install estimation 系では `ChartEntries`、互換 adapter が必要な UI / mutation target list では `GetChartAdapters()` に寄せ始めている。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart の正本は明示 package / path discovery ともに `PackageChartEntry` に寄せている。private `ChartFiles` property は compatibility adapter materialization 境界であり、ChartFile domain model 化後も維持する契約ではない。
 
 `PackageChartDiscoverySnapshot` は `PackageChartEntry` を内部正本として保持する。`PackageChartEntry` は `ChartFile` を必ず持ち、operation / mutation 用の `CompatibilityAdapter` は nullable である。path discovery で見つけた bmson はまず `ChartFileProjection.FromBmsonSong(...)` による adapterless entry として保持し、`ChartFiles` / `PendingCharts` / mutation 操作が adapter を要求した時だけ `PendingChartEntry` compatibility adapter を lazy materialize する。`ChartFiles` setter は compatibility adapter list から `PackageChartEntry` を再構築するため、旧 adapter list を受け取る経路も snapshot 内では chart entry に同期される。`ChartEntries` getter は compatibility adapter が materialize 済みなら adapter から再構築した entry と adapterless entry を合成し、adapter mutation を反映しつつ ChartFile-only entry を落とさない。旧 `BmsFiles` alias は削除済みであり、snapshot の読み取り経路は `PackageChartEntry` へ移し始めている。
 

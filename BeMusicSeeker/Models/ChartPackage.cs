@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Models;
 
 public class ChartPackage : LR2SongDBExtended.install
 {
-    private readonly List<BMSFile> chartFiles;
+    private readonly List<PackageChartEntry> chartEntries;
 
     private readonly bool hasExplicitChartFiles;
 
@@ -46,7 +46,7 @@ public class ChartPackage : LR2SongDBExtended.install
         {
             if (hasExplicitChartFiles)
             {
-                return [.. (chartFiles ?? []).Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+                return [.. chartEntries ?? []];
             }
             return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartEntries;
         }
@@ -58,7 +58,7 @@ public class ChartPackage : LR2SongDBExtended.install
         {
             if (hasExplicitChartFiles)
             {
-                return chartFiles ?? [];
+                return [.. (chartEntries ?? []).Select(entry => entry?.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
             }
             return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartFiles;
         }
@@ -140,8 +140,8 @@ public class ChartPackage : LR2SongDBExtended.install
         List<BMSFile> nextAdapters = [.. (nextChartFiles ?? []).Where(file => file != null)];
         if (hasExplicitChartFiles)
         {
-            chartFiles.Clear();
-            chartFiles.AddRange(nextAdapters);
+            chartEntries.Clear();
+            chartEntries.AddRange(nextAdapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null));
             return;
         }
         GetOrBuildPackageChartDiscoverySnapshot(out _).ReplaceCompatibilityAdapters(nextAdapters);
@@ -170,13 +170,13 @@ public class ChartPackage : LR2SongDBExtended.install
     public ChartPackage(BMSFile chartFile)
     {
         path = chartFile.path;
-        chartFiles = [chartFile];
+        chartEntries = [PackageChartEntry.FromCompatibilityAdapter(chartFile)];
         hasExplicitChartFiles = true;
     }
 
     public ChartPackage(IEnumerable<BMSFile> chartFiles)
     {
-        this.chartFiles = [.. chartFiles];
+        chartEntries = [.. (chartFiles ?? []).Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
         hasExplicitChartFiles = true;
     }
 
