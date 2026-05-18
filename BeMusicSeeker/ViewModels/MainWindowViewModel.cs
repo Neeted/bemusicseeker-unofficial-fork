@@ -11469,6 +11469,15 @@ public class MainWindowViewModel : ViewModel
         return [.. (packages ?? []).Where(package => package != null).SelectMany(package => package.GetChartAdapters())];
     }
 
+    private static List<BeMusicSeeker.Models.BMSFile> CreatePackagePlaybackTargetSnapshot(IEnumerable<ChartPackage> packages)
+    {
+        return [.. (packages ?? [])
+            .Where(package => package != null)
+            .SelectMany(package => package.ChartEntries)
+            .Select(entry => entry?.CompatibilityAdapter)
+            .Where(file => PendingChartEntry.IsBmsChartFile(file))];
+    }
+
     private bool TryGetVirtualDuplicateSourceFiles(
         object parameter,
         out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
@@ -19708,7 +19717,7 @@ public class MainWindowViewModel : ViewModel
         RunPendingInstallMutation(delegate
         {
             files.ForceInstallPendingPackages(list);
-        }, list.SelectMany(p => p.GetChartAdapters()), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     public void ForceInstallPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
@@ -19735,7 +19744,7 @@ public class MainWindowViewModel : ViewModel
         RunPendingInstallMutation(delegate
         {
             files.InstallPendingPackagesToEstimatedDestinations(list);
-        }, list.SelectMany(p => p.GetChartAdapters()), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+        }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     private void SetPlaylistSummaryMode(bool enabled)
