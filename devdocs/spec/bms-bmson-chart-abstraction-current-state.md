@@ -285,6 +285,7 @@ auto install workflow の pending / auto-install 分類では、resource referen
 pending package から選択 chart を削る mutation delta も、削除対象判定は `PackageChartEntry` の既存 adapter reference / `ChartFile.Path` で行う。残す entry を package へ書き戻す必要がある場合だけ残存 entry の adapter を materialize するため、削除される adapterless bmson は削除判定だけでは adapter 化しない。
 force install の normal install 上書き確認は、package に `ChartFile.InstallDestination` を持つ entry があるかで判定する。確認ダイアログを出すかどうかだけなら adapter mutation target は不要なので、adapterless bmson entry は確認判定だけでは materialize しない。install 成功後の `instl_dst` clear はまだ adapter writeback 境界である。
 install table load result は pending warning 初期化の対象 adapter list を公開しない。warning count と package / stale row の結果だけを返し、adapter list は warning 書き戻しの内部処理に閉じる。起動時 pending package の installed 判定は `ChartFile` callback で行い、AlreadyInstalled / SingleFile / strict resource warning の書き戻しが必要な entry だけ adapter を materialize する。strict resource warning 判定は resource reference を持つ entry に限る。
+pending package tree の「導入先を開く」は、package 内 chart の `ChartFile.InstallDestination` と `PrimaryLookupHash` を読む。これは explorer を開く先を解決するだけの UI 読み取りなので、adapterless bmson entry を `BMSFile` に materialize しない。
 
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。これは現行最大の構造互換であり、`PendingChartEntry : BMSFile` 廃止の前提として、package discovery snapshot / install estimation / pending tree が chart-native entry を扱うようにする。
 

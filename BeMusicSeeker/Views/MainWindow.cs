@@ -5401,6 +5401,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return false;
     }
 
+    private bool TryResolveInstallDestination(ChartFile chart, out string installDir, out string reason)
+    {
+        installDir = null;
+        reason = null;
+        if (chart == null)
+        {
+            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(chart.InstallDestination))
+        {
+            if (Directory.Exists(chart.InstallDestination))
+            {
+                installDir = chart.InstallDestination;
+                return true;
+            }
+            reason = string.Format(BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found, chart.InstallDestination);
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(chart.PrimaryLookupHash)
+            && base.DataContext is MainWindowViewModel mainWindowViewModel
+            && mainWindowViewModel.TryGetInstalledDirectoryByHash(chart.PrimaryLookupHash, out string installDir2))
+        {
+            installDir = installDir2;
+            return true;
+        }
+        reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+        return false;
+    }
+
     private bool TryResolveInstallDestination(ChartPackage pkg, out string installDir, out string reason)
     {
         installDir = null;
@@ -5410,9 +5440,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
             return false;
         }
-        foreach (BMSFile item in pkg.GetChartAdapters())
+        foreach (var entry in pkg.ChartEntries)
         {
-            if (TryResolveInstallDestination(item, out installDir, out reason))
+            if (TryResolveInstallDestination(entry?.Chart, out installDir, out reason))
             {
                 return true;
             }
