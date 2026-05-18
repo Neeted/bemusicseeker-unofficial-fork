@@ -979,6 +979,43 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void ChartPackage_PathPackage_UsesChartEntriesBeforeCompatibilityAdaptersAreRequested()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                Directory.CreateDirectory(sourceDir);
+                File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1");
+                File.WriteAllText(Path.Combine(sourceDir, "chart2.bmson"), "{}");
+
+                var package = new ChartPackage
+                {
+                    path = sourceDir,
+                    delete_parent = true
+                };
+
+                List<PackageChartEntry> firstEntries = package.ChartEntries;
+                string updatedPath = Path.Combine(sourceDir, "updated.bms");
+                firstEntries[0].CompatibilityAdapter.path = updatedPath;
+                List<BMSFile> firstFiles = package.ChartFiles;
+                List<PackageChartEntry> secondEntries = package.ChartEntries;
+
+                Assert.AreEqual(2, firstEntries.Count);
+                Assert.AreEqual(2, firstFiles.Count);
+                Assert.AreEqual(2, secondEntries.Count);
+                Assert.AreEqual(updatedPath, secondEntries[0].Chart.Path);
+                Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
+                Assert.IsTrue(firstEntries.All(entry => entry.CompatibilityAdapter != null));
+                Assert.IsTrue(secondEntries.All(entry => firstFiles.Contains(entry.CompatibilityAdapter)));
+                Assert.AreSame(firstFiles, package.ChartFiles);
+            });
+        });
+    }
+
+    [TestMethod]
     public void ChartPackage_PathPackage_InvalidatesChartDiscoveryAndSourceSurfaceSnapshots_WhenPathChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();

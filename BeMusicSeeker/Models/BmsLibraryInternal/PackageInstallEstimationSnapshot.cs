@@ -41,19 +41,38 @@ internal sealed class PackageInstallSurfaceSnapshot
 
 internal sealed class PackageChartDiscoverySnapshot
 {
+    private List<PackageChartEntry> chartEntries = [];
+
+    private List<BMSFile> compatibilityAdapters;
+
     public string SourcePath { get; set; } = string.Empty;
 
-    public List<BMSFile> ChartFiles { get; set; } = [];
+    public List<BMSFile> ChartFiles
+    {
+        get
+        {
+            compatibilityAdapters ??= [.. chartEntries.Select(entry => entry?.CompatibilityAdapter).Where(file => file != null)];
+            return compatibilityAdapters;
+        }
+        set
+        {
+            compatibilityAdapters = [.. (value ?? []).Where(file => file != null)];
+            chartEntries = [.. compatibilityAdapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+        }
+    }
 
     public List<PackageChartEntry> ChartEntries
     {
         get
         {
-            return [.. (ChartFiles ?? []).Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+            IEnumerable<BMSFile> adapters = compatibilityAdapters
+                ?? chartEntries.Select(entry => entry?.CompatibilityAdapter).Where(file => file != null);
+            return [.. adapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
         }
         set
         {
-            ChartFiles = [.. (value ?? []).Select(entry => entry?.CompatibilityAdapter).Where(file => file != null)];
+            chartEntries = [.. (value ?? []).Where(entry => entry != null)];
+            compatibilityAdapters = null;
         }
     }
 }
