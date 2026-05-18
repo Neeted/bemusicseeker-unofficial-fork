@@ -82,7 +82,7 @@ parent folder cache は更新通知としては bmson 変更でも無効化さ�
 
 所持 bmson row の `CompatibilityBmsFile` は、ViewModel が持つ shared bmson chart adapter cache から供給される。`LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` は `BmsonChartAdapterProvider` を受け取って同じ `PendingChartEntry` adapter を共有し、インストール先修復候補や warning state を row 再生成後も保持する。`CompatibilityBmsFile` という property 名は、既存 `BMSFile` 引数 API へ渡す互換境界を明示するために残す。
 
-表示用の読み取りでは、`ChartFile` が subtitle / warning snapshot / install destination 表示値を持つ。BMS では `BMSFile` 由来、bmson では shared compatibility adapter 由来の mutable state を `ChartFileProjection` が read model に写す。したがって `LibraryChartRow` / `ChartListSourceRow` の WARNING 表示や install destination 表示 getter は `ChartFile` を読むが、編集・修復・filter など既存 `BMSFile` API が必要な経路は引き続き `CompatibilityBmsFile` を使う。
+表示用の読み取りでは、`ChartFile` が subtitle / warning snapshot / install destination 表示値を持つ。BMS では `BMSFile` 由来、bmson では shared compatibility adapter 由来の mutable state を `ChartFileProjection` が read model に写す。したがって `LibraryChartRow` / `ChartListSourceRow` / playlist detail row の WARNING 表示や install destination 表示 getter は `ChartFile` を読むが、編集・修復・filter など既存 `BMSFile` API が必要な経路は引き続き `CompatibilityBmsFile` を使う。
 
 表示列は BMS / bmson で共通化されているものが多い。
 

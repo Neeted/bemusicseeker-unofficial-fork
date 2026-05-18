@@ -781,6 +781,9 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson).CreateViewRow();
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget firstPlaylistTarget));
         firstPlaylistTarget.CompatibilityBmsFile.instl_dst = "C:\\Installed\\PlaylistBmson";
+        firstPlaylistTarget.CompatibilityBmsFile.InstallDestinationTitle = "Installed Playlist Bmson";
+        firstPlaylistTarget.CompatibilityBmsFile.InstallDestinationArtist = "Installed Playlist Artist";
+        firstPlaylistTarget.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "playlist ambiguous install destination");
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget secondPlaylistTarget));
 
@@ -793,6 +796,11 @@ public sealed class PlaylistViewPipelineTests
             resolvedBmson: bmson,
             bmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
+        Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.Chart.InstallDestination);
+        Assert.AreEqual("Installed Playlist Bmson", rebuiltPlaylistSourceRow.InstallDestinationTitle);
+        Assert.AreEqual("Installed Playlist Artist", rebuiltPlaylistSourceRow.InstallDestinationArtist);
+        Assert.IsTrue(rebuiltPlaylistSourceRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        StringAssert.Contains(rebuiltPlaylistSourceRow.WarningTooltipText, "playlist ambiguous install destination");
     }
 
     [TestMethod]

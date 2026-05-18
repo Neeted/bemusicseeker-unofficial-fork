@@ -267,11 +267,6 @@ internal sealed class PlaylistDetailSourceRow
         Url = entry.EffectiveUrl;
         Url_diff = entry.EffectiveUrlDiff;
         name_diff = entry.name_diff ?? string.Empty;
-        HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
-        HasHighlightedWarning = snapshotSource?.HasHighlightedWarning ?? false;
-        DisplayWarning = snapshotSource?.DisplayWarning ?? string.Empty;
-        WarningDigestText = snapshotSource?.WarningDigestText ?? DisplayWarning;
-        WarningTooltipText = snapshotSource?.WarningTooltipText ?? DisplayWarning;
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
         hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, entry.md5);
@@ -281,9 +276,15 @@ internal sealed class PlaylistDetailSourceRow
             : PlaylistReferenceDisplay.Empty;
         Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson));
         path = FirstNonEmpty(realFile?.path, resolvedBmson?.path);
-        instl_dst = snapshotSource?.instl_dst ?? string.Empty;
-        InstallDestinationTitle = snapshotSource?.InstallDestinationTitle ?? string.Empty;
-        InstallDestinationArtist = snapshotSource?.InstallDestinationArtist ?? string.Empty;
+        Chart = CreateChartFile();
+        HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
+        HasHighlightedWarning = HasProjectedWarning(Chart, snapshotSource);
+        DisplayWarning = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), snapshotSource?.DisplayWarning);
+        WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), snapshotSource?.WarningDigestText, DisplayWarning);
+        WarningTooltipText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), snapshotSource?.WarningTooltipText, DisplayWarning);
+        instl_dst = FirstNonEmpty(Chart?.InstallDestination, snapshotSource?.instl_dst);
+        InstallDestinationTitle = FirstNonEmpty(Chart?.InstallDestinationTitle, snapshotSource?.InstallDestinationTitle);
+        InstallDestinationArtist = FirstNonEmpty(Chart?.InstallDestinationArtist, snapshotSource?.InstallDestinationArtist);
         WAVHealth = snapshotSource?.WAVHealth;
         BGAHealth = snapshotSource?.BGAHealth;
         MovieHealth = snapshotSource?.MovieHealth;
@@ -305,7 +306,6 @@ internal sealed class PlaylistDetailSourceRow
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
         Level = BuildLevelText(entry, realFile, resolvedBmson);
-        Chart = CreateChartFile();
         SearchText = BuildSearchText();
     }
 
@@ -380,6 +380,12 @@ internal sealed class PlaylistDetailSourceRow
             Entry?.level,
             mode,
             ChartInfo);
+    }
+
+    private static bool HasProjectedWarning(ChartFile chart, BMSFile fallback)
+    {
+        return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false)
+            || (chart?.Warnings.Count == 0 && (fallback?.HasHighlightedWarning ?? false));
     }
 
     private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)
