@@ -11553,18 +11553,42 @@ public class MainWindowViewModel : ViewModel
         return snapshot;
     }
 
-    private static List<BeMusicSeeker.Models.BMSFile> CreateStrictPackageFileSnapshot(IEnumerable<ChartPackage> packages)
-    {
-        return [.. (packages ?? []).Where(package => package != null).SelectMany(package => package.GetChartAdapters())];
-    }
-
-    private static List<BeMusicSeeker.Models.BMSFile> CreatePackagePlaybackTargetSnapshot(IEnumerable<ChartPackage> packages)
+    /// <summary>
+    /// Creates BMS playback targets from package entries without materializing bmson compatibility adapters.
+    /// </summary>
+    /// <param name="packages">Packages whose entries may contain currently playable BMS files.</param>
+    /// <returns>BMS files that should be stopped before package mutation.</returns>
+    internal static List<BeMusicSeeker.Models.BMSFile> CreatePackagePlaybackTargetSnapshot(IEnumerable<ChartPackage> packages)
     {
         return [.. (packages ?? [])
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
             .Select(entry => entry?.CompatibilityAdapter)
             .Where(file => PendingChartEntry.IsBmsChartFile(file))];
+    }
+
+    /// <summary>
+    /// Creates install-destination mutation targets from package entries without forcing adapterless bmson entries into legacy adapters.
+    /// </summary>
+    /// <param name="packages">Packages whose existing mutable install-destination state should be cleared.</param>
+    /// <returns>Existing adapters and BMS storage rows that can hold install-destination state.</returns>
+    internal static List<BeMusicSeeker.Models.BMSFile> CreatePackageInstallDestinationTargetSnapshot(IEnumerable<ChartPackage> packages)
+    {
+        return [.. (packages ?? [])
+            .Where(package => package != null)
+            .SelectMany(package => package.ChartEntries)
+            .Select(GetPackageInstallDestinationTarget)
+            .Where(file => file != null)];
+    }
+
+    private static BeMusicSeeker.Models.BMSFile GetPackageInstallDestinationTarget(PackageChartEntry entry)
+    {
+        BeMusicSeeker.Models.BMSFile adapter = entry?.CompatibilityAdapter;
+        if (adapter != null)
+        {
+            return adapter;
+        }
+        return entry?.Chart?.BmsFile;
     }
 
     private bool TryGetVirtualDuplicateSourceFiles(
@@ -20451,7 +20475,7 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("packages");
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        List<BeMusicSeeker.Models.BMSFile> list2 = CreateStrictPackageFileSnapshot(list);
+        List<BeMusicSeeker.Models.BMSFile> list2 = CreatePackagePlaybackTargetSnapshot(list);
         return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), list2);
     }
 
@@ -20507,7 +20531,7 @@ public class MainWindowViewModel : ViewModel
             List<ChartPackage> list = [.. packages.Where(f => f != null)];
             for (int num = 0; num < list.Count; num++)
             {
-                files.RemoveInstallDestination(CreateStrictPackageFileSnapshot([list[num]]));
+                files.RemoveInstallDestination(CreatePackageInstallDestinationTargetSnapshot([list[num]]));
             }
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
@@ -20530,7 +20554,7 @@ public class MainWindowViewModel : ViewModel
             List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             for (int num = 0; num < chartPackages.Count; num++)
             {
-                files.RemoveInstallDestination(CreateStrictPackageFileSnapshot([chartPackages[num]]));
+                files.RemoveInstallDestination(CreatePackageInstallDestinationTargetSnapshot([chartPackages[num]]));
             }
             files.RemoveInstallDestination(chartFiles2);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
