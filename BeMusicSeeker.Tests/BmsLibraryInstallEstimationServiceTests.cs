@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -115,7 +115,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            [pendingC],
+            [PackageChartEntry.FromCompatibilityAdapter(pendingC)],
             service.BuildInstalledHashToDirectoryMap(installedFiles));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
@@ -159,7 +159,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            package.GetChartAdapters(),
+            package.ChartEntries,
             service.BuildInstalledHashToDirectoryMap(installedFiles, [installedBmson]));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
@@ -191,7 +191,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            [pendingMissing],
+            [PackageChartEntry.FromCompatibilityAdapter(pendingMissing)],
             service.BuildInstalledHashToDirectoryMap(installedFiles));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
@@ -233,7 +233,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            package.GetChartAdapters(),
+            package.ChartEntries,
             service.BuildInstalledHashToDirectoryMap(installedFiles, [installedBmson]));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);

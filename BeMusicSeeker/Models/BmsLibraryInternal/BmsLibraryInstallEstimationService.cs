@@ -442,10 +442,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, List<BMSFile> missingFiles, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         var result = new InstalledDirectoryLookupResult();
-        if (package == null || missingFiles == null || missingFiles.Count == 0)
+        if (package == null || missingEntries == null || missingEntries.Count == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.InvalidInput;
             return result;

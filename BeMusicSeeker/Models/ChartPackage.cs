@@ -180,6 +180,17 @@ public class ChartPackage : LR2SongDBExtended.install
         hasExplicitChartFiles = true;
     }
 
+    private ChartPackage(IEnumerable<PackageChartEntry> entries, bool hasExplicitChartEntries)
+    {
+        chartEntries = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
+        hasExplicitChartFiles = hasExplicitChartEntries;
+    }
+
+    internal static ChartPackage FromChartEntries(IEnumerable<PackageChartEntry> entries)
+    {
+        return new ChartPackage(entries, hasExplicitChartEntries: true);
+    }
+
     internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries)
     {
         PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);

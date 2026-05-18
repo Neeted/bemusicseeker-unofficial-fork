@@ -2956,7 +2956,7 @@ public class BMSLibrary : NotificationObject
         {
             result.InstalledResolution = request.BatchState?.PreparationInstalledResolution?.Success == true
                 ? request.BatchState.PreparationInstalledResolution
-                : EvaluateInstalledDestinationFromPackage(request.Package, request.MissingFiles, evaluationContext);
+                : EvaluateInstalledDestinationFromPackage(request.Package, request.MissingEntries, evaluationContext);
             if (result.InstalledResolution.Success)
             {
                 result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.ResolvedInstalledDirectory;
@@ -3011,9 +3011,9 @@ public class BMSLibrary : NotificationObject
         return directoryLookupCache != null && directoryLookupCache.Count > 0;
     }
 
-    private InstalledDirectoryLookupResult EvaluateInstalledDestinationFromPackage(ChartPackage package, List<BMSFile> missingFiles, PendingInstallEstimateEvaluationContext evaluationContext)
+    private InstalledDirectoryLookupResult EvaluateInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, PendingInstallEstimateEvaluationContext evaluationContext)
     {
-        if (package == null || missingFiles == null || missingFiles.Count == 0)
+        if (package == null || missingEntries == null || missingEntries.Count == 0)
         {
             return new InstalledDirectoryLookupResult
             {
@@ -3021,7 +3021,7 @@ public class BMSLibrary : NotificationObject
             };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(evaluationContext?.OptionsSnapshot);
-        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartDirectoryIndexSnapshot());
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartDirectoryIndexSnapshot());
     }
 
     private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, int packageDegree, ref int completed, ref int lowConfidenceCount)
@@ -3350,7 +3350,7 @@ public class BMSLibrary : NotificationObject
             };
             if (state.AttemptInstalledResolve)
             {
-                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, state.MissingFiles, installedDirectoryIndexSnapshot);
+                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, state.MissingEntries, installedDirectoryIndexSnapshot);
             }
 
             if (state.HasMissingFiles && !HasInstalledDestinationResolveFailed(state) && !string.IsNullOrWhiteSpace(state.SourceDirectory) && Directory.Exists(state.SourceDirectory))
@@ -8437,11 +8437,11 @@ reportProgress,
         return CreateInstalledDirectoryIndexSnapshotUnsafe();
     }
 
-    private bool TryResolveInstalledDestinationFromPackage(ChartPackage package, List<BMSFile> missingFiles, out string resolvedDir)
+    private bool TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, List<BMSFile> missingFiles, out string resolvedDir)
     {
         resolvedDir = null;
-        InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, missingFiles);
-        LogMixedPackageResolution(resolution, package?.path, missingFiles?.Count ?? 0);
+        InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, missingEntries);
+        LogMixedPackageResolution(resolution, package?.path, missingEntries?.Count ?? missingFiles?.Count ?? 0);
         if (!resolution.Success)
         {
             return false;
@@ -8450,9 +8450,9 @@ reportProgress,
         return true;
     }
 
-    private InstalledDirectoryLookupResult ResolveInstalledDestinationFromPackage(ChartPackage package, List<BMSFile> missingFiles)
+    private InstalledDirectoryLookupResult ResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries)
     {
-        if (package == null || missingFiles == null || missingFiles.Count == 0)
+        if (package == null || missingEntries == null || missingEntries.Count == 0)
         {
             return new InstalledDirectoryLookupResult
             {
@@ -8468,7 +8468,7 @@ reportProgress,
             };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService();
-        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndex);
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, installedDirectoryIndex);
     }
 
     /// <summary>
@@ -8510,7 +8510,7 @@ reportProgress,
                         // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
                         if (alreadyInstalledFiles.Count > 0)
                         {
-                            InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, missingFiles);
+                            InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, partition.MissingEntries);
                             LogMixedPackageResolution(resolution, package.path, missingFiles.Count);
                             if (resolution.Success)
                             {
@@ -8794,7 +8794,7 @@ reportProgress,
         }
         LogInstallPerformance("estimated_merge_start package=" + package.path + " targets=" + list.Count);
         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-        if (!TryResolveInstalledDestinationFromPackage(package, list, out string resolvedDir))
+        if (!TryResolveInstalledDestinationFromPackage(package, package.ChartEntries, list, out string resolvedDir))
         {
             SearchEstimatedInstallationDirectoryForChartsCore(package, list, asParallel: true, ChartInstallationEstimateMode.MergeCandidateOnly);
         }

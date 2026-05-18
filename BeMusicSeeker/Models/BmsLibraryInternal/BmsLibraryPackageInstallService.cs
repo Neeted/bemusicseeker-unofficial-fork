@@ -437,21 +437,22 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<BMSFile> knownCharts)
     {
-        List<BMSFile> knownChartList = [.. (knownCharts ?? []).Where(file => file != null)];
+        List<PackageChartEntry> knownEntries = [.. (knownCharts ?? [])
+            .Select(PackageChartEntry.FromCompatibilityAdapter)
+            .Where(entry => entry?.Chart != null)];
         if (Directory.Exists(packagePath))
         {
-            List<BMSFile> recursiveChartList = [.. PackageInstallEstimationSnapshotBuilder
+            List<PackageChartEntry> recursiveEntries = [.. PackageInstallEstimationSnapshotBuilder
                 .BuildPackageChartDiscoverySnapshot(packagePath, useEverythingForPendingPackageSourceScan: false)
                 .ChartEntries
-                .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
-                .Where(file => file != null)];
-            if (recursiveChartList.Count > 0)
+                .Where(entry => entry?.Chart != null)];
+            if (recursiveEntries.Count > 0)
             {
-                knownChartList = recursiveChartList;
+                knownEntries = recursiveEntries;
             }
         }
 
-        if (knownChartList.Count == 0)
+        if (knownEntries.Count == 0)
         {
             return new ChartPackage
             {
@@ -460,11 +461,10 @@ internal sealed class BmsLibraryPackageInstallService
             };
         }
 
-        return new ChartPackage(knownChartList)
-        {
-            path = packagePath,
-            delete_parent = deleteParent
-        };
+        ChartPackage package = ChartPackage.FromChartEntries(knownEntries);
+        package.path = packagePath;
+        package.delete_parent = deleteParent;
+        return package;
     }
 
     /// <summary>
