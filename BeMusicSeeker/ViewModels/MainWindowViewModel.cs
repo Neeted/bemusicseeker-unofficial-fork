@@ -11240,6 +11240,11 @@ public class MainWindowViewModel : ViewModel
         return ShouldApplyResourceHealthProjectionForVirtualSubset((viewUpdateMode)mode);
     }
 
+    internal static LibraryChartRow CreateLibraryChartRowFromPackageEntryForTest(PackageChartEntry entry)
+    {
+        return CreateLibraryChartRowFromPackageEntry(entry);
+    }
+
     private static bool IsVirtualNormalLibraryModeSupported(viewUpdateMode mode)
     {
         return mode == viewUpdateMode.TreeViewFilterNotChanged
@@ -11410,6 +11415,41 @@ public class MainWindowViewModel : ViewModel
                 if (package != null)
                 {
                     snapshot.AddRange(EnumeratePackageChartAdapters(package));
+                }
+            }
+            catch
+            {
+            }
+        }
+        return snapshot;
+    }
+
+    private static List<PackageChartEntry> CreatePackageChartEntrySnapshot(IEnumerable<ChartPackage> packages)
+    {
+        List<PackageChartEntry> snapshot = null;
+        RetryHelper.RetryIfError(delegate
+        {
+            snapshot = CreatePackageChartEntrySnapshotCore(packages);
+        }, delegate (Exception ex)
+        {
+            ExceptionDispatchInfo.Capture(ex).Throw();
+        }, delegate
+        {
+            Thread.Sleep(100);
+        }, 100u);
+        return snapshot ?? [];
+    }
+
+    private static List<PackageChartEntry> CreatePackageChartEntrySnapshotCore(IEnumerable<ChartPackage> packages)
+    {
+        List<PackageChartEntry> snapshot = [];
+        foreach (ChartPackage package in packages ?? [])
+        {
+            try
+            {
+                if (package != null)
+                {
+                    snapshot.AddRange(package.ChartEntries);
                 }
             }
             catch
@@ -16069,12 +16109,12 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (parameter != null && parameter is ChartPackage)
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(EnumeratePackageChartAdapters(parameter as ChartPackage), CreateLibraryChartRowWithResourceHealthProjection);
+                    ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage)?.ChartEntries, CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageFileSnapshot(ChartPackagesInstalled), CreateLibraryChartRowWithResourceHealthProjection);
+                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageChartEntrySnapshot(ChartPackagesInstalled), CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection);
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16091,12 +16131,12 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (parameter != null && parameter is ChartPackage)
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(EnumeratePackageChartAdapters(parameter as ChartPackage));
+                    ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage)?.ChartEntries);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageFileSnapshot(ChartPackagesPending));
+                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageChartEntrySnapshot(ChartPackagesPending));
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16562,6 +16602,47 @@ public class MainWindowViewModel : ViewModel
         return [.. (files ?? [])
             .Select(rowFactory ?? LibraryChartRow.FromBmsFile)
             .Where(row => row != null)];
+    }
+
+    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries)
+    {
+        return ToLibraryChartRows(entries, CreateLibraryChartRowFromPackageEntry);
+    }
+
+    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries, Func<PackageChartEntry, LibraryChartRow> rowFactory)
+    {
+        return [.. (entries ?? [])
+            .Select(rowFactory ?? CreateLibraryChartRowFromPackageEntry)
+            .Where(row => row != null)];
+    }
+
+    private static LibraryChartRow CreateLibraryChartRowFromPackageEntry(PackageChartEntry entry)
+    {
+        if (entry == null)
+        {
+            return null;
+        }
+        BeMusicSeeker.Models.BMSFile adapter = entry.CompatibilityAdapter;
+        if (adapter != null)
+        {
+            return LibraryChartRow.FromBmsFile(adapter);
+        }
+        ChartFile chart = entry.Chart;
+        if (chart?.Kind == ChartFileKind.Bmson)
+        {
+            return LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+        }
+        return chart?.BmsFile == null ? null : LibraryChartRow.FromBmsFile(chart.BmsFile);
+    }
+
+    private LibraryChartRow CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection(PackageChartEntry entry)
+    {
+        LibraryChartRow row = CreateLibraryChartRowFromPackageEntry(entry);
+        if (row != null)
+        {
+            row.SetResourceHealthProjectionProvider(GetResourceHealthProjectionForRow);
+        }
+        return row;
     }
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode mode, viewUpdateMode currentTreeMode)

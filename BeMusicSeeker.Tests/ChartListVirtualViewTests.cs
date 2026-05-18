@@ -563,6 +563,20 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PackageChartEntryDisplayRow_DoesNotMaterializeAdapterlessBmsonEntry()
+    {
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+
+        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+
+        Assert.IsNotNull(row);
+        Assert.AreEqual(bmson.path, row.path);
+        Assert.AreEqual("BmsonTitle Subtitle", row.Title);
+        Assert.IsNull(entry.CompatibilityAdapter);
+    }
+
+    [TestMethod]
     public void VirtualNormalLibraryRequestModes_CoverRootAndFullScanTrees()
     {
         MainWindowViewModel.viewUpdateMode[] treeModes =
