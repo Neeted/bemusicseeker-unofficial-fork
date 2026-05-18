@@ -2787,7 +2787,7 @@ public class BMSLibrary : NotificationObject
 
                     foreach (ChartPackage package in request.Packages)
                     {
-                        List<BMSFile> packageFiles = [.. (package?.ChartFiles ?? []).Where(file => file != null)];
+                        List<BMSFile> packageFiles = package?.GetChartAdapters() ?? [];
                         List<BMSFile> alreadyInstalledFiles = [.. packageFiles.Where(ContainsInstalledChartUnsafe)];
                         List<BMSFile> missingFiles = [.. packageFiles.Where(file => !ContainsInstalledChartUnsafe(file))];
                         requests.Add(new PendingInstallEstimateEvaluationRequest
@@ -3291,7 +3291,7 @@ public class BMSLibrary : NotificationObject
 
         foreach (ChartPackage package in packageList ?? Enumerable.Empty<ChartPackage>())
         {
-            List<BMSFile> packageFiles = [.. (package?.ChartFiles ?? []).Where(file => file != null)];
+            List<BMSFile> packageFiles = package?.GetChartAdapters() ?? [];
             List<BMSFile> alreadyInstalledFiles = [.. packageFiles.Where(ContainsInstalledChartUnsafe)];
             List<BMSFile> missingFiles = [.. packageFiles.Where(file => !ContainsInstalledChartUnsafe(file))];
             var state = new PendingEstimateSourceBatchPackageState
@@ -3551,7 +3551,7 @@ public class BMSLibrary : NotificationObject
         IEnumerable<ChartPackage> pendingPackages = ChartPackagesPending ?? Enumerable.Empty<ChartPackage>();
         foreach (ChartPackage pendingPackage in pendingPackages.Where(package => package != null))
         {
-            if ((pendingPackage.ChartFiles ?? []).Any(file => file != null && fileSet.Contains(file)))
+            if (pendingPackage.GetChartAdapters().Any(file => fileSet.Contains(file)))
             {
                 pendingPackage.DeferredEstimateReason = PendingEstimateDeferredReason.None;
             }
@@ -6265,7 +6265,7 @@ reportProgress,
         {
             return false;
         }
-        List<BMSFile> list = [.. package.ChartFiles.Where(bmsFile => bmsFile != null)];
+        List<BMSFile> list = package.GetChartAdapters();
         if (list.Count == 0)
         {
             return false;
@@ -8230,7 +8230,7 @@ reportProgress,
     {
         List<string> addedBmsonPaths = [.. (installedPackages ?? [])
             .Where(package => package != null)
-            .SelectMany(package => package.ChartFiles ?? [])
+            .SelectMany(package => package.GetChartAdapters())
             .Where(PendingChartEntry.IsBmsonChartFile)
             .Select(file => file.path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -8419,7 +8419,7 @@ reportProgress,
                             return;
                         }
                         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-                        List<BMSFile> packageFiles = [.. (package.ChartFiles ?? []).Where(file => file != null)];
+                        List<BMSFile> packageFiles = package.GetChartAdapters();
                         if (packageFiles.Count == 0)
                         {
                             return;
@@ -8652,9 +8652,9 @@ reportProgress,
             List<ChartPackage> packageTargets;
             using (rwlockPendingInstallCharts.GetReaderGuard())
             {
-                packageTargets = [.. ChartPackagesPending.Where(package => package != null && (package.ChartFiles ?? []).Any(file => file != null && targetFileSet.Contains(file)))];
+                packageTargets = [.. ChartPackagesPending.Where(package => package != null && package.GetChartAdapters().Any(file => targetFileSet.Contains(file)))];
             }
-            var packageFiles = new HashSet<BMSFile>(packageTargets.SelectMany(package => package.ChartFiles ?? []).Where(file => file != null));
+            var packageFiles = new HashSet<BMSFile>(packageTargets.SelectMany(package => package.GetChartAdapters()));
             List<BMSFile> looseFiles = [.. targetFiles.Where(file => !packageFiles.Contains(file))];
             if (!fixMode && looseFiles.Count == 0 && packageTargets.Count > 1)
             {
@@ -8705,7 +8705,7 @@ reportProgress,
         {
             return;
         }
-        List<BMSFile> list = [.. (package.ChartFiles ?? []).Where(x => x != null)];
+        List<BMSFile> list = package.GetChartAdapters();
         if (list.Count == 0)
         {
             LogInstallPerformance("estimated_merge_skip reason=no_target package=" + package.path);
@@ -8861,7 +8861,7 @@ reportProgress,
                 }
                 list = [.. Directory.EnumerateFileSystemEntries(path)];
             }
-            List<BMSFile> list2 = [.. (package.ChartFiles ?? []).Where(f => f != null)];
+            List<BMSFile> list2 = package.GetChartAdapters();
             var hashSet = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
             var hashSet2 = new HashSet<string>(list2.Where(f => hashSet.Contains(f.path)).Select(f => f.path), StringComparer.OrdinalIgnoreCase);
             List<string> installComponentFiles = [.. list.Where(p => !hashSet2.Contains(p))];
@@ -8898,8 +8898,7 @@ reportProgress,
         {
             return null;
         }
-        var hashSet = new HashSet<string>((originalPackage.ChartFiles ?? [])
-            .Where(f => f != null)
+        var hashSet = new HashSet<string>(originalPackage.GetChartAdapters()
             .Select(PendingChartEntry.GetPrimaryLookupHash)
             .Where(key => !string.IsNullOrWhiteSpace(key)), StringComparer.OrdinalIgnoreCase);
         if (hashSet.Count == 0)
@@ -9240,8 +9239,9 @@ reportProgress,
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select(pendingPackage => pendingPackage.path));
         dbGateway.UpsertInstallRows([regroupedPackage]);
-        bool metadataResolved = (regroupedPackage.ChartFiles ?? []).Any(file => file != null && (!string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist)));
-        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackage.ChartFiles.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
+        List<BMSFile> regroupedPackageFiles = regroupedPackage.GetChartAdapters();
+        bool metadataResolved = regroupedPackageFiles.Any(file => !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist));
+        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackageFiles.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
     }
 
     private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<ChartPackage> sourcePackages, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
@@ -9254,7 +9254,7 @@ reportProgress,
         var seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage sourcePackage in sourcePackages)
         {
-            foreach (BMSFile sourceFile in (sourcePackage.ChartFiles ?? []).Where(file => file != null))
+            foreach (BMSFile sourceFile in sourcePackage.GetChartAdapters())
             {
                 if (seenFileReferences.Add(sourceFile) && (string.IsNullOrWhiteSpace(sourceFile.path) || seenFilePaths.Add(sourceFile.path)))
                 {
@@ -9331,7 +9331,7 @@ reportProgress,
         }
         bool isSingleFilePackage = !Directory.Exists(package.path);
         HashSet<string> installedHashSet = installedHashes as HashSet<string> ?? new HashSet<string>(installedHashes ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile bmsFile in (package.ChartFiles ?? []).Where(file => file != null))
+        foreach (BMSFile bmsFile in package.GetChartAdapters())
         {
             bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
             bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
@@ -9395,7 +9395,7 @@ reportProgress,
         {
             return false;
         }
-        List<BMSFile> list = [.. (package.ChartFiles ?? []).Where(f => f != null)];
+        List<BMSFile> list = package.GetChartAdapters();
         if (list.Count == 0)
         {
             return false;
@@ -9518,7 +9518,7 @@ reportProgress,
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    IEnumerable<BMSFile> enumerable = targetFiles ?? ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartFiles).Where(f => f != null);
+                    IEnumerable<BMSFile> enumerable = targetFiles ?? ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters());
                     PendingZeroNoteRenameResult result = packageInstallService.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
                         enumerable,
                         (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),
@@ -9908,7 +9908,7 @@ reportProgress,
         }
         using (rwlockPendingInstallCharts.GetReaderGuard())
         {
-            return [.. ChartPackagesPending.SelectMany(pkg => pkg.ChartFiles).Where(file => file != null)];
+            return [.. ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters())];
         }
     }
 
@@ -10038,7 +10038,7 @@ reportProgress,
         {
             if (ChartPackagesPending != null)
             {
-                list.AddRange(ChartPackagesPending.SelectMany(pkg => pkg.ChartFiles).Where(file => file != null && file.HasRefTable(table)));
+                list.AddRange(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()).Where(file => file.HasRefTable(table)));
             }
         }
         RefreshReferenceDisplayForFiles(list, suppressFilePropertyChanged);
@@ -10066,7 +10066,7 @@ reportProgress,
         {
             using (rwlockPendingInstallCharts.GetReaderGuard())
             {
-                action(ChartPackagesPending.SelectMany(pkg => pkg.ChartFiles));
+                action(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
             }
         }
         if (list.Count > 0)
@@ -10111,7 +10111,7 @@ reportProgress,
             }
             using (rwlockPendingInstallCharts.GetReaderGuard())
             {
-                action(ChartPackagesPending.SelectMany(pkg => pkg.ChartFiles));
+                action(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
             }
             return;
         }
@@ -10129,7 +10129,7 @@ reportProgress,
         }
         using (rwlockPendingInstallCharts.GetReaderGuard())
         {
-            removeReferenceBMSTables(table, entries, ChartPackagesPending.SelectMany(pkg => pkg.ChartFiles));
+            removeReferenceBMSTables(table, entries, ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
         }
     }
 
@@ -10164,7 +10164,7 @@ reportProgress,
         }
         using (rwlockPendingInstallCharts.GetReaderGuard())
         {
-            action(ChartPackagesPending.SelectMany(pkg => pkg.ChartFiles));
+            action(ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.GetChartAdapters()));
         }
     }
 
@@ -10360,8 +10360,9 @@ reportProgress,
                     }
                     LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
-                    List<BMSFile> movedBmsFiles = [.. mergeResult.Repackage.ChartFiles.Where(PendingChartEntry.IsBmsChartFile)];
-                    List<LR2SongDBExtended.bmson_song> movedBmsonSongs = BuildBmsonSongsFromChartRows(mergeResult.Repackage.ChartFiles);
+                    List<BMSFile> movedPackageFiles = mergeResult.Repackage.GetChartAdapters();
+                    List<BMSFile> movedBmsFiles = [.. movedPackageFiles.Where(PendingChartEntry.IsBmsChartFile)];
+                    List<LR2SongDBExtended.bmson_song> movedBmsonSongs = BuildBmsonSongsFromChartRows(movedPackageFiles);
                     dbGateway.UpsertSongs(movedBmsFiles);
                     if (movedBmsonSongs.Count > 0)
                     {

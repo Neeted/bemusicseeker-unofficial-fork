@@ -274,6 +274,8 @@ production code の `ChartPackage` 経由の chart-all 参照は、install mutat
 
 `ChartPackage` は `ContainsChartAdapter(...)` / `GetChartAdapters()` / `GetChartAdapterCount()` / `ClearChartAdapterInstallDestinations()` / `RemoveChartAdaptersByPath(...)` / `ApplySingleFileInstallDestination(...)` / `ApplyDirectoryInstallDestination(...)` / `ReplaceChartAdapters(...)` を持ち、operation / mutation 側が `ChartFiles.Contains(...)`、`ChartFiles.Count`、`ChartFiles.Clear(); AddRange(...)`、`foreach (package.ChartFiles)` による状態更新を直接増やさないための所有者境界になり始めている。`ReplaceChartAdapters(...)`、`ClearChartAdapterInstallDestinations(...)`、install destination apply helpers は現時点では compatibility adapter list を更新する操作であり、package 内 chart set の最終形ではない。
 
+`BMSLibrary` / initialization / library file operation service の pending package 読み取り経路は、導入先推定、pending regroup、installed-only resource overwrite、playlist reference 同期、root folder move / merge の install destination 更新で `GetChartAdapters()` を使う。ここで扱う `BMSFile` は LR2 song storage row ではなく package chart adapter であり、list identity や list mutation は `ChartPackage` 側に閉じ込める。
+
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。これは現行最大の構造互換であり、`PendingChartEntry : BMSFile` 廃止の前提として、package discovery snapshot / install estimation / pending tree が chart-native entry を扱うようにする。
 
 ### `PackageInstallEstimationSnapshot`

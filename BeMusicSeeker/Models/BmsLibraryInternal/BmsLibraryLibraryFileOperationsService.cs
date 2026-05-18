@@ -308,7 +308,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? [])
                 .Where(package => package != null)
-                .SelectMany(package => package.ChartFiles ?? []);
+                .SelectMany(package => package.GetChartAdapters());
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? [])
                 .Select(chart => chart.CompatibilityBmsFile)
                 .Where(bmsInfo => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
@@ -371,7 +371,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         foreach (BMSFile installLinkedFile in (pendingPackages ?? [])
             .Where(pkg => pkg != null)
-            .SelectMany(pkg => pkg.ChartFiles)
+            .SelectMany(pkg => pkg.GetChartAdapters())
             .Concat((libraryFiles ?? []).Where(file => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
@@ -543,7 +543,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile installLinkedFile in (pendingPackages ?? [])
             .Where(pkg => pkg != null)
-            .SelectMany(pkg => pkg.ChartFiles)
+            .SelectMany(pkg => pkg.GetChartAdapters())
             .Concat((libraryFiles ?? []).Where(file => !string.IsNullOrWhiteSpace(file.instl_dst))))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
@@ -598,7 +598,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 continue;
             }
-            if (installPackage.ChartFiles.Count == 0)
+            if (installPackage.GetChartAdapterCount() == 0)
             {
                 result.DuplicateSkippedCount++;
                 if (confirmDuplicateRemoval != null && confirmDuplicateRemoval(file))
@@ -864,7 +864,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<ChartPackage> pendingPackages, HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
     {
-        return [.. (pendingPackages ?? []).Where(pkg => pkg != null && pkg.ChartFiles.Count > 0 && pkg.ChartFiles.All(file => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))];
+        List<ChartPackage> result = [];
+        foreach (ChartPackage package in (pendingPackages ?? []).Where(pkg => pkg != null))
+        {
+            List<BMSFile> packageFiles = package.GetChartAdapters();
+            if (packageFiles.Count > 0 && packageFiles.All(file => IsMatchedRemovedFile(file, selectedPaths, selectedFileRefs)))
+            {
+                result.Add(package);
+            }
+        }
+        return result;
     }
 
     public bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
