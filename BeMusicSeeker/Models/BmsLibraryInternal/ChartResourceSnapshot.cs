@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -124,12 +125,62 @@ internal sealed class ChartResourceSnapshot
         return snapshot;
     }
 
+    public static ChartResourceSnapshot Create(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            throw new ArgumentNullException(nameof(chart));
+        }
+        if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
+        {
+            return Create(chart.BmsonSong);
+        }
+        if (chart.BmsFile != null)
+        {
+            return Create(chart.BmsFile);
+        }
+        return new ChartResourceSnapshot();
+    }
+
+    public static ChartResourceSnapshot Create(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null)
+        {
+            throw new ArgumentNullException(nameof(song));
+        }
+        var snapshot = new ChartResourceSnapshot();
+        foreach (string audioPath in song.wav_files ?? Enumerable.Empty<string>())
+        {
+            snapshot.AddReference(ChartResourceKind.Audio, audioPath);
+        }
+        foreach (string visualPath in song.bga_files ?? Enumerable.Empty<string>())
+        {
+            snapshot.AddReference(ChartResourcePathNormalizer.ClassifyPath(visualPath), visualPath);
+        }
+        snapshot.AddOptionalImage(song.banner);
+        snapshot.AddOptionalImage(song.backbmp);
+        snapshot.AddOptionalImage(song.stagefile);
+        snapshot.PathSegmentReferenceCount = snapshot.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
+        return snapshot;
+    }
+
     public static ChartResourceSnapshot CreateAggregate(IEnumerable<BMSFile> files)
     {
         var aggregate = new ChartResourceSnapshot();
         foreach (BMSFile file in (files ?? []).Where(item => item != null))
         {
             aggregate.Merge(Create(file));
+        }
+        aggregate.PathSegmentReferenceCount = aggregate.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
+        return aggregate;
+    }
+
+    public static ChartResourceSnapshot CreateAggregate(IEnumerable<ChartFile> charts)
+    {
+        var aggregate = new ChartResourceSnapshot();
+        foreach (ChartFile chart in (charts ?? []).Where(item => item != null))
+        {
+            aggregate.Merge(Create(chart));
         }
         aggregate.PathSegmentReferenceCount = aggregate.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
         return aggregate;

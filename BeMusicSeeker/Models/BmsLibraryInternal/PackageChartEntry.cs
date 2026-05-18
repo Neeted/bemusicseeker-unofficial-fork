@@ -12,6 +12,8 @@ internal sealed class PackageChartEntry
 
     internal BMSFile CompatibilityAdapter { get; }
 
+    internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
+
     internal static PackageChartEntry FromCompatibilityAdapter(BMSFile compatibilityAdapter)
     {
         return compatibilityAdapter == null ? null : new PackageChartEntry(compatibilityAdapter);
@@ -29,8 +31,4 @@ internal sealed class PackageChartEntry
         }
     }
 
-    internal bool References(BMSFile file)
-    {
-        return ReferenceEquals(CompatibilityAdapter, file);
-    }
 }

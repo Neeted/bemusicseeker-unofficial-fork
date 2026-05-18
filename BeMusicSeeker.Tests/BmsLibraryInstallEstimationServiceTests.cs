@@ -1368,6 +1368,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             File.WriteAllText(Path.Combine(candidateDir, "keysound.wav"), "dummy");
 
             var pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
+            pending.WAVfiles = [];
+            pending.BGAfiles = [];
             pending.SetMaintenanceInfo(CreateMaintenanceInfo(pending, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
             var package = new ChartPackage([pending])
             {
@@ -1384,6 +1386,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(pending.path, snapshot.RepresentativeChart.Path);
             Assert.AreSame(pending.BmsonSong, snapshot.RepresentativeChart.BmsonSong);
             Assert.IsNull(snapshot.RepresentativeChart.BmsFile);
+            CollectionAssert.Contains(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "keysound");
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 snapshot,
