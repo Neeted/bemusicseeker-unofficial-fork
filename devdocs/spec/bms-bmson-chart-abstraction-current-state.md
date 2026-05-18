@@ -270,7 +270,7 @@ pending / installed package record の永続正本は `install` table の row �
 
 production code の `ChartPackage` 経由の chart-all 参照は、現行では `ChartFiles` を primary API として使う。install tree の package header も `ChartFiles` を見る。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart list は `ChartFiles` に一本化されている。ただし `ChartFiles` の戻り値が `List<BMSFile>` である点は、ChartFile domain model 化後も維持する契約ではなく、`ChartPackage` が package 内 chart を `BMSFile` 互換 adapter なしで返す形へ置き換える対象である。
 
-`PackageChartDiscoverySnapshot.ChartFiles` も `List<BMSFile>` である。旧 `BmsFiles` alias は削除済みであり、ここに入る bmson は `PendingChartEntry` として `BMSFile` 互換化される。
+`PackageChartDiscoverySnapshot` は現時点では `ChartFiles` を cached mutable compatibility list として保持し、`ChartEntries` をそこから導出される chart-native sidecar view として返す。setter では `PackageChartEntry.CompatibilityAdapter` から `ChartFiles` を materialize するため、discovery builder は `PackageChartEntry` を作って渡せる。旧 `BmsFiles` alias は削除済みであり、ここに入る bmson は現行互換上 `PendingChartEntry` adapter を持つが、snapshot の読み取り経路は `PackageChartEntry` へ移し始めている。
 
 このため、package / pending install 層では `BMSFile` が「LR2 song 由来 BMS」ではなく「install 対象 chart adapter」を表す場面がある。これは現行最大の構造互換であり、`PendingChartEntry : BMSFile` 廃止の前提として、package discovery snapshot / install estimation / pending tree が chart-native entry を扱うようにする。
 
@@ -288,7 +288,7 @@ production code の `ChartPackage` 経由の chart-all 参照は、現行では 
 - source surface snapshot / scan metrics / cache hit
 - batch source surface hit と scan backend 情報
 
-target chart list は `ChartPackage.ChartFiles` 由来の compatibility adapter list だが、推定中に読み取り専用で参照する代表譜面は `RepresentativeChart` として `ChartFile` 化される。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
+target chart list は `ChartPackage.ChartFiles` 由来の compatibility adapter list だが、推定 snapshot builder 内では `PackageChartEntry` に変換し、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
 
 ### installed directory index
 

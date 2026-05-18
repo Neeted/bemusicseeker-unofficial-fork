@@ -929,11 +929,18 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 List<BMSFile> firstFiles = package.ChartFiles;
                 List<BMSFile> secondFiles = package.ChartFiles;
+                List<PackageChartEntry> firstEntries = package.ChartEntries;
+                List<PackageChartEntry> secondEntries = package.ChartEntries;
                 PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
                 PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
 
                 Assert.AreSame(firstFiles, secondFiles);
                 Assert.AreEqual(3, firstFiles.Count);
+                Assert.AreEqual(3, firstEntries.Count);
+                Assert.AreEqual(3, secondEntries.Count);
+                Assert.IsTrue(firstEntries.All(entry => firstFiles.Contains(entry.CompatibilityAdapter)));
+                Assert.IsTrue(secondEntries.All(entry => firstFiles.Contains(entry.CompatibilityAdapter)));
+                Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
                 Assert.AreEqual(1, firstFiles.OfType<PendingChartEntry>().Count(file => file.IsBmsonChart));
                 Assert.AreEqual(3, firstSnapshot.ChartCount);
                 Assert.AreEqual(sourceDir, firstSnapshot.SourceDirectory);

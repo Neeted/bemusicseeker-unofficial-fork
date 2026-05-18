@@ -22,7 +22,19 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
 
-    public List<PendingChartEntry> PendingCharts => [.. (ChartFiles ?? []).OfType<PendingChartEntry>()];
+    public List<PendingChartEntry> PendingCharts => [.. ChartEntries.Select(entry => entry.CompatibilityAdapter).OfType<PendingChartEntry>()];
+
+    internal List<PackageChartEntry> ChartEntries
+    {
+        get
+        {
+            if (hasExplicitChartFiles)
+            {
+                return [.. (chartFiles ?? []).Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+            }
+            return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartEntries;
+        }
+    }
 
     public List<BMSFile> ChartFiles
     {
