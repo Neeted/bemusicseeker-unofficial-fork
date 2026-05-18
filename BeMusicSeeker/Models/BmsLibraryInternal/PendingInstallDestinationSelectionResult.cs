@@ -8,6 +8,8 @@ internal sealed class PendingInstallDestinationSelectionResult
 
     public string ValidatedDestinationDirectory { get; set; }
 
+    public List<PackageChartEntry> TargetEntries { get; } = [];
+
     public List<BMSFile> TargetFiles { get; } = [];
 
     public string WarningMessage { get; set; }

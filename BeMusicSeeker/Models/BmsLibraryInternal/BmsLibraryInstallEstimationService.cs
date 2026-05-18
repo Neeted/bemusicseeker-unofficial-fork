@@ -1159,15 +1159,15 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 result.WarningMessage = Properties.Resources.Warn_PendingPackageNotFound;
                 return result;
             }
-            result.TargetFiles.Add(targetFile);
         }
         else
         {
-            result.TargetFiles.AddRange(package.ChartEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null));
+            result.TargetEntries.AddRange(package.ChartEntries.Where(entry => entry?.Chart != null));
         }
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
             result.Success = true;
+            AddSelectionTargetFiles(result, targetFile, package);
             return result;
         }
         string normalizedInput;
@@ -1196,7 +1196,34 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         result.Success = true;
         result.ValidatedDestinationDirectory = installDirectory;
+        AddSelectionTargetFiles(result, targetFile, package);
         return result;
+    }
+
+    private static void AddSelectionTargetFiles(PendingInstallDestinationSelectionResult result, BMSFile targetFile, ChartPackage package)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        if (package == null)
+        {
+            if (targetFile != null)
+            {
+                result.TargetFiles.Add(targetFile);
+            }
+            return;
+        }
+        result.TargetFiles.AddRange(result.TargetEntries.Select(GetInstallDestinationWritebackTarget).Where(file => file != null));
+    }
+
+    private static BMSFile GetInstallDestinationWritebackTarget(PackageChartEntry entry)
+    {
+        if (entry?.Chart == null)
+        {
+            return null;
+        }
+        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile ?? entry.GetOrCreateCompatibilityAdapter();
     }
 
     public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string md5, string sha256 = null)

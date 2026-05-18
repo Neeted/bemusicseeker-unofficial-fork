@@ -1616,10 +1616,50 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 Assert.IsTrue(result.Success);
                 Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
+                Assert.AreEqual(1, result.TargetEntries.Count);
+                Assert.AreEqual(bmsonPath, result.TargetEntries[0].Chart.Path);
                 Assert.AreEqual(1, result.TargetFiles.Count);
                 Assert.IsTrue(result.TargetFiles[0] is PendingChartEntry { IsBmsonChart: true });
                 Assert.AreEqual(bmsonPath, result.TargetFiles[0].path);
                 Assert.IsNotNull(entries[0].CompatibilityAdapter);
+            });
+        });
+    }
+
+    [TestMethod]
+    public void ValidatePendingInstallDestination_DoesNotMaterializeAdapterlessBmsonWhenDestinationIsInvalid()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
+                Directory.CreateDirectory(pendingDirectoryPath);
+                string bmsonPath = Path.Combine(pendingDirectoryPath, "chart.bmson");
+                File.WriteAllText(
+                    bmsonPath,
+                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
+                BMSFile targetFile = PendingChartEntry.CreateFromFilePath(bmsonPath);
+                var pendingPackage = new ChartPackage
+                {
+                    path = pendingDirectoryPath,
+                    delete_parent = false
+                };
+                List<PackageChartEntry> entries = pendingPackage.ChartEntries;
+                Assert.AreEqual(1, entries.Count);
+                Assert.IsNull(entries[0].CompatibilityAdapter);
+
+                PendingInstallDestinationSelectionResult result = service.ValidatePendingInstallDestination(
+                    targetFile,
+                    [pendingPackage],
+                    [Path.Combine(tempRoot, "install")],
+                    Path.Combine(tempRoot, "missing"));
+
+                Assert.IsFalse(result.Success);
+                Assert.AreEqual(1, result.TargetEntries.Count);
+                Assert.AreEqual(0, result.TargetFiles.Count);
+                Assert.IsNull(entries[0].CompatibilityAdapter);
             });
         });
     }
