@@ -306,18 +306,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         try
         {
-            IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? [])
-                .Where(package => package != null)
-                .SelectMany(package => package.GetChartAdapters());
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? [])
                 .Select(chart => chart.CompatibilityBmsFile)
-                .Where(bmsInfo => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
-            foreach (BMSFile installLinkedBmsFile in pendingFiles.Concat(libraryFiles))
+                .Where(bmsInfo => bmsInfo != null);
+            foreach (BMSFile installLinkedBmsFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, folderPath))
             {
-                if (!string.IsNullOrWhiteSpace(installLinkedBmsFile.instl_dst) && (installLinkedBmsFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                {
-                    installLinkedBmsFile.instl_dst = null;
-                }
+                installLinkedBmsFile.instl_dst = null;
             }
         }
         catch
@@ -369,13 +363,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             return delta;
         }
-        foreach (BMSFile installLinkedFile in (pendingPackages ?? [])
-            .Where(pkg => pkg != null)
-            .SelectMany(pkg => pkg.GetChartAdapters())
-            .Concat((libraryFiles ?? []).Where(file => !string.IsNullOrWhiteSpace(file.instl_dst))))
+        foreach (BMSFile installLinkedFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, srcDir))
         {
-            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
-                && (installLinkedFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst))
             {
                 delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
                 {
@@ -541,13 +531,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             delete_parent = false
         };
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile installLinkedFile in (pendingPackages ?? [])
-            .Where(pkg => pkg != null)
-            .SelectMany(pkg => pkg.GetChartAdapters())
-            .Concat((libraryFiles ?? []).Where(file => !string.IsNullOrWhiteSpace(file.instl_dst))))
+        foreach (BMSFile installLinkedFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, srcDir))
         {
-            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
-                && (installLinkedFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst))
             {
                 result.ReferenceMutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
                 {
@@ -573,6 +559,29 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.ReferenceMutationDelta.ClearDuplicatedCache = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
         result.Success = result.SourceFiles.Count > 0;
         return result;
+    }
+
+    private static IEnumerable<BMSFile> EnumerateInstallLinkedAdaptersUnderFolder(
+        IEnumerable<ChartPackage> pendingPackages,
+        IEnumerable<BMSFile> libraryFiles,
+        string folderPath)
+    {
+        IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? [])
+            .Where(package => package != null)
+            .SelectMany(package => package.ChartEntries)
+            .Where(entry => IsInstallDestinationUnderFolder(entry?.Chart?.InstallDestination, folderPath))
+            .Select(entry => entry.GetOrCreateCompatibilityAdapter())
+            .Where(file => file != null);
+        IEnumerable<BMSFile> existingLibraryFiles = (libraryFiles ?? [])
+            .Where(file => file != null && IsInstallDestinationUnderFolder(file.instl_dst, folderPath));
+        return pendingFiles.Concat(existingLibraryFiles);
+    }
+
+    private static bool IsInstallDestinationUnderFolder(string installDestination, string folderPath)
+    {
+        return !string.IsNullOrWhiteSpace(installDestination)
+            && !string.IsNullOrWhiteSpace(folderPath)
+            && (installDestination + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     public LibraryFixInstallationResult FixInstallationDirectory(

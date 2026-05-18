@@ -173,16 +173,21 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             libraryFile.instl_dst = sourceRoot;
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = nestedDirectoryPath;
-            var pendingPackage = new ChartPackage([pendingFile])
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
             {
-                path = Path.Combine(tempDirectoryPath, "Pending"),
-                delete_parent = false
-            };
+                path = Path.Combine(tempDirectoryPath, "Pending", "chart.bmson"),
+                folder = Path.Combine(tempDirectoryPath, "Pending"),
+                title = "Bmson"
+            }));
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(pendingFile), adapterlessBmsonEntry]);
+            pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
+            pendingPackage.delete_parent = false;
             var installedPackage = new ChartPackage([libraryFile])
             {
                 path = nestedDirectoryPath,
                 delete_parent = false
             };
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
 
             service.MoveFolderAndUpdateReferences(
                 sourceRoot,
@@ -214,6 +219,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 new[] { Path.Combine(destinationRoot, "Nested"), destinationRoot },
                 delta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
             Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), delta.UpdatedInstalledPackagePaths[0].NewPath);
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
         });
     }
 
@@ -232,13 +238,18 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             libraryFile.instl_dst = folderPath;
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = folderPath;
-            var pendingPackage = new ChartPackage([pendingFile])
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
             {
-                path = Path.Combine(tempDirectoryPath, "Pending"),
-                delete_parent = false
-            };
+                path = Path.Combine(tempDirectoryPath, "Pending", "chart.bmson"),
+                folder = Path.Combine(tempDirectoryPath, "Pending"),
+                title = "Bmson"
+            }));
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(pendingFile), adapterlessBmsonEntry]);
+            pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
+            pendingPackage.delete_parent = false;
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(folderPath, []);
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromCompatibilityBmsFile(libraryFile)],
@@ -256,6 +267,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsNull(pendingFile.instl_dst);
             Assert.IsNull(libraryFile.instl_dst);
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.IsFalse(Directory.Exists(folderPath));
             Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
         });
@@ -749,6 +761,51 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         Assert.IsTrue(delta.RaiseBmsFilesChanged);
         Assert.AreEqual(1, delta.BmsonSongPathChanges.Count);
+    }
+
+    [TestMethod]
+    public void PrepareMergeDirectory_TracksInstallDestinationsWithoutMaterializingUnlinkedBmsonEntries()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
+            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
+            Directory.CreateDirectory(sourceRoot);
+            Directory.CreateDirectory(destinationRoot);
+            string chartPath = Path.Combine(sourceRoot, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile libraryFile = CreateFile(chartPath);
+            libraryFile.instl_dst = sourceRoot;
+            TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
+            pendingFile.instl_dst = sourceRoot;
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempDirectoryPath, "Pending", "chart.bmson"),
+                folder = Path.Combine(tempDirectoryPath, "Pending"),
+                title = "Bmson"
+            }));
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(pendingFile), adapterlessBmsonEntry]);
+            pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
+            pendingPackage.delete_parent = false;
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+
+            LibraryMergeResult result = service.PrepareMergeDirectory(
+                sourceRoot,
+                destinationRoot,
+                [libraryFile],
+                [],
+                [pendingPackage],
+                [],
+                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+            Assert.IsTrue(result.Success);
+            Assert.AreEqual(2, result.ReferenceMutationDelta.UpdatedInstallDestinations.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { destinationRoot, destinationRoot },
+                result.ReferenceMutationDelta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        });
     }
 
     [TestMethod]
