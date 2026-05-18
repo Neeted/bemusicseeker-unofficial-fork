@@ -1389,96 +1389,97 @@ internal sealed class BmsLibraryPackageInstallService
         var groupsByDestination = new Dictionary<string, PendingInstallBatchGroup>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage originalPackage in plan.SelectedPendingPackages)
         {
-            List<BMSFile> packageFiles = originalPackage.GetChartAdapters();
-            if (packageFiles.Count == 0)
+            List<PackageChartEntry> packageEntries = originalPackage.ChartEntries;
+            if (packageEntries.Count == 0)
             {
                 continue;
             }
             if (originalPackage.DeferredEstimateReason != PendingEstimateDeferredReason.None
-                && packageFiles.All(file => string.IsNullOrWhiteSpace(file.instl_dst)))
+                && packageEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination)))
             {
                 plan.DeferredManualHoldCount++;
                 continue;
             }
-            List<BMSFile> installedInLibraryFiles = [];
-            List<BMSFile> installTargetPackageFiles = [];
-            List<BMSFile> duplicateInBatchFiles = [];
-            foreach (BMSFile packageFile in packageFiles)
+            List<PackageChartEntry> installedInLibraryEntries = [];
+            List<PackageChartEntry> installTargetPackageEntries = [];
+            List<PackageChartEntry> duplicateInBatchEntries = [];
+            foreach (PackageChartEntry packageEntry in packageEntries)
             {
-                string lookupKey = PendingChartEntry.GetPrimaryLookupHash(packageFile);
+                string lookupKey = packageEntry.Chart?.PrimaryLookupHash;
                 if (string.IsNullOrWhiteSpace(lookupKey))
                 {
-                    installTargetPackageFiles.Add(packageFile);
+                    installTargetPackageEntries.Add(packageEntry);
                 }
                 else if (installedHashes.Contains(lookupKey))
                 {
-                    installedInLibraryFiles.Add(packageFile);
+                    installedInLibraryEntries.Add(packageEntry);
                 }
                 else if (reservedHashes.Contains(lookupKey))
                 {
-                    duplicateInBatchFiles.Add(packageFile);
+                    duplicateInBatchEntries.Add(packageEntry);
                 }
                 else
                 {
                     reservedHashes.Add(lookupKey);
-                    installTargetPackageFiles.Add(packageFile);
+                    installTargetPackageEntries.Add(packageEntry);
                 }
             }
-            ApplyAlreadyInstalledWarning(installedInLibraryFiles);
-            ApplyAlreadyInstalledWarning(duplicateInBatchFiles);
-            List<BMSFile> installWorkPackageFiles = installTargetPackageFiles;
+            ApplyAlreadyInstalledWarning(MaterializeCompatibilityAdapters(installedInLibraryEntries));
+            ApplyAlreadyInstalledWarning(MaterializeCompatibilityAdapters(duplicateInBatchEntries));
+            List<PackageChartEntry> installWorkPackageEntries = installTargetPackageEntries;
             bool isResourceOnlyInstall = false;
             string destinationDirectory = null;
-            if (installTargetPackageFiles.Count == 0)
+            if (installTargetPackageEntries.Count == 0)
             {
-                if (installedInLibraryFiles.Count == 0)
+                if (installedInLibraryEntries.Count == 0)
                 {
                     continue;
                 }
-                List<string> destinations = [.. packageFiles.Select(file => file.instl_dst).Where(dst => !string.IsNullOrWhiteSpace(dst)).Distinct(StringComparer.OrdinalIgnoreCase)];
+                List<string> destinations = [.. packageEntries
+                    .Select(entry => entry.Chart?.InstallDestination)
+                    .Where(dst => !string.IsNullOrWhiteSpace(dst))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)];
                 if (destinations.Count != 1)
                 {
                     continue;
                 }
                 destinationDirectory = destinations[0];
                 isResourceOnlyInstall = true;
-                installWorkPackageFiles = packageFiles;
+                installWorkPackageEntries = packageEntries;
             }
             else
             {
-                if (installTargetPackageFiles.Any(file => string.IsNullOrWhiteSpace(file.instl_dst)))
+                if (installTargetPackageEntries.Any(entry => string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination)))
                 {
                     continue;
                 }
-                destinationDirectory = installTargetPackageFiles.Select(file => file.instl_dst).FirstOrDefault();
-                if (string.IsNullOrWhiteSpace(destinationDirectory) || installTargetPackageFiles.Any(file => !string.Equals(file.instl_dst, destinationDirectory, StringComparison.OrdinalIgnoreCase)))
+                destinationDirectory = installTargetPackageEntries.Select(entry => entry.Chart?.InstallDestination).FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(destinationDirectory) || installTargetPackageEntries.Any(entry => !string.Equals(entry.Chart?.InstallDestination, destinationDirectory, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
             }
-            var installWorkPackage = new ChartPackage(installWorkPackageFiles)
-            {
-                path = originalPackage.path,
-                delete_parent = originalPackage.delete_parent
-            };
+            ChartPackage installWorkPackage = ChartPackage.FromChartEntries(installWorkPackageEntries);
+            installWorkPackage.path = originalPackage.path;
+            installWorkPackage.delete_parent = originalPackage.delete_parent;
             HashSet<string> excludedPaths = null;
-            if (installedInLibraryFiles.Count > 0 || duplicateInBatchFiles.Count > 0 || isResourceOnlyInstall)
+            if (installedInLibraryEntries.Count > 0 || duplicateInBatchEntries.Count > 0 || isResourceOnlyInstall)
             {
-                excludedPaths = new HashSet<string>(installedInLibraryFiles.Where(file => !string.IsNullOrWhiteSpace(file.path)).Select(file => file.path), StringComparer.OrdinalIgnoreCase);
-                foreach (BMSFile duplicateFile in duplicateInBatchFiles)
+                excludedPaths = new HashSet<string>(installedInLibraryEntries.Select(entry => entry.Chart?.Path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+                foreach (PackageChartEntry duplicateEntry in duplicateInBatchEntries)
                 {
-                    if (!string.IsNullOrWhiteSpace(duplicateFile?.path))
+                    if (!string.IsNullOrWhiteSpace(duplicateEntry.Chart?.Path))
                     {
-                        excludedPaths.Add(duplicateFile.path);
+                        excludedPaths.Add(duplicateEntry.Chart.Path);
                     }
                 }
                 if (isResourceOnlyInstall)
                 {
-                    foreach (BMSFile packageFile in packageFiles)
+                    foreach (PackageChartEntry packageEntry in packageEntries)
                     {
-                        if (!string.IsNullOrWhiteSpace(packageFile?.path))
+                        if (!string.IsNullOrWhiteSpace(packageEntry.Chart?.Path))
                         {
-                            excludedPaths.Add(packageFile.path);
+                            excludedPaths.Add(packageEntry.Chart.Path);
                         }
                     }
                 }
@@ -1515,10 +1516,10 @@ internal sealed class BmsLibraryPackageInstallService
                 DestinationDirectory = destinationDirectory,
                 ExcludedComponentPaths = excludedPaths,
                 IsResourceOnlyInstall = isResourceOnlyInstall,
-                InstallTargetFileCount = installTargetPackageFiles.Count
+                InstallTargetFileCount = installTargetPackageEntries.Count
             });
             plan.GroupedPackageCount++;
-            plan.InstallTargetFileCount += installTargetPackageFiles.Count;
+            plan.InstallTargetFileCount += installTargetPackageEntries.Count;
         }
         groupBuildStopwatch.Stop();
         plan.GroupBuildMs = groupBuildStopwatch.ElapsedMilliseconds;
@@ -2247,6 +2248,13 @@ internal sealed class BmsLibraryPackageInstallService
                 file.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
             }
         }
+    }
+
+    private static List<BMSFile> MaterializeCompatibilityAdapters(IEnumerable<PackageChartEntry> entries)
+    {
+        return [.. (entries ?? [])
+            .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
+            .Where(file => file != null)];
     }
 
     private static bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
