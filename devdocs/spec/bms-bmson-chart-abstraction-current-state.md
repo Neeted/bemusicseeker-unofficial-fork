@@ -281,7 +281,7 @@ production code の `ChartPackage` 経由の chart-all 参照は、読み取り�
 
 ### `PackageInstallEstimationSnapshot`
 
-導入先推定 snapshot は `BMSFile` compatibility adapter list を入力にする。
+導入先推定 snapshot builder の primary input は `PackageChartEntry` である。`BMSFile` compatibility adapter list を受け取る overload は残るが、互換入口として即座に `PackageChartEntry` へ変換する。
 
 主なフィールド:
 
@@ -293,7 +293,7 @@ production code の `ChartPackage` 経由の chart-all 参照は、読み取り�
 - source surface snapshot / scan metrics / cache hit
 - batch source surface hit と scan backend 情報
 
-target chart list は `GetChartAdapters()` 由来の compatibility adapter snapshot だが、推定 snapshot builder 内では `PackageChartEntry` に変換し、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。`DefinedResources` は `PackageChartEntry.Chart` から作るため、bmson pending chart では `PendingChartEntry` adapter の component cache ではなく `bmson_song` の resource refs を使う。metadata profile は `ChartFile` projection の title / artist / path から作る。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
+target chart list は `PackageChartEntry` として snapshot builder に渡され、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。`ChartPackage.GetOrBuildInstallEstimationSnapshot(...)` は呼び出し互換上 `BMSFile` adapter list を受け取るが、package 内 `ChartEntries` から対応 entry を解決し、見つからない adapter だけを fallback projection する。`DefinedResources` は `PackageChartEntry.Chart` から作るため、bmson pending chart では `PendingChartEntry` adapter の component cache ではなく `bmson_song` の resource refs を使う。metadata profile は `ChartFile` projection の title / artist / path から作る。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
 
 ### installed directory index
 

@@ -120,17 +120,22 @@ internal static class PackageInstallEstimationSnapshotBuilder
 {
     internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
     {
-        List<PackageChartEntry> targetEntries = CreateEntriesFromCompatibilityAdapters(targetFiles);
-        PackageChartEntry representativeEntry = SelectRepresentativeEntry(targetEntries);
+        return Build(package, CreateEntriesFromCompatibilityAdapters(targetFiles), installSurfaceSnapshot, sourceSurfaceCacheHit, sourceSurfaceBatchHit);
+    }
+
+    internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
+    {
+        List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
+        PackageChartEntry representativeEntry = SelectRepresentativeEntry(normalizedTargetEntries);
         return new PackageInstallEstimationSnapshot
         {
             RepresentativeChart = representativeEntry?.Chart,
-            DefinedResources = ChartResourceSnapshot.CreateAggregate(targetEntries.Select(entry => entry.Chart)),
-            TargetMetadataProfile = BuildTargetMetadataProfile(targetEntries),
+            DefinedResources = ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
+            TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
             BundledResources = installSurfaceSnapshot?.BundledResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = installSurfaceSnapshot?.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceDirectory = installSurfaceSnapshot?.SourceDirectory ?? ResolveSourceDirectory(package?.path),
-            ChartCount = targetEntries.Count,
+            ChartCount = normalizedTargetEntries.Count,
             SourceSurfaceScanMs = installSurfaceSnapshot?.ScanMs ?? 0L,
             SourceSurfaceChartFileCount = installSurfaceSnapshot?.ChartFileCount ?? 0,
             SourceSurfaceResourceFileCount = installSurfaceSnapshot?.ResourceFileCount ?? 0,
@@ -144,18 +149,23 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     internal static PackageInstallEstimationSnapshot BuildForLooseFiles(IEnumerable<BMSFile> targetFiles)
     {
-        List<PackageChartEntry> targetEntries = CreateEntriesFromCompatibilityAdapters(targetFiles);
-        PackageChartEntry representativeEntry = SelectRepresentativeEntry(targetEntries);
+        return BuildForLooseEntries(CreateEntriesFromCompatibilityAdapters(targetFiles));
+    }
+
+    internal static PackageInstallEstimationSnapshot BuildForLooseEntries(IEnumerable<PackageChartEntry> targetEntries)
+    {
+        List<PackageChartEntry> normalizedTargetEntries = NormalizeEntries(targetEntries);
+        PackageChartEntry representativeEntry = SelectRepresentativeEntry(normalizedTargetEntries);
         PackageInstallSurfaceSnapshot sourceSurfaceSnapshot = BuildSourceCandidateResourcesForLooseFiles(representativeEntry?.Chart);
         return new PackageInstallEstimationSnapshot
         {
             RepresentativeChart = representativeEntry?.Chart,
-            DefinedResources = ChartResourceSnapshot.CreateAggregate(targetEntries.Select(entry => entry.Chart)),
-            TargetMetadataProfile = BuildTargetMetadataProfile(targetEntries),
+            DefinedResources = ChartResourceSnapshot.CreateAggregate(normalizedTargetEntries.Select(entry => entry.Chart)),
+            TargetMetadataProfile = BuildTargetMetadataProfile(normalizedTargetEntries),
             BundledResources = new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = sourceSurfaceSnapshot.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceDirectory = sourceSurfaceSnapshot.SourceDirectory,
-            ChartCount = targetEntries.Count,
+            ChartCount = normalizedTargetEntries.Count,
             SourceSurfaceScanMs = sourceSurfaceSnapshot.ScanMs,
             SourceSurfaceChartFileCount = sourceSurfaceSnapshot.ChartFileCount,
             SourceSurfaceResourceFileCount = sourceSurfaceSnapshot.ResourceFileCount,
@@ -438,15 +448,20 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     private static List<PackageChartEntry> CreateEntriesFromCompatibilityAdapters(IEnumerable<BMSFile> targetFiles)
     {
-        return [.. (targetFiles ?? [])
+        return NormalizeEntries((targetFiles ?? [])
             .Select(PackageChartEntry.FromCompatibilityAdapter)
-            .Where(entry => entry?.CompatibilityAdapter != null)];
+            .Where(entry => entry != null));
+    }
+
+    private static List<PackageChartEntry> NormalizeEntries(IEnumerable<PackageChartEntry> targetEntries)
+    {
+        return [.. (targetEntries ?? []).Where(entry => entry?.Chart != null)];
     }
 
     private static PackageChartEntry SelectRepresentativeEntry(IReadOnlyCollection<PackageChartEntry> targetEntries)
     {
         return targetEntries?
-            .Where(entry => entry?.CompatibilityAdapter != null)
+            .Where(entry => entry?.Chart != null)
             .OrderByDescending(entry => entry.ResourceSnapshot.TotalReferenceCount)
             .FirstOrDefault();
     }

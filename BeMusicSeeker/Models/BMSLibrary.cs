@@ -7629,8 +7629,7 @@ reportProgress,
                 batchState.SourceDirectory,
                 batchState.SourceSurface,
                 includeBundledResources);
-            estimationSnapshot = PackageInstallEstimationSnapshotBuilder.Build(
-                package,
+            estimationSnapshot = package.BuildInstallEstimationSnapshot(
                 targetFileList,
                 sharedInstallSurface,
                 sourceSurfaceCacheHit: false,

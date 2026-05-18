@@ -176,9 +176,19 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles)
     {
-        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
+        List<PackageChartEntry> targetEntries = ResolveTargetEntries(targetFiles);
         PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);
-        return PackageInstallEstimationSnapshotBuilder.Build(this, targetFileList, installSurfaceSnapshot, sourceSurfaceCacheHit);
+        return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit);
+    }
+
+    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
+    {
+        return PackageInstallEstimationSnapshotBuilder.Build(
+            this,
+            ResolveTargetEntries(targetFiles),
+            installSurfaceSnapshot,
+            sourceSurfaceCacheHit,
+            sourceSurfaceBatchHit);
     }
 
     internal void InvalidateInstallEstimationSnapshot()
@@ -220,5 +230,23 @@ public class ChartPackage : LR2SongDBExtended.install
             cacheHit = true;
             return packageChartDiscoverySnapshot;
         }
+    }
+
+    private List<PackageChartEntry> ResolveTargetEntries(IEnumerable<BMSFile> targetFiles)
+    {
+        List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
+        if (targetFileList.Count == 0)
+        {
+            return [];
+        }
+
+        List<PackageChartEntry> packageEntries = ChartEntries ?? [];
+        var targetEntries = new List<PackageChartEntry>(targetFileList.Count);
+        foreach (BMSFile targetFile in targetFileList)
+        {
+            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSameChartAdapter(entry?.CompatibilityAdapter, targetFile));
+            targetEntries.Add(packageEntry ?? PackageChartEntry.FromCompatibilityAdapter(targetFile));
+        }
+        return [.. targetEntries.Where(entry => entry?.Chart != null)];
     }
 }

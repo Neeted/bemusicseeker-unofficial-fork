@@ -1016,6 +1016,117 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void PackageInstallEstimationSnapshotBuilder_BuildsFromPackageChartEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                string soundDir = Path.Combine(sourceDir, "sound");
+                Directory.CreateDirectory(soundDir);
+                File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1\r\n#TITLE BMS\r\n#WAVAA sound\\00.wav\r\n#00111:AA");
+                File.WriteAllText(Path.Combine(sourceDir, "chart2.bmson"), "{}");
+                File.WriteAllText(Path.Combine(soundDir, "00.wav"), "audio");
+
+                var package = new ChartPackage
+                {
+                    path = sourceDir,
+                    delete_parent = true
+                };
+
+                List<PackageChartEntry> targetEntries = package.ChartEntries;
+                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir, useEverythingForPendingPackageSourceScan: false);
+                PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(package, targetEntries, sourceSurface, sourceSurfaceCacheHit: false);
+
+                Assert.AreEqual(2, targetEntries.Count);
+                Assert.AreEqual(2, snapshot.ChartCount);
+                Assert.IsTrue(targetEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
+                Assert.AreEqual(sourceDir, snapshot.SourceDirectory);
+                Assert.AreEqual(1, snapshot.BundledAudioCount);
+                Assert.IsNotNull(snapshot.RepresentativeChart);
+            });
+        });
+    }
+
+    [TestMethod]
+    public void ChartPackage_GetOrBuildInstallEstimationSnapshot_ResolvesPathMatchedBmsonTargetToPackageEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                string soundDir = Path.Combine(sourceDir, "sound");
+                Directory.CreateDirectory(soundDir);
+                string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
+                File.WriteAllText(
+                    bmsonPath,
+                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7},"
+                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[]}]}");
+                File.WriteAllText(Path.Combine(soundDir, "keysound.wav"), "audio");
+
+                var package = new ChartPackage
+                {
+                    path = sourceDir,
+                    delete_parent = true
+                };
+                TestableBmsFile detachedCompatibilityAdapter = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsonPath);
+
+                PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([detachedCompatibilityAdapter]);
+
+                Assert.AreEqual(1, snapshot.ChartCount);
+                Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
+                Assert.IsNotNull(snapshot.RepresentativeChart.BmsonSong);
+                Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
+            });
+        });
+    }
+
+    [TestMethod]
+    public void ChartPackage_BuildInstallEstimationSnapshot_ResolvesBatchPathMatchedBmsonTargetToPackageEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+            {
+                string sourceDir = Path.Combine(tempRoot, "PathPackage");
+                string soundDir = Path.Combine(sourceDir, "sound");
+                Directory.CreateDirectory(soundDir);
+                string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
+                File.WriteAllText(
+                    bmsonPath,
+                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7},"
+                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[]}]}");
+                File.WriteAllText(Path.Combine(soundDir, "keysound.wav"), "audio");
+
+                var package = new ChartPackage
+                {
+                    path = sourceDir,
+                    delete_parent = true
+                };
+                TestableBmsFile detachedCompatibilityAdapter = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsonPath);
+                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir, useEverythingForPendingPackageSourceScan: false);
+
+                PackageInstallEstimationSnapshot snapshot = package.BuildInstallEstimationSnapshot(
+                    [detachedCompatibilityAdapter],
+                    sourceSurface,
+                    sourceSurfaceCacheHit: false,
+                    sourceSurfaceBatchHit: true);
+
+                Assert.AreEqual(1, snapshot.ChartCount);
+                Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
+                Assert.IsNotNull(snapshot.RepresentativeChart.BmsonSong);
+                Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
+                Assert.IsTrue(snapshot.SourceSurfaceBatchHit);
+            });
+        });
+    }
+
+    [TestMethod]
     public void ChartPackage_PathPackage_InvalidatesChartDiscoveryAndSourceSurfaceSnapshots_WhenPathChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
