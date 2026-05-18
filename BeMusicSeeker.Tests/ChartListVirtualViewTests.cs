@@ -577,6 +577,46 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PackageChartSourceSnapshot_SplitsAdapterlessBmsonEntryWithoutMaterializing()
+    {
+        var bms = new TestableBmsFile();
+        bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        ChartPackage package = ChartPackage.FromChartEntries(
+        [
+            PackageChartEntry.FromCompatibilityAdapter(bms),
+            adapterlessBmsonEntry
+        ]);
+
+        PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
+
+        Assert.AreSame(bms, snapshot.BmsFiles.Single());
+        Assert.AreSame(bmson, snapshot.BmsonSongs.Single());
+        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+    }
+
+    [TestMethod]
+    public void PackageChartSourceRows_DoNotMaterializeAdapterlessBmsonDuringVirtualSort()
+    {
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+        PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
+        List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(
+            snapshot.BmsFiles,
+            snapshot.BmsonSongs,
+            materializeBmsonAdapterOnDemand: false);
+
+        Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, out _));
+        Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.instl_dst), ListSortDirection.Ascending, out _));
+        Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
+
+        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        Assert.IsNull(rows.Single().CompatibilityBmsFile);
+    }
+
+    [TestMethod]
     public void VirtualNormalLibraryRequestModes_CoverRootAndFullScanTrees()
     {
         MainWindowViewModel.viewUpdateMode[] treeModes =
