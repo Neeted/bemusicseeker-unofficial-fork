@@ -315,6 +315,48 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
+    public void UnregisterBmsFiles_DoesNotMaterializeUnmatchedAdapterlessBmsonInstalledPackageEntry()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var removedFile = new TestableBmsFile
+            {
+                path = "C:\\Library\\remove.bms"
+            };
+            removedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            PackageChartEntry unmatchedBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\keep.bmson",
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }));
+            var mixedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(removedFile), unmatchedBmsonEntry]);
+            mixedPackage.path = "C:\\Installed\\MixedPkg";
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(removedFile, typeof(LR2SongDB.song));
+            }
+
+            List<BMSFile> libraryFiles = [removedFile];
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([mixedPackage]);
+            var callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+
+            applier.UnregisterBmsFiles([removedFile]);
+
+            Assert.AreEqual(0, libraryFiles.Count);
+            Assert.AreEqual(1, installedPackages.Count);
+            Assert.AreSame(mixedPackage, installedPackages.Single());
+            Assert.AreEqual(1, mixedPackage.ChartEntries.Count);
+            Assert.AreEqual(unmatchedBmsonEntry.Chart.Path, mixedPackage.ChartEntries.Single().Chart.Path);
+            Assert.IsNull(unmatchedBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
     public void UnregisterBmsonSongs_RemovesSongsFromCollectionAndDatabase()
     {
         WithTemporarySongDb(delegate (string songDbPath)
@@ -409,6 +451,55 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreSame(keptPackage, installedPackages.Single());
             Assert.AreEqual(1, callbacks.BmsonSongsSetCount);
             Assert.AreEqual(1, callbacks.InstalledPackagesSetCount);
+            Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
+        });
+    }
+
+    [TestMethod]
+    public void UnregisterBmsonSongs_RemovesAdapterlessInstalledPackageEntryWithoutMaterializing()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var removedSong = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\remove.bmson",
+                folder = "C:\\Library",
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            };
+            var keptSong = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\keep.bmson",
+                folder = "C:\\Library",
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            };
+            PackageChartEntry removedEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedSong));
+            PackageChartEntry keptEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptSong));
+            ChartPackage package = ChartPackage.FromChartEntries([removedEntry, keptEntry]);
+            package.path = "C:\\Installed\\MixedPkg";
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(keptSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            List<BMSFile> libraryFiles = [];
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = [removedSong, keptSong];
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([package]);
+            var callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+
+            applier.UnregisterBmsonSongs([removedSong]);
+
+            Assert.AreEqual(1, bmsonSongs.Count);
+            Assert.AreSame(keptSong, bmsonSongs.Single());
+            Assert.AreEqual(1, installedPackages.Count);
+            Assert.AreSame(package, installedPackages.Single());
+            Assert.AreEqual(1, package.ChartEntries.Count);
+            Assert.AreEqual(keptSong.path, package.ChartEntries.Single().Chart.Path);
+            Assert.IsNull(removedEntry.CompatibilityAdapter);
+            Assert.IsNull(keptEntry.CompatibilityAdapter);
             Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
         });
     }

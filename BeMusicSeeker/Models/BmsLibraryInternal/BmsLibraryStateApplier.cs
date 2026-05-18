@@ -181,7 +181,7 @@ internal sealed class BmsLibraryStateApplier(
 
         foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
-            if (installedPackage.RemoveChartAdapters(file => IsMatchedRemovedFile(file, removedPaths, removedFileRefs)))
+            if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedFile(entry, removedPaths, removedFileRefs)))
             {
                 installedPackagesChanged = true;
                 if (installedPackage.IsChartAdapterEmpty())
@@ -231,7 +231,7 @@ internal sealed class BmsLibraryStateApplier(
         List<ChartPackage> emptyInstalledPackages = [];
         foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
-            if (installedPackage.RemoveChartAdapters(file => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs)))
+            if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedBmsonFile(entry, removedPaths, removedSongRefs)))
             {
                 installedPackagesChanged = true;
                 if (installedPackage.IsChartAdapterEmpty())
@@ -383,6 +383,21 @@ internal sealed class BmsLibraryStateApplier(
         return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
     }
 
+    private static bool IsMatchedRemovedFile(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
+    {
+        if (entry?.Chart == null)
+        {
+            return false;
+        }
+
+        if (entry.CompatibilityAdapter != null && removedFiles.Contains(entry.CompatibilityAdapter))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path) && removedPaths.Contains(entry.Chart.Path);
+    }
+
     private static bool IsMatchedRemovedBmsonFile(BMSFile file, HashSet<string> removedPaths, HashSet<LR2SongDBExtended.bmson_song> removedSongs)
     {
         if (file == null)
@@ -399,5 +414,25 @@ internal sealed class BmsLibraryStateApplier(
         }
 
         return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
+    }
+
+    private static bool IsMatchedRemovedBmsonFile(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<LR2SongDBExtended.bmson_song> removedSongs)
+    {
+        if (entry?.Chart == null)
+        {
+            return false;
+        }
+
+        if (entry.Chart.BmsonSong != null && removedSongs.Contains(entry.Chart.BmsonSong))
+        {
+            return true;
+        }
+
+        if (entry.CompatibilityAdapter is PendingChartEntry pending && pending.IsBmsonChart && pending.BmsonSong != null && removedSongs.Contains(pending.BmsonSong))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path) && removedPaths.Contains(entry.Chart.Path);
     }
 }

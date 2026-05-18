@@ -109,6 +109,22 @@ public class ChartPackage : LR2SongDBExtended.install
         return true;
     }
 
+    internal bool RemoveChartEntries(Func<PackageChartEntry, bool> predicate)
+    {
+        if (predicate == null)
+        {
+            return false;
+        }
+        List<PackageChartEntry> currentEntries = ChartEntries;
+        List<PackageChartEntry> nextEntries = [.. currentEntries.Where(entry => !predicate(entry))];
+        if (nextEntries.Count == currentEntries.Count)
+        {
+            return false;
+        }
+        ReplaceChartEntries(nextEntries);
+        return true;
+    }
+
     internal bool IsChartAdapterEmpty()
     {
         return (ChartEntries?.Count ?? 0) == 0;
