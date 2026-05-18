@@ -59,6 +59,37 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchEstimatedInstallationDirectoryByFiles_MatchesAdapterlessBmsonPackageByChartPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonAdapterless");
+            string chartPath = CreateBmsonFile(sourceDirectoryPath, "chart.bmson", "Adapterless", "Test");
+            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(chartPath);
+            ChartPackage pendingPackage = ChartPackage.FromChartEntries(
+            [
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))
+            ]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+            pendingPackage.DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline;
+            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
+
+            library.BMSFiles = [];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            Assert.IsNull(pendingPackage.ChartEntries.Single().CompatibilityAdapter);
+
+            library.SearchEstimatedInstallationDirectory([selectedChart], asParallel: false, fixMode: false);
+
+            PackageChartEntry entry = pendingPackage.ChartEntries.Single();
+            Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
+            Assert.IsNotNull(entry.CompatibilityAdapter);
+            Assert.AreEqual(chartPath, entry.CompatibilityAdapter.path);
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_RegroupsSplitPackagesWhenEligibleDirectoryIsSupplied()
     {
         TestResourceInitializer.EnsureJapaneseResources();

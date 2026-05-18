@@ -3592,13 +3592,56 @@ public class BMSLibrary : NotificationObject
         }
 
         IEnumerable<ChartPackage> pendingPackages = ChartPackagesPending ?? Enumerable.Empty<ChartPackage>();
+        var filePaths = new HashSet<string>(
+            fileSet.Select(file => file.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage pendingPackage in pendingPackages.Where(package => package != null))
         {
-            if (pendingPackage.GetChartAdapters().Any(file => fileSet.Contains(file)))
+            if (PackageContainsAnyChartTarget(pendingPackage, fileSet, filePaths))
             {
                 pendingPackage.DeferredEstimateReason = PendingEstimateDeferredReason.None;
             }
         }
+    }
+
+    private static bool PackageTargetsContainChartFile(IEnumerable<ChartPackage> packages, BMSFile chartFile)
+    {
+        if (chartFile == null)
+        {
+            return false;
+        }
+        return (packages ?? []).Any(package => PackageContainsChartTarget(package, chartFile));
+    }
+
+    private static bool PackageContainsAnyChartTarget(ChartPackage package, HashSet<BMSFile> targetFileSet, HashSet<string> targetPathSet)
+    {
+        return (package?.ChartEntries ?? []).Any(entry => IsSamePackageChartTarget(entry, targetFileSet, targetPathSet));
+    }
+
+    private static bool PackageContainsChartTarget(ChartPackage package, BMSFile targetFile)
+    {
+        if (targetFile == null)
+        {
+            return false;
+        }
+        var targetFileSet = new HashSet<BMSFile> { targetFile };
+        var targetPathSet = string.IsNullOrWhiteSpace(targetFile.path)
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>([targetFile.path], StringComparer.OrdinalIgnoreCase);
+        return PackageContainsAnyChartTarget(package, targetFileSet, targetPathSet);
+    }
+
+    private static bool IsSamePackageChartTarget(PackageChartEntry entry, HashSet<BMSFile> targetFileSet, HashSet<string> targetPathSet)
+    {
+        if (entry?.Chart == null)
+        {
+            return false;
+        }
+        if (entry.CompatibilityAdapter != null && targetFileSet != null && targetFileSet.Contains(entry.CompatibilityAdapter))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path) && targetPathSet != null && targetPathSet.Contains(entry.Chart.Path);
     }
 
     /// <summary>
@@ -8726,13 +8769,15 @@ reportProgress,
         try
         {
             var targetFileSet = new HashSet<BMSFile>(targetFiles);
+            var targetPathSet = new HashSet<string>(
+                targetFiles.Select(file => file.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+                StringComparer.OrdinalIgnoreCase);
             List<ChartPackage> packageTargets;
             using (rwlockPendingInstallCharts.GetReaderGuard())
             {
-                packageTargets = [.. ChartPackagesPending.Where(package => package != null && package.GetChartAdapters().Any(file => targetFileSet.Contains(file)))];
+                packageTargets = [.. ChartPackagesPending.Where(package => package != null && PackageContainsAnyChartTarget(package, targetFileSet, targetPathSet))];
             }
-            var packageFiles = new HashSet<BMSFile>(packageTargets.SelectMany(package => package.GetChartAdapters()));
-            List<BMSFile> looseFiles = [.. targetFiles.Where(file => !packageFiles.Contains(file))];
+            List<BMSFile> looseFiles = [.. targetFiles.Where(file => !PackageTargetsContainChartFile(packageTargets, file))];
             if (!fixMode && looseFiles.Count == 0 && packageTargets.Count > 1)
             {
                 ProcessManualPackageEstimateBatch(packageTargets);
