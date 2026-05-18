@@ -264,16 +264,16 @@ pending / installed package record の永続正本は `install` table の row �
 主な現行仕様:
 
 - `ChartPackage.ChartEntries` は package 内 chart discovery の読み取り primary API になりつつあり、`PackageChartEntry` / `ChartFile` を返す。
-- `ChartPackage.ChartFiles` は既存 UI / mutation との橋渡しとして `List<BMSFile>` compatibility adapter list を返す。
-- 明示的に `chartFiles` を渡された package ではその list を返す。
+- `ChartPackage.GetChartAdapters()` は既存 UI / mutation との橋渡しとして `List<BMSFile>` compatibility adapter snapshot を返す。
+- 明示的に `chartFiles` を渡された package では private adapter cache を保持し、`GetChartAdapters()` はそこから null を除いた snapshot を返す。
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から `PendingChartEntry` を作る。
 - `PendingCharts` は `ChartEntries` から compatibility adapter を取り出し、`PendingChartEntry` だけに絞った view である。
 
-production code の `ChartPackage` 経由の chart-all 参照は、読み取り系と install estimation 系では `ChartEntries`、互換 adapter が必要な UI / mutation target list では `GetChartAdapters()` に寄せ始めている。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 chart list は `ChartFiles` に一本化されている。ただし `ChartFiles` の戻り値が `List<BMSFile>` である点は、ChartFile domain model 化後も維持する契約ではなく、`ChartPackage` が package 内 chart を `BMSFile` 互換 adapter なしで返す形へ置き換える対象である。
+production code の `ChartPackage` 経由の chart-all 参照は、読み取り系と install estimation 系では `ChartEntries`、互換 adapter が必要な UI / mutation target list では `GetChartAdapters()` に寄せ始めている。旧 `BMSFiles` alias は production 参照がなくなった段階で削除済みであり、package 内 compatibility adapter cache は private `ChartFiles` に閉じ込めている。`ChartFiles` の戻り値が `List<BMSFile>` である点は、ChartFile domain model 化後も維持する契約ではなく、`ChartPackage` が package 内 chart を `BMSFile` 互換 adapter なしで返す形へ置き換える対象である。
 
 `PackageChartDiscoverySnapshot` は `PackageChartEntry` を内部正本として保持する。`ChartFiles` は必要になった時だけ `PackageChartEntry.CompatibilityAdapter` から cached mutable compatibility list として materialize される。`ChartFiles` setter は compatibility adapter list から `PackageChartEntry` を再構築するため、旧 adapter list を受け取る経路も snapshot 内では chart entry に同期される。`ChartEntries` getter は compatibility adapter の mutation を反映するために adapter から再構築する。旧 `BmsFiles` alias は削除済みであり、ここに入る bmson は現行互換上 `PendingChartEntry` adapter を持つが、snapshot の読み取り経路は `PackageChartEntry` へ移し始めている。
 
-`ChartPackage` は `ContainsChartAdapter(...)` / `GetChartAdapters()` / `GetChartAdapterCount()` / `IsChartAdapterEmpty()` / `ClearChartAdapterInstallDestinations()` / `RemoveChartAdapters(...)` / `RemoveChartAdaptersByPath(...)` / `ApplySingleFileInstallDestination(...)` / `ApplyDirectoryInstallDestination(...)` / `ReplaceChartAdapters(...)` を持ち、operation / mutation 側が `ChartFiles.Contains(...)`、`ChartFiles.Count`、`ChartFiles.Clear(); AddRange(...)`、`foreach (package.ChartFiles)` による状態更新を直接増やさないための所有者境界になり始めている。TreeView header など表示側は `DisplayTitle` を使い、XAML から `ChartFiles[0]` に直接 binding しない。`ReplaceChartAdapters(...)`、`RemoveChartAdapters(...)`、`ClearChartAdapterInstallDestinations(...)`、install destination apply helpers は現時点では compatibility adapter list を更新する操作であり、package 内 chart set の最終形ではない。
+`ChartPackage` は `ContainsChartAdapter(...)` / `GetChartAdapters()` / `GetChartAdapterCount()` / `IsChartAdapterEmpty()` / `ClearChartAdapterInstallDestinations()` / `RemoveChartAdapters(...)` / `RemoveChartAdaptersByPath(...)` / `ApplySingleFileInstallDestination(...)` / `ApplyDirectoryInstallDestination(...)` / `ReplaceChartAdapters(...)` を持ち、operation / mutation 側が `ChartFiles.Contains(...)`、`ChartFiles.Count`、`ChartFiles.Clear(); AddRange(...)`、`foreach (package.ChartFiles)` による状態更新を直接増やさないための所有者境界になり始めている。TreeView header など表示側は `DisplayTitle` を使い、XAML から `ChartFiles[0]` に直接 binding しない。`ReplaceChartAdapters(...)`、`RemoveChartAdapters(...)`、`ClearChartAdapterInstallDestinations(...)`、install destination apply helpers は現時点では compatibility adapter cache を更新する操作であり、package 内 chart set の最終形ではない。
 
 `BMSLibrary` / initialization / library file operation service の pending package 読み取り経路は、導入先推定、pending regroup、installed-only resource overwrite、playlist reference 同期、root folder move / merge の install destination 更新で `GetChartAdapters()` を使う。ここで扱う `BMSFile` は LR2 song storage row ではなく package chart adapter であり、list identity や list mutation は `ChartPackage` 側に閉じ込める。
 
@@ -293,7 +293,7 @@ production code の `ChartPackage` 経由の chart-all 参照は、読み取り�
 - source surface snapshot / scan metrics / cache hit
 - batch source surface hit と scan backend 情報
 
-target chart list は `ChartPackage.ChartFiles` 由来の compatibility adapter list だが、推定 snapshot builder 内では `PackageChartEntry` に変換し、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。`DefinedResources` は `PackageChartEntry.Chart` から作るため、bmson pending chart では `PendingChartEntry` adapter の component cache ではなく `bmson_song` の resource refs を使う。metadata profile は `ChartFile` projection の title / artist / path から作る。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
+target chart list は `GetChartAdapters()` 由来の compatibility adapter snapshot だが、推定 snapshot builder 内では `PackageChartEntry` に変換し、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。`DefinedResources` は `PackageChartEntry.Chart` から作るため、bmson pending chart では `PendingChartEntry` adapter の component cache ではなく `bmson_song` の resource refs を使う。metadata profile は `ChartFile` projection の title / artist / path から作る。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
 
 ### installed directory index
 
@@ -438,13 +438,13 @@ UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっ�
 
 `PendingChartEntry : BMSFile` により移行は進んでいるが、`BMSFile` 型を見るだけでは「実体 BMS」なのか「chart adapter」なのか判定できない。`PendingChartEntry.IsBmsChartFile(...)` / `IsBmsonChartFile(...)` や `ChartFile.Kind` を見る必要がある。
 
-### `ChartPackage.ChartFiles`
+### `ChartPackage` compatibility adapter cache
 
-`ChartPackage.ChartFiles` は package 内 chart discovery の結果だが、型は `List<BMSFile>` のままである。
+private `ChartPackage.ChartFiles` は package 内 chart discovery の compatibility adapter cache であり、型は `List<BMSFile>` のままである。
 
-bmson は `PendingChartEntry` として混ざるため、`ChartPackage.ChartFiles` を「BMS のみ」と解釈してはいけない。
+bmson は `PendingChartEntry` として混ざるため、`ChartPackage` の adapter cache を「BMS のみ」と解釈してはいけない。
 
-現行 `ChartPackage` は `ChartEntries` を読み取り primary API へ寄せ始めているが、`ChartFiles` が `List<BMSFile>` compatibility adapter list として残る限り package 内 chart を完全には domain model として扱えていない。旧 `BMSFiles` alias は production 利用がないことを確認したうえで削除済みであり、テストコードにも旧 alias そのものを残すためのテストは置かない。次の段階では alias 追加ではなく、`ChartFiles` 依存を `ChartEntries` / `ChartFile` へ置き換えたうえで `ChartFiles` 自体を廃止対象にする。
+現行 `ChartPackage` は `ChartEntries` を読み取り primary API へ寄せ始めているが、private `ChartFiles` が `List<BMSFile>` compatibility adapter cache として残る限り package 内 chart を完全には domain model として扱えていない。旧 `BMSFiles` alias は production 利用がないことを確認したうえで削除済みであり、テストコードにも旧 alias そのものを残すためのテストは置かない。次の段階では alias 追加ではなく、`GetChartAdapters()` / private `ChartFiles` 依存を `ChartEntries` / `ChartFile` へ置き換えたうえで adapter cache 自体を廃止対象にする。
 
 ### model APIs の残存 BMS 名
 
@@ -513,7 +513,7 @@ Kind ごとの storage 境界は次の通り。
 - representative chart
 - chart resource aggregate
 
-`ChartPackage.ChartFiles` の heavy lazy discovery 挙動は重要である。rename や API 置換時も、参照時に discovery が走る既存意味を不用意に変えない。
+`ChartPackage` の heavy lazy discovery 挙動は重要である。rename や API 置換時も、chart adapter / entry 参照時に discovery が走る既存意味を不用意に変えない。
 
 ### compatibility API の扱い
 
@@ -532,7 +532,7 @@ Kind ごとの storage 境界は次の通り。
 
 1. `ChartFile` を domain model として厚くする。表示・operation・index で必要な chart 共通状態を `BMSFile` / `bmson_song` から投影するだけでなく、共通 API が直接読める形に寄せる。BMS / bmson storage owner 参照は移行中だけ残し、compatibility adapter は載せない。
 2. UI row / operation target の互換境界を狭める。`LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` / `GridRowResolver` / `ChartOperationTarget` では、chart 共通処理が `CompatibilityBmsFile` を要求しないようにする。BMS-only 処理だけが BMS storage row へ降りる。
-3. package / pending install を chart-native にする。`ChartPackage.ChartFiles` / `PackageChartDiscoverySnapshot.ChartFiles` / install estimation target list が `List<BMSFile>` を返す現状を、package 内 chart entry / `ChartFile` / resource snapshot の組み合わせへ置き換える。heavy lazy discovery の意味は維持する。
+3. package / pending install を chart-native にする。`GetChartAdapters()` / private `ChartPackage.ChartFiles` / `PackageChartDiscoverySnapshot.ChartFiles` / install estimation target list が `List<BMSFile>` を返す現状を、package 内 chart entry / `ChartFile` / resource snapshot の組み合わせへ置き換える。heavy lazy discovery の意味は維持する。
 4. model-layer service API を chart 入力へ置換する。削除・移動・導入先推定・package install・resource health など chart 共通 service は `BMSFile` 引数を要求しない。BMS-only service は capability で明示し、`BMSFile` / LR2 `song` row へ直接降りる。
 5. library catalog を chart view へ寄せる。`BMSFiles` と `BmsonSongs` は storage row collection として維持しつつ、アプリ操作・index・一覧 source は `ChartFile` catalog / chart row source を入口にする。
 6. 互換 adapter と旧構造を削除する。`PendingChartEntry : BMSFile`、`CompatibilityBmsFile`、`ToCompatibilityBmsFile()`、compatibility adapter cache などは production 参照をなくした順に削除し、テストだけのために残さない。
@@ -543,6 +543,6 @@ Kind ごとの storage 境界は次の通り。
 2. UI / operation の入口は chart target に寄せる。
 3. BMS-only 処理は capability で明示する。
 4. `BMSFile` 型を見ただけで chart 共通処理に使わない。現行互換 adapter が残る間は `PendingChartEntry` の kind または `ChartFile.Kind` を確認し、最終的には `BMSFile` を BMS storage row / BMS-only 処理に閉じ込める。
-5. `ChartPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。入口を増やして互換を延命せず、既存入口を chart-native に置き換える。
+5. `GetChartAdapters()` / private `ChartPackage.ChartFiles` は現状「package 内 chart adapter list」であり、BMS のみの list ではない。入口を増やして互換を延命せず、既存入口を chart-native に置き換える。
 6. settings 名と UI 文言の BMS は互換契約として残す。内部 helper / log / operation symbol は必要に応じて chart 名へ寄せる。
 7. `ChartFile` / `ChartPackage` を使う場合も、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。

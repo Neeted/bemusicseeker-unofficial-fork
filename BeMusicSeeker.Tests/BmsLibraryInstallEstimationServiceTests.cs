@@ -159,7 +159,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            package.ChartFiles,
+            package.GetChartAdapters(),
             service.BuildInstalledHashToDirectoryMap(installedFiles, [installedBmson]));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
@@ -233,7 +233,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            package.ChartFiles,
+            package.GetChartAdapters(),
             service.BuildInstalledHashToDirectoryMap(installedFiles, [installedBmson]));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
@@ -931,7 +931,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void ChartPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartFilesAreRequested()
+    public void ChartPackage_PathPackage_DoesNotPrebuildSourceSurface_WhenChartAdaptersAreRequested()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithPendingPackageSourceScanSetting(enabled: false, delegate
@@ -952,14 +952,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     delete_parent = true
                 };
 
-                List<BMSFile> firstFiles = package.ChartFiles;
-                List<BMSFile> secondFiles = package.ChartFiles;
+                List<BMSFile> firstFiles = package.GetChartAdapters();
+                List<BMSFile> secondFiles = package.GetChartAdapters();
                 List<PackageChartEntry> firstEntries = package.ChartEntries;
                 List<PackageChartEntry> secondEntries = package.ChartEntries;
                 PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
                 PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
 
-                Assert.AreSame(firstFiles, secondFiles);
+                CollectionAssert.AreEqual(firstFiles, secondFiles);
                 Assert.AreEqual(3, firstFiles.Count);
                 Assert.AreEqual(3, firstEntries.Count);
                 Assert.AreEqual(3, secondEntries.Count);
@@ -1000,7 +1000,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 List<PackageChartEntry> firstEntries = package.ChartEntries;
                 string updatedPath = Path.Combine(sourceDir, "updated.bms");
                 firstEntries[0].CompatibilityAdapter.path = updatedPath;
-                List<BMSFile> firstFiles = package.ChartFiles;
+                List<BMSFile> firstFiles = package.GetChartAdapters();
                 List<PackageChartEntry> secondEntries = package.ChartEntries;
 
                 Assert.AreEqual(2, firstEntries.Count);
@@ -1010,7 +1010,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
                 Assert.IsTrue(firstEntries.All(entry => entry.CompatibilityAdapter != null));
                 Assert.IsTrue(secondEntries.All(entry => firstFiles.Contains(entry.CompatibilityAdapter)));
-                Assert.AreSame(firstFiles, package.ChartFiles);
+                CollectionAssert.AreEqual(firstFiles, package.GetChartAdapters());
             });
         });
     }
@@ -1037,17 +1037,16 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     delete_parent = true
                 };
 
-                List<BMSFile> filesFromA = package.ChartFiles;
+                List<BMSFile> filesFromA = package.GetChartAdapters();
                 PackageInstallEstimationSnapshot snapshotA = package.GetOrBuildInstallEstimationSnapshot(filesFromA);
 
                 package.path = sourceDirB;
-                List<BMSFile> filesFromB = package.ChartFiles;
+                List<BMSFile> filesFromB = package.GetChartAdapters();
                 PackageInstallEstimationSnapshot snapshotB = package.GetOrBuildInstallEstimationSnapshot(filesFromB);
                 PackageInstallEstimationSnapshot cachedSnapshotB = package.GetOrBuildInstallEstimationSnapshot(filesFromB);
 
                 Assert.AreEqual(1, filesFromA.Count);
                 Assert.AreEqual(1, filesFromB.Count);
-                Assert.AreNotSame(filesFromA, filesFromB);
                 Assert.AreEqual(Path.Combine(sourceDirB, "b.bms"), filesFromB[0].path);
                 Assert.AreEqual(sourceDirA, snapshotA.SourceDirectory);
                 Assert.AreEqual(sourceDirB, snapshotB.SourceDirectory);

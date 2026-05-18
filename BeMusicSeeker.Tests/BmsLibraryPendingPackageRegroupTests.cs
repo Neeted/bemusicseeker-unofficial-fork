@@ -51,7 +51,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BMSFiles = [];
             SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
 
-            library.SearchEstimatedInstallationDirectory(firstPackage.ChartFiles.Single(), asParallel: false, fixMode: false);
+            library.SearchEstimatedInstallationDirectory(firstPackage.GetChartAdapters().Single(), asParallel: false, fixMode: false);
 
             AssertPendingPackagePaths(library, firstPackage.path, secondPackage.path);
             CollectionAssert.AreEquivalent(new[] { firstPackage.path, secondPackage.path }, LoadInstallPaths(songDbPath));
@@ -102,8 +102,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
             ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            BMSFile strictWarningFile = regroupedPackage.ChartFiles.Single(file => Path.GetFileName(file.path).Equals("strict.bms", StringComparison.OrdinalIgnoreCase));
-            BMSFile normalFile = regroupedPackage.ChartFiles.Single(file => Path.GetFileName(file.path).Equals("normal.bms", StringComparison.OrdinalIgnoreCase));
+            BMSFile strictWarningFile = regroupedPackage.GetChartAdapters().Single(file => Path.GetFileName(file.path).Equals("strict.bms", StringComparison.OrdinalIgnoreCase));
+            BMSFile normalFile = regroupedPackage.GetChartAdapters().Single(file => Path.GetFileName(file.path).Equals("normal.bms", StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(strictWarningFile.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
             StringAssert.Contains(strictWarningFile.WarningTooltipText, "WAV");
             Assert.IsFalse(strictWarningFile.Warnings.Contains(ChartWarningKind.SingleBmsFile));
@@ -122,7 +122,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string installedFilePath = CreateBmsFileWithContents(destinationDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
             ChartPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
             ChartPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
-            BMSFile firstPendingFile = firstPackage.ChartFiles.Single();
+            BMSFile firstPendingFile = firstPackage.GetChartAdapters().Single();
             firstPendingFile.InstallDestinationSuggestions = [destinationDirectoryPath];
             firstPendingFile.SetWarning(ChartWarningKind.InstallEstimationLowConfidence, BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationLowConfidence);
 
@@ -132,7 +132,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
             ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            foreach (BMSFile regroupedFile in regroupedPackage.ChartFiles)
+            foreach (BMSFile regroupedFile in regroupedPackage.GetChartAdapters())
             {
                 Assert.AreEqual("Installed Title", regroupedFile.InstallDestinationTitle);
                 Assert.AreEqual("Installed Artist", regroupedFile.InstallDestinationArtist);
@@ -558,7 +558,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            foreach (BMSFile pendingFile in pendingPackage.ChartFiles)
+            foreach (BMSFile pendingFile in pendingPackage.GetChartAdapters())
             {
                 Assert.AreEqual(destinationDirectoryPath, pendingFile.instl_dst);
                 Assert.AreEqual("Installed Title", pendingFile.InstallDestinationTitle);
@@ -653,7 +653,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            foreach (BMSFile pendingFile in pendingPackage.ChartFiles)
+            foreach (BMSFile pendingFile in pendingPackage.GetChartAdapters())
             {
                 Assert.AreEqual(destinationDirectoryPath, pendingFile.instl_dst);
             }
@@ -696,7 +696,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            foreach (BMSFile pendingFile in pendingPackage.ChartFiles)
+            foreach (BMSFile pendingFile in pendingPackage.GetChartAdapters())
             {
                 Assert.AreEqual(primaryDestinationDirectoryPath, pendingFile.instl_dst);
             }
@@ -737,7 +737,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            foreach (BMSFile pendingFile in pendingPackage.ChartFiles)
+            foreach (BMSFile pendingFile in pendingPackage.GetChartAdapters())
             {
                 Assert.AreEqual(resourceDestinationDirectoryPath, pendingFile.instl_dst);
             }
@@ -1055,8 +1055,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         ChartPackage regroupedPackage = library.ChartPackagesPending.Single();
         Assert.AreEqual(expectedPackagePath, regroupedPackage.path);
         Assert.IsFalse(regroupedPackage.delete_parent);
-        Assert.AreEqual(expectedFileCount, regroupedPackage.ChartFiles.Count);
-        Assert.IsTrue(regroupedPackage.ChartFiles.All(file => string.Equals(file.instl_dst, expectedDestinationDirectory, StringComparison.OrdinalIgnoreCase)));
+        Assert.AreEqual(expectedFileCount, regroupedPackage.GetChartAdapters().Count);
+        Assert.IsTrue(regroupedPackage.GetChartAdapters().All(file => string.Equals(file.instl_dst, expectedDestinationDirectory, StringComparison.OrdinalIgnoreCase)));
         return regroupedPackage;
     }
 
@@ -1143,7 +1143,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static void ApplySingleFileWarnings(params ChartPackage[] packages)
     {
-        foreach (BMSFile file in (packages ?? []).Where(package => package != null).SelectMany(package => package.ChartFiles ?? []).Where(file => file != null))
+        foreach (BMSFile file in (packages ?? []).Where(package => package != null).SelectMany(package => package.GetChartAdapters()).Where(file => file != null))
         {
             file.SetWarning(ChartWarningKind.SingleBmsFile, BeMusicSeeker.Properties.Resources.Warning_SingleBmsFile);
         }

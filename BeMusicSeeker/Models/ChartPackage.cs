@@ -52,7 +52,7 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    public List<BMSFile> ChartFiles
+    private List<BMSFile> ChartFiles
     {
         get
         {
