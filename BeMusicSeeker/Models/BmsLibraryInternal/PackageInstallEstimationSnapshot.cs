@@ -65,15 +65,66 @@ internal sealed class PackageChartDiscoverySnapshot
     {
         get
         {
-            IEnumerable<BMSFile> adapters = compatibilityAdapters
-                ?? chartEntries.Select(entry => entry?.CompatibilityAdapter).Where(file => file != null);
-            return [.. adapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+            if (compatibilityAdapters == null)
+            {
+                return [.. chartEntries.Where(entry => entry?.Chart != null)];
+            }
+            return BuildEntriesFromCompatibilityAdapters(compatibilityAdapters, chartEntries);
         }
         set
         {
-            chartEntries = [.. (value ?? []).Where(entry => entry != null)];
+            chartEntries = NormalizeChartEntries(value);
             compatibilityAdapters = null;
         }
+    }
+
+    internal void ReplaceCompatibilityAdapters(IEnumerable<BMSFile> adapters)
+    {
+        compatibilityAdapters = [.. (adapters ?? []).Where(file => file != null)];
+        chartEntries = [.. compatibilityAdapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
+    }
+
+    private static List<PackageChartEntry> NormalizeChartEntries(IEnumerable<PackageChartEntry> entries)
+    {
+        var normalizedEntries = new List<PackageChartEntry>();
+        foreach (PackageChartEntry entry in entries ?? [])
+        {
+            if (entry?.Chart == null)
+            {
+                continue;
+            }
+            normalizedEntries.Add(entry.CompatibilityAdapter != null
+                ? PackageChartEntry.FromCompatibilityAdapter(entry.CompatibilityAdapter)
+                : PackageChartEntry.FromChart(entry.Chart));
+        }
+        return normalizedEntries;
+    }
+
+    private static List<PackageChartEntry> BuildEntriesFromCompatibilityAdapters(IEnumerable<BMSFile> adapters, IEnumerable<PackageChartEntry> existingEntries)
+    {
+        List<PackageChartEntry> rebuiltEntries = [.. (adapters ?? [])
+            .Select(PackageChartEntry.FromCompatibilityAdapter)
+            .Where(entry => entry?.Chart != null)];
+
+        var adapterPaths = new HashSet<string>(
+            rebuiltEntries
+                .Select(entry => entry.Chart?.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (PackageChartEntry entry in existingEntries ?? [])
+        {
+            if (entry?.Chart == null || entry.CompatibilityAdapter != null)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(entry.Chart.Path) && adapterPaths.Contains(entry.Chart.Path))
+            {
+                continue;
+            }
+            rebuiltEntries.Add(entry);
+        }
+        return rebuiltEntries;
     }
 }
 
