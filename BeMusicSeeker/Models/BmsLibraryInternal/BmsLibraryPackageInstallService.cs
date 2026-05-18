@@ -1182,8 +1182,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
-                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
-                    bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
+                    ApplyAlreadyInstalledWarning([PackageChartEntry.FromCompatibilityAdapter(bmsFile)]);
                     hasInstalledChart = true;
                 }
             }
@@ -1200,23 +1199,29 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
             bool isSingleFilePackage = !Directory.Exists(pkg.path);
-            foreach (BMSFile bmsFile in pkg.GetChartAdapters())
+            foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
                 if (isSingleFilePackage)
                 {
-                    bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
+                    BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                    bool isBmson = entry.Chart?.Kind == ChartFileKind.Bmson;
                     bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
                     bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     pendingByPackage[pkg] = true;
                     break;
                 }
-                bool hasDefinedResources = ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount > 0;
+                bool hasDefinedResources = entry?.ResourceSnapshot.TotalReferenceCount > 0;
                 if (!hasDefinedResources)
                 {
                     continue;
                 }
-                bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
-                if (requiresPendingWarning != null && requiresPendingWarning(bmsFile))
+                BMSFile resourceWarningFile = entry.GetOrCreateCompatibilityAdapter();
+                if (resourceWarningFile == null)
+                {
+                    continue;
+                }
+                resourceWarningFile.SetHealthStatus(forceUpdate: false, memClear: false);
+                if (requiresPendingWarning != null && requiresPendingWarning(resourceWarningFile))
                 {
                     pendingByPackage[pkg] = true;
                     break;
@@ -1441,8 +1446,8 @@ internal sealed class BmsLibraryPackageInstallService
                     installTargetPackageEntries.Add(packageEntry);
                 }
             }
-            ApplyAlreadyInstalledWarning(MaterializeCompatibilityAdapters(installedInLibraryEntries));
-            ApplyAlreadyInstalledWarning(MaterializeCompatibilityAdapters(duplicateInBatchEntries));
+            ApplyAlreadyInstalledWarning(installedInLibraryEntries);
+            ApplyAlreadyInstalledWarning(duplicateInBatchEntries);
             List<PackageChartEntry> installWorkPackageEntries = installTargetPackageEntries;
             bool isResourceOnlyInstall = false;
             string destinationDirectory = null;
@@ -2255,23 +2260,17 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    private static void ApplyAlreadyInstalledWarning(IEnumerable<BMSFile> files)
+    private static void ApplyAlreadyInstalledWarning(IEnumerable<PackageChartEntry> entries)
     {
-        foreach (BMSFile file in files ?? [])
+        foreach (PackageChartEntry entry in entries ?? [])
         {
+            BMSFile file = entry?.GetOrCreateCompatibilityAdapter();
             if (file != null)
             {
                 file.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
                 file.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
             }
         }
-    }
-
-    private static List<BMSFile> MaterializeCompatibilityAdapters(IEnumerable<PackageChartEntry> entries)
-    {
-        return [.. (entries ?? [])
-            .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
-            .Where(file => file != null)];
     }
 
     private static bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
