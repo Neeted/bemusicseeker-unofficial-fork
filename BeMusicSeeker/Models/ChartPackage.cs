@@ -81,6 +81,27 @@ public class ChartPackage : LR2SongDBExtended.install
         ReplaceChartAdapters(GetChartAdapters().Where(file => string.IsNullOrWhiteSpace(file.path) || !pathsToRemove.Contains(file.path)));
     }
 
+    internal bool RemoveChartAdapters(Func<BMSFile, bool> predicate)
+    {
+        if (predicate == null)
+        {
+            return false;
+        }
+        List<BMSFile> currentAdapters = GetChartAdapters();
+        List<BMSFile> nextAdapters = [.. currentAdapters.Where(file => !predicate(file))];
+        if (nextAdapters.Count == currentAdapters.Count)
+        {
+            return false;
+        }
+        ReplaceChartAdapters(nextAdapters);
+        return true;
+    }
+
+    internal bool IsChartAdapterEmpty()
+    {
+        return GetChartAdapterCount() == 0;
+    }
+
     internal void ApplySingleFileInstallDestination(string destinationDirectory)
     {
         foreach (BMSFile chartFile in GetChartAdapters())

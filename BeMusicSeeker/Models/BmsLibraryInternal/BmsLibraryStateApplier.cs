@@ -181,12 +181,10 @@ internal sealed class BmsLibraryStateApplier(
 
         foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
-            int countBefore = installedPackage.ChartFiles.Count;
-            installedPackage.ChartFiles.RemoveAll(file => IsMatchedRemovedFile(file, removedPaths, removedFileRefs));
-            if (installedPackage.ChartFiles.Count != countBefore)
+            if (installedPackage.RemoveChartAdapters(file => IsMatchedRemovedFile(file, removedPaths, removedFileRefs)))
             {
                 installedPackagesChanged = true;
-                if (installedPackage.ChartFiles.Count == 0)
+                if (installedPackage.IsChartAdapterEmpty())
                 {
                     emptyInstalledPackages.Add(installedPackage);
                 }
@@ -233,12 +231,10 @@ internal sealed class BmsLibraryStateApplier(
         List<ChartPackage> emptyInstalledPackages = [];
         foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
-            int countBefore = installedPackage.ChartFiles.Count;
-            installedPackage.ChartFiles.RemoveAll(file => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs));
-            if (installedPackage.ChartFiles.Count != countBefore)
+            if (installedPackage.RemoveChartAdapters(file => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs)))
             {
                 installedPackagesChanged = true;
-                if (installedPackage.ChartFiles.Count == 0)
+                if (installedPackage.IsChartAdapterEmpty())
                 {
                     emptyInstalledPackages.Add(installedPackage);
                 }
