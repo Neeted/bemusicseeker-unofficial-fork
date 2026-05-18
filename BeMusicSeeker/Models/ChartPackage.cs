@@ -50,18 +50,6 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    private List<BMSFile> ChartFiles
-    {
-        get
-        {
-            if (hasExplicitChartFiles)
-            {
-                return [.. (chartEntries ?? []).Select(entry => entry?.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
-            }
-            return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartFiles;
-        }
-    }
-
     internal bool ContainsChartAdapter(BMSFile chartFile)
     {
         if (chartFile == null)
@@ -73,7 +61,9 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal List<BMSFile> GetChartAdapters()
     {
-        return [.. (ChartFiles ?? []).Where(file => file != null)];
+        return [.. (ChartEntries ?? [])
+            .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
+            .Where(file => file != null)];
     }
 
     internal int GetChartAdapterCount()
