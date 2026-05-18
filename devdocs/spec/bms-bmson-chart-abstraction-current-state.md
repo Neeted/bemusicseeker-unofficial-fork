@@ -264,11 +264,11 @@ production code の `ChartPackage` 経由の chart-all 参照は `ChartFiles` �
 
 ### `PackageInstallEstimationSnapshot`
 
-導入先推定 snapshot は `BMSFile` list を入力にする。
+導入先推定 snapshot は `BMSFile` compatibility adapter list を入力にする。
 
 主なフィールド:
 
-- `RepresentativeFile: BMSFile`
+- `RepresentativeChart: ChartFile`
 - `DefinedResources`
 - `TargetMetadataProfile`
 - `ChartCount`
@@ -276,7 +276,7 @@ production code の `ChartPackage` 経由の chart-all 参照は `ChartFiles` �
 - source surface snapshot / scan metrics / cache hit
 - batch source surface hit と scan backend 情報
 
-bmson pending chart は `PendingChartEntry` としてここに入るため、推定ロジックは BMSFile API 互換 adapter に依存している。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
+target chart list は `ChartPackage.ChartFiles` 由来の compatibility adapter list だが、推定中に読み取り専用で参照する代表譜面は `RepresentativeChart` として `ChartFile` 化される。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
 
 ### installed directory index
 

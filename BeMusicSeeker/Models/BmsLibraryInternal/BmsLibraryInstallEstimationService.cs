@@ -506,7 +506,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     internal SourceBaselineEvaluation EvaluateSourceBaseline(PackageInstallEstimationSnapshot snapshot)
     {
-        if (snapshot?.RepresentativeFile == null)
+        if (snapshot?.RepresentativeChart == null)
         {
             return new SourceBaselineEvaluation();
         }
@@ -606,7 +606,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         bool isMergeMode = estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
         bool isReinstallCorrectionMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection;
         bool useBundledResources = !(isMergeMode || isReinstallCorrectionMode);
-        if (snapshot?.RepresentativeFile == null)
+        if (snapshot?.RepresentativeChart == null)
         {
             return result;
         }
@@ -648,7 +648,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         result.CoarseFilterMode = "path_aware_audio_gated";
         result.AudioMinimumMatchRequired = GetAudioMinimumMatchRequired(resourceSnapshot);
-        result.ResourceSummary = "chart=" + (snapshot.RepresentativeFile.path ?? string.Empty)
+        result.ResourceSummary = "chart=" + (snapshot.RepresentativeChart.Path ?? string.Empty)
             + " chartCount=" + snapshot.ChartCount
             + " audioRefs=" + resourceSnapshot.AudioReferenceCount
             + " visualRefs=" + resourceSnapshot.VisualReferenceCount

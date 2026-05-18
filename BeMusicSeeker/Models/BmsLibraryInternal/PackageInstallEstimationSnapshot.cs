@@ -48,7 +48,7 @@ internal sealed class PackageChartDiscoverySnapshot
 
 internal sealed class PackageInstallEstimationSnapshot
 {
-    public BMSFile RepresentativeFile { get; set; }
+    public ChartFile RepresentativeChart { get; set; }
 
     public ChartResourceSnapshot DefinedResources { get; set; } = new ChartResourceSnapshot();
 
@@ -90,9 +90,10 @@ internal static class PackageInstallEstimationSnapshotBuilder
     internal static PackageInstallEstimationSnapshot Build(ChartPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
     {
         List<BMSFile> targetFileList = [.. (targetFiles ?? []).Where(file => file != null)];
+        BMSFile representativeFile = SelectRepresentativeFile(targetFileList);
         return new PackageInstallEstimationSnapshot
         {
-            RepresentativeFile = SelectRepresentativeFile(targetFileList),
+            RepresentativeChart = ChartFileProjection.FromBmsFile(representativeFile),
             DefinedResources = ChartResourceSnapshot.CreateAggregate(targetFileList),
             TargetMetadataProfile = BuildTargetMetadataProfile(targetFileList),
             BundledResources = installSurfaceSnapshot?.BundledResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
@@ -117,7 +118,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         PackageInstallSurfaceSnapshot sourceSurfaceSnapshot = BuildSourceCandidateResourcesForLooseFiles(representativeFile);
         return new PackageInstallEstimationSnapshot
         {
-            RepresentativeFile = representativeFile,
+            RepresentativeChart = ChartFileProjection.FromBmsFile(representativeFile),
             DefinedResources = ChartResourceSnapshot.CreateAggregate(targetFileList),
             TargetMetadataProfile = BuildTargetMetadataProfile(targetFileList),
             BundledResources = new DirectoryResourceLookupCache.Entry(),

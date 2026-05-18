@@ -792,6 +792,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             uint expectedImageRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(imageDir, "bg.png"))));
             uint expectedMovieRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(movieDir, "pv.mp4"))));
 
+            Assert.AreEqual(ChartFileKind.Bms, snapshot.RepresentativeChart.Kind);
+            Assert.AreEqual(primary.path, snapshot.RepresentativeChart.Path);
+            Assert.AreSame(primary, snapshot.RepresentativeChart.BmsFile);
             Assert.AreEqual(2, snapshot.ChartCount);
             var expectedDefinedResources = ChartResourceSnapshot.CreateAggregate([primary, secondary]);
             CollectionAssert.AreEquivalent(expectedDefinedResources.AudioRelativePathHashes.ToArray(), snapshot.DefinedResources.AudioRelativePathHashes.ToArray());
@@ -1359,19 +1362,30 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             var pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
             pending.SetMaintenanceInfo(CreateMaintenanceInfo(pending, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+            var package = new ChartPackage([pending])
+            {
+                path = sourceDir,
+                delete_parent = true
+            };
+            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot([pending]);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bmson"]);
             lookupCache.AddDir(candidateDir, ["keysound.wav"]);
 
+            Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
+            Assert.AreEqual(pending.path, snapshot.RepresentativeChart.Path);
+            Assert.AreSame(pending.BmsonSong, snapshot.RepresentativeChart.BmsonSong);
+            Assert.IsNull(snapshot.RepresentativeChart.BmsFile);
+
             InstallEstimationResult result = service.EstimateInstallationDirectory(
-                [pending],
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                snapshot,
                 lookupCache,
                 asParallel: false,
                 ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(candidateDir, result.DestinationDirectory);
+            StringAssert.Contains(result.ResourceSummary ?? string.Empty, "chart=" + bmsonPath);
         });
     }
 
