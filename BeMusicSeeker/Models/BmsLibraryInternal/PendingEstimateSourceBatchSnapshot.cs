@@ -38,15 +38,9 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public string SourceDirectory { get; set; } = string.Empty;
 
-    public List<BMSFile> PackageFiles { get; set; } = [];
-
     public List<PackageChartEntry> PackageEntries { get; set; } = [];
 
-    public List<BMSFile> AlreadyInstalledFiles { get; set; } = [];
-
     public List<PackageChartEntry> AlreadyInstalledEntries { get; set; } = [];
-
-    public List<BMSFile> MissingFiles { get; set; } = [];
 
     public List<PackageChartEntry> MissingEntries { get; set; } = [];
 
@@ -62,9 +56,9 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public bool UsesBatchSourceSurface { get; set; }
 
-    public bool HasMissingFiles => MissingFiles.Count > 0 || MissingEntries.Count > 0;
+    public bool HasMissingFiles => MissingEntries.Count > 0;
 
-    public bool AttemptInstalledResolve => (AlreadyInstalledFiles.Count > 0 || AlreadyInstalledEntries.Count > 0) && HasMissingFiles;
+    public bool AttemptInstalledResolve => AlreadyInstalledEntries.Count > 0 && HasMissingFiles;
 }
 
 internal sealed class PendingEstimateSourceBatchSnapshot
