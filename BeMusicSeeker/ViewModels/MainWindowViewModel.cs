@@ -17717,25 +17717,6 @@ public class MainWindowViewModel : ViewModel
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
-    /// <summary>
-    /// リンク切れ等の問題がある chart file (個別ファイル単位) について、正しいインストール先のディレクトリをヒューリスティックに探索します。
-    /// 同一パッケージに属するファイル群はまとめてパッケージ単位で探索が試みられます。
-    /// </summary>
-    /// <param name="chartFiles">探索・復旧対象となる chart file のコレクション。</param>
-    public void SearchInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        lock (lockCopyFile)
-        {
-            files.SearchEstimatedInstallationDirectory(chartFiles);
-        }
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
-        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
     internal void SearchInstallDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
     {
         if (targets == null)
@@ -17756,29 +17737,6 @@ public class MainWindowViewModel : ViewModel
             if (remainingFiles.Count > 0)
             {
                 files.SearchEstimatedInstallationDirectoryForLooseCharts(remainingFiles);
-            }
-        }
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
-        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    public void SearchMergeDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        lock (lockCopyFile)
-        {
-            List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(chart => chart != null)];
-            List<ChartPackage> packages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
-            for (int num = 0; num < packages.Count; num++)
-            {
-                files.SearchMergeDestinationForPendingPackage(packages[num]);
-            }
-            if (chartFiles2.Count > 0)
-            {
-                files.SearchMergeDestinationForPendingCharts(chartFiles2);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -19987,20 +19945,6 @@ public class MainWindowViewModel : ViewModel
         }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
-    public void ForceInstallPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(chartFile => chartFile != null)];
-        lock (lockCopyFile)
-        {
-            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
-            ForceInstallPendingPackages(chartPackages);
-        }
-    }
-
     internal void ForceInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
     {
         if (targets == null)
@@ -20546,20 +20490,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void ManualInstallPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(chartFile => chartFile != null)];
-        lock (lockCopyFile)
-        {
-            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
-            ManualInstallPendingPackages(chartPackages);
-        }
-    }
-
     internal void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
     {
         if (targets == null)
@@ -20592,17 +20522,6 @@ public class MainWindowViewModel : ViewModel
         {
             files.RemovePendingPackages(packages);
         });
-    }
-
-    public void RemovePendingPackages(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(f => f != null)];
-        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
-        RemovePendingPackages(chartPackages);
     }
 
     internal void RemovePendingPackages(IEnumerable<ChartOperationTarget> targets)
