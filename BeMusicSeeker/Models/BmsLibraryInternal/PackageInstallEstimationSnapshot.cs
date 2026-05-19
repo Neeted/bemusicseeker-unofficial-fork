@@ -57,11 +57,6 @@ internal sealed class PackageChartDiscoverySnapshot
         }
     }
 
-    internal void ReplaceCompatibilityAdapters(IEnumerable<BMSFile> adapters)
-    {
-        chartEntries = NormalizeChartEntries((adapters ?? []).Select(PackageChartEntry.FromCompatibilityAdapter));
-    }
-
     internal void ReplaceChartEntries(IEnumerable<PackageChartEntry> entries)
     {
         chartEntries = NormalizeChartEntries(entries);

@@ -1139,33 +1139,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void PackageChartDiscoverySnapshot_ReplaceCompatibilityAdaptersRemovesAdapterlessEntries()
-    {
-        var song = new LR2SongDBExtended.bmson_song
-        {
-            path = Path.Combine("C:\\Pending", "chart.bmson"),
-            title = "BMSON",
-            artist = "Artist",
-            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            wav_files = ["keysound.wav"]
-        };
-        TestableBmsFile adapter = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Pending", "chart.bms"));
-        var discoverySnapshot = new PackageChartDiscoverySnapshot
-        {
-            ChartEntries =
-            [
-                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song)),
-                PackageChartEntry.FromCompatibilityAdapter(adapter)
-            ]
-        };
-
-        discoverySnapshot.ReplaceCompatibilityAdapters([]);
-        List<PackageChartEntry> entries = discoverySnapshot.ChartEntries;
-
-        Assert.AreEqual(0, entries.Count);
-    }
-
-    [TestMethod]
     public void ChartPackage_GetOrBuildInstallEstimationSnapshot_ResolvesPathMatchedBmsonTargetToPackageEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();

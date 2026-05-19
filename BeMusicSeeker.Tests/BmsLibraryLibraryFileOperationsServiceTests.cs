@@ -886,7 +886,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             {
                 if (package.MaterializeChartAdaptersForTest()[0] == duplicateFile)
                 {
-                    package.ReplaceChartAdapters([]);
+                    package.ReplaceChartEntries([]);
                     return true;
                 }
                 movedFile.path = Path.Combine(destinationDirectory, "move.bms");

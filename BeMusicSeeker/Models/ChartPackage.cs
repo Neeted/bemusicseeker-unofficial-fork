@@ -109,18 +109,6 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    internal void ReplaceChartAdapters(IEnumerable<BMSFile> nextChartFiles)
-    {
-        List<BMSFile> nextAdapters = [.. (nextChartFiles ?? []).Where(file => file != null)];
-        if (hasExplicitChartFiles)
-        {
-            chartEntries.Clear();
-            chartEntries.AddRange(nextAdapters.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null));
-            return;
-        }
-        GetOrBuildPackageChartDiscoverySnapshot(out _).ReplaceCompatibilityAdapters(nextAdapters);
-    }
-
     internal void ReplaceChartEntries(IEnumerable<PackageChartEntry> nextEntries)
     {
         List<PackageChartEntry> normalizedEntries = [.. NormalizeChartEntries(nextEntries)];
