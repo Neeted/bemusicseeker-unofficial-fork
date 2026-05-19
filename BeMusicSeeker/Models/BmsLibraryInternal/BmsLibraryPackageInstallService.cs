@@ -1634,7 +1634,7 @@ internal sealed class BmsLibraryPackageInstallService
                 if (item.IsResourceOnlyInstall)
                 {
                     ChartPackage installedDisplayPackage = createInstalledDisplayPackage?.Invoke(item.OriginalPackage, groupEntry.DestinationDirectory);
-                    if (installedDisplayPackage != null && installedDisplayPackage.GetChartAdapterCount() > 0)
+                    if (installedDisplayPackage != null && installedDisplayPackage.ChartEntries.Count > 0)
                     {
                         result.DeferredInstalledPackages.Add(installedDisplayPackage);
                     }
@@ -1901,7 +1901,7 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
             string destinationDir = resolution.DestinationDirectory;
-            logInfo?.Invoke("advanced_pending_resource_overwrite resolve_selected path=" + pendingPackage.path + " dst=" + destinationDir + " charts=" + pendingPackage.GetChartAdapterCount());
+            logInfo?.Invoke("advanced_pending_resource_overwrite resolve_selected path=" + pendingPackage.path + " dst=" + destinationDir + " charts=" + pendingPackage.ChartEntries.Count);
             if (!hasResourceOverwriteTargets(pendingPackage, destinationDir))
             {
                 if (deletePendingPackageSourceAfterInstall)

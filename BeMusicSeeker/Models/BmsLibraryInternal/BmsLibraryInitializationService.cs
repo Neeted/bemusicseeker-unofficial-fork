@@ -2306,7 +2306,7 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             List<ChartPackage> packages = dbGateway.LoadInstallPackages();
-            result.PendingPackages.AddRange(packages.Where(pkg => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.GetChartAdapterCount() > 0));
+            result.PendingPackages.AddRange(packages.Where(pkg => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.ChartEntries.Count > 0));
             result.StalePackages.AddRange(packages.Except(result.PendingPackages));
             result.StaleInstallPaths.AddRange(result.StalePackages.Where(pkg => !string.IsNullOrWhiteSpace(pkg.path)).Select(pkg => pkg.path));
         }

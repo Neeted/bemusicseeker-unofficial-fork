@@ -1034,8 +1034,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     delete_parent = true
                 };
 
-                Assert.AreEqual(2, package.GetChartAdapterCount());
-                Assert.IsFalse(package.IsChartAdapterEmpty());
+                Assert.AreEqual(2, package.ChartEntries.Count);
+                Assert.IsTrue(package.ChartEntries.Count > 0);
             });
         });
     }

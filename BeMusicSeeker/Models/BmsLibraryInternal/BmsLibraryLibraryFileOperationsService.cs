@@ -607,7 +607,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 continue;
             }
-            if (installPackage.GetChartAdapterCount() == 0)
+            if (installPackage.ChartEntries.Count == 0)
             {
                 result.DuplicateSkippedCount++;
                 if (confirmDuplicateRemoval != null && confirmDuplicateRemoval(file))

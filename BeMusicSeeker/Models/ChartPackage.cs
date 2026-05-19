@@ -59,11 +59,6 @@ public class ChartPackage : LR2SongDBExtended.install
         return (ChartEntries ?? []).Any(entry => IsSameChartTarget(entry, chartFile));
     }
 
-    internal int GetChartAdapterCount()
-    {
-        return ChartEntries?.Count ?? 0;
-    }
-
     internal void ClearChartAdapterInstallDestinations()
     {
         foreach (PackageChartEntry entry in ChartEntries ?? [])
@@ -100,11 +95,6 @@ public class ChartPackage : LR2SongDBExtended.install
         }
         ReplaceChartEntries(nextEntries);
         return true;
-    }
-
-    internal bool IsChartAdapterEmpty()
-    {
-        return (ChartEntries?.Count ?? 0) == 0;
     }
 
     internal void ApplySingleFileInstallDestination(string destinationDirectory, IEnumerable<PackageChartEntry> entries)

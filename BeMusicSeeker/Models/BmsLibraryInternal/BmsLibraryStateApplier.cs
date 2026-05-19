@@ -184,7 +184,7 @@ internal sealed class BmsLibraryStateApplier(
             if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedFile(entry, removedPaths, removedFileRefs)))
             {
                 installedPackagesChanged = true;
-                if (installedPackage.IsChartAdapterEmpty())
+                if (installedPackage.ChartEntries.Count == 0)
                 {
                     emptyInstalledPackages.Add(installedPackage);
                 }
@@ -234,7 +234,7 @@ internal sealed class BmsLibraryStateApplier(
             if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedBmsonFile(entry, removedPaths, removedSongRefs)))
             {
                 installedPackagesChanged = true;
-                if (installedPackage.IsChartAdapterEmpty())
+                if (installedPackage.ChartEntries.Count == 0)
                 {
                     emptyInstalledPackages.Add(installedPackage);
                 }
