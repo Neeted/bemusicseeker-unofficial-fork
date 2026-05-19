@@ -17614,13 +17614,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void FixEncodingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string encoding = "")
+    internal void FixEncodingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string encoding = "")
     {
         files.SetBMSFilesEncoding(bmsFiles, encoding);
         InvalidateNormalLibrarySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
-    public void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    private void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         files.RescanResourceHealthCharts(chartFiles, includeInstalledBmson: false);
         RefreshResourceHealthViewsAfterMaintenanceChanged();
@@ -17777,7 +17777,7 @@ public class MainWindowViewModel : ViewModel
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
     }
 
-    public void SetChartResourceWarningsIgnored(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool unset = false)
+    private void SetChartResourceWarningsIgnored(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool unset = false)
     {
         files.SetChartResourceWarningsIgnored(chartFiles, unset);
     }
@@ -21599,7 +21599,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RenameBMSFilesExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
+    internal void RenameBMSFilesExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
     {
         lock (lockCopyFile)
         {
@@ -21608,7 +21608,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RenamePendingBmsFormatChartFileExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
+    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
     {
         RunPendingInstallMutation(delegate
         {
