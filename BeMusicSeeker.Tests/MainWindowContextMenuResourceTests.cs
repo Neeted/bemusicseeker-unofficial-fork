@@ -840,8 +840,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(encodingFixClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunBmsEncodingFix)"));
         StringAssert.Contains(audioConvertClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio)");
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
-        StringAssert.Contains(resourceHealthClick, "GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
+        Assert.IsFalse(resourceHealthClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
     }
 
     [TestMethod]

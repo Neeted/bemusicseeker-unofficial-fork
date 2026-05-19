@@ -6245,13 +6245,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> chartFiles = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck);
-        if (chartFiles != null && chartFiles.Count() != 0)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
-            var viewModel = base.DataContext as MainWindowViewModel;
+            return;
+        }
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
+        if (targets.Count != 0)
+        {
+            MainWindowViewModel.ChartCompatibilityTargetSnapshot resourceTargets = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
             Task.Run(delegate
             {
-                viewModel.ForceResourceHealthCheckCharts(chartFiles);
+                viewModel.ForceResourceHealthCheckCharts(resourceTargets);
             }).Logging("tableContextMenuItemForceFileScanCheckSelectedCharts");
             e.Handled = true;
         }
@@ -6584,10 +6588,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (TryGetContextMenuRow(e.Source, out _))
         {
-            List<BMSFile> list = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck);
-            if (list != null && list.Count() != 0)
+            if (base.DataContext is not MainWindowViewModel viewModel)
             {
-                (base.DataContext as MainWindowViewModel).SetChartResourceWarningsIgnored(list);
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
+            if (targets.Count != 0)
+            {
+                MainWindowViewModel.ChartCompatibilityTargetSnapshot resourceTargets = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
+                viewModel.SetChartResourceWarningsIgnored(resourceTargets);
                 e.Handled = true;
             }
         }
@@ -6597,10 +6606,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (TryGetContextMenuRow(e.Source, out _))
         {
-            List<BMSFile> list = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck);
-            if (list != null && list.Count() != 0)
+            if (base.DataContext is not MainWindowViewModel viewModel)
             {
-                (base.DataContext as MainWindowViewModel).SetChartResourceWarningsIgnored(list, unset: true);
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
+            if (targets.Count != 0)
+            {
+                MainWindowViewModel.ChartCompatibilityTargetSnapshot resourceTargets = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
+                viewModel.SetChartResourceWarningsIgnored(resourceTargets, unset: true);
                 e.Handled = true;
             }
         }

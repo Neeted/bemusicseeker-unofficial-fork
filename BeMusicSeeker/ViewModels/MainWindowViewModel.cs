@@ -17533,6 +17533,15 @@ public class MainWindowViewModel : ViewModel
         RefreshResourceHealthViewsAfterMaintenanceChanged();
     }
 
+    internal void ForceResourceHealthCheckCharts(ChartCompatibilityTargetSnapshot targets)
+    {
+        if (targets?.ChartFiles.Count > 0 != true)
+        {
+            return;
+        }
+        ForceResourceHealthCheckCharts(targets.ChartFiles);
+    }
+
     public void StartRescanAllOwnedChartMaintenance()
     {
         if (files == null || IsMaintenanceRescanProgressActive)
@@ -17678,6 +17687,15 @@ public class MainWindowViewModel : ViewModel
     public void SetChartResourceWarningsIgnored(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool unset = false)
     {
         files.SetChartResourceWarningsIgnored(chartFiles, unset);
+    }
+
+    internal void SetChartResourceWarningsIgnored(ChartCompatibilityTargetSnapshot targets, bool unset = false)
+    {
+        if (targets?.ChartFiles.Count > 0 != true)
+        {
+            return;
+        }
+        SetChartResourceWarningsIgnored(targets.ChartFiles, unset);
     }
 
     /// <summary>
@@ -21623,6 +21641,22 @@ public class MainWindowViewModel : ViewModel
     {
         List<BeMusicSeeker.Models.BMSFile> chartFiles = ResolveCompatibilityFiles(targets, ChartOperationCapabilities.RepairInstalledLocation);
         return new RepairInstalledLocationTargetSnapshot(chartFiles);
+    }
+
+    internal ChartCompatibilityTargetSnapshot CreateChartCompatibilityTargetSnapshot(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)
+    {
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = ResolveCompatibilityFiles(targets, requiredCapability);
+        return new ChartCompatibilityTargetSnapshot(chartFiles);
+    }
+
+    internal sealed class ChartCompatibilityTargetSnapshot
+    {
+        internal ChartCompatibilityTargetSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+        {
+            ChartFiles = [.. (chartFiles ?? []).Where(file => file != null)];
+        }
+
+        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles { get; }
     }
 
     internal sealed class RepairInstalledLocationTargetSnapshot
