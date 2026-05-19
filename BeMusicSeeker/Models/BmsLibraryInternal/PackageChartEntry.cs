@@ -66,6 +66,31 @@ internal sealed class PackageChartEntry
 
     internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
 
+    internal PackageChartInstallDestinationState CaptureInstallDestinationState()
+    {
+        ChartFile currentChart = Chart;
+        return new PackageChartInstallDestinationState(
+            currentChart?.InstallDestination,
+            currentChart?.InstallDestinationTitle ?? string.Empty,
+            currentChart?.InstallDestinationArtist ?? string.Empty,
+            currentChart?.InstallDestinationSuggestions ?? []);
+    }
+
+    internal void RestoreInstallDestinationState(PackageChartInstallDestinationState state)
+    {
+        ReplaceInstallDestinationState(
+            state?.Destination,
+            state?.Title ?? string.Empty,
+            state?.Artist ?? string.Empty,
+            state?.Suggestions ?? []);
+    }
+
+    internal void SetInstallDestinationPathOnly(string destinationDirectory)
+    {
+        PackageChartInstallDestinationState state = CaptureInstallDestinationState();
+        ReplaceInstallDestinationState(destinationDirectory, state.Title, state.Artist, state.Suggestions);
+    }
+
     internal static PackageChartEntry FromCompatibilityAdapter(BMSFile compatibilityAdapter)
     {
         return compatibilityAdapter == null ? null : new PackageChartEntry(compatibilityAdapter);
@@ -408,6 +433,20 @@ internal sealed class PackageChartEntry
             || installDestinationSuggestions.Count > 0;
     }
 
+    private void ReplaceInstallDestinationState(string destinationDirectory, string title, string artist, IReadOnlyList<string> suggestions)
+    {
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            writebackFile.instl_dst = destinationDirectory;
+            writebackFile.InstallDestinationTitle = title ?? string.Empty;
+            writebackFile.InstallDestinationArtist = artist ?? string.Empty;
+            writebackFile.InstallDestinationSuggestions = suggestions ?? [];
+            return;
+        }
+        ReplacePendingInstallDestination(destinationDirectory, title, artist, suggestions, forceProjection: true);
+    }
+
     internal static PackageChartEntry FromPath(string filePath)
     {
         try
@@ -424,4 +463,19 @@ internal sealed class PackageChartEntry
         }
     }
 
+}
+
+internal sealed class PackageChartInstallDestinationState(
+    string destination,
+    string title,
+    string artist,
+    IReadOnlyList<string> suggestions)
+{
+    public string Destination { get; } = destination;
+
+    public string Title { get; } = title ?? string.Empty;
+
+    public string Artist { get; } = artist ?? string.Empty;
+
+    public IReadOnlyList<string> Suggestions { get; } = suggestions ?? [];
 }

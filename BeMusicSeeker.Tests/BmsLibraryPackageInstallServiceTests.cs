@@ -1338,6 +1338,92 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void ExecuteInstalledOnlyResourceOverwrite_DoesNotMaterializeAdapterlessBmsonDestinationState()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Install\\chart.bmson",
+            folder = "C:\\Pending\\Install",
+            title = "Adapterless",
+            artist = "Artist",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('d', 64)
+        };
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+        entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "keep warning");
+        ChartPackage installPackage = ChartPackage.FromChartEntries([entry]);
+        installPackage.path = "C:\\Pending\\Install";
+
+        bool checkedInstallDestination = false;
+        PendingResourceOverwriteExecutionResult result = service.ExecuteInstalledOnlyResourceOverwrite(
+            [installPackage],
+            [installPackage],
+            false,
+            _ => new InstalledOnlyPackageResolutionResult { DestinationDirectory = "C:\\Installed\\Install", Reason = InstalledDirectoryResolveReason.None },
+            (_, package) => "log:" + package.path,
+            (_, _) => true,
+            delegate
+            {
+                checkedInstallDestination = string.Equals(entry.Chart.InstallDestination, "C:\\Installed\\Install", StringComparison.OrdinalIgnoreCase);
+                return true;
+            },
+            _ => (false, CleanupSourceKind.MissingSource),
+            _ => false,
+            default,
+            null,
+            _ => { });
+
+        Assert.AreEqual(1, result.SucceededInstall);
+        Assert.IsTrue(checkedInstallDestination);
+        Assert.IsNull(entry.CompatibilityAdapter);
+        Assert.AreEqual("C:\\Installed\\Install", entry.Chart.InstallDestination);
+        Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+    }
+
+    [TestMethod]
+    public void ExecuteInstalledOnlyResourceOverwrite_RestoresAdapterlessBmsonDestinationStateWhenStillPending()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Install\\chart.bmson",
+            folder = "C:\\Pending\\Install",
+            title = "Adapterless",
+            artist = "Artist",
+            md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            sha256 = new string('e', 64)
+        };
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+        entry.ApplyInstallDestination("C:\\Original", "Original", "Artist");
+        entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "keep warning");
+        ChartPackage installPackage = ChartPackage.FromChartEntries([entry]);
+        installPackage.path = "C:\\Pending\\Install";
+
+        PendingResourceOverwriteExecutionResult result = service.ExecuteInstalledOnlyResourceOverwrite(
+            [installPackage],
+            [installPackage],
+            false,
+            _ => new InstalledOnlyPackageResolutionResult { DestinationDirectory = "C:\\Installed\\Install", Reason = InstalledDirectoryResolveReason.None },
+            (_, package) => "log:" + package.path,
+            (_, _) => true,
+            (_, _) => false,
+            _ => (false, CleanupSourceKind.MissingSource),
+            _ => true,
+            default,
+            null,
+            _ => { });
+
+        Assert.AreEqual(1, result.Failed);
+        Assert.IsNull(entry.CompatibilityAdapter);
+        Assert.AreEqual("C:\\Original", entry.Chart.InstallDestination);
+        Assert.AreEqual("Original", entry.Chart.InstallDestinationTitle);
+        Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+    }
+
+    [TestMethod]
     public void MovePackageFiles_MovesDirectoryPackageAndUpdatesChartPaths()
     {
         TestResourceInitializer.EnsureJapaneseResources();

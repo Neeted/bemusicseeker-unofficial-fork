@@ -1934,11 +1934,11 @@ internal sealed class BmsLibraryPackageInstallService
                 onEachProcessed?.Invoke();
                 continue;
             }
-            List<BMSFile> packageFiles = pendingPackage.GetChartAdapters();
-            var installDestinations = packageFiles.ToDictionary(file => file, file => file.instl_dst);
-            foreach (BMSFile packageFile in packageFiles)
+            List<PackageChartEntry> packageEntries = [.. pendingPackage.ChartEntries.Where(entry => entry != null)];
+            var installDestinations = packageEntries.ToDictionary(entry => entry, entry => entry.CaptureInstallDestinationState());
+            foreach (PackageChartEntry entry in packageEntries)
             {
-                packageFile.instl_dst = destinationDir;
+                entry.SetInstallDestinationPathOnly(destinationDir);
             }
             bool installSucceeded = false;
             try
@@ -1949,9 +1949,9 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 if (isPackageStillPending != null && isPackageStillPending(pendingPackage))
                 {
-                    foreach (KeyValuePair<BMSFile, string> item in installDestinations)
+                    foreach (KeyValuePair<PackageChartEntry, PackageChartInstallDestinationState> item in installDestinations)
                     {
-                        item.Key.instl_dst = item.Value;
+                        item.Key.RestoreInstallDestinationState(item.Value);
                     }
                 }
             }
