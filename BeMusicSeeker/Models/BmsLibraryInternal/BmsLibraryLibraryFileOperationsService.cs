@@ -334,11 +334,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return;
         }
         result.RemovedCharts.Add(chart);
-        BMSFile compatibilityFile = chart.ToCompatibilityBmsFile();
-        if (compatibilityFile != null)
-        {
-            result.RemovedFiles.Add(compatibilityFile);
-        }
     }
 
     public LibraryMutationDelta BuildFolderMoveDelta(

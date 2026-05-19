@@ -1035,12 +1035,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
 
         var chartRef = LibraryChartRef.FromCompatibilityBmsFile(pending);
-        BMSFile compatibilityFile = chartRef.ToCompatibilityBmsFile();
-        Assert.AreSame(pending, compatibilityFile);
-        Assert.AreEqual(pending.DisplayWarning, compatibilityFile.DisplayWarning);
-        Assert.AreEqual(pending.WarningDigestText, compatibilityFile.WarningDigestText);
-        Assert.AreEqual(pending.WarningTooltipText, compatibilityFile.WarningTooltipText);
-        Assert.AreEqual(pending.instl_dst, compatibilityFile.instl_dst);
+        Assert.AreSame(pending, chartRef.CompatibilityBmsFile);
+        Assert.AreSame(pending.BmsonSong, chartRef.BmsonSong);
     }
 
     [TestMethod]

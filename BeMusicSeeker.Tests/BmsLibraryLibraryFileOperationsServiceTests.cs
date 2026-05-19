@@ -262,8 +262,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 null,
                 null);
 
-            Assert.AreEqual(1, result.RemovedFiles.Count);
-            Assert.AreSame(libraryFile, result.RemovedFiles[0]);
+            Assert.AreSame(libraryFile, result.RemovedCharts[0].CompatibilityBmsFile);
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsNull(pendingFile.instl_dst);
             Assert.IsNull(libraryFile.instl_dst);
@@ -306,8 +305,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(1, result.RemovedCharts.Count);
             Assert.AreEqual(LibraryChartKind.Bmson, result.RemovedCharts[0].Kind);
             Assert.AreSame(song, result.RemovedCharts[0].BmsonSong);
-            Assert.AreEqual(1, result.RemovedFiles.Count);
-            Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(result.RemovedFiles[0]));
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsFalse(Directory.Exists(folderPath));
             Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
@@ -342,8 +339,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             Assert.AreEqual(1, result.RemovedCharts.Count);
             Assert.AreSame(canonicalFile, result.RemovedCharts[0].CompatibilityBmsFile);
-            Assert.AreEqual(1, result.RemovedFiles.Count);
-            Assert.AreSame(canonicalFile, result.RemovedFiles[0]);
             Assert.AreEqual(0, result.Failures.Count);
             Assert.AreEqual(folderPath, fileMutationService.LastDeletedDirectoryPath);
             Assert.AreEqual(RecycleOption.SendToRecycleBin, fileMutationService.LastDirectoryRecycleOption);
@@ -379,7 +374,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 null);
 
             Assert.AreEqual(0, result.RemovedCharts.Count);
-            Assert.AreEqual(0, result.RemovedFiles.Count);
             Assert.AreEqual(1, result.Failures.Count);
             Assert.AreEqual("resolve_failed", result.Failures[0].Reason);
             Assert.IsNull(fileMutationService.LastDeletedFilePath);
@@ -415,8 +409,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             Assert.AreEqual(1, result.RemovedCharts.Count);
             Assert.AreSame(canonicalFile, result.RemovedCharts[0].CompatibilityBmsFile);
-            Assert.AreEqual(1, result.RemovedFiles.Count);
-            Assert.AreSame(canonicalFile, result.RemovedFiles[0]);
             Assert.AreEqual(0, result.Failures.Count);
         });
     }
@@ -448,7 +440,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 null);
 
             Assert.AreEqual(0, result.RemovedCharts.Count);
-            Assert.AreEqual(0, result.RemovedFiles.Count);
             Assert.AreEqual(1, result.Failures.Count);
             Assert.AreEqual("resolve_failed", result.Failures[0].Reason);
             Assert.IsTrue(File.Exists(catalogChartPath));

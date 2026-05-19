@@ -123,12 +123,4 @@ internal sealed class LibraryChartRef
             null);
     }
 
-    public BMSFile ToCompatibilityBmsFile()
-    {
-        if (Kind == LibraryChartKind.Bms)
-        {
-            return CompatibilityBmsFile;
-        }
-        return CompatibilityBmsFile ?? PendingChartEntry.CreateFromBmsonSong(BmsonSong);
-    }
 }
