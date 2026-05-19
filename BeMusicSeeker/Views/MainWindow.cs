@@ -1228,11 +1228,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .Where(PendingChartEntry.IsBmsChartFile)];
     }
 
-    private List<BMSFile> GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities capability)
-    {
-        return GetSelectedChartCompatibilityAdapters(capability, isPendingSection: true);
-    }
-
     private List<string> GetSelectedGridHashTargets()
     {
         ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
@@ -5373,34 +5368,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private bool TryResolveInstallDestination(BMSFile bmsFile, out string installDir, out string reason)
-    {
-        installDir = null;
-        reason = null;
-        if (bmsFile == null)
-        {
-            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
-            return false;
-        }
-        if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst))
-        {
-            if (Directory.Exists(bmsFile.instl_dst))
-            {
-                installDir = bmsFile.instl_dst;
-                return true;
-            }
-            reason = string.Format(BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found, bmsFile.instl_dst);
-            return false;
-        }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && mainWindowViewModel.TryGetInstalledDirectoryByHash(bmsFile.hash, out string installDir2))
-        {
-            installDir = installDir2;
-            return true;
-        }
-        reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
-        return false;
-    }
-
     private bool TryResolveInstallDestination(ChartFile chart, out string installDir, out string reason)
     {
         installDir = null;
@@ -5475,16 +5442,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> list = GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities.UpdateInstallDestination);
-        if (list.Count == 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+        if (targets.Count == 0)
         {
             return;
         }
-        if (list.Count > 1)
+        if (targets.Count > 1)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK);
         }
-        if (!TryResolveInstallDestination(list[0], out string installDir, out string reason))
+        if (!TryResolveInstallDestination(targets[0].Chart, out string installDir, out string reason))
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;

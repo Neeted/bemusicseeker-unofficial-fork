@@ -868,6 +868,10 @@ public sealed class MainWindowContextMenuResourceTests
             mainWindowCode,
             "private async void searchMergeDestinationSelectedPendingCharts",
             "private bool ConfirmMergeDestinationSearch");
+        string openInstallDestination = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuItemOpenInstallDestinationClick",
+            "private void treeViewInstallPackageContextMenuOpenInstallDestinationClick");
 
         StringAssert.Contains(forceInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(forceInstall, "viewModel.ForceInstallPendingCharts(targets)");
@@ -884,6 +888,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mergeSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(mergeSearch, "viewModel.SearchMergeDestinationForPendingCharts(targets)");
         Assert.IsFalse(mergeSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
+        StringAssert.Contains(openInstallDestination, "TryResolveInstallDestination(targets[0].Chart");
+        Assert.IsFalse(openInstallDestination.Contains("GetSelectedPendingChartCompatibilityAdapters"));
     }
 
     [TestMethod]

@@ -440,7 +440,8 @@ UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっ�
 - UI operation: `ChartOperationTarget` + `ChartOperationCapabilities`
 - UI operation target 解決: `GridRowResolver.TryGetChartOperationTarget(...)`
 - context menu / command selection helper: `GetSelectedChartTargets(...)`
-- 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedChartCompatibilityAdapters(...)` / `GetSelectedPendingChartCompatibilityAdapters(...)`
+- 既存 `BMSFile` 引数 API への adapter 選択 helper: `GetSelectedChartCompatibilityAdapters(...)`
+- pending package / pending chart の context menu 操作: `GetSelectedChartTargets(..., isPendingSection: true)` から `ChartOperationTarget` を渡す
 - 所持 bmson row の共有 adapter cache: `sharedBmsonChartAdaptersByKey` と `BmsonChartAdapterProvider`
 - BMS 専用 operation helper: `GetSelectedBmsChartFiles(...)`
 - model mutation reference: `LibraryChartRef`
