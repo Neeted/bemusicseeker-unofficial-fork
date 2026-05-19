@@ -10724,11 +10724,6 @@ reportProgress,
                 select g.Key).FirstOrDefault();
     }
 
-    private string CreateChartFolderPath(IEnumerable<BMSFile> chartFiles, string parentDir, string longestFileName = "")
-    {
-        return CreateChartFolderPathFromCharts((chartFiles ?? []).Select(file => ChartFileProjection.FromBmsFile(file)), parentDir, longestFileName);
-    }
-
     private string CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDir, string longestFileName = "")
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
@@ -10901,7 +10896,7 @@ reportProgress,
     /// <summary>
     /// 譜面ファイル群のフォルダ名をメタデータに基づいて自動リネームします。
     /// </summary>
-    public void AutoRenameChartFolders(IEnumerable<BMSFile> chartFiles, bool renameRootFolder = false)
+    internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFiles, bool renameRootFolder = false)
     {
         if (chartFiles == null)
         {
@@ -10914,8 +10909,8 @@ reportProgress,
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
                     List<string> rootFolders = getBMSDirectories();
-                    List<BMSFile> chartRows = GetLibraryChartRowsForFolderOperations();
-                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(chartFiles, chartRows, rootFolders, renameRootFolder, CreateChartFolderPath);
+                    List<ChartFile> chartRows = GetLibraryChartsForFolderOperations();
+                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(chartFiles, chartRows, rootFolders, renameRootFolder, CreateChartFolderPathFromCharts);
                     if (plans.Any(plan => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
                     {
                         dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -10938,13 +10933,13 @@ reportProgress,
         }
     }
 
-    private List<BMSFile> GetLibraryChartRowsForFolderOperations()
+    private List<ChartFile> GetLibraryChartsForFolderOperations()
     {
-        List<BMSFile> chartRows = [.. (BMSFiles ?? []).Where(file => file != null)];
-        chartRows.AddRange((BmsonSongs ?? [])
-            .Select(PendingChartEntry.CreateFromBmsonSong)
-            .Where(entry => entry != null));
-        return chartRows;
+        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(file))];
+        charts.AddRange((BmsonSongs ?? [])
+            .Select(song => ChartFileProjection.FromBmsonSong(song))
+            .Where(chart => chart != null));
+        return charts;
     }
 
     /// <summary>

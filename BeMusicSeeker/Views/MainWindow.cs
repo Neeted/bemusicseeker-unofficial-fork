@@ -6387,7 +6387,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         MainWindowViewModel.ChartCompatibilityTargetSnapshot targetSnapshot = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary);
-        if (targetSnapshot.ChartFiles.Count > 0)
+        if (targetSnapshot.Charts.Count > 0)
         {
             Task.Run(delegate
             {

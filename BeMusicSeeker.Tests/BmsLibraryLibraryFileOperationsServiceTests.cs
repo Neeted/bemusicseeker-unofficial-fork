@@ -612,9 +612,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             TestableBmsFile file = CreateFile(Path.Combine(sourcePath, "chart.bms"));
             TestableBmsFile nestedFile = CreateFile(Path.Combine(nestedPath, "nested.bms"));
 
+            ChartFile chart = ChartFileProjection.FromBmsFile(file);
+            ChartFile nestedChart = ChartFileProjection.FromBmsFile(nestedFile);
+
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
-                [file, nestedFile],
-                [file, nestedFile],
+                [chart, nestedChart],
+                [chart, nestedChart],
                 [],
                 renameRootFolder: true,
                 (_, parentDir, _) => Path.Combine(parentDir, "Renamed"));
@@ -635,7 +638,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Directory.CreateDirectory(sourcePath);
             string chartPath = Path.Combine(sourcePath, "chart.bmson");
             File.WriteAllText(chartPath, "{}");
-            var bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            ChartFile bmsonChart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = chartPath,
                 folder = sourcePath,
@@ -644,8 +647,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             });
 
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
-                [bmsonRow],
-                [bmsonRow],
+                [bmsonChart],
+                [bmsonChart],
                 [],
                 renameRootFolder: true,
                 (children, parentDir, _) => Path.Combine(parentDir, children.First().Title + "_" + children.First().Artist));
@@ -670,7 +673,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             File.WriteAllText(bmsonPath, "{}");
             TestableBmsFile bmsRow = CreateFile(bmsPath);
             bmsRow.SetTitleForTest("BmsTitle");
-            var bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            ChartFile bmsChart = ChartFileProjection.FromBmsFile(bmsRow);
+            ChartFile bmsonChart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = bmsonPath,
                 folder = sourcePath,
@@ -680,8 +684,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<string> directChildTitles = [];
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
-                [bmsRow],
-                [bmsRow, bmsonRow],
+                [bmsChart],
+                [bmsChart, bmsonChart],
                 [],
                 renameRootFolder: true,
                 (children, parentDir, _) =>

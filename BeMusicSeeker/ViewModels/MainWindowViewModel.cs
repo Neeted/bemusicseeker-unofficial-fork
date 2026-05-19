@@ -21643,20 +21643,20 @@ public class MainWindowViewModel : ViewModel
 
     public void AutoRenameAllChartFolders(string parentDir = null)
     {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = GetLibraryChartFilesForFolderOperations();
-        if (chartFiles.Count == 0)
+        List<ChartFile> charts = GetLibraryChartsForFolderOperations();
+        if (charts.Count == 0)
         {
             return;
         }
-        IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = chartFiles;
+        IEnumerable<ChartFile> enumerable = charts;
         lock (lockCopyFile)
         {
             PlayEndBMSFile(closeProcess: true);
             if (!string.IsNullOrWhiteSpace(parentDir))
             {
-                enumerable = enumerable.Where(f => f.path.StartsWith(parentDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                enumerable = enumerable.Where(chart => chart.Path.StartsWith(parentDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             }
-            List<BeMusicSeeker.Models.BMSFile> targetCharts = [.. enumerable.Where(file => file != null)];
+            List<ChartFile> targetCharts = [.. enumerable.Where(chart => chart != null)];
             if (targetCharts.Count == 0)
             {
                 return;
@@ -21666,37 +21666,37 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()
+    private List<ChartFile> GetLibraryChartsForFolderOperations()
     {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = [.. (BMSFiles ?? []).Where(file => file != null)];
-        chartFiles.AddRange((files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Select(PendingChartEntry.CreateFromBmsonSong)
-            .Where(entry => entry != null));
-        return chartFiles;
+        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(file))];
+        charts.AddRange((files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Select(song => ChartFileProjection.FromBmsonSong(song))
+            .Where(chart => chart != null));
+        return charts;
     }
 
-    public void AutoRenameChartFolders(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFilesSource)
+    internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFilesSource)
     {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = [.. (chartFilesSource ?? []).Where(file => file != null)];
-        if (chartFiles.Count == 0)
+        List<ChartFile> charts = [.. (chartFilesSource ?? []).Where(chart => chart != null)];
+        if (charts.Count == 0)
         {
             return;
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(chartFiles);
-            files.AutoRenameChartFolders(chartFiles);
+            stopPlayingBMSFile(charts.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
+            files.AutoRenameChartFolders(charts);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
 
     internal void AutoRenameChartFolders(ChartCompatibilityTargetSnapshot targets)
     {
-        if (targets?.ChartFiles.Count > 0 != true)
+        if (targets?.Charts.Count > 0 != true)
         {
             return;
         }
-        AutoRenameChartFolders(targets.ChartFiles);
+        AutoRenameChartFolders(targets.Charts);
     }
 
     internal void MoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, string newParentDirectory)
@@ -21738,18 +21738,25 @@ public class MainWindowViewModel : ViewModel
 
     internal ChartCompatibilityTargetSnapshot CreateChartCompatibilityTargetSnapshot(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)
     {
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = ResolveCompatibilityFiles(targets, requiredCapability);
-        return new ChartCompatibilityTargetSnapshot(chartFiles);
+        List<ChartOperationTarget> targetList = [.. (targets ?? []).Where(target => target != null && target.HasCapability(requiredCapability))];
+        List<ChartFile> charts = [.. targetList.Select(target => target.Chart).Where(chart => chart != null)];
+        return new ChartCompatibilityTargetSnapshot(charts, () => [.. targetList.Select(ResolveLegacyChartFile).Where(file => file != null)]);
     }
 
     internal sealed class ChartCompatibilityTargetSnapshot
     {
-        internal ChartCompatibilityTargetSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFiles;
+
+        internal ChartCompatibilityTargetSnapshot(IEnumerable<ChartFile> charts, Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFileFactory)
         {
-            ChartFiles = [.. (chartFiles ?? []).Where(file => file != null)];
+            Charts = [.. (charts ?? []).Where(chart => chart != null)];
+            chartFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
+                () => [.. (chartFileFactory?.Invoke() ?? []).Where(file => file != null)]);
         }
 
-        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles { get; }
+        internal IReadOnlyList<ChartFile> Charts { get; }
+
+        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles => chartFiles.Value;
     }
 
     internal interface IRepairInstalledLocationTargetSnapshot

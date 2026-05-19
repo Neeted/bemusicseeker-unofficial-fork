@@ -795,6 +795,41 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ChartCompatibilityTargetSnapshot_AutoRenameChartsDoNotMaterializeBmsonCompatibilityAdapter()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\auto-rename.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Auto Rename Bmson",
+            artist = "Artist",
+            md5 = "67676767676767676767676767676767",
+            sha256 = new string('6', 64)
+        };
+        var row = LibraryChartRow.FromBmsonSong(bmson);
+        int adapterRequestCount = 0;
+        row.SetBmsonChartAdapterProvider(song =>
+        {
+            adapterRequestCount++;
+            return PendingChartEntry.CreateFromBmsonSong(song);
+        });
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.ChartCompatibilityTargetSnapshot snapshot = viewModel.CreateChartCompatibilityTargetSnapshot(
+            [target],
+            ChartOperationCapabilities.MoveInLibrary);
+
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.AreEqual(1, snapshot.Charts.Count);
+        Assert.AreSame(bmson, snapshot.Charts[0].BmsonSong);
+        Assert.AreEqual(0, adapterRequestCount);
+
+        Assert.AreEqual(1, snapshot.ChartFiles.Count);
+        Assert.AreEqual(1, adapterRequestCount);
+    }
+
+    [TestMethod]
     public void LibraryChartRow_BmsonChartPrefersFreshSongMaintenanceOverExistingAdapterSnapshot()
     {
         var bmson = new LR2SongDBExtended.bmson_song

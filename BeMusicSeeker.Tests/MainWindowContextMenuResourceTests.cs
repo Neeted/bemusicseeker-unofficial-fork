@@ -782,7 +782,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void AutoRenameFolder_UsesCompatibilityBmsSelectionIncludingBmson()
+    public void AutoRenameFolder_UsesChartSelectionIncludingBmson()
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
@@ -798,22 +798,25 @@ public sealed class MainWindowContextMenuResourceTests
         string autoRenameAll = ExtractBetween(
             viewModelCode,
             "public void AutoRenameAllChartFolders",
-            "public void AutoRenameChartFolders");
-        string chartFilesForFolderOperations = ExtractBetween(
+            "internal void AutoRenameChartFolders");
+        string chartsForFolderOperations = ExtractBetween(
             viewModelCode,
-            "private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()",
-            "public void AutoRenameChartFolders");
+            "private List<ChartFile> GetLibraryChartsForFolderOperations()",
+            "internal void AutoRenameChartFolders");
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(autoRenameClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary)");
+        StringAssert.Contains(autoRenameClick, "targetSnapshot.Charts.Count > 0");
+        Assert.IsFalse(autoRenameClick.Contains("targetSnapshot.ChartFiles.Count"));
         StringAssert.Contains(autoRenameClick, "AutoRenameChartFolders(targetSnapshot)");
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
-        StringAssert.Contains(autoRenameAll, "GetLibraryChartFilesForFolderOperations()");
+        StringAssert.Contains(autoRenameAll, "GetLibraryChartsForFolderOperations()");
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
-        StringAssert.Contains(chartFilesForFolderOperations, "files?.BmsonSongs");
-        StringAssert.Contains(chartFilesForFolderOperations, "PendingChartEntry.CreateFromBmsonSong");
+        StringAssert.Contains(chartsForFolderOperations, "files?.BmsonSongs");
+        StringAssert.Contains(chartsForFolderOperations, "ChartFileProjection.FromBmsonSong");
+        Assert.IsFalse(chartsForFolderOperations.Contains("PendingChartEntry.CreateFromBmsonSong"));
     }
 
     [TestMethod]

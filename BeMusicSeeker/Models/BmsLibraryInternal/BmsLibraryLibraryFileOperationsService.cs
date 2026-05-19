@@ -416,13 +416,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     }
 
     public List<FolderAutoRenamePlan> BuildAutoRenamePlans(
-        IEnumerable<BMSFile> selectedFiles,
-        IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<ChartFile> selectedCharts,
+        IEnumerable<ChartFile> libraryCharts,
         IEnumerable<string> rootFolders,
         bool renameRootFolder,
-        Func<IEnumerable<BMSFile>, string, string, string> createFolderPath)
+        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath)
     {
-        List<string> sourceFolders = [.. (from d in (selectedFiles ?? []).Where(f => f != null).Select(f => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase)
+        List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
                                       orderby d.Length
                                       select d)];
         List<string> effectiveRootFolders = [.. (rootFolders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder))];
@@ -448,11 +448,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     plans.Add(plan);
                     continue;
                 }
-                List<BMSFile> directChildren = [.. (from f in libraryFiles ?? []
-                                                    where f != null
-                                                    && f.path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
-                                                    && DirectoryExt.GetDirectoryNameSimple(f.path).Equals(folder, StringComparison.OrdinalIgnoreCase)
-                                                select f)];
+                List<ChartFile> directChildren = [.. (from chart in libraryCharts ?? []
+                                                      where chart != null
+                                                      && chart.Path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
+                                                      && DirectoryExt.GetDirectoryNameSimple(chart.Path).Equals(folder, StringComparison.OrdinalIgnoreCase)
+                                                      select chart)];
                 string longestFileName = (from f in FastDirectoryEnumerator.GetFileNames(folder)
                                           orderby f.Length descending
                                           select f).FirstOrDefault() ?? string.Empty;
