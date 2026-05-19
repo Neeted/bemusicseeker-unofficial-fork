@@ -830,6 +830,44 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void RepairInstalledLocationTargetSnapshot_HasTargetsDoesNotMaterializeBmsonCompatibilityAdapter()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\repair.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Repair Bmson",
+            artist = "Artist",
+            md5 = "68686868686868686868686868686868",
+            sha256 = new string('8', 64)
+        };
+        var row = LibraryChartRow.FromBmsonSong(bmson);
+        int adapterRequestCount = 0;
+        row.SetBmsonChartAdapterProvider(song =>
+        {
+            adapterRequestCount++;
+            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
+            adapter.instl_dst = "C:\\Installed\\Bmson";
+            return adapter;
+        });
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot snapshot =
+            viewModel.CreateRepairInstalledLocationTargetSnapshot([target]);
+
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.IsTrue(snapshot.HasTargets);
+        Assert.AreEqual(0, adapterRequestCount);
+
+        snapshot.MaterializeCompatibilityFiles();
+        Assert.AreEqual(1, adapterRequestCount);
+
+        Assert.IsTrue(snapshot.HasInstallDestination);
+        Assert.AreEqual(1, adapterRequestCount);
+    }
+
+    [TestMethod]
     public void LibraryChartRow_BmsonChartPrefersFreshSongMaintenanceOverExistingAdapterSnapshot()
     {
         var bmson = new LR2SongDBExtended.bmson_song

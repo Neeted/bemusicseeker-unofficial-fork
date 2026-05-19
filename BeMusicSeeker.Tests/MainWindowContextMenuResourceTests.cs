@@ -942,6 +942,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(searchRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
         StringAssert.Contains(searchRepair, "viewModel.CreateRepairInstalledLocationTargetSnapshot(targets)");
+        StringAssert.Contains(searchRepair, "repairTargets.MaterializeCompatibilityFiles()");
         StringAssert.Contains(searchRepair, "viewModel.SearchCorrectInstallationDirectoryCharts(repairTargets)");
         Assert.IsFalse(searchRepair.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(fixRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
@@ -963,6 +964,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(clearInstallDestination, "GetSelectedChartTargets(capability)");
         StringAssert.Contains(clearInstallDestination, "CreateRepairInstalledLocationTargetSnapshot(targets)");
+        StringAssert.Contains(clearInstallDestination, "repairTargets?.MaterializeCompatibilityFiles()");
         StringAssert.Contains(clearInstallDestination, "viewModel.ClearInstallDestinationForCharts(repairTargets)");
         Assert.IsFalse(clearInstallDestination.Contains("viewModel.ClearInstallDestinationForCharts(repairTargets.ChartFiles)"));
         Assert.IsFalse(clearInstallDestination.Contains("repairTargets.ChartFiles"));

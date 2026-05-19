@@ -6257,6 +6257,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if ((repairTargets?.HasTargets == true) || (pendingTargets != null && pendingTargets.Count != 0))
         {
             e.Handled = true;
+            repairTargets?.MaterializeCompatibilityFiles();
             Task.Run(delegate
             {
                 if (isInstalledLocationRepair)
@@ -6282,6 +6283,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             var viewModel = base.DataContext as MainWindowViewModel;
             MainWindowViewModel.IRepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
+            repairTargets.MaterializeCompatibilityFiles();
             Task.Run(delegate
             {
                 viewModel.SearchCorrectInstallationDirectoryCharts(repairTargets);
