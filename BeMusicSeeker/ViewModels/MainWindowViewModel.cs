@@ -21502,14 +21502,6 @@ public class MainWindowViewModel : ViewModel
         }, charts.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
     }
 
-    public void RemovePendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
-    {
-        RunPendingInstallMutation(delegate
-        {
-            files.RemovePendingCharts(chartFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
-        }, chartFiles);
-    }
-
     public void RecheckZeroNoteWarnings()
     {
         lock (lockCopyFile)

@@ -11248,50 +11248,6 @@ reportProgress,
         }
     }
 
-    /// <summary>
-    /// Pending 状態の chart 群を Pending リストおよびファイルシステムから削除します。
-    /// </summary>
-    public void RemovePendingCharts(IEnumerable<BMSFile> chartFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockSongDBInstall.GetWriterGuard())
-                {
-                    PendingFileDeletionResult result = packageInstallService.DeletePendingFiles(
-                        chartFiles,
-                        ChartPackagesPending,
-                        sendToRecycleBin,
-                        deleteContainingPackageFoldersWhenNoBms,
-                        fileMutationService,
-                        targetOnlyFileMutationOptions,
-                        recursiveDirectoryTreeFileMutationOptions);
-                    foreach (PendingFileDeletionFailure failure in result.Failures)
-                    {
-                        if (failure?.Exception == null)
-                        {
-                            continue;
-                        }
-                        if (failure.IsDirectory)
-                        {
-                            dialogService.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                        else
-                        {
-                            dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                    }
-                    RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove, result.ChartPathsToRemove);
-                }
-            }
-        }
-    }
-
     internal void RemovePendingCharts(IEnumerable<ChartFile> charts, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
         if (charts == null)

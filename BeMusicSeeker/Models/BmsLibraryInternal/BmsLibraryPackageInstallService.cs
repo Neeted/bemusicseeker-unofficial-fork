@@ -2221,25 +2221,6 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingFileDeletionResult DeletePendingFiles(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<ChartPackage> pendingPackages,
-        bool sendToRecycleBin,
-        bool deleteContainingPackageFoldersWhenNoBms,
-        IFileMutationService fileMutationService,
-        FileMutationOptions targetOnlyFileMutationOptions,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
-    {
-        return DeletePendingChartTargets(
-            (bmsFiles ?? []).Where(file => file != null).Select(file => PendingChartDeletionTarget.FromCompatibilityFile(file)),
-            pendingPackages,
-            sendToRecycleBin,
-            deleteContainingPackageFoldersWhenNoBms,
-            fileMutationService,
-            targetOnlyFileMutationOptions,
-            recursiveDirectoryTreeFileMutationOptions);
-    }
-
     public PendingFileDeletionResult DeletePendingCharts(
         IEnumerable<ChartFile> charts,
         IEnumerable<ChartPackage> pendingPackages,
@@ -2380,11 +2361,6 @@ internal sealed class BmsLibraryPackageInstallService
         internal BMSFile CompatibilityFile { get; }
 
         internal string Path => Chart?.Path ?? CompatibilityFile?.path;
-
-        internal static PendingChartDeletionTarget FromCompatibilityFile(BMSFile file)
-        {
-            return file == null ? null : new PendingChartDeletionTarget(ChartFileProjection.FromBmsFile(file), file);
-        }
 
         internal static PendingChartDeletionTarget FromChartFile(ChartFile chart)
         {

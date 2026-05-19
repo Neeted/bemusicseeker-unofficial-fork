@@ -1880,7 +1880,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void DeletePendingFiles_DeletesWholePackageDirectoryWhenSelectionCoversPackage()
+    public void DeletePendingCharts_DeletesWholePackageDirectoryWhenSelectionCoversPackage()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -1897,8 +1897,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 delete_parent = false
             };
 
-            PendingFileDeletionResult result = service.DeletePendingFiles(
-                [chart],
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [ChartFileProjection.FromBmsFile(chart)],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
@@ -1918,7 +1918,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void DeletePendingFiles_DeletesWholeAdapterlessBmsonPackageDirectoryByPathWithoutMaterializing()
+    public void DeletePendingCharts_DeletesWholeAdapterlessBmsonPackageDirectoryFromPackageSelectionWithoutMaterializing()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -1932,10 +1932,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
             ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             package.path = packageDirectoryPath;
-            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
 
-            PendingFileDeletionResult result = service.DeletePendingFiles(
-                [selectedChart],
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [adapterlessBmsonEntry.Chart],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
@@ -2030,7 +2029,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void DeletePendingFiles_FailedPackageFolderDeleteDoesNotMaterializeAdapterlessBmsonEntries()
+    public void DeletePendingCharts_FailedPackageFolderDeleteDoesNotMaterializeAdapterlessBmsonEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -2044,10 +2043,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
             ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             package.path = packageDirectoryPath;
-            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
 
-            PendingFileDeletionResult result = service.DeletePendingFiles(
-                [selectedChart],
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [adapterlessBmsonEntry.Chart],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
