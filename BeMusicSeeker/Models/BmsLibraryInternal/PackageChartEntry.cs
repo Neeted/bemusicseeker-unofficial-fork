@@ -198,6 +198,24 @@ internal sealed class PackageChartEntry
         }
     }
 
+    internal void ApplyInstallDestinationMetadata(string destinationDirectory, string title, string artist)
+    {
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            writebackFile.instl_dst = destinationDirectory;
+            writebackFile.InstallDestinationTitle = title ?? string.Empty;
+            writebackFile.InstallDestinationArtist = artist ?? string.Empty;
+            return;
+        }
+        ReplacePendingInstallDestination(
+            destinationDirectory,
+            title,
+            artist,
+            installDestinationSuggestions,
+            forceProjection: true);
+    }
+
     internal void ApplyInstallEstimationResult(InstallEstimationResult result)
     {
         BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;

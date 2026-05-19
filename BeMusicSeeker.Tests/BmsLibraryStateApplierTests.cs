@@ -90,11 +90,9 @@ public sealed class BmsLibraryStateApplierTests
                     path = Path.Combine(tempRootPath, "pending_chart.bms"),
                     instl_dst = oldDirectoryPath
                 };
-                var installedPackage = new ChartPackage([movedFile])
-                {
-                    path = oldDirectoryPath,
-                    delete_parent = false
-                };
+                var installedPackage = ChartPackageTestExtensions.CreatePackage([movedFile]);
+                installedPackage.path = oldDirectoryPath;
+                installedPackage.delete_parent = false;
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     songDb.CreateTable<LR2SongDB.song>();
@@ -216,16 +214,12 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var removedPackage = new ChartPackage([removedFile])
-            {
-                path = "C:\\Installed\\RemovePkg",
-                delete_parent = false
-            };
-            var keptPackage = new ChartPackage([keptFile])
-            {
-                path = "C:\\Installed\\KeepPkg",
-                delete_parent = false
-            };
+            var removedPackage = ChartPackageTestExtensions.CreatePackage([removedFile]);
+            removedPackage.path = "C:\\Installed\\RemovePkg";
+            removedPackage.delete_parent = false;
+            var keptPackage = ChartPackageTestExtensions.CreatePackage([keptFile]);
+            keptPackage.path = "C:\\Installed\\KeepPkg";
+            keptPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
@@ -280,11 +274,9 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bms"
             };
             keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var removedPackage = new ChartPackage([canonicalFile])
-            {
-                path = "C:\\Installed\\RemovePkg",
-                delete_parent = false
-            };
+            var removedPackage = ChartPackageTestExtensions.CreatePackage([canonicalFile]);
+            removedPackage.path = "C:\\Installed\\RemovePkg";
+            removedPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
@@ -419,16 +411,12 @@ public sealed class BmsLibraryStateApplierTests
             };
             var removedEntry = PendingChartEntry.CreateFromBmsonSong(removedSong);
             var keptEntry = PendingChartEntry.CreateFromBmsonSong(keptSong);
-            var removedPackage = new ChartPackage([removedEntry])
-            {
-                path = "C:\\Installed\\RemovePkg",
-                delete_parent = false
-            };
-            var keptPackage = new ChartPackage([keptEntry])
-            {
-                path = "C:\\Installed\\KeepPkg",
-                delete_parent = false
-            };
+            var removedPackage = ChartPackageTestExtensions.CreatePackage([removedEntry]);
+            removedPackage.path = "C:\\Installed\\RemovePkg";
+            removedPackage.delete_parent = false;
+            var keptPackage = ChartPackageTestExtensions.CreatePackage([keptEntry]);
+            keptPackage.path = "C:\\Installed\\KeepPkg";
+            keptPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();

@@ -2944,11 +2944,9 @@ createTempDirectory);
             string sourceChartPath = Path.Combine(sourceDir, "install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE install bms\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
             var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = new ChartPackage([pendingChart])
-            {
-                path = sourceDir,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([pendingChart]);
+            package.path = sourceDir;
+            package.delete_parent = false;
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeInstallChartPackages(library, [package], installDir);
@@ -2984,11 +2982,9 @@ createTempDirectory);
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = new ChartPackage([pendingChart])
-            {
-                path = sourceDir,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([pendingChart]);
+            package.path = sourceDir;
+            package.delete_parent = false;
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeInstallChartPackages(library, [package], installDir);
@@ -3016,11 +3012,9 @@ createTempDirectory);
             string sourceChartPath = Path.Combine(sourceDir, "bad-install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE bad install\r\n#00111:01\r\n", Encoding.ASCII);
             var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = new ChartPackage([pendingChart])
-            {
-                path = sourceDir,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([pendingChart]);
+            package.path = sourceDir;
+            package.delete_parent = false;
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeInstallChartPackages(library, [package], installDir);

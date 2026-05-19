@@ -31,11 +31,9 @@ public sealed class BmsLibraryDialogRoutingTests
                 path = "C:\\Pending\\Pkg\\chart.bms",
                 instl_dst = "C:\\Installed\\Pkg"
             };
-            var pendingPackage = new ChartPackage([pendingFile])
-            {
-                path = "C:\\Pending\\Pkg",
-                delete_parent = false
-            };
+            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            pendingPackage.path = "C:\\Pending\\Pkg";
+            pendingPackage.delete_parent = false;
             library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
 
             library.ForceInstallPendingPackages([pendingPackage]);

@@ -122,19 +122,6 @@ public class ChartPackage : LR2SongDBExtended.install
     {
     }
 
-    public ChartPackage(BMSFile chartFile)
-    {
-        path = chartFile.path;
-        chartEntries = [PackageChartEntry.FromCompatibilityAdapter(chartFile)];
-        hasExplicitChartFiles = true;
-    }
-
-    public ChartPackage(IEnumerable<BMSFile> chartFiles)
-    {
-        chartEntries = [.. (chartFiles ?? []).Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry != null)];
-        hasExplicitChartFiles = true;
-    }
-
     private ChartPackage(IEnumerable<PackageChartEntry> entries, bool hasExplicitChartEntries)
     {
         chartEntries = [.. (entries ?? []).Where(entry => entry?.Chart != null)];

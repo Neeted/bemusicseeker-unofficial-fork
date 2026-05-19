@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -107,11 +107,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
         TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
         TestableBmsFile pendingC = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\c.bms");
-        var package = new ChartPackage([pendingA, pendingB, pendingC])
-        {
-            path = "C:\\Pending",
-            delete_parent = false
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingC]);
+        package.path = "C:\\Pending";
+        package.delete_parent = false;
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
@@ -151,11 +149,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('c', 64)
         });
-        var package = new ChartPackage([pendingA, pendingB, pendingBmson])
-        {
-            path = "C:\\Pending",
-            delete_parent = false
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingBmson]);
+        package.path = "C:\\Pending";
+        package.delete_parent = false;
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
@@ -183,11 +179,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
         TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
         TestableBmsFile pendingMissing = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\missing.bms", "sound.wav");
-        var package = new ChartPackage([pendingA, pendingB, pendingMissing])
-        {
-            path = "C:\\Pending",
-            delete_parent = false
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingMissing]);
+        package.path = "C:\\Pending";
+        package.delete_parent = false;
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
@@ -225,11 +219,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = new string('b', 64)
         });
-        var package = new ChartPackage([pendingBms, pendingBmson])
-        {
-            path = "C:\\Pending",
-            delete_parent = false
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([pendingBms, pendingBmson]);
+        package.path = "C:\\Pending";
+        package.delete_parent = false;
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
@@ -254,11 +246,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Directory.CreateDirectory(candidateDir);
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+            package.path = sourceDir;
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             InstallEstimationResult result = service.EstimateInstallationDirectoryForCandidateDirectories(
@@ -298,11 +288,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), Path.Combine("sound", "00.wav"), Path.Combine("sound", "01.wav"));
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -556,11 +546,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -612,11 +602,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             file.BGAfiles = new HashSet<string>(["title.png"], StringComparer.OrdinalIgnoreCase);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 71), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -806,11 +796,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             primary.SetMaintenanceInfo(CreateMaintenanceInfo(primary, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
             secondary.SetMaintenanceInfo(CreateMaintenanceInfo(secondary, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([primary, secondary])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
 
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [primary, secondary]);
             uint expectedAudioRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(soundDir, "00.wav"))));
@@ -849,11 +839,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), Path.Combine("sound", "00.wav"));
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
 
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
             BmsLibraryInstallEstimationService.SourceBaselineEvaluation snapshotBaseline = service.EvaluateSourceBaseline(snapshot);
@@ -885,11 +875,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             var primary = BMSFile.CreateBMSFileFromFile(primaryPath);
             var secondary = BMSFile.CreateBMSFileFromFile(secondaryPath);
 
-            var package = new ChartPackage([primary, secondary])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
 
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [primary, secondary]);
 
@@ -914,11 +904,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = file.path,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = file.path;
+
+            package.delete_parent = false;
 
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
@@ -1310,7 +1300,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile primary = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "a.bms"));
         primary.SetTitleParts("Main Title", "Sub Title");
         TestableBmsFile secondary = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Pending", "b.bms"));
-        var package = new ChartPackage([primary, secondary]);
+        var package = ChartPackageTestExtensions.CreatePackage([primary, secondary]);
 
         Assert.AreEqual("Main Title", package.DisplayTitle);
     }
@@ -1417,11 +1407,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -1461,11 +1451,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -1502,11 +1492,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -1539,11 +1529,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Directory.CreateDirectory(pendingDirectoryPath);
             Directory.CreateDirectory(installDirectoryPath);
             TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(pendingDirectoryPath, "chart.bms"));
-            var pendingPackage = new ChartPackage([pendingFile])
-            {
-                path = pendingDirectoryPath,
-                delete_parent = false
-            };
+            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            pendingPackage.path = pendingDirectoryPath;
+            pendingPackage.delete_parent = false;
 
             PendingInstallDestinationSelectionResult result = service.ValidatePendingInstallDestination(
                 pendingFile,
@@ -1853,11 +1841,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             pending.WAVfiles = [];
             pending.BGAfiles = [];
             pending.SetMaintenanceInfo(CreateMaintenanceInfo(pending, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
-            var package = new ChartPackage([pending])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([pending]);
+            package.path = sourceDir;
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [pending]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -2133,11 +2119,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -2228,11 +2214,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, "00.wav", "01.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 2), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = chartPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = chartPath;
+
+            package.delete_parent = false;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();
@@ -2690,11 +2676,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound\\00.wav", "sound\\01.wav", "sound\\02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            var package = new ChartPackage([file])
-            {
-                path = sourceDir,
-                delete_parent = true
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([file]);
+
+            package.path = sourceDir;
+
+            package.delete_parent = true;
             PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
 
             var lookupCache = new DirectoryResourceLookupCache();

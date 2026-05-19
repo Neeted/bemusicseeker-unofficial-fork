@@ -7,6 +7,26 @@ namespace BeMusicSeeker.Tests;
 
 internal static class ChartPackageTestExtensions
 {
+    internal static ChartPackage CreatePackage(params BMSFile[] chartFiles)
+    {
+        return CreatePackage((IEnumerable<BMSFile>)chartFiles);
+    }
+
+    internal static ChartPackage CreatePackage(IEnumerable<BMSFile> chartFiles)
+    {
+        return ChartPackage.FromChartEntries((chartFiles ?? []).Select(PackageChartEntry.FromCompatibilityAdapter));
+    }
+
+    internal static ChartPackage CreatePackage(params PackageChartEntry[] entries)
+    {
+        return CreatePackage((IEnumerable<PackageChartEntry>)entries);
+    }
+
+    internal static ChartPackage CreatePackage(IEnumerable<PackageChartEntry> entries)
+    {
+        return ChartPackage.FromChartEntries(entries);
+    }
+
     internal static List<BMSFile> MaterializeChartAdaptersForTest(this ChartPackage package)
     {
         return [.. (package?.ChartEntries ?? [])

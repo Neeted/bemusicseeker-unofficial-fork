@@ -125,16 +125,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestableBmsFile keepFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\keep.bms");
         TestableBmsFile removeFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\remove.bms");
         TestableBmsFile removeWholePackageFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\only.bms");
-        var keepPackage = new ChartPackage([keepFile, removeFile])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
-        var removePackage = new ChartPackage([removeWholePackageFile])
-        {
-            path = "C:\\Pending\\Pkg2",
-            delete_parent = false
-        };
+        var keepPackage = ChartPackageTestExtensions.CreatePackage([keepFile, removeFile]);
+        keepPackage.path = "C:\\Pending\\Pkg1";
+        keepPackage.delete_parent = false;
+        var removePackage = ChartPackageTestExtensions.CreatePackage([removeWholePackageFile]);
+        removePackage.path = "C:\\Pending\\Pkg2";
+        removePackage.delete_parent = false;
 
         PendingPackageMutationDelta delta = service.BuildPendingPackageMutationDelta(
             [keepPackage, removePackage],
@@ -232,16 +228,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
         newFile.instl_dst = destinationDirectory;
         TestableBmsFile cleanupOnlyFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\c.bms");
         cleanupOnlyFile.instl_dst = destinationDirectory;
-        var mixedPackage = new ChartPackage([alreadyInstalledInPackage, newFile])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
-        var cleanupOnlyPackage = new ChartPackage([cleanupOnlyFile])
-        {
-            path = "C:\\Pending\\Pkg2",
-            delete_parent = false
-        };
+        var mixedPackage = ChartPackageTestExtensions.CreatePackage([alreadyInstalledInPackage, newFile]);
+        mixedPackage.path = "C:\\Pending\\Pkg1";
+        mixedPackage.delete_parent = false;
+        var cleanupOnlyPackage = ChartPackageTestExtensions.CreatePackage([cleanupOnlyFile]);
+        cleanupOnlyPackage.path = "C:\\Pending\\Pkg2";
+        cleanupOnlyPackage.delete_parent = false;
 
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
@@ -283,11 +275,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestableBmsFile pendingFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg1\\a.bms");
         pendingFile.SetSha256(new string('b', 64));
         pendingFile.instl_dst = destinationDirectory;
-        var pendingPackage = new ChartPackage([pendingFile])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
+        var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+        pendingPackage.path = "C:\\Pending\\Pkg1";
+        pendingPackage.delete_parent = false;
 
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [pendingPackage],
@@ -310,12 +300,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
-        var deferredPackage = new ChartPackage([pendingFile])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false,
-            DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline
-        };
+        var deferredPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+        deferredPackage.path = "C:\\Pending\\Pkg1";
+        deferredPackage.delete_parent = false;
+        deferredPackage.DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline;
 
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [deferredPackage],
@@ -344,16 +332,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
         newFile.instl_dst = destinationDirectory;
         TestableBmsFile cleanupOnlyFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\c.bms");
         cleanupOnlyFile.instl_dst = destinationDirectory;
-        var mixedPackage = new ChartPackage([alreadyInstalledInPackage, newFile])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
-        var cleanupOnlyPackage = new ChartPackage([cleanupOnlyFile])
-        {
-            path = "C:\\Pending\\Pkg2",
-            delete_parent = false
-        };
+        var mixedPackage = ChartPackageTestExtensions.CreatePackage([alreadyInstalledInPackage, newFile]);
+        mixedPackage.path = "C:\\Pending\\Pkg1";
+        mixedPackage.delete_parent = false;
+        var cleanupOnlyPackage = ChartPackageTestExtensions.CreatePackage([cleanupOnlyFile]);
+        cleanupOnlyPackage.path = "C:\\Pending\\Pkg2";
+        cleanupOnlyPackage.delete_parent = false;
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
             [mixedPackage, cleanupOnlyPackage],
@@ -374,10 +358,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 }
                 return [];
             },
-            (originalPackage, destinationDirectoryArg) => new ChartPackage(originalPackage.MaterializeChartAdaptersForTest())
+            (originalPackage, destinationDirectoryArg) =>
             {
-                path = destinationDirectoryArg,
-                delete_parent = false
+                ChartPackage package = ChartPackageTestExtensions.CreatePackage(originalPackage.MaterializeChartAdaptersForTest());
+                package.path = destinationDirectoryArg;
+                package.delete_parent = false;
+                return package;
             },
             (cleanupPackage) => cleanupPackage == cleanupOnlyPackage
                 ? (true, CleanupSourceKind.MissingSource)
@@ -402,11 +388,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
         pendingFile.instl_dst = "C:\\Installed\\Target";
-        var pendingPackage = new ChartPackage([pendingFile])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
+        var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+        pendingPackage.path = "C:\\Pending\\Pkg1";
+        pendingPackage.delete_parent = false;
 
         ForceInstallBatchResult result = service.ForceInstallPackages(
             [pendingPackage],
@@ -495,11 +479,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg1");
             Directory.CreateDirectory(packageDirectoryPath);
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bms"), "#PLAYER 1");
-            var pendingPackage = new ChartPackage([])
-            {
-                path = packageDirectoryPath,
-                delete_parent = false
-            };
+            var pendingPackage = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<BMSFile>());
+            pendingPackage.path = packageDirectoryPath;
+            pendingPackage.delete_parent = false;
 
             PendingPackageSourceDeletionResult result = service.DeletePendingPackageSources(
                 [pendingPackage],
@@ -1127,11 +1109,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
         file.SetWarning(ChartWarningKind.ResourceWavMissing, "pending resource warning");
         file.InstallDestinationSuggestions = ["C:\\Installed\\A", "C:\\Installed\\B"];
-        var package = new ChartPackage([file])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([file]);
+        package.path = "C:\\Pending\\Pkg1";
+        package.delete_parent = false;
         List<BMSFile> songUpserts = [];
         List<BMSFile> maintenanceTargets = [];
         List<BMSFile> zeroNoteTargets = [];
@@ -1175,11 +1155,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
-        var package = new ChartPackage([file])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([file]);
+        package.path = "C:\\Pending\\Pkg1";
+        package.delete_parent = false;
 
         PackageInstallExecutionResult result = service.InstallPackages(
             [package],
@@ -1202,11 +1180,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile rootFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\root.bms");
         TestableBmsFile nestedFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\sub\\another.bms");
-        var package = new ChartPackage([rootFile, nestedFile])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([rootFile, nestedFile]);
+        package.path = "C:\\Pending\\Pkg1";
+        package.delete_parent = false;
         List<BMSFile> songUpserts = [];
         List<BMSFile> maintenanceTargets = [];
         List<BMSFile> applyTargets = [];
@@ -1294,21 +1270,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
-        var cleanupPackage = new ChartPackage([CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Cleanup\\a.bms")])
-        {
-            path = "C:\\Pending\\Cleanup",
-            delete_parent = false
-        };
-        var installPackage = new ChartPackage([CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Install\\b.bms")])
-        {
-            path = "C:\\Pending\\Install",
-            delete_parent = false
-        };
-        var missingDestinationPackage = new ChartPackage([CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Missing\\c.bms")])
-        {
-            path = "C:\\Pending\\Missing",
-            delete_parent = false
-        };
+        var cleanupPackage = ChartPackageTestExtensions.CreatePackage([CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Cleanup\\a.bms")]);
+        cleanupPackage.path = "C:\\Pending\\Cleanup";
+        cleanupPackage.delete_parent = false;
+        var installPackage = ChartPackageTestExtensions.CreatePackage([CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Install\\b.bms")]);
+        installPackage.path = "C:\\Pending\\Install";
+        installPackage.delete_parent = false;
+        var missingDestinationPackage = ChartPackageTestExtensions.CreatePackage([CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Missing\\c.bms")]);
+        missingDestinationPackage.path = "C:\\Pending\\Missing";
+        missingDestinationPackage.delete_parent = false;
 
         PendingResourceOverwriteExecutionResult result = service.ExecuteInstalledOnlyResourceOverwrite(
             [cleanupPackage, installPackage, missingDestinationPackage, new ChartPackage { path = "C:\\Pending\\Unknown" }],
@@ -1447,11 +1417,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             var service = new BmsLibraryPackageInstallService();
             TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             TestableBmsFile nestedChart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nestedChartPath);
-            var package = new ChartPackage([chart, nestedChart])
-            {
-                path = sourceDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([chart, nestedChart]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
 
             bool moved = service.MovePackageFiles(
                 package,
@@ -1614,10 +1582,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
             LR2SongDBExtended.bmson_song bmsonSong = bmsonAdapter.BmsonSong;
-            ChartPackage package = new ChartPackage([bmsonAdapter])
-            {
-                path = sourceDirectoryPath
-            };
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([bmsonAdapter]);
+            package.path = sourceDirectoryPath;
 
             var service = new BmsLibraryPackageInstallService();
             PackageInstallExecutionResult result = service.InstallPackages(
@@ -1734,11 +1700,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             var service = new BmsLibraryPackageInstallService();
             var bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
-            var package = new ChartPackage([bmsonChart])
-            {
-                path = sourceDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([bmsonChart]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
 
             bool moved = service.MovePackageFiles(
                 package,
@@ -1786,11 +1750,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             var service = new BmsLibraryPackageInstallService();
             var bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
-            var package = new ChartPackage([bmsonChart])
-            {
-                path = sourceDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([bmsonChart]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
 
             bool moved = service.MovePackageFiles(
                 package,
@@ -1838,11 +1800,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             var service = new BmsLibraryPackageInstallService();
             var bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
-            var package = new ChartPackage([bmsonChart])
-            {
-                path = sourceDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([bmsonChart]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
 
             bool moved = service.MovePackageFiles(
                 package,
@@ -1891,11 +1851,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string chartPath = Path.Combine(packageDirectoryPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n");
             TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            var package = new ChartPackage([chart])
-            {
-                path = packageDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage([chart]);
+            package.path = packageDirectoryPath;
+            package.delete_parent = false;
 
             PendingFileDeletionResult result = service.DeletePendingCharts(
                 [ChartFileProjection.FromBmsFile(chart)],
@@ -2077,7 +2035,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             var bmsonEntry = PendingChartEntry.CreateFromFilePath(bmsonPath);
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
             TestableBmsFile plainBmsonPath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempDirectoryPath, "plain.bmson"));
-            var package = new ChartPackage([bmsFile, bmsonEntry, plainBmsonPath]);
+            var package = ChartPackageTestExtensions.CreatePackage([bmsFile, bmsonEntry, plainBmsonPath]);
             ChartPackage adapterlessBmsonPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
             List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
@@ -2202,11 +2160,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(sourceFilePath, "same");
             File.WriteAllText(destinationFilePath, "different");
             File.WriteAllText(suffixedDestinationPath, "same");
-            var package = new ChartPackage([])
-            {
-                path = sourceDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<BMSFile>());
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
 
             bool moved = service.MovePackageFiles(
                 package,
@@ -2251,11 +2207,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(sourceFilePath, "source");
             File.WriteAllText(destinationFilePath, "different-a");
             File.WriteAllText(suffixedDestinationPath, "different-b");
-            var package = new ChartPackage([])
-            {
-                path = sourceDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<BMSFile>());
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
 
             bool moved = service.MovePackageFiles(
                 package,
@@ -2300,11 +2254,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(sourceFilePath, "source");
             File.WriteAllText(destinationFilePath, "different");
             File.WriteAllText(unavailableCandidatePath, "locked");
-            var package = new ChartPackage([])
-            {
-                path = sourceDirectoryPath,
-                delete_parent = false
-            };
+            var package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<BMSFile>());
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
 
             using (var lockStream = new FileStream(unavailableCandidatePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             {
@@ -2589,11 +2541,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Directory.CreateDirectory(parentDirectoryPath);
         string sourceChartPath = CreateBmsFile(parentDirectoryPath, chartBaseName + ".bms", chartBody);
         var sourceChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
-        var package = new ChartPackage([sourceChart])
-        {
-            path = sourceChartPath,
-            delete_parent = true
-        };
+        var package = ChartPackageTestExtensions.CreatePackage([sourceChart]);
+        package.path = sourceChartPath;
+        package.delete_parent = true;
         return new SafeDeleteMoveSetup
         {
             ParentDirectoryPath = parentDirectoryPath,

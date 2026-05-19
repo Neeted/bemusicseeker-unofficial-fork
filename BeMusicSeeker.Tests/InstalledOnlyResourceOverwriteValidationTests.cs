@@ -273,11 +273,10 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
 
     private static ChartPackage CreatePendingPackage(params TestableBmsFile[] files)
     {
-        return new ChartPackage(files)
-        {
-            path = files.FirstOrDefault()?.path ?? string.Empty,
-            delete_parent = false
-        };
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(files);
+        package.path = files.FirstOrDefault()?.path ?? string.Empty;
+        package.delete_parent = false;
+        return package;
     }
 
     private static void DeleteDirectoryIfExists(string directoryPath)

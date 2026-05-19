@@ -7619,6 +7619,15 @@ reportProgress,
         }
     }
 
+    private void ApplyResolvedInstallDestinationPathAndMetadataToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
+    {
+        InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
+        foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
+        {
+            entry.ApplyInstallDestinationMetadata(destinationDirectory, metadata.Title, metadata.Artist);
+        }
+    }
+
     private void ApplyInstallEstimationResultToFiles(IEnumerable<BMSFile> bmsFiles, InstallEstimationResult result)
     {
         InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
@@ -9507,18 +9516,15 @@ reportProgress,
             }
         }
         resolvedDestinationDirectory = expectedDirectories.Single();
-        List<BMSFile> regroupedFiles = [.. regroupedEntries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
-        if (regroupedFiles.Count == 0)
+        if (regroupedEntries.Count == 0)
         {
             skipReason = "no_files";
             return false;
         }
-        ApplyResolvedInstallDestinationPathAndMetadataToFiles(regroupedFiles, resolvedDestinationDirectory);
-        regroupedPackage = new ChartPackage(regroupedFiles)
-        {
-            path = sourceDirectoryPath,
-            delete_parent = false
-        };
+        ApplyResolvedInstallDestinationPathAndMetadataToEntries(regroupedEntries, resolvedDestinationDirectory);
+        regroupedPackage = ChartPackage.FromChartEntries(regroupedEntries);
+        regroupedPackage.path = sourceDirectoryPath;
+        regroupedPackage.delete_parent = false;
         return true;
     }
 

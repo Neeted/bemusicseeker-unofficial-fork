@@ -520,11 +520,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             .Select(PendingChartEntry.CreateFromBmsonSong)
             .Where(file => file != null));
-        result.Repackage = new ChartPackage(result.SourceFiles)
-        {
-            path = srcDir,
-            delete_parent = false
-        };
+        result.Repackage = ChartPackage.FromChartEntries(result.SourceFiles.Select(PackageChartEntry.FromCompatibilityAdapter));
+        result.Repackage.path = srcDir;
+        result.Repackage.delete_parent = false;
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile installLinkedFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, srcDir))
         {
@@ -593,10 +591,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             var bmsonEntry = file as PendingChartEntry;
             bool isBmson = bmsonEntry?.IsBmsonChart == true && bmsonEntry.BmsonSong != null;
-            var installPackage = new ChartPackage(file)
-            {
-                delete_parent = false
-            };
+            var installPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(file)]);
+            installPackage.path = file.path;
+            installPackage.delete_parent = false;
             string oldPath = isBmson ? bmsonEntry.BmsonSong.path : file.path;
             if (!(movePackageFiles?.Invoke(installPackage, file.instl_dst) ?? false))
             {

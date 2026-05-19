@@ -14975,10 +14975,8 @@ public class MainWindowViewModel : ViewModel
                         return;
                     }
                 }
-                chartPackage = new ChartPackage(bmsFile)
-                {
-                    delete_parent = false
-                };
+                chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(bmsFile)]);
+                chartPackage.delete_parent = false;
             }
             string fileName = Path.GetFileName(bmsFile.path);
             while (File.Exists(Path.Combine(bmsFile.instl_dst, Path.GetFileName(bmsFile.path))) || Directory.Exists(Path.Combine(bmsFile.instl_dst, Path.GetFileName(bmsFile.path))))

@@ -131,16 +131,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         TestableBmsFile selectedB = CreateFile("C:\\Pending\\Pkg1\\b.bms");
         TestableBmsFile partial = CreateFile("C:\\Pending\\Pkg2\\a.bms");
         TestableBmsFile partialUnselected = CreateFile("C:\\Pending\\Pkg2\\b.bms");
-        var pkg1 = new ChartPackage([selectedA, selectedB])
-        {
-            path = "C:\\Pending\\Pkg1",
-            delete_parent = false
-        };
-        var pkg2 = new ChartPackage([partial, partialUnselected])
-        {
-            path = "C:\\Pending\\Pkg2",
-            delete_parent = false
-        };
+        var pkg1 = ChartPackageTestExtensions.CreatePackage([selectedA, selectedB]);
+        pkg1.path = "C:\\Pending\\Pkg1";
+        pkg1.delete_parent = false;
+        var pkg2 = ChartPackageTestExtensions.CreatePackage([partial, partialUnselected]);
+        pkg2.path = "C:\\Pending\\Pkg2";
+        pkg2.delete_parent = false;
 
         List<ChartPackage> result = service.GetPendingPackagesFullyCoveredBySelection(
             [pkg1, pkg2],
@@ -182,11 +178,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(pendingFile), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
-            var installedPackage = new ChartPackage([libraryFile])
-            {
-                path = nestedDirectoryPath,
-                delete_parent = false
-            };
+            var installedPackage = ChartPackageTestExtensions.CreatePackage([libraryFile]);
+            installedPackage.path = nestedDirectoryPath;
+            installedPackage.delete_parent = false;
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
 
             service.MoveFolderAndUpdateReferences(
