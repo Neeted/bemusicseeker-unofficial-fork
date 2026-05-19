@@ -73,26 +73,9 @@ public class ChartPackage : LR2SongDBExtended.install
 
     internal void ClearChartAdapterInstallDestinations()
     {
-        foreach (BMSFile chartFile in EnumerateExistingInstallDestinationTargets())
-        {
-            chartFile.instl_dst = null;
-        }
-    }
-
-    private IEnumerable<BMSFile> EnumerateExistingInstallDestinationTargets()
-    {
         foreach (PackageChartEntry entry in ChartEntries ?? [])
         {
-            BMSFile adapter = entry?.CompatibilityAdapter;
-            if (adapter != null)
-            {
-                yield return adapter;
-                continue;
-            }
-            if (entry?.Chart?.BmsFile != null)
-            {
-                yield return entry.Chart.BmsFile;
-            }
+            entry?.ClearInstallDestination();
         }
     }
 

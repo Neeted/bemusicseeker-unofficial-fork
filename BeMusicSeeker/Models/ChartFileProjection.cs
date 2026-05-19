@@ -15,6 +15,21 @@ internal static class ChartFileProjection
 {
     internal static ChartFile WithWarnings(ChartFile source, IReadOnlyList<ChartWarning> warnings)
     {
+        return WithPackageState(
+            source,
+            source?.InstallDestination,
+            source?.InstallDestinationTitle,
+            source?.InstallDestinationArtist,
+            warnings);
+    }
+
+    internal static ChartFile WithPackageState(
+        ChartFile source,
+        string installDestination,
+        string installDestinationTitle,
+        string installDestinationArtist,
+        IReadOnlyList<ChartWarning> warnings)
+    {
         if (source == null)
         {
             return null;
@@ -38,9 +53,9 @@ internal static class ChartFileProjection
             source.BmsFile,
             source.BmsonSong,
             source.Subtitle,
-            source.InstallDestination,
-            source.InstallDestinationTitle,
-            source.InstallDestinationArtist,
+            installDestination,
+            installDestinationTitle,
+            installDestinationArtist,
             warnings,
             source.WAVHealth,
             source.BGAHealth,

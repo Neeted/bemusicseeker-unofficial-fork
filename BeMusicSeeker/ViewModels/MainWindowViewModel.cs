@@ -20522,19 +20522,16 @@ public class MainWindowViewModel : ViewModel
 
     public void ClearInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
     {
-        if (files != null)
+        if (packages == null)
         {
-            if (packages == null)
-            {
-                throw new ArgumentNullException("packages");
-            }
-            List<ChartPackage> list = [.. packages.Where(f => f != null)];
-            for (int num = 0; num < list.Count; num++)
-            {
-                files.RemoveInstallDestination(CreatePackageInstallDestinationTargetSnapshot([list[num]]));
-            }
-            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            throw new ArgumentNullException("packages");
         }
+        List<ChartPackage> list = [.. packages.Where(f => f != null)];
+        for (int num = 0; num < list.Count; num++)
+        {
+            list[num].ClearChartAdapterInstallDestinations();
+        }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
     public void ClearInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
@@ -20554,7 +20551,7 @@ public class MainWindowViewModel : ViewModel
             List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             for (int num = 0; num < chartPackages.Count; num++)
             {
-                files.RemoveInstallDestination(CreatePackageInstallDestinationTargetSnapshot([chartPackages[num]]));
+                chartPackages[num].ClearChartAdapterInstallDestinations();
             }
             files.RemoveInstallDestination(chartFiles2);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);

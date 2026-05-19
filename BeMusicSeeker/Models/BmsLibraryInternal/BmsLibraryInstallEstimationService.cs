@@ -1214,16 +1214,16 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             }
             return;
         }
-        result.TargetFiles.AddRange(result.TargetEntries.Select(GetInstallDestinationWritebackTarget).Where(file => file != null));
+        result.TargetFiles.AddRange(result.TargetEntries.Select(GetExistingInstallDestinationWritebackTarget).Where(file => file != null));
     }
 
-    private static BMSFile GetInstallDestinationWritebackTarget(PackageChartEntry entry)
+    private static BMSFile GetExistingInstallDestinationWritebackTarget(PackageChartEntry entry)
     {
         if (entry?.Chart == null)
         {
             return null;
         }
-        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile ?? entry.GetOrCreateCompatibilityAdapter();
+        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile;
     }
 
     public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string md5, string sha256 = null)

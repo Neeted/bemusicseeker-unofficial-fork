@@ -1618,10 +1618,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
                 Assert.AreEqual(1, result.TargetEntries.Count);
                 Assert.AreEqual(bmsonPath, result.TargetEntries[0].Chart.Path);
-                Assert.AreEqual(1, result.TargetFiles.Count);
-                Assert.IsTrue(result.TargetFiles[0] is PendingChartEntry { IsBmsonChart: true });
-                Assert.AreEqual(bmsonPath, result.TargetFiles[0].path);
-                Assert.IsNotNull(entries[0].CompatibilityAdapter);
+                Assert.AreEqual(0, result.TargetFiles.Count);
+                Assert.IsNull(entries[0].CompatibilityAdapter);
             });
         });
     }

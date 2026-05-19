@@ -461,11 +461,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         });
         bmsonAdapter.instl_dst = "C:\\Installed\\Target";
-        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.WithPackageState(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\Pkg\\adapterless.bmson",
             md5 = "cccccccccccccccccccccccccccccccc"
-        }));
+        }), "C:\\Installed\\Target", "Installed", "Artist", []));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
             PackageChartEntry.FromCompatibilityAdapter(bmsFile),
@@ -478,6 +478,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsNull(bmsFile.instl_dst);
         Assert.IsNull(bmsonAdapter.instl_dst);
         Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
+        Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
     }
 
     [TestMethod]

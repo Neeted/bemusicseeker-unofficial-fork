@@ -3604,6 +3604,26 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private void ClearDeferredEstimateReasonForEntriesUnsafe(IEnumerable<PackageChartEntry> entries)
+    {
+        var entryPaths = new HashSet<string>(
+            (entries ?? []).Select(entry => entry?.Chart?.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        if (entryPaths.Count == 0)
+        {
+            return;
+        }
+
+        IEnumerable<ChartPackage> pendingPackages = ChartPackagesPending ?? Enumerable.Empty<ChartPackage>();
+        foreach (ChartPackage pendingPackage in pendingPackages.Where(package => package != null))
+        {
+            if ((pendingPackage.ChartEntries ?? []).Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.Path) && entryPaths.Contains(entry.Chart.Path)))
+            {
+                pendingPackage.DeferredEstimateReason = PendingEstimateDeferredReason.None;
+            }
+        }
+    }
+
     private static bool PackageTargetsContainChartFile(IEnumerable<ChartPackage> packages, BMSFile chartFile)
     {
         if (chartFile == null)
@@ -7606,6 +7626,15 @@ reportProgress,
         }
     }
 
+    private void ApplyResolvedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory, bool preserveAmbiguousInstallContext = false)
+    {
+        InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
+        foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
+        {
+            entry.ApplyInstallDestination(destinationDirectory, metadata.Title, metadata.Artist, preserveAmbiguousInstallContext);
+        }
+    }
+
     private void ApplyInstallEstimationResultToFiles(IEnumerable<BMSFile> bmsFiles, InstallEstimationResult result)
     {
         InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
@@ -9823,12 +9852,21 @@ reportProgress,
                     dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
+                bool hasPackageTargets = selection.TargetEntries.Count > 0;
                 bool preserveAmbiguousInstallContext = !string.IsNullOrWhiteSpace(selection.ValidatedDestinationDirectory)
                     && selection.TargetFiles.Any(file => file != null
                         && file.HasLowConfidenceInstallEstimationWarning()
                         && (file.InstallDestinationSuggestions?.Any(path => string.Equals(path, selection.ValidatedDestinationDirectory, StringComparison.OrdinalIgnoreCase)) ?? false));
-                ApplyResolvedInstallDestinationToFiles(selection.TargetFiles, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
-                ClearDeferredEstimateReasonForFilesUnsafe(selection.TargetFiles);
+                if (hasPackageTargets)
+                {
+                    ApplyResolvedInstallDestinationToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
+                    ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
+                }
+                else
+                {
+                    ApplyResolvedInstallDestinationToFiles(selection.TargetFiles, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
+                    ClearDeferredEstimateReasonForFilesUnsafe(selection.TargetFiles);
+                }
                 return true;
             }
         }

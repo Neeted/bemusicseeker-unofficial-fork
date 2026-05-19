@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -654,6 +658,69 @@ public sealed class ChartListVirtualViewTests
 
         CollectionAssert.AreEqual(new BMSFile[] { bms, bmsonAdapter }, targets);
         Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+    }
+
+    [TestMethod]
+    public void ClearInstallDestinationForPendingPackages_ClearsAdapterlessBmsonEntryWithoutMaterializing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var viewModel = new MainWindowViewModel();
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(
+            ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(CreateBmsonSong()),
+                @"C:\Installed\Target",
+                "Installed",
+                "Artist",
+                []));
+        ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+
+        viewModel.ClearInstallDestinationForPendingPackages([package]);
+
+        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
+        Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
+    }
+
+    [TestMethod]
+    public void ClearInstallDestinationForPendingCharts_ClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var viewModel = new MainWindowViewModel();
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong();
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(
+            ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(bmsonSong),
+                @"C:\Installed\Target",
+                "Installed",
+                "Artist",
+                []));
+        ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+        try
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
+                new ObservableCollection<ChartPackage>([package]),
+                Dispatcher.CurrentDispatcher);
+            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
+            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
+
+            viewModel.ClearInstallDestinationForPendingCharts([selectedChart]);
+
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
+            Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

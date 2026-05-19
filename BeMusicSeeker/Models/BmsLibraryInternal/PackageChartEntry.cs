@@ -14,6 +14,14 @@ internal sealed class PackageChartEntry
 
     private bool hasPendingWarningProjection;
 
+    private string installDestination;
+
+    private string installDestinationTitle;
+
+    private string installDestinationArtist;
+
+    private bool hasInstallDestinationProjection;
+
     internal PackageChartEntry(ChartFile chart, BMSFile compatibilityAdapter = null)
     {
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
@@ -21,6 +29,7 @@ internal sealed class PackageChartEntry
         if (compatibilityAdapter == null && chart.BmsFile == null)
         {
             ReplacePendingWarnings(chart.Warnings);
+            ReplacePendingInstallDestination(chart.InstallDestination, chart.InstallDestinationTitle, chart.InstallDestinationArtist);
         }
     }
 
@@ -38,8 +47,13 @@ internal sealed class PackageChartEntry
             {
                 return ChartFileProjection.FromBmsFile(writebackFile);
             }
-            return hasPendingWarningProjection
-                ? ChartFileProjection.WithWarnings(chart, [.. pendingWarnings.Values])
+            return hasPendingWarningProjection || hasInstallDestinationProjection
+                ? ChartFileProjection.WithPackageState(
+                    chart,
+                    hasInstallDestinationProjection ? installDestination : chart.InstallDestination,
+                    hasInstallDestinationProjection ? installDestinationTitle : chart.InstallDestinationTitle,
+                    hasInstallDestinationProjection ? installDestinationArtist : chart.InstallDestinationArtist,
+                    hasPendingWarningProjection ? [.. pendingWarnings.Values] : chart.Warnings)
                 : chart;
         }
     }
@@ -71,8 +85,54 @@ internal sealed class PackageChartEntry
             {
                 compatibilityAdapter.ReplaceStructuredWarnings(pendingWarnings.Values);
             }
+            if (hasInstallDestinationProjection)
+            {
+                compatibilityAdapter.instl_dst = string.IsNullOrWhiteSpace(installDestination) ? null : installDestination;
+                compatibilityAdapter.InstallDestinationTitle = installDestinationTitle ?? string.Empty;
+                compatibilityAdapter.InstallDestinationArtist = installDestinationArtist ?? string.Empty;
+            }
         }
         return compatibilityAdapter;
+    }
+
+    internal void ApplyInstallDestination(string destinationDirectory, string title, string artist, bool preserveAmbiguousInstallContext = false)
+    {
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            writebackFile.instl_dst = destinationDirectory;
+            writebackFile.InstallDestinationTitle = title ?? string.Empty;
+            writebackFile.InstallDestinationArtist = artist ?? string.Empty;
+            writebackFile.IsInstallDestinationSuggestionPopupOpen = false;
+            if (!preserveAmbiguousInstallContext)
+            {
+                writebackFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+                writebackFile.InstallDestinationSuggestions = [];
+            }
+            return;
+        }
+        ReplacePendingInstallDestination(destinationDirectory, title, artist, forceProjection: true);
+        if (!preserveAmbiguousInstallContext)
+        {
+            ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        }
+    }
+
+    internal void ClearInstallDestination()
+    {
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            writebackFile.instl_dst = null;
+            writebackFile.InstallDestinationTitle = string.Empty;
+            writebackFile.InstallDestinationArtist = string.Empty;
+            writebackFile.InstallDestinationSuggestions = [];
+            writebackFile.IsInstallDestinationSuggestionPopupOpen = false;
+            writebackFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+            return;
+        }
+        ReplacePendingInstallDestination(null, string.Empty, string.Empty, forceProjection: true);
+        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
     internal void ClearStructuredWarnings()
@@ -148,6 +208,18 @@ internal sealed class PackageChartEntry
             }
         }
         hasPendingWarningProjection = pendingWarnings.Count > 0;
+    }
+
+    private void ReplacePendingInstallDestination(string destinationDirectory, string title, string artist, bool forceProjection = false)
+    {
+        installDestination = destinationDirectory ?? string.Empty;
+        installDestinationTitle = title ?? string.Empty;
+        installDestinationArtist = artist ?? string.Empty;
+        hasInstallDestinationProjection = forceProjection
+            ||
+            !string.IsNullOrWhiteSpace(installDestination)
+            || !string.IsNullOrWhiteSpace(installDestinationTitle)
+            || !string.IsNullOrWhiteSpace(installDestinationArtist);
     }
 
     internal static PackageChartEntry FromPath(string filePath)
