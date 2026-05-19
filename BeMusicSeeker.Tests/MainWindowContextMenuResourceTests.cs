@@ -940,6 +940,21 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void FullScanInstallDestinationClearUsesRepairTargetSnapshot()
+    {
+        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string clearInstallDestination = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuRemoveInstallDestinationClick",
+            "private void tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
+
+        StringAssert.Contains(clearInstallDestination, "GetSelectedChartTargets(capability)");
+        StringAssert.Contains(clearInstallDestination, "CreateRepairInstalledLocationTargetSnapshot(targets)");
+        StringAssert.Contains(clearInstallDestination, "viewModel.ClearInstallDestinationForCharts(repairTargets.ChartFiles)");
+        Assert.IsFalse(clearInstallDestination.Contains("GetSelectedChartCompatibilityAdapters"));
+    }
+
+    [TestMethod]
     public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

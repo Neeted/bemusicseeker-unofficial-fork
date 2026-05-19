@@ -6263,25 +6263,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
         bool isInstalledLocationRepair = IsFullScanMainViewSection(GetCurrentMainViewOperationSection());
         ChartOperationCapabilities capability = isInstalledLocationRepair
             ? ChartOperationCapabilities.RepairInstalledLocation
             : ChartOperationCapabilities.UpdateInstallDestination;
-        List<BMSFile> chartFiles = isInstalledLocationRepair
-            ? GetSelectedChartCompatibilityAdapters(capability)
-            : null;
+        MainWindowViewModel.RepairInstalledLocationTargetSnapshot repairTargets = null;
+        if (isInstalledLocationRepair)
+        {
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(capability);
+            repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
+        }
         List<ChartOperationTarget> pendingTargets = isInstalledLocationRepair
             ? null
             : GetSelectedChartTargets(capability, isPendingSection: true);
-        if ((chartFiles != null && chartFiles.Count() != 0) || (pendingTargets != null && pendingTargets.Count != 0))
+        if ((repairTargets?.ChartFiles.Count > 0) || (pendingTargets != null && pendingTargets.Count != 0))
         {
-            var viewModel = base.DataContext as MainWindowViewModel;
             e.Handled = true;
             Task.Run(delegate
             {
                 if (isInstalledLocationRepair)
                 {
-                    viewModel.ClearInstallDestinationForCharts(chartFiles);
+                    viewModel.ClearInstallDestinationForCharts(repairTargets.ChartFiles);
                 }
                 else
                 {
