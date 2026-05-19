@@ -6297,13 +6297,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> chartFiles = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RepairInstalledLocation);
-        if (chartFiles != null && chartFiles.Count() != 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
+        if (targets.Count != 0)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
+            MainWindowViewModel.RepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
             Task.Run(delegate
             {
-                viewModel.SearchCorrectInstallationDirectoryCharts(chartFiles);
+                viewModel.SearchCorrectInstallationDirectoryCharts(repairTargets);
             }).Logging("tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
             e.Handled = true;
         }
@@ -6315,14 +6316,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> chartFiles = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RepairInstalledLocation);
-        if (chartFiles == null || chartFiles.Count() == 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
+        if (targets.Count == 0)
         {
             return;
         }
         var viewModel = base.DataContext as MainWindowViewModel;
+        MainWindowViewModel.RepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
         e.Handled = true;
-        if (!chartFiles.Any(f => !string.IsNullOrWhiteSpace(f.instl_dst)))
+        if (!repairTargets.HasInstallDestination)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
@@ -6330,7 +6332,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.FixInstallationDirectoryCharts(chartFiles);
+                viewModel.FixInstallationDirectoryCharts(repairTargets);
             }).Logging("tableContextMenuFixInstallationDirectoryClick");
         }
     }

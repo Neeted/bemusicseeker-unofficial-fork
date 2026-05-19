@@ -915,6 +915,31 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void RepairInstalledLocationHandlersUseChartTargets()
+    {
+        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string searchRepair = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuSearchCorrectInstallationDirectoryChartsClick",
+            "private void tableContextMenuFixInstallationDirectoryClick");
+        string fixRepair = ExtractBetween(
+            mainWindowCode,
+            "private void tableContextMenuFixInstallationDirectoryClick",
+            "private void tableContextMenuItemDeleteEntryClick");
+
+        StringAssert.Contains(searchRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
+        StringAssert.Contains(searchRepair, "viewModel.CreateRepairInstalledLocationTargetSnapshot(targets)");
+        StringAssert.Contains(searchRepair, "viewModel.SearchCorrectInstallationDirectoryCharts(repairTargets)");
+        Assert.IsFalse(searchRepair.Contains("GetSelectedChartCompatibilityAdapters"));
+        StringAssert.Contains(fixRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
+        StringAssert.Contains(fixRepair, "viewModel.CreateRepairInstalledLocationTargetSnapshot(targets)");
+        StringAssert.Contains(fixRepair, "repairTargets.HasInstallDestination");
+        StringAssert.Contains(fixRepair, "viewModel.FixInstallationDirectoryCharts(repairTargets)");
+        Assert.IsFalse(fixRepair.Contains("GetSelectedChartCompatibilityAdapters"));
+        Assert.IsFalse(fixRepair.Contains("target.Chart?.InstallDestination"));
+    }
+
+    [TestMethod]
     public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
