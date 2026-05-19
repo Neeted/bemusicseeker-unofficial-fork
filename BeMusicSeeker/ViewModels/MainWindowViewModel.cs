@@ -21037,7 +21037,7 @@ public class MainWindowViewModel : ViewModel
             return realFile;
         }
         return GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
-            ? ToCompatibilityBmsFile(target)
+            ? target.CompatibilityBmsFile
             : null;
     }
 
@@ -21272,7 +21272,7 @@ public class MainWindowViewModel : ViewModel
         RemovePendingCharts(
             (targets ?? [])
             .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-            .Select(ToCompatibilityBmsFile)
+            .Select(target => target.CompatibilityBmsFile)
             .Where(file => file != null),
             sendToRecycleBin,
             deleteContainingPackageFoldersWhenNoBms);
@@ -21410,11 +21410,6 @@ public class MainWindowViewModel : ViewModel
             .Where(target => target != null && target.HasCapability(requiredCapability))
             .Select(target => target.ToLibraryChartRef())
             .Where(chart => chart != null);
-    }
-
-    private static BeMusicSeeker.Models.BMSFile ToCompatibilityBmsFile(ChartOperationTarget target)
-    {
-        return target?.ToCompatibilityBmsFile();
     }
 
     /// <summary>

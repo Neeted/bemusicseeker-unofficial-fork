@@ -111,8 +111,4 @@ internal sealed class ChartOperationTarget
         return LibraryChartRef.FromChartFile(Chart, materializedCompatibilityFile);
     }
 
-    internal BMSFile ToCompatibilityBmsFile()
-    {
-        return CompatibilityBmsFile;
-    }
 }

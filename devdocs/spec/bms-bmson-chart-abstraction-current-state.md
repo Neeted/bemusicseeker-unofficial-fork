@@ -192,7 +192,7 @@ playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson
 
 UI は原則として `Kind` 直接判定ではなく capability を見る。handler 側でも capability を再確認する。
 
-library mutation へ渡す `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。`ToLibraryChartRef()` は `ChartFile` と、すでに materialize 済みの adapter だけを見るため、bmson row の削除 / 移動参照を作るだけでは compatibility adapter を新規作成しない。legacy `BMSFile` API へ渡す必要がある handler は `ChartOperationTarget.ToCompatibilityBmsFile()` / `CompatibilityBmsFile` を明示的に呼び、その時点で lazy adapter を解決する。
+library mutation へ渡す `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。`ToLibraryChartRef()` は `ChartFile` と、すでに materialize 済みの adapter だけを見るため、bmson row の削除 / 移動参照を作るだけでは compatibility adapter を新規作成しない。legacy `BMSFile` API へ渡す必要がある handler は `ChartOperationTarget.CompatibilityBmsFile` を明示的に呼び、その時点で lazy adapter を解決する。単なる wrapper だった `ChartOperationTarget.ToCompatibilityBmsFile()` は削除済みである。
 
 ### Capability
 
