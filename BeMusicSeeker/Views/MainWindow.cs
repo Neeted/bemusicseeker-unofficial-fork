@@ -4456,37 +4456,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
-        // フォルダパスに一致するBMSFileをハッシュでグループ化
-        var filesInFolder = duplicateGroup.Files
-            .Where(f => f.path.StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        var chartsInFolder = duplicateGroup.ChartFiles
+            .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        if (filesInFolder.Count == 0)
+        if (chartsInFolder.Count == 0)
         {
             return;
         }
 
         // 主キー(hash)でグループ化し、各グループで削除対象を決定
-        var deletionList = new List<BMSFile>();
-        foreach (var hashGroup in filesInFolder
-            .Select(f => new { File = f, LookupHash = PendingChartEntry.GetPrimaryLookupHash(f) })
+        var deletionList = new List<ChartFile>();
+        foreach (var hashGroup in chartsInFolder
+            .Select(chart => new { Chart = chart, LookupHash = chart.PrimaryLookupHash })
             .Where(x => !string.IsNullOrWhiteSpace(x.LookupHash))
             .GroupBy(x => x.LookupHash, StringComparer.OrdinalIgnoreCase))
         {
-            var grouped = hashGroup.Select(x => x.File).ToList();
+            var grouped = hashGroup.Select(x => x.Chart).ToList();
             if (grouped.Count <= 1)
             {
                 continue;
             }
 
             // 保持対象: 更新日時が最も古い → ファイル名が最も短い
-            BMSFile keeper = grouped
-                .OrderBy(f =>
+            ChartFile keeper = grouped
+                .OrderBy(chart =>
                 {
-                    try { return File.GetLastWriteTime(f.path); }
+                    try { return File.GetLastWriteTime(chart.Path); }
                     catch { return DateTime.MaxValue; }
                 })
-                .ThenBy(f => Path.GetFileName(f.path).Length)
+                .ThenBy(chart => Path.GetFileName(chart.Path).Length)
                 .First();
 
             deletionList.AddRange(grouped.Where(f => f != keeper));
@@ -4519,7 +4518,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         Task.Run(delegate
         {
-            viewModel.RemoveChartFiles(deletionList);
+            viewModel.RemoveLibraryCharts(deletionList);
 
             NLogWrapper.FileLogger?.Info(string.Format(
                 "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",

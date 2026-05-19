@@ -11355,7 +11355,7 @@ public class MainWindowViewModel : ViewModel
                 subsetName = "file_missing_ignored";
                 return true;
             case viewUpdateMode.DuplicateFilterSelected:
-                return TryGetVirtualDuplicateSourceFiles(parameter, out sourceFiles, out subsetName);
+                return TryGetVirtualDuplicateSourceFiles(parameter, out sourceFiles, out sourceBmsonSongs, out subsetName);
             case viewUpdateMode.GarbledFilterSelected:
                 sourceFiles = BMSFilesGarbled;
                 subsetName = "garbled";
@@ -11594,11 +11594,13 @@ public class MainWindowViewModel : ViewModel
     private bool TryGetVirtualDuplicateSourceFiles(
         object parameter,
         out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
+        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
         out string subsetName)
     {
         if (DuplicateChartGroups == null)
         {
             sourceFiles = [];
+            sourceBmsonSongs = [];
             subsetName = "duplicate_empty";
             return true;
         }
@@ -11606,7 +11608,7 @@ public class MainWindowViewModel : ViewModel
         object normalizedParameter = NormalizeDuplicateViewParameter(parameter);
         if (normalizedParameter == null)
         {
-            sourceFiles = CreateDuplicateFileSnapshot();
+            SetDuplicateSourceCharts(CreateDuplicateChartFileSnapshot(), out sourceFiles, out sourceBmsonSongs);
             subsetName = "duplicate_all";
             return true;
         }
@@ -11615,50 +11617,62 @@ public class MainWindowViewModel : ViewModel
             if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
             {
                 DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                sourceFiles = duplicateGroup != null ? [.. duplicateGroup.Files] : CreateDuplicateFileSnapshot();
+                SetDuplicateSourceCharts(duplicateGroup != null ? duplicateGroup.ChartFiles : CreateDuplicateChartFileSnapshot(), out sourceFiles, out sourceBmsonSongs);
                 subsetName = "duplicate_group";
                 return true;
             }
 
-            sourceFiles = CreateDuplicateFolderFileSnapshot(duplicateContext.Value);
+            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(duplicateContext.Value), out sourceFiles, out sourceBmsonSongs);
             subsetName = "duplicate_folder";
             return true;
         }
         if (normalizedParameter is List<BeMusicSeeker.Models.BMSFile> list)
         {
             sourceFiles = list;
+            sourceBmsonSongs = null;
             subsetName = "duplicate_list";
             return true;
         }
         if (normalizedParameter is DuplicateGroup groupParameter)
         {
-            sourceFiles = [.. groupParameter.Files];
+            SetDuplicateSourceCharts(groupParameter.ChartFiles, out sourceFiles, out sourceBmsonSongs);
             subsetName = "duplicate_group";
             return true;
         }
         if (normalizedParameter is string folderPath)
         {
-            sourceFiles = CreateDuplicateFolderFileSnapshot(folderPath);
+            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(folderPath), out sourceFiles, out sourceBmsonSongs);
             subsetName = "duplicate_folder";
             return true;
         }
 
         sourceFiles = null;
+        sourceBmsonSongs = null;
         subsetName = string.Empty;
         return false;
     }
 
-    private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFileSnapshot()
+    private static void SetDuplicateSourceCharts(
+        IEnumerable<ChartFile> charts,
+        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
+        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs)
     {
-        return [.. DuplicateChartGroups.SelectMany(group => group.Files)];
+        List<ChartFile> snapshot = [.. (charts ?? []).Where(chart => chart != null)];
+        sourceFiles = [.. snapshot.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile)];
+        sourceBmsonSongs = [.. snapshot.Where(chart => chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null).Select(chart => chart.BmsonSong)];
     }
 
-    private List<BeMusicSeeker.Models.BMSFile> CreateDuplicateFolderFileSnapshot(string folderPath)
+    private List<ChartFile> CreateDuplicateChartFileSnapshot()
+    {
+        return [.. DuplicateChartGroups.SelectMany(group => group.ChartFiles)];
+    }
+
+    private List<ChartFile> CreateDuplicateFolderChartFileSnapshot(string folderPath)
     {
         string folderPrefix = folderPath + Path.DirectorySeparatorChar;
         return [.. DuplicateChartGroups
-            .SelectMany(group => group.Files)
-            .Where(file => file.path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))];
+            .SelectMany(group => group.ChartFiles)
+            .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))];
     }
 
     private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(viewUpdateMode treeMode)
@@ -15220,11 +15234,57 @@ public class MainWindowViewModel : ViewModel
     {
         if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
         {
-            string protecDir = Path.GetDirectoryName(NowPlayingBMS.path);
-            if (bmsFiles.Where(s => !string.IsNullOrWhiteSpace(NowPlayingBMS?.path)).Any(s => protecDir.StartsWith(Path.GetDirectoryName(s.path), StringComparison.OrdinalIgnoreCase)))
+            string playingDirectory = Path.GetDirectoryName(NowPlayingBMS.path);
+            if ((bmsFiles ?? []).Any(file => IsChartDirectorySameOrUnder(playingDirectory, file?.path)))
             {
                 PlayEndBMSFile(closeProcess: true);
             }
+        }
+    }
+
+    private void stopPlayingChartFiles(IEnumerable<ChartFile> charts)
+    {
+        if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
+        {
+            string playingDirectory = Path.GetDirectoryName(NowPlayingBMS.path);
+            if ((charts ?? []).Any(chart => IsChartDirectoryUnder(playingDirectory, chart?.Path)))
+            {
+                PlayEndBMSFile(closeProcess: true);
+            }
+        }
+    }
+
+    private static bool IsChartDirectoryUnder(string parentDirectory, string chartPath)
+    {
+        return IsChartDirectorySameOrUnder(parentDirectory, chartPath);
+    }
+
+    private static bool IsChartDirectorySameOrUnder(string parentDirectory, string chartPath)
+    {
+        if (string.IsNullOrWhiteSpace(parentDirectory) || string.IsNullOrWhiteSpace(chartPath))
+        {
+            return false;
+        }
+        string chartDirectory = Path.GetDirectoryName(chartPath);
+        if (string.IsNullOrWhiteSpace(chartDirectory))
+        {
+            return false;
+        }
+        string normalizedParent = NormalizeDirectoryForPrefixCheck(parentDirectory);
+        string normalizedChartDirectory = NormalizeDirectoryForPrefixCheck(chartDirectory);
+        return string.Equals(normalizedParent, normalizedChartDirectory, StringComparison.OrdinalIgnoreCase)
+            || normalizedParent.StartsWith(normalizedChartDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeDirectoryForPrefixCheck(string directoryPath)
+    {
+        try
+        {
+            return Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
     }
 
@@ -16148,16 +16208,16 @@ public class MainWindowViewModel : ViewModel
                         if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
                         {
                             DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                            ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.Files : DuplicateChartGroups.SelectMany(g => g.Files));
+                            ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.ChartFiles : DuplicateChartGroups.SelectMany(g => g.ChartFiles));
                         }
                         else
                         {
                             string dirname2 = duplicateContext.Value;
                             RetryHelper.RetryIfError(delegate
                             {
-                                ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany(g => g.Files)
-                                                                         where f.path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                                                         select f);
+                                ChartRowsFolderView = ToLibraryChartRows(from chart in DuplicateChartGroups.SelectMany(g => g.ChartFiles)
+                                                                         where !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                                                         select chart);
                             }, delegate (Exception ex)
                             {
                                 ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16173,7 +16233,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     else if (parameter is DuplicateGroup)
                     {
-                        ChartRowsFolderView = ToLibraryChartRows((parameter as DuplicateGroup).Files);
+                        ChartRowsFolderView = ToLibraryChartRows((parameter as DuplicateGroup).ChartFiles);
                     }
                     else
                     {
@@ -16184,9 +16244,9 @@ public class MainWindowViewModel : ViewModel
                         string dirname = parameter as string;
                         RetryHelper.RetryIfError(delegate
                         {
-                            ChartRowsFolderView = ToLibraryChartRows(from f in DuplicateChartGroups.SelectMany(g => g.Files)
-                                                                     where f.path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                                                     select f);
+                            ChartRowsFolderView = ToLibraryChartRows(from chart in DuplicateChartGroups.SelectMany(g => g.ChartFiles)
+                                                                     where !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                                                     select chart);
                         }, delegate (Exception ex)
                         {
                             ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16199,7 +16259,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(DuplicateChartGroups.SelectMany(g => g.Files));
+                    ChartRowsFolderView = ToLibraryChartRows(DuplicateChartGroups.SelectMany(g => g.ChartFiles));
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16723,6 +16783,13 @@ public class MainWindowViewModel : ViewModel
     {
         return [.. (files ?? [])
             .Select(rowFactory ?? LibraryChartRow.FromBmsFile)
+            .Where(row => row != null)];
+    }
+
+    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? [])
+            .Select(LibraryChartRow.FromChartFile)
             .Where(row => row != null)];
     }
 
@@ -21438,15 +21505,6 @@ public class MainWindowViewModel : ViewModel
         FixInstallationDirectoryCharts(snapshot.ChartFiles);
     }
 
-    public void RemoveChartFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        lock (lockCopyFile)
-        {
-            stopPlayingBMSFile(chartFiles);
-            files.RemoveChartFiles(chartFiles);
-        }
-    }
-
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)
     {
         List<LibraryChartRef> charts = [.. ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary)];
@@ -21471,6 +21529,23 @@ public class MainWindowViewModel : ViewModel
         {
             stopPlayingBMSFile(charts.Where(chart => chart.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null).Select(chart => chart.CompatibilityBmsFile));
             files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
+        }
+    }
+
+    internal void RemoveLibraryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedWholeFolderDeletePaths = null)
+    {
+        List<ChartFile> chartSnapshot = [.. (charts ?? []).Where(chart => chart != null)];
+        List<LibraryChartRef> chartRefs = [.. chartSnapshot
+            .Select(chart => LibraryChartRef.FromChartFile(chart))
+            .Where(chart => chart != null)];
+        if (chartRefs.Count == 0)
+        {
+            return;
+        }
+        lock (lockCopyFile)
+        {
+            stopPlayingChartFiles(chartSnapshot);
+            files.RemoveLibraryCharts(chartRefs, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
     }
 

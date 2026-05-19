@@ -106,9 +106,35 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.AreEqual(2, result.DuplicateGroups.Count);
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirD") && group.Folders.Contains("C:\\BMS\\DirE")));
+        Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Any(chart => chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.Files).Any(file => PendingChartEntry.IsBmsonChartFile(file)));
         Assert.IsFalse(result.DuplicateGroups.Any(group => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirF")));
         Assert.AreEqual(4, result.DuplicateFiles.Count);
+    }
+
+    [TestMethod]
+    public void BuildSnapshot_SkipsBmsonRowsWithoutPath()
+    {
+        var service = new BmsLibraryDuplicateService();
+        List<LR2SongDBExtended.bmson_song> bmsonSongs =
+        [
+            new LR2SongDBExtended.bmson_song
+            {
+                path = null,
+                title = "missing path",
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            },
+            new LR2SongDBExtended.bmson_song
+            {
+                path = string.Empty,
+                title = "blank path",
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+        ];
+
+        List<DuplicateChartRow> snapshot = service.BuildSnapshot(null, bmsonSongs);
+
+        Assert.AreEqual(0, snapshot.Count);
     }
 
     [TestMethod]

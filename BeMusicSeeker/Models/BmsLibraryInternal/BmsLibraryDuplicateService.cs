@@ -50,7 +50,7 @@ internal sealed class BmsLibraryDuplicateService
     public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot)
     {
         var result = new DuplicateAnalysisResult();
-        List<DuplicateChartRow> snapshotRows = [.. (snapshot ?? []).Where(row => row != null && row.DisplayRow != null && !string.IsNullOrWhiteSpace(row.LookupHash))];
+        List<DuplicateChartRow> snapshotRows = [.. (snapshot ?? []).Where(row => row != null && row.Chart != null && !string.IsNullOrWhiteSpace(row.LookupHash))];
         List<IGrouping<string, DuplicateChartRow>> duplicateHashGroups = [.. snapshotRows
             .GroupBy(row => row.LookupHash, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)];
@@ -58,7 +58,11 @@ internal sealed class BmsLibraryDuplicateService
         {
             foreach (DuplicateChartRow item in duplicateHashGroup)
             {
-                result.DuplicateFiles.Add(item.DisplayRow);
+                BMSFile displayRow = item.GetOrCreateDisplayRow();
+                if (displayRow != null)
+                {
+                    result.DuplicateFiles.Add(displayRow);
+                }
             }
         }
 
@@ -120,31 +124,37 @@ internal sealed class BmsLibraryDuplicateService
             set.Add(idToDir[i]);
         }
 
-        var filesByDir = new Dictionary<string, List<BMSFile>>(StringComparer.OrdinalIgnoreCase);
+        var rowsByDir = new Dictionary<string, List<DuplicateChartRow>>(StringComparer.OrdinalIgnoreCase);
         foreach (DuplicateChartRow row in snapshotRows)
         {
             string dir = row.DirectoryPath;
-            if (!filesByDir.TryGetValue(dir, out List<BMSFile> list))
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                continue;
+            }
+            if (!rowsByDir.TryGetValue(dir, out List<DuplicateChartRow> list))
             {
                 list = [];
-                filesByDir[dir] = list;
+                rowsByDir[dir] = list;
             }
-            list.Add(row.DisplayRow);
+            list.Add(row);
         }
 
         foreach (HashSet<string> dirs in rootViewToDirs.Values)
         {
-            List<BMSFile> groupFiles = [];
+            List<DuplicateChartRow> groupRows = [];
             foreach (string directoryPath in dirs)
             {
-                if (filesByDir.TryGetValue(directoryPath, out List<BMSFile> list))
+                if (rowsByDir.TryGetValue(directoryPath, out List<DuplicateChartRow> list))
                 {
-                    groupFiles.AddRange(list);
+                    groupRows.AddRange(list);
                 }
             }
-            if (groupFiles.Count > 0)
+            if (groupRows.Count > 0)
             {
-                result.DuplicateGroups.Add(new DuplicateGroup(groupFiles, [.. dirs]));
+                List<ChartFile> groupCharts = [.. groupRows.Select(row => row.Chart).Where(chart => chart != null)];
+                List<BMSFile> groupFiles = [.. groupRows.Select(row => row.GetOrCreateDisplayRow()).Where(file => file != null)];
+                result.DuplicateGroups.Add(new DuplicateGroup(groupCharts, groupFiles, [.. dirs]));
             }
         }
         result.DuplicateGroups.Sort((x, y) => string.Compare(x.Header, y.Header, StringComparison.Ordinal));
