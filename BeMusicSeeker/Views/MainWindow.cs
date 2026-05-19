@@ -931,10 +931,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     return;
                 }
+                MainWindowViewModel.PendingInstallDestinationEditTargetSnapshot targetSnapshot = viewModel.CreatePendingInstallDestinationEditTargetSnapshot(target);
+                if (!targetSnapshot.HasTarget)
+                {
+                    return;
+                }
                 string destinationDirectory = e.Text;
                 Task.Run(delegate
                 {
-                    viewModel.SetPendingInstallDestination(target, destinationDirectory);
+                    viewModel.SetPendingInstallDestination(targetSnapshot, destinationDirectory);
                     base.Dispatcher.BeginInvoke((Action)delegate
                     {
                         if (_isClosingOrClosed)
@@ -6254,7 +6259,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartOperationTarget> pendingTargets = isInstalledLocationRepair
             ? null
             : GetSelectedChartTargets(capability, isPendingSection: true);
-        if ((repairTargets?.HasTargets == true) || (pendingTargets != null && pendingTargets.Count != 0))
+        MainWindowViewModel.PendingInstallDestinationTargetSnapshot pendingInstallTargets = isInstalledLocationRepair
+            ? null
+            : viewModel.CreatePendingInstallDestinationTargetSnapshot(pendingTargets);
+        if ((repairTargets?.HasTargets == true) || (pendingInstallTargets?.HasTargets == true))
         {
             e.Handled = true;
             repairTargets?.MaterializeCompatibilityFiles();
@@ -6266,7 +6274,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
                 else
                 {
-                    viewModel.ClearInstallDestinationForPendingCharts(pendingTargets);
+                    viewModel.ClearInstallDestinationForPendingCharts(pendingInstallTargets);
                 }
             }).Logging("tableContextMenuRemoveInstallDestinationClick");
         }
@@ -6665,10 +6673,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (targets != null && targets.Count != 0)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
+            MainWindowViewModel.PendingInstallDestinationTargetSnapshot snapshot = viewModel.CreatePendingInstallDestinationTargetSnapshot(targets);
+            if (!snapshot.HasTargets)
+            {
+                return;
+            }
             e.Handled = true;
             await Task.Run(delegate
             {
-                viewModel.SearchInstallDestinationForPendingCharts(targets);
+                viewModel.SearchInstallDestinationForPendingCharts(snapshot);
             }).Logging("searchInstallDestinationSelectedPendingCharts");
         }
     }
@@ -6751,10 +6764,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var viewModel = base.DataContext as MainWindowViewModel;
+        MainWindowViewModel.PendingInstallDestinationTargetSnapshot snapshot = viewModel.CreatePendingInstallDestinationTargetSnapshot(targets);
+        if (!snapshot.HasTargets)
+        {
+            return;
+        }
         e.Handled = true;
         await Task.Run(delegate
         {
-            viewModel.SearchMergeDestinationForPendingCharts(targets);
+            viewModel.SearchMergeDestinationForPendingCharts(snapshot);
         }).Logging("searchMergeDestinationSelectedPendingCharts");
     }
 

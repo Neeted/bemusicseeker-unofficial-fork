@@ -868,6 +868,84 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PendingInstallDestinationTargetSnapshot_MaterializesLooseBmsonCompatibilityAdapterBeforeBackgroundWork()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\pending-loose.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Pending Loose Bmson",
+            artist = "Artist",
+            md5 = "69696969696969696969696969696969",
+            sha256 = new string('9', 64)
+        };
+        ChartFile chart = ChartFileProjection.FromBmsonSong(bmson);
+        int adapterRequestCount = 0;
+        var target = new ChartOperationTarget(
+            chart,
+            () =>
+            {
+                adapterRequestCount++;
+                return PendingChartEntry.CreateFromBmsonSong(bmson);
+            },
+            null,
+            ChartOperationSourceScope.PendingPackage,
+            isOwned: false,
+            isPending: true,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.PendingInstallDestinationTargetSnapshot snapshot =
+            viewModel.CreatePendingInstallDestinationTargetSnapshot([target]);
+
+        Assert.AreEqual(1, adapterRequestCount);
+        Assert.IsTrue(snapshot.HasTargets);
+        Assert.AreEqual(0, snapshot.PackageTargets.Count);
+        Assert.AreEqual(1, snapshot.ChartFiles.Count);
+        Assert.AreEqual(1, adapterRequestCount);
+    }
+
+    [TestMethod]
+    public void PendingInstallDestinationEditTargetSnapshot_MaterializesLooseBmsonCompatibilityAdapterBeforeBackgroundWork()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\pending-edit.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Pending Edit Bmson",
+            artist = "Artist",
+            md5 = "70707070707070707070707070707070",
+            sha256 = new string('a', 64)
+        };
+        ChartFile chart = ChartFileProjection.FromBmsonSong(bmson);
+        int adapterRequestCount = 0;
+        var target = new ChartOperationTarget(
+            chart,
+            () =>
+            {
+                adapterRequestCount++;
+                return PendingChartEntry.CreateFromBmsonSong(bmson);
+            },
+            null,
+            ChartOperationSourceScope.PendingPackage,
+            isOwned: false,
+            isPending: true,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.PendingInstallDestinationEditTargetSnapshot snapshot =
+            viewModel.CreatePendingInstallDestinationEditTargetSnapshot(target);
+
+        Assert.AreEqual(1, adapterRequestCount);
+        Assert.IsTrue(snapshot.HasTarget);
+        Assert.IsNull(snapshot.PackageEntry);
+        Assert.IsNotNull(snapshot.ChartFile);
+        Assert.AreEqual(1, adapterRequestCount);
+    }
+
+    [TestMethod]
     public void LibraryChartRow_BmsonChartPrefersFreshSongMaintenanceOverExistingAdapterSnapshot()
     {
         var bmson = new LR2SongDBExtended.bmson_song

@@ -17828,52 +17828,54 @@ public class MainWindowViewModel : ViewModel
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
-    internal void SearchInstallDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    internal void SearchInstallDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
     {
         if (targets == null)
         {
             throw new ArgumentNullException("targets");
         }
-        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        if (!targets.HasTargets)
+        {
+            return;
+        }
         lock (lockCopyFile)
         {
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+            List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
             if (packages.Count > 0)
             {
                 files.SearchEstimatedInstallationDirectory(packages);
             }
-            List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
-                .Select(ResolveLegacyChartFile)
-                .Where(file => file != null)];
-            if (remainingFiles.Count > 0)
+            if (targets.ChartFiles.Count > 0)
             {
-                files.SearchEstimatedInstallationDirectoryForLooseCharts(remainingFiles);
+                files.SearchEstimatedInstallationDirectoryForLooseCharts(targets.ChartFiles);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
-    internal void SearchMergeDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    internal void SearchMergeDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
     {
         if (targets == null)
         {
             throw new ArgumentNullException("targets");
         }
-        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        if (!targets.HasTargets)
+        {
+            return;
+        }
         lock (lockCopyFile)
         {
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+            List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
             for (int num = 0; num < packages.Count; num++)
             {
                 files.SearchMergeDestinationForPendingPackage(packages[num]);
             }
-            List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
-                .Select(ResolveLegacyChartFile)
-                .Where(file => file != null)];
-            if (remainingFiles.Count > 0)
+            if (targets.ChartFiles.Count > 0)
             {
-                files.SearchMergeDestinationForPendingCharts(remainingFiles);
+                files.SearchMergeDestinationForPendingCharts(targets.ChartFiles);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -19931,7 +19933,7 @@ public class MainWindowViewModel : ViewModel
         List<ChartPackage> packages = [];
         foreach (BeMusicSeeker.Models.BMSFile file in chartFiles)
         {
-            ChartPackage chartPackage = source.FirstOrDefault(p => ContainsChartTarget(p, file));
+            ChartPackage chartPackage = source?.FirstOrDefault(p => ContainsChartTarget(p, file));
             if (chartPackage == null)
             {
                 remainingChartFiles.Add(file);
@@ -19952,7 +19954,7 @@ public class MainWindowViewModel : ViewModel
         List<ChartPackage> packages = [];
         foreach (ChartOperationTarget target in targets)
         {
-            ChartPackage chartPackage = source.FirstOrDefault(p => ContainsChartTarget(p, target));
+            ChartPackage chartPackage = source?.FirstOrDefault(p => ContainsChartTarget(p, target));
             if (chartPackage == null)
             {
                 remainingTargets.Add(target);
@@ -20767,7 +20769,7 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
-    internal void ClearInstallDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    internal void ClearInstallDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
     {
         if (targets == null)
         {
@@ -20777,20 +20779,19 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-
-        List<ChartOperationTarget> targetList = [.. targets.Where(target => target?.Chart != null)];
-        List<ChartOperationTarget> remainingTargets = [.. targetList];
-        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
-        for (int num = 0; num < chartPackages.Count; num++)
+        if (!targets.HasTargets)
         {
-            ClearChartPackageInstallDestinations(chartPackages[num]);
+            return;
         }
-        if (remainingTargets.Count > 0)
+        List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
+        List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
+        for (int num = 0; num < packages.Count; num++)
         {
-            List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
-                .Select(ResolveLegacyChartFile)
-                .Where(file => file != null)];
-            files.RemoveInstallDestination(remainingFiles);
+            ClearChartPackageInstallDestinations(packages[num]);
+        }
+        if (targets.ChartFiles.Count > 0)
+        {
+            files.RemoveInstallDestination(targets.ChartFiles);
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
@@ -20832,7 +20833,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    internal bool SetPendingInstallDestination(ChartOperationTarget target, string destinationDirectory)
+    internal bool SetPendingInstallDestination(PendingInstallDestinationEditTargetSnapshot target, string destinationDirectory)
     {
         if (files == null)
         {
@@ -20851,12 +20852,11 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                BeMusicSeeker.Models.BMSFile bmsFile = ResolveLegacyChartFile(target);
-                if (bmsFile == null)
+                if (target.ChartFile == null)
                 {
                     return false;
                 }
-                changed = files.SetPendingInstallDestination(bmsFile, destinationDirectory);
+                changed = files.SetPendingInstallDestination(target.ChartFile, destinationDirectory);
             }
             if (changed)
             {
@@ -21717,6 +21717,63 @@ public class MainWindowViewModel : ViewModel
         List<ChartOperationTarget> targetList = [.. (targets ?? []).Where(target => target != null && target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation))];
         List<ChartFile> charts = [.. targetList.Select(target => target.Chart).Where(chart => chart != null)];
         return new RepairInstalledLocationTargetSnapshot(charts, () => [.. targetList.Select(ResolveLegacyChartFile).Where(file => file != null)]);
+    }
+
+    internal PendingInstallDestinationTargetSnapshot CreatePendingInstallDestinationTargetSnapshot(IEnumerable<ChartOperationTarget> targets)
+    {
+        List<ChartOperationTarget> remainingTargets = [.. (targets ?? [])
+            .Where(target => target?.Chart != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))];
+        List<ChartOperationTarget> packageTargets = [.. remainingTargets.Where(target => target.PackageEntry != null)];
+        remainingTargets = [.. remainingTargets.Where(target => target.PackageEntry == null)];
+        List<BeMusicSeeker.Models.BMSFile> chartFiles = [.. remainingTargets
+            .Select(ResolveLegacyChartFile)
+            .Where(file => file != null)];
+        return new PendingInstallDestinationTargetSnapshot(packageTargets, chartFiles);
+    }
+
+    internal PendingInstallDestinationEditTargetSnapshot CreatePendingInstallDestinationEditTargetSnapshot(ChartOperationTarget target)
+    {
+        if (target == null || !target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
+        {
+            return PendingInstallDestinationEditTargetSnapshot.Empty;
+        }
+        if (target.PackageEntry != null)
+        {
+            return new PendingInstallDestinationEditTargetSnapshot(target.PackageEntry, null);
+        }
+        return new PendingInstallDestinationEditTargetSnapshot(null, ResolveLegacyChartFile(target));
+    }
+
+    internal sealed class PendingInstallDestinationTargetSnapshot
+    {
+        internal PendingInstallDestinationTargetSnapshot(IEnumerable<ChartOperationTarget> packageTargets, IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+        {
+            PackageTargets = [.. (packageTargets ?? []).Where(target => target?.PackageEntry != null && target.Chart != null)];
+            ChartFiles = [.. (chartFiles ?? []).Where(file => file != null)];
+        }
+
+        internal IReadOnlyList<ChartOperationTarget> PackageTargets { get; }
+
+        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles { get; }
+
+        internal bool HasTargets => PackageTargets.Count > 0 || ChartFiles.Count > 0;
+    }
+
+    internal sealed class PendingInstallDestinationEditTargetSnapshot
+    {
+        internal static PendingInstallDestinationEditTargetSnapshot Empty { get; } = new(null, null);
+
+        internal PendingInstallDestinationEditTargetSnapshot(PackageChartEntry packageEntry, BeMusicSeeker.Models.BMSFile chartFile)
+        {
+            PackageEntry = packageEntry;
+            ChartFile = chartFile;
+        }
+
+        internal PackageChartEntry PackageEntry { get; }
+
+        internal BeMusicSeeker.Models.BMSFile ChartFile { get; }
+
+        internal bool HasTarget => PackageEntry != null || ChartFile != null;
     }
 
     internal ChartCompatibilityTargetSnapshot CreateChartCompatibilityTargetSnapshot(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)

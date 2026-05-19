@@ -755,7 +755,7 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.ClearInstallDestinationForPendingCharts([selectedChart]);
+            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([selectedChart]));
 
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -806,7 +806,7 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.ClearInstallDestinationForPendingCharts([target]);
+            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -869,7 +869,7 @@ public sealed class ChartListVirtualViewTests
                 isPlaylistMissing: false,
                 ChartOperationCapabilities.UpdateInstallDestination);
 
-            viewModel.ClearInstallDestinationForPendingCharts([packageTarget, standaloneTarget]);
+            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([packageTarget, standaloneTarget]));
 
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
@@ -931,7 +931,7 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.SearchInstallDestinationForPendingCharts([target]);
+            viewModel.SearchInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
         }
@@ -974,7 +974,7 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
 
-            viewModel.SearchMergeDestinationForPendingCharts([target]);
+            viewModel.SearchMergeDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
         }
@@ -1030,7 +1030,7 @@ public sealed class ChartListVirtualViewTests
                 ChartOperationCapabilities.UpdateInstallDestination,
                 staleEntry);
 
-            viewModel.ClearInstallDestinationForPendingCharts([target]);
+            viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
             Assert.IsNull(currentEntry.CompatibilityAdapter);
             Assert.AreEqual(string.Empty, currentEntry.Chart.InstallDestination);

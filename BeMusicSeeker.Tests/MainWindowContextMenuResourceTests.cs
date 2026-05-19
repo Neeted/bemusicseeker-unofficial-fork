@@ -896,10 +896,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(deletePackages.Contains("CreateChartCompatibilityTargetSnapshot"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(estimateSearch, "viewModel.SearchInstallDestinationForPendingCharts(targets)");
+        StringAssert.Contains(estimateSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
+        StringAssert.Contains(estimateSearch, "viewModel.SearchInstallDestinationForPendingCharts(snapshot)");
         Assert.IsFalse(estimateSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(mergeSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(mergeSearch, "viewModel.SearchMergeDestinationForPendingCharts(targets)");
+        StringAssert.Contains(mergeSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
+        StringAssert.Contains(mergeSearch, "viewModel.SearchMergeDestinationForPendingCharts(snapshot)");
         Assert.IsFalse(mergeSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(openInstallDestination, "TryResolveInstallDestination(targets[0].Chart");
@@ -923,7 +925,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(editBeginning, "target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)");
         Assert.IsFalse(editBeginning.Contains("GetCompatibilityBmsFile"));
         StringAssert.Contains(editEnded, "GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)");
-        StringAssert.Contains(editEnded, "viewModel.SetPendingInstallDestination(target, destinationDirectory)");
+        StringAssert.Contains(editEnded, "viewModel.CreatePendingInstallDestinationEditTargetSnapshot(target)");
+        StringAssert.Contains(editEnded, "viewModel.SetPendingInstallDestination(targetSnapshot, destinationDirectory)");
         Assert.IsFalse(editEnded.Contains("GetCompatibilityBmsFile"));
     }
 
