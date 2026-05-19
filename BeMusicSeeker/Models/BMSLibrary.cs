@@ -10991,18 +10991,6 @@ reportProgress,
         }
     }
 
-    /// <summary>
-    /// BMS ファイル群のルートフォルダを別の親ディレクトリへ移動します。
-    /// </summary>
-    public void MoveBMSRootFolder(IEnumerable<BMSFile> bmsFiles, string dstDir, bool? unregister = false)
-    {
-        if (bmsFiles == null)
-        {
-            throw new ArgumentNullException("bmsFiles");
-        }
-        MoveLibraryRootFolder((bmsFiles ?? []).Select(LibraryChartRef.FromCompatibilityBmsFile), dstDir, unregister);
-    }
-
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
     {
         if (charts == null)

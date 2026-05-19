@@ -84,7 +84,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void MoveBMSRootFolder_RaisesBmsFilesChanged()
+    public void MoveLibraryRootFolder_BmsChart_RaisesBmsFilesChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -114,7 +114,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 SetLibraryFilesWithoutNotification(library, [file]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
-                library.MoveBMSRootFolder([file], destinationParentPath);
+                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(file))], destinationParentPath);
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
                 Assert.IsTrue(file.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bms")));
@@ -186,7 +186,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void MoveBmsonRootFolder_RaisesBmsFilesChanged()
+    public void MoveLibraryRootFolder_BmsonChart_RaisesBmsFilesChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -219,7 +219,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 SetLibraryBmsonSongsWithoutNotification(library, [song]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
-                library.MoveBMSRootFolder([row], destinationParentPath);
+                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsonSong(song), row)], destinationParentPath);
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
                 Assert.IsTrue(song.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bmson")));
