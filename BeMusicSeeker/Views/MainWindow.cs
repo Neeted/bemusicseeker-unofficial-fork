@@ -6228,6 +6228,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (targets.Count != 0)
         {
             MainWindowViewModel.ChartCompatibilityTargetSnapshot resourceTargets = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
+            resourceTargets.MaterializeCompatibilityFiles();
             Task.Run(delegate
             {
                 viewModel.ForceResourceHealthCheckCharts(resourceTargets);

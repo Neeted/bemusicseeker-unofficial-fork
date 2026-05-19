@@ -837,6 +837,10 @@ public sealed class MainWindowContextMenuResourceTests
             "private void playlistTableDrop");
         string resourceHealthClick = ExtractBetween(
             mainWindowCode,
+            "private void tableContextMenuItemForceFileScanCheckSelectedCharts",
+            "private void tableContextMenuRemoveInstallDestinationClick");
+        string resourceHealthIgnoreClick = ExtractBetween(
+            mainWindowCode,
             "private void ignoreFileScanCheckSelectedCharts",
             "private async void forceInstallSelectedPendingCharts");
 
@@ -848,8 +852,13 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
         StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthClick, "resourceTargets.MaterializeCompatibilityFiles()");
+        StringAssert.Contains(resourceHealthIgnoreClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthIgnoreClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
+        Assert.IsFalse(resourceHealthIgnoreClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
+        Assert.IsFalse(resourceHealthIgnoreClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(mainWindowCode.Contains("GetSelectedChartCompatibilityAdapters("));
         Assert.IsFalse(mainWindowCode.Contains("GetChartCompatibilityAdapterFromTarget"));
     }

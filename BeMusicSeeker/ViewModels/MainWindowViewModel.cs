@@ -21797,6 +21797,11 @@ public class MainWindowViewModel : ViewModel
         internal IReadOnlyList<ChartFile> Charts { get; }
 
         internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles => chartFiles.Value;
+
+        internal void MaterializeCompatibilityFiles()
+        {
+            _ = ChartFiles.Count;
+        }
     }
 
     internal interface IRepairInstalledLocationTargetSnapshot
