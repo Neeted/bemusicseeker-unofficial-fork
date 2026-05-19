@@ -375,7 +375,7 @@ F-3 で進める候補 / 進捗:
 
 - `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ移行済み。public binding の `BMSFilesView` / `SelectedIndexBMSFilesView` / `ColumnsSettingsBMSFilesView` / `UseAsyncBMSFilesViewBinding` も `ChartRowsView` / `SelectedIndexChartRowsView` / `ColumnsSettingsChartRowsView` / `UseAsyncChartRowsViewBinding` へ移行済み
 - `SetBMSFilesView()` は private helper だったため `SetChartRowsView()` へ移行済み。production 参照のない旧名 shim は残さない
-- 旧 grid selection helper 群は実コードから削除済み。handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedChartCompatibilityAdapters` / `GetSelectedPendingChartCompatibilityAdapters` に寄せる
+- 旧 grid selection helper 群は実コードから削除済み。handler は chart 共通なら `GetSelectedChartTargets`、BMS 専用なら `GetSelectedBmsChartFiles` に寄せる。既存 model API が `BMSFile` adapter を要求する場合も UI handler では adapter list を作らず、ViewModel 側の snapshot / target 解決境界で扱う
 - `BMSFileSortEngine` は通常一覧の実行経路から外れており、production 参照がなくなったため削除済み。`BmsSortCompatibilityTests` は `LibraryChartRowSortEngine` ベースへ移植済み
 - subset view の仮想 filter / sort cache / test helper は `VirtualChartSubset*` へ移行し、BMS / bmson を含む chart row subset として扱う。ログ検索互換のため、既存 performance log scope は当面 `bms_file_subset` のまま維持する
 - 所持 bmson row の adapter 共有は `BmsonChartAdapterProvider` / `sharedBmsonChartAdaptersByKey` へ寄せる。`CompatibilityBmsFile` property は legacy `BMSFile` API 互換境界として残す
@@ -385,14 +385,14 @@ F-3 で進める候補 / 進捗:
 - install estimation snapshot の代表譜面は `RepresentativeChart` として `ChartFile` を持つ。`ChartPackage.ChartFiles` 自体は compatibility adapter list のままだが、推定中の読み取り専用代表情報は BMS / bmson 共通の domain read model へ寄せる
 - library mutation 用 `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。ViewModel は `ChartFileKind` / `CompatibilityBmsFile` / `BmsonSong` の分岐を直接持たず、operation target から mutation ref へ変換する
 - playlist 未所持 row は local file operation を持たない一方、entry / chart_info に有効な sha256 があれば repository link capability を持つことをテストで固定する
-- BMS 専用 context menu handler は `GetSelectedBmsChartFiles`、chart 共通 resource health handler は `GetSelectedChartCompatibilityAdapters` を使うことを source-level test で固定する
+- BMS 専用 context menu handler は `GetSelectedBmsChartFiles`、chart 共通 resource health handler は `GetSelectedChartTargets` + ViewModel snapshot 境界を使うことを source-level test で固定する
 - folder move mutation は同一 delta 内で BMS の `FilePathChanges` と bmson の `BmsonSongPathChanges` を同時に持てることをテストで固定する
 - phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
 
 F-3 の実装境界:
 
 - 通常一覧の内部 cache / setter / public binding は chart row 名へ寄せる。settings 名の `BMSRootPath`, `StandaloneBmsRootPaths`, `BMSInstallDir`, `ShowDiffBMSInstallConfirmMsg` は互換設定として維持し、chart 抽象化の rename 対象から外す
-- BMS 専用 handler は `GetSelectedBmsChartFiles`、既存 API が `BMSFile` adapter を要求する共通 handler は `GetSelectedChartCompatibilityAdapters`、pending/package 互換 handler は `GetSelectedPendingChartCompatibilityAdapters` を使う
+- BMS 専用 handler は `GetSelectedBmsChartFiles`、chart 共通 handler は `GetSelectedChartTargets` を使う。既存 API が `BMSFile` adapter を要求する共通 handler は ViewModel 側で `ChartCompatibilityTargetSnapshot` に解決し、pending/package 操作は `ChartOperationTarget` / `PackageChartEntry` / `ChartPackage` identity を優先する
 - `BMSFileSortEngine` は残さず、通常一覧 sort の正本を `LibraryChartRowSortEngine` に一本化する
 
 F-3 では後回しにするもの:

@@ -20626,14 +20626,14 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RemoveInstalledPackageRecords(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    internal void RemoveInstalledPackageRecords(IEnumerable<ChartOperationTarget> targets)
     {
-        if (chartFiles == null)
+        if (targets == null)
         {
-            throw new ArgumentNullException("chartFiles");
+            throw new ArgumentNullException("targets");
         }
-        List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(f => f != null)];
-        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2, isInstalled: true);
+        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets, isInstalled: true);
         RemoveInstalledPackageRecords(chartPackages);
     }
 
@@ -21604,6 +21604,15 @@ public class MainWindowViewModel : ViewModel
             files.AutoRenameChartFolders(chartFiles);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
+    }
+
+    internal void AutoRenameChartFolders(ChartCompatibilityTargetSnapshot targets)
+    {
+        if (targets?.ChartFiles.Count > 0 != true)
+        {
+            return;
+        }
+        AutoRenameChartFolders(targets.ChartFiles);
     }
 
     internal void MoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, string newParentDirectory)

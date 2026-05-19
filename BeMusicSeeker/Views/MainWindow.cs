@@ -1180,13 +1180,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return target != null && (capability == ChartOperationCapabilities.None || target.HasCapability(capability));
     }
 
-    private List<BMSFile> GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities capability, bool isPendingSection = false)
-    {
-        return [.. GetSelectedChartTargets(capability, isPendingSection)
-            .Select(GetChartCompatibilityAdapterFromTarget)
-            .Where(file => file != null)];
-    }
-
     private List<BMSFile> GetSelectedBmsChartFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
         return [.. GetSelectedChartTargets(isPendingSection)
@@ -6411,15 +6404,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> chartFiles = GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None);
-        var viewModel = base.DataContext as MainWindowViewModel;
-        if (chartFiles.Count > 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+        MainWindowViewModel.ChartCompatibilityTargetSnapshot targetSnapshot = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary);
+        if (targetSnapshot.ChartFiles.Count > 0)
         {
             Task.Run(delegate
             {
                 try
                 {
-                    viewModel.AutoRenameChartFolders(chartFiles);
+                    viewModel.AutoRenameChartFolders(targetSnapshot);
                 }
                 finally
                 {
@@ -6713,15 +6710,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartOperationTarget> selectedPendingTargets = isPendingSelected
             ? GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)
             : null;
-        List<BMSFile> selectedChartFiles = isInstalledSelected
-            ? GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None)
-            : [];
-        int selectedRowCount = isPendingSelected ? selectedPendingTargets.Count : selectedChartFiles.Count;
-        if (selectedRowCount == 0)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        List<ChartOperationTarget> selectedInstalledTargets = isInstalledSelected
+            ? GetSelectedChartTargets(ChartOperationCapabilities.None)
+            : [];
+        int selectedRowCount = isPendingSelected ? selectedPendingTargets.Count : selectedInstalledTargets.Count;
+        if (selectedRowCount == 0)
         {
             return;
         }
@@ -6752,7 +6749,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveInstalledPackageRecords(selectedChartFiles);
+            viewModel.RemoveInstalledPackageRecords(selectedInstalledTargets);
         }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {

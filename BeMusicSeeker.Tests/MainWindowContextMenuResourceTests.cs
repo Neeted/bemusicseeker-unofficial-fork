@@ -804,7 +804,10 @@ public sealed class MainWindowContextMenuResourceTests
             "private List<BeMusicSeeker.Models.BMSFile> GetLibraryChartFilesForFolderOperations()",
             "public void AutoRenameChartFolders");
 
-        StringAssert.Contains(autoRenameClick, "GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None)");
+        StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
+        StringAssert.Contains(autoRenameClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary)");
+        StringAssert.Contains(autoRenameClick, "AutoRenameChartFolders(targetSnapshot)");
+        Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
         StringAssert.Contains(autoRenameAll, "GetLibraryChartFilesForFolderOperations()");
@@ -844,6 +847,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(resourceHealthClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
+        Assert.IsFalse(mainWindowCode.Contains("GetSelectedChartCompatibilityAdapters("));
     }
 
     [TestMethod]
@@ -883,7 +887,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(deletePackages, "viewModel.RemovePendingPackages(selectedPendingTargets)");
+        StringAssert.Contains(deletePackages, "viewModel.RemoveInstalledPackageRecords(selectedInstalledTargets)");
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        Assert.IsFalse(deletePackages.Contains("CreateChartCompatibilityTargetSnapshot"));
+        Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(estimateSearch, "viewModel.SearchInstallDestinationForPendingCharts(targets)");
         Assert.IsFalse(estimateSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
