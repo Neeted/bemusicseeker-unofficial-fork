@@ -309,9 +309,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? [])
                 .Select(chart => chart.CompatibilityBmsFile)
                 .Where(bmsInfo => bmsInfo != null);
-            foreach (BMSFile installLinkedBmsFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, folderPath))
+            foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, libraryFiles, folderPath))
             {
-                installLinkedBmsFile.instl_dst = null;
+                if (target.File != null)
+                {
+                    target.File.instl_dst = null;
+                }
+                else
+                {
+                    target.Entry?.ClearInstallDestination();
+                }
             }
         }
         catch
@@ -358,17 +365,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             return delta;
         }
-        foreach (BMSFile installLinkedFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, srcDir))
-        {
-            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst))
-            {
-                delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-                {
-                    File = installLinkedFile,
-                    NewInstallDestination = installLinkedFile.instl_dst.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
-                });
-            }
-        }
+        delta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, libraryFiles, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
@@ -529,17 +526,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.Repackage.path = srcDir;
         result.Repackage.delete_parent = false;
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile installLinkedFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, srcDir))
-        {
-            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst))
-            {
-                result.ReferenceMutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-                {
-                    File = installLinkedFile,
-                    NewInstallDestination = installLinkedFile.instl_dst.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
-                });
-            }
-        }
+        result.ReferenceMutationDelta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, libraryFiles, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
@@ -559,20 +546,47 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return result;
     }
 
-    private static IEnumerable<BMSFile> EnumerateInstallLinkedAdaptersUnderFolder(
+    private static IEnumerable<LibraryInstallDestinationChange> EnumerateInstallDestinationChangesUnderFolder(
+        IEnumerable<ChartPackage> pendingPackages,
+        IEnumerable<BMSFile> libraryFiles,
+        string sourceFolderPath,
+        string destinationFolderPath)
+    {
+        foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, libraryFiles, sourceFolderPath))
+        {
+            string currentInstallDestination = target.Entry?.Chart?.InstallDestination ?? target.File?.instl_dst;
+            yield return new LibraryInstallDestinationChange
+            {
+                Entry = target.Entry,
+                File = target.File,
+                NewInstallDestination = currentInstallDestination.ReplaceFromStart(sourceFolderPath, destinationFolderPath, isIgnoreCase: true)
+            };
+        }
+    }
+
+    private static IEnumerable<LibraryInstallDestinationChange> EnumerateInstallDestinationTargetsUnderFolder(
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<BMSFile> libraryFiles,
         string folderPath)
     {
-        IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? [])
+        foreach (PackageChartEntry entry in (pendingPackages ?? [])
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
-            .Where(entry => IsInstallDestinationUnderFolder(entry?.Chart?.InstallDestination, folderPath))
-            .Select(entry => entry.GetOrCreateCompatibilityAdapter())
-            .Where(file => file != null);
-        IEnumerable<BMSFile> existingLibraryFiles = (libraryFiles ?? [])
-            .Where(file => file != null && IsInstallDestinationUnderFolder(file.instl_dst, folderPath));
-        return pendingFiles.Concat(existingLibraryFiles);
+            .Where(entry => IsInstallDestinationUnderFolder(entry?.Chart?.InstallDestination, folderPath)))
+        {
+            yield return new LibraryInstallDestinationChange
+            {
+                Entry = entry
+            };
+        }
+        foreach (BMSFile file in (libraryFiles ?? [])
+            .Where(file => file != null && IsInstallDestinationUnderFolder(file.instl_dst, folderPath)))
+        {
+            yield return new LibraryInstallDestinationChange
+            {
+                File = file
+            };
+        }
     }
 
     private static bool IsInstallDestinationUnderFolder(string installDestination, string folderPath)

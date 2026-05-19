@@ -110,6 +110,10 @@ internal sealed class BmsLibraryStateApplier(
             {
                 installDestinationChange.File.instl_dst = installDestinationChange.NewInstallDestination;
             }
+            else if (installDestinationChange?.Entry != null)
+            {
+                installDestinationChange.Entry.SetInstallDestinationPathOnly(installDestinationChange.NewInstallDestination);
+            }
         }
 
         foreach (LibraryInstalledPackagePathChange installedPackagePathChange in delta.UpdatedInstalledPackagePaths)

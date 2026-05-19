@@ -238,6 +238,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 folder = Path.Combine(tempDirectoryPath, "Pending"),
                 title = "Bmson"
             }));
+            adapterlessBmsonEntry.ApplyInstallDestination(folderPath, "Deleted title", "Deleted artist");
             var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(pendingFile), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
@@ -260,6 +261,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsNull(pendingFile.instl_dst);
             Assert.IsNull(libraryFile.instl_dst);
+            Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
+            Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestinationTitle);
+            CollectionAssert.AreEqual(Array.Empty<string>(), adapterlessBmsonEntry.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.IsFalse(Directory.Exists(folderPath));
             Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
@@ -793,6 +797,46 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CollectionAssert.AreEquivalent(
                 new[] { destinationRoot, destinationRoot },
                 result.ReferenceMutationDelta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
+    public void PrepareMergeDirectory_RewritesAdapterlessBmsonInstallDestinationWithoutMaterializingAdapter()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
+            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
+            Directory.CreateDirectory(sourceRoot);
+            Directory.CreateDirectory(destinationRoot);
+            TestableBmsFile libraryFile = CreateFile(Path.Combine(sourceRoot, "chart.bms"));
+            var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempDirectoryPath, "Pending", "chart.bmson"),
+                folder = Path.Combine(tempDirectoryPath, "Pending"),
+                title = "Bmson"
+            }));
+            adapterlessBmsonEntry.SetInstallDestinationPathOnly(sourceRoot);
+            var pendingPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+            pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
+            pendingPackage.delete_parent = false;
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+
+            LibraryMergeResult result = service.PrepareMergeDirectory(
+                sourceRoot,
+                destinationRoot,
+                [libraryFile],
+                [],
+                [pendingPackage],
+                [],
+                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+            Assert.IsTrue(result.Success);
+            LibraryInstallDestinationChange change = result.ReferenceMutationDelta.UpdatedInstallDestinations.Single();
+            Assert.AreSame(adapterlessBmsonEntry, change.Entry);
+            Assert.AreEqual(destinationRoot, change.NewInstallDestination);
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
         });
     }

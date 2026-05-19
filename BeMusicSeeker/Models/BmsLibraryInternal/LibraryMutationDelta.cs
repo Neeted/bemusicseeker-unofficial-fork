@@ -73,6 +73,8 @@ internal sealed class LibraryInstallDestinationChange
 {
     public BMSFile File { get; set; }
 
+    public PackageChartEntry Entry { get; set; }
+
     public string NewInstallDestination { get; set; }
 }
 
