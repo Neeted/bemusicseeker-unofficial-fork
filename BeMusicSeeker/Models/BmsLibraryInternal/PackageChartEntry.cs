@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PackageChartEntry
 {
-    private readonly ChartFile chart;
+    private ChartFile chart;
 
     private BMSFile compatibilityAdapter;
 
@@ -108,6 +109,30 @@ internal sealed class PackageChartEntry
     internal bool HasLowConfidenceInstallEstimationWarning()
     {
         return (Chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation && warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed);
+    }
+
+    internal void ApplyInstalledPath(string installedPath)
+    {
+        if (string.IsNullOrWhiteSpace(installedPath))
+        {
+            return;
+        }
+
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            writebackFile.path = installedPath;
+            ClearInstalledChartAdapterMetadata(writebackFile);
+            chart = ChartFileProjection.FromBmsFile(writebackFile);
+            return;
+        }
+
+        if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
+        {
+            chart.BmsonSong.path = installedPath;
+            chart.BmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
+            chart = ChartFileProjection.FromBmsonSong(chart.BmsonSong);
+        }
     }
 
     internal void ApplyInstallDestination(string destinationDirectory, string title, string artist, bool preserveAmbiguousInstallContext = false)
@@ -333,6 +358,14 @@ internal sealed class PackageChartEntry
             ? [.. (result?.SuggestedDestinationDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).Take(3)]
             : [];
         bmsFile.ReplaceWarningsByCategory(ChartWarningCategory.InstallEstimation, BuildInstallEstimationWarnings(result));
+    }
+
+    private static void ClearInstalledChartAdapterMetadata(BMSFile chartFile)
+    {
+        chartFile.parent = null;
+        chartFile.folder = null;
+        chartFile.adddate = null;
+        chartFile.date = null;
     }
 
     private void ReplacePendingInstallDestination(string destinationDirectory, string title, string artist, IReadOnlyList<string> suggestions, bool forceProjection = false)

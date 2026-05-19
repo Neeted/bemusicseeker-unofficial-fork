@@ -1425,9 +1425,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 },
                 (files, _, _) =>
                 {
-                    List<BMSFile> receivedFiles = [.. files];
+                    List<ChartFile> receivedFiles = [.. files];
                     Assert.AreEqual(1, receivedFiles.Count);
-                    Assert.AreSame(chart, receivedFiles[0]);
+                    Assert.AreSame(chart, receivedFiles[0].BmsFile);
                     return Path.Combine(tempDirectoryPath, "InstalledAuto");
                 },
                 ex => ex.Message,
@@ -1442,6 +1442,61 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "InstalledAuto"), package.path);
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "InstalledAuto", "chart.bms"), chart.path);
             Assert.IsNull(outsideBmsonEntry.CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_MovesAdapterlessBmsonEntryWithoutMaterializingCompatibilityAdapter()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string sourceBmsonPath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            string destinationBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            File.WriteAllText(sourceBmsonPath, CreateBmsonJsonWithSound("new.wav"));
+
+            var bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = sourceBmsonPath,
+                folder = sourceDirectoryPath,
+                title = "Adapterless",
+                md5 = "cccccccccccccccccccccccccccccccc",
+                sha256 = new string('c', 64)
+            };
+            PackageChartEntry bmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartPackage package = ChartPackage.FromChartEntries([bmsonEntry]);
+            package.path = sourceDirectoryPath;
+
+            var service = new BmsLibraryPackageInstallService();
+            bool moved = service.MovePackageFiles(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                ex => ex.Message,
+                new RealFileMutationService(),
+                null,
+                null,
+                null,
+                _ => { },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(moved);
+            Assert.IsTrue(File.Exists(destinationBmsonPath));
+            Assert.AreEqual(destinationDirectoryPath, package.path);
+            Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
+            Assert.AreEqual(destinationDirectoryPath, bmsonSong.folder);
+            Assert.IsNull(bmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(package.ChartEntries.Single().CompatibilityAdapter);
+            Assert.AreEqual(destinationBmsonPath, package.ChartEntries.Single().Chart.Path);
+            Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
         });
     }
 

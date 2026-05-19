@@ -8099,7 +8099,7 @@ reportProgress,
             pkg,
             installationDirectory,
             BmsLibraryOptionsSnapshot.CreateCurrent(),
-            CreateChartFolderPath,
+            CreateChartFolderPathFromCharts,
             GetDisplayedExceptionMessage,
             fileMutationService,
             dialogService,
@@ -10641,12 +10641,17 @@ reportProgress,
 
     private string CreateChartFolderPath(IEnumerable<BMSFile> chartFiles, string parentDir, string longestFileName = "")
     {
+        return CreateChartFolderPathFromCharts((chartFiles ?? []).Select(file => ChartFileProjection.FromBmsFile(file)), parentDir, longestFileName);
+    }
+
+    private string CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDir, string longestFileName = "")
+    {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         int num = 250;
         int num2 = 128;
         var encoding = Encoding.GetEncoding("Shift_JIS");
-        string commonTitle = GetLongestCommonChartInfo(chartFiles.Select(f => f.Title));
-        string commonArtist = GetLongestCommonChartInfo(chartFiles.Select(f => f.Artist));
+        string commonTitle = GetLongestCommonChartInfo((chartFiles ?? []).Select(f => f?.Title ?? string.Empty));
+        string commonArtist = GetLongestCommonChartInfo((chartFiles ?? []).Select(f => f?.Artist ?? string.Empty));
         string s = options.FolderNameFormat.Replace("%ARTIST%", commonArtist).Replace("%TITLE%", commonTitle).Trim();
         if (options.UseOnlyShiftJISChars)
         {
