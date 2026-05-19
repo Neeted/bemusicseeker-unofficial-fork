@@ -6620,12 +6620,19 @@ reportProgress,
 
     private HashSet<string> CreateInstalledChartKeySnapshotExcludingUnsafe(IEnumerable<BMSFile> excluded)
     {
+        return CreateInstalledChartKeySnapshotExcludingChartsUnsafe((excluded ?? [])
+            .Where(file => file != null)
+            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)));
+    }
+
+    private HashSet<string> CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
+    {
         var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (excluded != null)
         {
-            foreach (BMSFile item in excluded.Where(file => file != null))
+            foreach (ChartFile item in excluded.Where(chart => chart != null))
             {
-                string key = PendingChartEntry.GetPrimaryLookupHash(item);
+                string key = item.PrimaryLookupHash;
                 if (!string.IsNullOrWhiteSpace(key))
                 {
                     excludedKeyCount[key] = excludedKeyCount.TryGetValue(key, out int value) ? value + 1 : 1;
@@ -10779,17 +10786,13 @@ reportProgress,
                         BmsonSongs,
                         ChartPackagesPending,
                         ChartPackagesInstalled,
-                        CreateInstalledChartKeySnapshotExcludingUnsafe);
+                        CreateInstalledChartKeySnapshotExcludingChartsUnsafe);
                     if (!mergeResult.Success)
                     {
                         return;
                     }
-                    List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceFiles.Where(PendingChartEntry.IsBmsChartFile)];
-                    List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceFiles
-                        .OfType<PendingChartEntry>()
-                        .Where(entry => entry.BmsonSong != null)
-                        .Select(entry => entry.BmsonSong)
-                        .Distinct()];
+                    List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceBmsFiles.Where(PendingChartEntry.IsBmsChartFile)];
+                    List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceBmsonSongs.Where(song => song != null).Distinct()];
                     unregisterBMSFiles(sourceBmsFiles);
                     unregisterBmsonSongs(sourceBmsonSongs);
                     DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;

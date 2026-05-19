@@ -507,23 +507,28 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<LR2SongDBExtended.bmson_song> libraryBmsonSongs,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
-        Func<IEnumerable<BMSFile>, HashSet<string>> createHashSnapshotExcluding)
+        Func<IEnumerable<ChartFile>, HashSet<string>> createHashSnapshotExcluding)
     {
         var result = new LibraryMergeResult();
         if (!Directory.Exists(srcDir) || !Directory.Exists(dstDir) || srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
             return result;
         }
-        result.SourceFiles.AddRange((libraryFiles ?? [])
+        result.SourceBmsFiles.AddRange((libraryFiles ?? [])
             .Where(file => file != null && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
-        result.SourceFiles.AddRange((libraryBmsonSongs ?? [])
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            .Select(PendingChartEntry.CreateFromBmsonSong)
-            .Where(file => file != null));
-        result.Repackage = ChartPackage.FromChartEntries(result.SourceFiles.Select(PackageChartEntry.FromCompatibilityAdapter));
+        result.SourceBmsonSongs.AddRange((libraryBmsonSongs ?? [])
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+        List<PackageChartEntry> sourceEntries =
+        [
+            .. result.SourceBmsFiles.Select(PackageChartEntry.FromCompatibilityAdapter),
+            .. result.SourceBmsonSongs
+                .Select(song => PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song)))
+                .Where(entry => entry != null)
+        ];
+        result.Repackage = ChartPackage.FromChartEntries(sourceEntries);
         result.Repackage.path = srcDir;
         result.Repackage.delete_parent = false;
-        result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile installLinkedFile in EnumerateInstallLinkedAdaptersUnderFolder(pendingPackages, libraryFiles, srcDir))
         {
             if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst))
@@ -550,7 +555,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.ReferenceMutationDelta.RaiseInstalledPackagesChanged = result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
         result.ReferenceMutationDelta.InvalidateInstalledDirectoryIndex = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
         result.ReferenceMutationDelta.ClearDuplicatedCache = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
-        result.Success = result.SourceFiles.Count > 0;
+        result.Success = result.SourceBmsFiles.Count > 0 || result.SourceBmsonSongs.Count > 0;
         return result;
     }
 

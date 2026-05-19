@@ -798,6 +798,53 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void PrepareMergeDirectory_MixedBmsAndBmsonKeepsStorageOwnersWithoutBmsonAdapter()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
+            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
+            Directory.CreateDirectory(sourceRoot);
+            Directory.CreateDirectory(destinationRoot);
+            TestableBmsFile bmsFile = CreateFile(Path.Combine(sourceRoot, "chart.bms"));
+            bmsFile.ApplySnapshotDigest("cccccccccccccccccccccccccccccccc", null);
+            var bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(sourceRoot, "chart.bmson"),
+                folder = sourceRoot,
+                title = "Bmson",
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                sha256 = new string('b', 64)
+            };
+            HashSet<string> excludedHashes = [];
+
+            LibraryMergeResult result = service.PrepareMergeDirectory(
+                sourceRoot,
+                destinationRoot,
+                [bmsFile],
+                [bmsonSong],
+                [],
+                [],
+                charts =>
+                {
+                    excludedHashes = [.. charts.Select(chart => chart.PrimaryLookupHash).Where(hash => !string.IsNullOrWhiteSpace(hash))];
+                    return [];
+                });
+
+            Assert.IsTrue(result.Success);
+            CollectionAssert.AreEqual(new[] { bmsFile }, result.SourceBmsFiles);
+            CollectionAssert.AreEqual(new[] { bmsonSong }, result.SourceBmsonSongs);
+            Assert.AreEqual(2, result.Repackage.ChartEntries.Count);
+            Assert.IsTrue(result.Repackage.ChartEntries.Any(entry => ReferenceEquals(entry.Chart.BmsFile, bmsFile)));
+            PackageChartEntry bmsonEntry = result.Repackage.ChartEntries.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson);
+            Assert.AreSame(bmsonSong, bmsonEntry.Chart.BmsonSong);
+            Assert.IsNull(bmsonEntry.CompatibilityAdapter);
+            CollectionAssert.AreEquivalent(new[] { bmsFile.hash, bmsonSong.md5 }, excludedHashes.ToArray());
+        });
+    }
+
+    [TestMethod]
     public void BuildFolderMoveDelta_MixedBmsAndBmsonTracksBothStorageModels()
     {
         var service = new BmsLibraryLibraryFileOperationsService();

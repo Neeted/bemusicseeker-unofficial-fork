@@ -6,7 +6,9 @@ internal sealed class LibraryMergeResult
 {
     public bool Success { get; set; }
 
-    public List<BMSFile> SourceFiles { get; } = [];
+    public List<BMSFile> SourceBmsFiles { get; } = [];
+
+    public List<LR2.LR2SongDBExtended.bmson_song> SourceBmsonSongs { get; } = [];
 
     public ChartPackage Repackage { get; set; }
 
