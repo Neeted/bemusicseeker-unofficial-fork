@@ -2641,8 +2641,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.TotalMs >= 0);
             ChartPackage installedWarningPackage = result.PendingPackages.Single(pkg => pkg.path.Equals(directoryPackagePath, StringComparison.OrdinalIgnoreCase));
             ChartPackage singleFileWarningPackage = result.PendingPackages.Single(pkg => pkg.path.Equals(singleFileChartPath, StringComparison.OrdinalIgnoreCase));
-            Assert.IsTrue(installedWarningPackage.GetChartAdapters()[0].Warnings.Contains(ChartWarningKind.AlreadyInstalled));
-            Assert.IsTrue(singleFileWarningPackage.GetChartAdapters()[0].Warnings.Contains(ChartWarningKind.SingleBmsFile));
+            Assert.IsTrue(installedWarningPackage.MaterializeChartAdaptersForTest()[0].Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+            Assert.IsTrue(singleFileWarningPackage.MaterializeChartAdaptersForTest()[0].Warnings.Contains(ChartWarningKind.SingleBmsFile));
         });
     }
 
@@ -2719,8 +2719,8 @@ public sealed class BmsLibraryInitializationServiceTests
                 file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
 
             Assert.AreEqual(1, result.PendingPackages.Count);
-            Assert.AreEqual(2, result.PendingPackages[0].GetChartAdapters().Count);
-            BMSFile nestedChart = result.PendingPackages[0].GetChartAdapters().Single(file => Path.GetFileName(file.path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(2, result.PendingPackages[0].MaterializeChartAdaptersForTest().Count);
+            BMSFile nestedChart = result.PendingPackages[0].MaterializeChartAdaptersForTest().Single(file => Path.GetFileName(file.path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
             Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
             Assert.AreEqual("[2] " + BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart + ", " + BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, nestedChart.WarningDigestText);
@@ -2811,7 +2811,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             Assert.AreEqual(1, result.PendingPackages.Count);
             Assert.AreEqual(1, result.SingleFileWarningCount);
-            Assert.IsTrue(result.PendingPackages[0].GetChartAdapters()[0].Warnings.Contains(ChartWarningKind.SingleBmsonFile));
+            Assert.IsTrue(result.PendingPackages[0].MaterializeChartAdaptersForTest()[0].Warnings.Contains(ChartWarningKind.SingleBmsonFile));
         });
     }
 

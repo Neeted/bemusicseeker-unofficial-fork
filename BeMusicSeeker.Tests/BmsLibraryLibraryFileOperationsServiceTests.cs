@@ -884,7 +884,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             delegate (ChartPackage package, string destinationDirectory)
             {
-                if (package.GetChartAdapters()[0] == duplicateFile)
+                if (package.MaterializeChartAdaptersForTest()[0] == duplicateFile)
                 {
                     package.ReplaceChartAdapters([]);
                     return true;

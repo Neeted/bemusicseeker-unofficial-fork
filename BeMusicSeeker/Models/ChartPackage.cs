@@ -59,13 +59,6 @@ public class ChartPackage : LR2SongDBExtended.install
         return (ChartEntries ?? []).Any(entry => IsSameChartTarget(entry, chartFile));
     }
 
-    internal List<BMSFile> GetChartAdapters()
-    {
-        return [.. (ChartEntries ?? [])
-            .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
-            .Where(file => file != null)];
-    }
-
     internal int GetChartAdapterCount()
     {
         return ChartEntries?.Count ?? 0;
