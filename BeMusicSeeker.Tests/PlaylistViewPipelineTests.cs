@@ -650,6 +650,44 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailRow_BmsonCompatibilityAdapterIsCreatedOnlyWhenOperationNeedsIt()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64)
+        };
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+        int createCount = 0;
+        var sourceRow = new PlaylistDetailSourceRow(
+            entry,
+            realFile: null,
+            resolvedBmson: bmson,
+            bmsonChartAdapterProvider: song =>
+            {
+                createCount++;
+                return PendingChartEntry.CreateFromBmsonSong(song);
+            });
+
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+
+        Assert.AreEqual(0, createCount);
+        Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
+        Assert.AreSame(bmson, row.Chart.BmsonSong);
+        Assert.IsNull(row.Chart.BmsFile);
+
+        BMSFile compatibilityBmsFile = row.CompatibilityBmsFile;
+
+        Assert.AreEqual(1, createCount);
+        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(compatibilityBmsFile));
+    }
+
+    [TestMethod]
     public void ChartOperationTarget_PlaylistOwnedBms_HasBmsOnlyAndLocalCapabilities()
     {
         var file = new TestableBmsFile();
@@ -1083,7 +1121,8 @@ public sealed class PlaylistViewPipelineTests
             entry,
             realFile: null,
             resolvedBmson: bmson,
-            bmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry);
+            bmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry,
+            existingBmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.Chart.InstallDestination);
         Assert.AreEqual("Installed Playlist Bmson", rebuiltPlaylistSourceRow.InstallDestinationTitle);

@@ -35,6 +35,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
 
+    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider;
+
     internal BMSFile CompatibilityBmsFile => RealFile ?? GetOrCreateBmsonChartAdapter();
 
     /// <summary>
@@ -247,16 +249,18 @@ internal sealed class PlaylistDetailSourceRow
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null,
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
         ResolvedBmson = resolvedBmson;
         EntryChartInfo = entryChartInfo;
         this.bmsonChartAdapterProvider = bmsonChartAdapterProvider;
+        this.existingBmsonChartAdapterProvider = existingBmsonChartAdapterProvider;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
-        BMSFile compatibilityBmsFile = CompatibilityBmsFile;
+        BMSFile compatibilityBmsFile = GetExistingOrProvidedBmsonChartAdapter();
         BMSFile snapshotSource = realFile ?? compatibilityBmsFile ?? scoreProbe;
         BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore ?? scoreProbe?.bmsScore;
         Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), entry.title);
@@ -366,7 +370,7 @@ internal sealed class PlaylistDetailSourceRow
         }
         if (ResolvedBmson != null)
         {
-            return ChartFileProjection.FromBmsonSong(ResolvedBmson, CompatibilityBmsFile);
+            return ChartFileProjection.FromBmsonSong(ResolvedBmson, GetExistingOrProvidedBmsonChartAdapter());
         }
         return ChartFileProjection.FromBmsMetadata(
             path,
@@ -386,6 +390,29 @@ internal sealed class PlaylistDetailSourceRow
     {
         return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false)
             || (chart?.Warnings.Count == 0 && (fallback?.HasHighlightedWarning ?? false));
+    }
+
+    private PendingChartEntry GetExistingOrProvidedBmsonChartAdapter()
+    {
+        if (ResolvedBmson == null)
+        {
+            return null;
+        }
+        PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(ResolvedBmson);
+        if (provided != null)
+        {
+            bmsonChartAdapter = provided;
+            return bmsonChartAdapter;
+        }
+        if (bmsonChartAdapter == null || !ReferenceEquals(bmsonChartAdapter.BmsonSong, ResolvedBmson))
+        {
+            return null;
+        }
+        if (!string.Equals(bmsonChartAdapter.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
+        {
+            bmsonChartAdapter.UpdateFromBmsonSong(ResolvedBmson);
+        }
+        return bmsonChartAdapter;
     }
 
     private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)

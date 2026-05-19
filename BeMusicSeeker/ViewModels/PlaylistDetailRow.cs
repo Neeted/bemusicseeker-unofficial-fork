@@ -26,6 +26,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     private string memoValue;
 
+    private readonly Func<BMSFile> compatibilityBmsFileProvider;
+
     /// <summary>
     /// 元の playlist エントリです。
     /// </summary>
@@ -38,7 +40,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
 
-    internal BMSFile CompatibilityBmsFile { get; }
+    internal BMSFile CompatibilityBmsFile => RealFile ?? compatibilityBmsFileProvider?.Invoke();
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
@@ -236,7 +238,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
         Entry = source.Entry;
         RealFile = source.RealFile;
         ResolvedBmson = source.ResolvedBmson;
-        CompatibilityBmsFile = source.CompatibilityBmsFile;
+        compatibilityBmsFileProvider = () => source.CompatibilityBmsFile;
         IsOwned = source.IsOwned;
         Chart = source.Chart;
         EntryLevelSortKey = source.EntryLevelSortKey;

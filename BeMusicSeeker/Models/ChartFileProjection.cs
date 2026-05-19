@@ -159,7 +159,7 @@ internal static class ChartFileProjection
             song.ChartInfo,
             null,
             song,
-            compatibilityBmsFile?.subtitle,
+            string.IsNullOrWhiteSpace(song.subtitle) ? compatibilityBmsFile?.subtitle : song.subtitle,
             compatibilityBmsFile?.instl_dst,
             compatibilityBmsFile?.InstallDestinationTitle,
             compatibilityBmsFile?.InstallDestinationArtist,

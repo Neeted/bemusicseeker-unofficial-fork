@@ -10101,6 +10101,26 @@ public class MainWindowViewModel : ViewModel
         return entry;
     }
 
+    private PendingChartEntry TryGetSharedBmsonChartAdapter(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null || string.IsNullOrWhiteSpace(song.path))
+        {
+            return null;
+        }
+        string key = GetSharedBmsonChartAdapterKey(song);
+        if (string.IsNullOrWhiteSpace(key)
+            || !sharedBmsonChartAdaptersByKey.TryGetValue(key, out PendingChartEntry entry)
+            || entry == null)
+        {
+            return null;
+        }
+        if (!ReferenceEquals(entry.BmsonSong, song) || !string.Equals(entry.path, song.path, StringComparison.OrdinalIgnoreCase))
+        {
+            UpdateSharedBmsonChartAdapterPreservingRepairState(entry, song);
+        }
+        return entry;
+    }
+
     private void PruneSharedBmsonChartAdapterCache(IReadOnlyCollection<LR2SongDBExtended.bmson_song> currentSongs)
     {
         var currentKeys = new HashSet<string>(
@@ -15547,7 +15567,16 @@ public class MainWindowViewModel : ViewModel
         foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo, GetPlaylistReferenceDisplayForIdentity, GetOrCreateSharedBmsonChartAdapter));
+            playlistRows.Add(new PlaylistDetailSourceRow(
+                entry,
+                realFile,
+                resolvedBmson,
+                scoreProbe,
+                scoreSnapshotForRow,
+                entryChartInfo,
+                GetPlaylistReferenceDisplayForIdentity,
+                GetOrCreateSharedBmsonChartAdapter,
+                TryGetSharedBmsonChartAdapter));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
