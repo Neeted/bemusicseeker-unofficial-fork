@@ -451,7 +451,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void ChartPackage_ClearChartAdapterInstallDestinations_DoesNotMaterializeAdapterlessBmsonEntries()
+    public void ChartPackage_ClearEntryInstallDestinations_DoesNotMaterializeAdapterlessBmsonEntries()
     {
         TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg\\a.bms");
         bmsFile.instl_dst = "C:\\Installed\\Target";
@@ -473,7 +473,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             adapterlessBmsonEntry
         ]);
 
-        package.ClearChartAdapterInstallDestinations();
+        foreach (PackageChartEntry entry in package.ChartEntries)
+        {
+            entry.ClearInstallDestination();
+        }
 
         Assert.IsNull(bmsFile.instl_dst);
         Assert.IsNull(bmsonAdapter.instl_dst);

@@ -20533,7 +20533,7 @@ public class MainWindowViewModel : ViewModel
         List<ChartPackage> list = [.. packages.Where(f => f != null)];
         for (int num = 0; num < list.Count; num++)
         {
-            list[num].ClearChartAdapterInstallDestinations();
+            ClearChartPackageInstallDestinations(list[num]);
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
@@ -20555,10 +20555,18 @@ public class MainWindowViewModel : ViewModel
             List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             for (int num = 0; num < chartPackages.Count; num++)
             {
-                chartPackages[num].ClearChartAdapterInstallDestinations();
+                ClearChartPackageInstallDestinations(chartPackages[num]);
             }
             files.RemoveInstallDestination(chartFiles2);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        }
+    }
+
+    private static void ClearChartPackageInstallDestinations(ChartPackage chartPackage)
+    {
+        foreach (PackageChartEntry entry in chartPackage?.ChartEntries ?? [])
+        {
+            entry?.ClearInstallDestination();
         }
     }
 

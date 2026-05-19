@@ -1084,6 +1084,14 @@ internal sealed class BmsLibraryPackageInstallService
         return PendingChartEntry.IsSupportedChartFilePath(filePath);
     }
 
+    private static void ClearPackageInstallDestinations(ChartPackage chartPackage)
+    {
+        foreach (PackageChartEntry entry in chartPackage?.ChartEntries ?? [])
+        {
+            entry?.ClearInstallDestination();
+        }
+    }
+
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
         IEnumerable<string> installPaths,
         IEnumerable<ChartPackage> currentPendingPackages,
@@ -1641,7 +1649,7 @@ internal sealed class BmsLibraryPackageInstallService
                         result.DeferredInstalledPackages.Add(installedDisplayPackage);
                     }
                 }
-                item.OriginalPackage.ClearChartAdapterInstallDestinations();
+                ClearPackageInstallDestinations(item.OriginalPackage);
             }
             installDbStopwatch.Stop();
             var pendingMarkStopwatch = Stopwatch.StartNew();
@@ -1691,7 +1699,7 @@ internal sealed class BmsLibraryPackageInstallService
                         result.InstallRowsToDelete.Add(cleanupOnlyPackage.path);
                     }
                     result.PendingPackagesToRemove.Add(cleanupOnlyPackage);
-                    cleanupOnlyPackage.ClearChartAdapterInstallDestinations();
+                    ClearPackageInstallDestinations(cleanupOnlyPackage);
                     logInfo?.Invoke("estimated_install_cleanup_only_success package=" + cleanupOnlyPackage.path + " kind=" + SourceKind.ToString().ToLowerInvariant());
                 }
                 else
@@ -1840,7 +1848,7 @@ internal sealed class BmsLibraryPackageInstallService
                 result.PendingPackagesToRemove.Add(pendingPackage);
                 result.DeferredInstalledPackages.AddRange(deferredInstalledPackages.Where(pkg => pkg != null));
                 result.Succeeded++;
-                pendingPackage.ClearChartAdapterInstallDestinations();
+                ClearPackageInstallDestinations(pendingPackage);
                 logInfo?.Invoke("force_install_batch success path=" + (pendingPackage.path ?? "(null)"));
             }
             else

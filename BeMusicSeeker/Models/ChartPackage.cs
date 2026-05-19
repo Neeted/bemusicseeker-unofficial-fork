@@ -59,14 +59,6 @@ public class ChartPackage : LR2SongDBExtended.install
         return (ChartEntries ?? []).Any(entry => IsSameChartTarget(entry, chartFile));
     }
 
-    internal void ClearChartAdapterInstallDestinations()
-    {
-        foreach (PackageChartEntry entry in ChartEntries ?? [])
-        {
-            entry?.ClearInstallDestination();
-        }
-    }
-
     internal bool RemoveChartEntries(Func<PackageChartEntry, bool> predicate)
     {
         if (predicate == null)
