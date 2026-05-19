@@ -153,8 +153,7 @@ internal sealed class BmsLibraryDuplicateService
             if (groupRows.Count > 0)
             {
                 List<ChartFile> groupCharts = [.. groupRows.Select(row => row.Chart).Where(chart => chart != null)];
-                List<BMSFile> groupFiles = [.. groupRows.Select(row => row.GetOrCreateDisplayRow()).Where(file => file != null)];
-                result.DuplicateGroups.Add(new DuplicateGroup(groupCharts, groupFiles, [.. dirs]));
+                result.DuplicateGroups.Add(new DuplicateGroup(groupCharts, [.. dirs]));
             }
         }
         result.DuplicateGroups.Sort((x, y) => string.Compare(x.Header, y.Header, StringComparison.Ordinal));

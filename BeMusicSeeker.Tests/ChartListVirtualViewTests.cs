@@ -1132,6 +1132,37 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void DuplicateVirtualSourceRows_PreserveBmsonStorageRowsWithoutCompatibilityFiles()
+    {
+        BMSFile bmsFile = CreateFile(
+            Path.Combine("C:\\BMS", "DirA", "a.bms"),
+            "BMS Alpha",
+            "DirA",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\BMS", "DirB", "b.bmson"),
+            folder = Path.Combine("C:\\BMS", "DirB"),
+            title = "Bmson Beta",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+        var duplicateGroup = new DuplicateGroup(
+            [
+                ChartFileProjection.FromBmsFile(bmsFile),
+                ChartFileProjection.FromBmsonSong(bmsonSong)
+            ],
+            [Path.Combine("C:\\BMS", "DirA"), Path.Combine("C:\\BMS", "DirB")]);
+
+        List<ChartListSourceRow> rows = MainWindowViewModel.CreateDuplicateVirtualSourceRowsForTest([duplicateGroup], duplicateGroup);
+
+        Assert.AreEqual(2, rows.Count);
+        Assert.AreSame(bmsFile, rows.Single(row => row.BmsFile != null).BmsFile);
+        ChartListSourceRow bmsonRow = rows.Single(row => row.BmsonSong != null);
+        Assert.AreSame(bmsonSong, bmsonRow.BmsonSong);
+        Assert.IsNull(bmsonRow.BmsFile);
+    }
+
+    [TestMethod]
     public void VirtualSortRouteColumns_CreateOrdersForAllChartListViewKinds()
     {
         var settings = new[]

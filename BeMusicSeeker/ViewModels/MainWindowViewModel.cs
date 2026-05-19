@@ -11597,7 +11597,17 @@ public class MainWindowViewModel : ViewModel
         out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
         out string subsetName)
     {
-        if (DuplicateChartGroups == null)
+        return TryGetVirtualDuplicateSourceFilesCore(DuplicateChartGroups, parameter, out sourceFiles, out sourceBmsonSongs, out subsetName);
+    }
+
+    private static bool TryGetVirtualDuplicateSourceFilesCore(
+        IEnumerable<DuplicateGroup> duplicateGroups,
+        object parameter,
+        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
+        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
+        out string subsetName)
+    {
+        if (duplicateGroups == null)
         {
             sourceFiles = [];
             sourceBmsonSongs = [];
@@ -11605,10 +11615,11 @@ public class MainWindowViewModel : ViewModel
             return true;
         }
 
+        List<DuplicateGroup> groupSnapshot = [.. duplicateGroups.Where(group => group != null)];
         object normalizedParameter = NormalizeDuplicateViewParameter(parameter);
         if (normalizedParameter == null)
         {
-            SetDuplicateSourceCharts(CreateDuplicateChartFileSnapshot(), out sourceFiles, out sourceBmsonSongs);
+            SetDuplicateSourceCharts(CreateDuplicateChartFileSnapshot(groupSnapshot), out sourceFiles, out sourceBmsonSongs);
             subsetName = "duplicate_all";
             return true;
         }
@@ -11616,21 +11627,14 @@ public class MainWindowViewModel : ViewModel
         {
             if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
             {
-                DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                SetDuplicateSourceCharts(duplicateGroup != null ? duplicateGroup.ChartFiles : CreateDuplicateChartFileSnapshot(), out sourceFiles, out sourceBmsonSongs);
+                DuplicateGroup duplicateGroup = groupSnapshot.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
+                SetDuplicateSourceCharts(duplicateGroup != null ? duplicateGroup.ChartFiles : CreateDuplicateChartFileSnapshot(groupSnapshot), out sourceFiles, out sourceBmsonSongs);
                 subsetName = "duplicate_group";
                 return true;
             }
 
-            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(duplicateContext.Value), out sourceFiles, out sourceBmsonSongs);
+            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(groupSnapshot, duplicateContext.Value), out sourceFiles, out sourceBmsonSongs);
             subsetName = "duplicate_folder";
-            return true;
-        }
-        if (normalizedParameter is List<BeMusicSeeker.Models.BMSFile> list)
-        {
-            sourceFiles = list;
-            sourceBmsonSongs = null;
-            subsetName = "duplicate_list";
             return true;
         }
         if (normalizedParameter is DuplicateGroup groupParameter)
@@ -11641,7 +11645,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (normalizedParameter is string folderPath)
         {
-            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(folderPath), out sourceFiles, out sourceBmsonSongs);
+            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(groupSnapshot, folderPath), out sourceFiles, out sourceBmsonSongs);
             subsetName = "duplicate_folder";
             return true;
         }
@@ -11664,13 +11668,23 @@ public class MainWindowViewModel : ViewModel
 
     private List<ChartFile> CreateDuplicateChartFileSnapshot()
     {
-        return [.. DuplicateChartGroups.SelectMany(group => group.ChartFiles)];
+        return CreateDuplicateChartFileSnapshot(DuplicateChartGroups);
+    }
+
+    private static List<ChartFile> CreateDuplicateChartFileSnapshot(IEnumerable<DuplicateGroup> duplicateGroups)
+    {
+        return [.. (duplicateGroups ?? []).SelectMany(group => group.ChartFiles)];
     }
 
     private List<ChartFile> CreateDuplicateFolderChartFileSnapshot(string folderPath)
     {
+        return CreateDuplicateFolderChartFileSnapshot(DuplicateChartGroups, folderPath);
+    }
+
+    private static List<ChartFile> CreateDuplicateFolderChartFileSnapshot(IEnumerable<DuplicateGroup> duplicateGroups, string folderPath)
+    {
         string folderPrefix = folderPath + Path.DirectorySeparatorChar;
-        return [.. DuplicateChartGroups
+        return [.. (duplicateGroups ?? [])
             .SelectMany(group => group.ChartFiles)
             .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))];
     }
@@ -11707,6 +11721,20 @@ public class MainWindowViewModel : ViewModel
     internal static string CreateVirtualNormalLibraryFilterIdentityForTest(string folderFilterIdentity, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)
     {
         return CreateVirtualNormalLibraryFilterIdentity(folderFilterIdentity, keywordFilter, modeFilter, scoreSnapshotVersion, chartInfoIndexVersion);
+    }
+
+    internal static List<ChartListSourceRow> CreateDuplicateVirtualSourceRowsForTest(IEnumerable<DuplicateGroup> duplicateGroups, object parameter)
+    {
+        if (!TryGetVirtualDuplicateSourceFilesCore(duplicateGroups, parameter, out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles, out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs, out _))
+        {
+            return [];
+        }
+        return ChartListSourceRow.BuildStandardLibraryRows(
+            sourceFiles,
+            sourceBmsonSongs,
+            resourceHealthProjectionProvider: null,
+            playlistReferenceDisplayProvider: null,
+            materializeBmsonAdapterOnDemand: true);
     }
 
     private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)
@@ -16867,7 +16895,7 @@ public class MainWindowViewModel : ViewModel
 
     private static object NormalizeDuplicateViewParameter(object parameter)
     {
-        if (parameter == null || parameter is DuplicateViewContext || parameter is List<BeMusicSeeker.Models.BMSFile>)
+        if (parameter == null || parameter is DuplicateViewContext)
         {
             return parameter;
         }

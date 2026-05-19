@@ -107,7 +107,6 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirD") && group.Folders.Contains("C:\\BMS\\DirE")));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Any(chart => chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null));
-        Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.Files).Any(file => PendingChartEntry.IsBmsonChartFile(file)));
         Assert.IsFalse(result.DuplicateGroups.Any(group => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirF")));
         Assert.AreEqual(4, result.DuplicateFiles.Count);
     }
@@ -148,7 +147,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 [
                     new DuplicateGroup(
                         [
-                            CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms")
+                            ChartFileProjection.FromBmsFile(CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms"))
                         ],
                         [@"C:\BMS\DirA"])
                 ],

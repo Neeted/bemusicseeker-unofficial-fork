@@ -2805,11 +2805,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            if (treeViewItem.DataContext is not List<BMSFile>)
-            {
-                return;
-            }
-            parameter = (List<BMSFile>)treeViewItem.DataContext;
+            return;
         }
         await Task.Run(delegate
         {
