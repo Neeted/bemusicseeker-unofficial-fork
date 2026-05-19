@@ -315,6 +315,34 @@ internal sealed class BmsLibraryPackageInstallService
         return deduplicated;
     }
 
+    private List<PendingChartDeletionTarget> DeduplicatePendingChartDeletionTargets(IEnumerable<PendingChartDeletionTarget> targets)
+    {
+        List<PendingChartDeletionTarget> deduplicated = [];
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<BMSFile> references = [];
+        foreach (PendingChartDeletionTarget target in targets ?? [])
+        {
+            if (target == null)
+            {
+                continue;
+            }
+            string path = target.Path;
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                if (!paths.Add(path))
+                {
+                    continue;
+                }
+            }
+            else if (target.CompatibilityFile != null && !references.Add(target.CompatibilityFile))
+            {
+                continue;
+            }
+            deduplicated.Add(target);
+        }
+        return deduplicated;
+    }
+
     public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<ChartPackage> pendingPackages, Func<ChartFile, bool> isInstalledChart)
     {
         List<ChartPackage> result = [];
@@ -2202,18 +2230,56 @@ internal sealed class BmsLibraryPackageInstallService
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
     {
+        return DeletePendingChartTargets(
+            (bmsFiles ?? []).Where(file => file != null).Select(file => PendingChartDeletionTarget.FromCompatibilityFile(file)),
+            pendingPackages,
+            sendToRecycleBin,
+            deleteContainingPackageFoldersWhenNoBms,
+            fileMutationService,
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions);
+    }
+
+    public PendingFileDeletionResult DeletePendingCharts(
+        IEnumerable<ChartFile> charts,
+        IEnumerable<ChartPackage> pendingPackages,
+        bool sendToRecycleBin,
+        bool deleteContainingPackageFoldersWhenNoBms,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+    {
+        return DeletePendingChartTargets(
+            (charts ?? []).Where(chart => chart != null).Select(PendingChartDeletionTarget.FromChartFile),
+            pendingPackages,
+            sendToRecycleBin,
+            deleteContainingPackageFoldersWhenNoBms,
+            fileMutationService,
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions);
+    }
+
+    private PendingFileDeletionResult DeletePendingChartTargets(
+        IEnumerable<PendingChartDeletionTarget> targets,
+        IEnumerable<ChartPackage> pendingPackages,
+        bool sendToRecycleBin,
+        bool deleteContainingPackageFoldersWhenNoBms,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+    {
         var result = new PendingFileDeletionResult();
-        List<BMSFile> selectedFiles = DeduplicateFilesByPathOrReference(bmsFiles);
-        result.Requested = selectedFiles.Count;
-        if (selectedFiles.Count == 0)
+        List<PendingChartDeletionTarget> selectedTargets = DeduplicatePendingChartDeletionTargets(targets);
+        result.Requested = selectedTargets.Count;
+        if (selectedTargets.Count == 0)
         {
             return result;
         }
 
         var selectedPaths = new HashSet<string>(
-            selectedFiles.Where(file => !string.IsNullOrWhiteSpace(file.path)).Select(file => file.path),
+            selectedTargets.Select(target => target.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var selectedFileRefs = new HashSet<BMSFile>(selectedFiles);
+        var selectedFileRefs = new HashSet<BMSFile>(selectedTargets.Select(target => target.CompatibilityFile).Where(file => file != null));
         var handledByFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var blockedByFailedFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
@@ -2257,9 +2323,10 @@ internal sealed class BmsLibraryPackageInstallService
             }
         }
 
-        foreach (BMSFile pendingFile in selectedFiles)
+        foreach (PendingChartDeletionTarget pendingChart in selectedTargets)
         {
-            if (!string.IsNullOrWhiteSpace(pendingFile.path) && (handledByFolderDeletePaths.Contains(pendingFile.path) || blockedByFailedFolderDeletePaths.Contains(pendingFile.path)))
+            string pendingChartPath = pendingChart.Path;
+            if (!string.IsNullOrWhiteSpace(pendingChartPath) && (handledByFolderDeletePaths.Contains(pendingChartPath) || blockedByFailedFolderDeletePaths.Contains(pendingChartPath)))
             {
                 continue;
             }
@@ -2267,10 +2334,17 @@ internal sealed class BmsLibraryPackageInstallService
             result.Processed++;
             try
             {
-                if (File.Exists(pendingFile.path))
+                if (File.Exists(pendingChartPath))
                 {
-                    fileMutationService.DeleteFileShell(pendingFile.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
-                    result.FilesToRemove.Add(pendingFile);
+                    fileMutationService.DeleteFileShell(pendingChartPath, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                    if (pendingChart.CompatibilityFile != null)
+                    {
+                        result.FilesToRemove.Add(pendingChart.CompatibilityFile);
+                    }
+                    else
+                    {
+                        result.ChartPathsToRemove.Add(pendingChartPath);
+                    }
                     result.Removed++;
                 }
                 else
@@ -2283,7 +2357,7 @@ internal sealed class BmsLibraryPackageInstallService
                 result.Failed++;
                 result.Failures.Add(new PendingFileDeletionFailure
                 {
-                    Path = pendingFile.path,
+                    Path = pendingChartPath,
                     Exception = ex2,
                     IsDirectory = false
                 });
@@ -2291,6 +2365,35 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         return result;
+    }
+
+    private sealed class PendingChartDeletionTarget
+    {
+        private PendingChartDeletionTarget(ChartFile chart, BMSFile compatibilityFile)
+        {
+            Chart = chart;
+            CompatibilityFile = compatibilityFile;
+        }
+
+        internal ChartFile Chart { get; }
+
+        internal BMSFile CompatibilityFile { get; }
+
+        internal string Path => Chart?.Path ?? CompatibilityFile?.path;
+
+        internal static PendingChartDeletionTarget FromCompatibilityFile(BMSFile file)
+        {
+            return file == null ? null : new PendingChartDeletionTarget(ChartFileProjection.FromBmsFile(file), file);
+        }
+
+        internal static PendingChartDeletionTarget FromChartFile(ChartFile chart)
+        {
+            if (chart == null)
+            {
+                return null;
+            }
+            return new PendingChartDeletionTarget(chart, chart.Kind == ChartFileKind.Bms ? chart.BmsFile : null);
+        }
     }
 
     private static List<string> GetPackageChartPaths(IEnumerable<PackageChartEntry> entries)

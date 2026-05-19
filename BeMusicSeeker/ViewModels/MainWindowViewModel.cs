@@ -21301,13 +21301,14 @@ public class MainWindowViewModel : ViewModel
 
     internal void RemovePendingCharts(IEnumerable<ChartOperationTarget> targets, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
-        RemovePendingCharts(
-            (targets ?? [])
+        List<ChartFile> charts = [.. (targets ?? [])
             .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-            .Select(target => target.CompatibilityBmsFile)
-            .Where(file => file != null),
-            sendToRecycleBin,
-            deleteContainingPackageFoldersWhenNoBms);
+            .Select(target => target.Chart)
+            .Where(chart => chart != null)];
+        RunPendingInstallMutation(delegate
+        {
+            files.RemovePendingCharts(charts, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
+        }, charts.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
     }
 
     public void RemovePendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)

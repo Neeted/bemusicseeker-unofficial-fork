@@ -1956,6 +1956,80 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void DeletePendingCharts_DeletesAdapterlessBmsonChartByPathWithoutMaterializing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryPackageInstallService();
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "PendingBmsonPkg");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
+            PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+            package.path = packageDirectoryPath;
+
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [adapterlessBmsonEntry.Chart],
+                [package],
+                sendToRecycleBin: false,
+                deleteContainingPackageFoldersWhenNoBms: false,
+                new RealFileMutationService(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.Requested);
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(1, result.Removed);
+            Assert.AreEqual(0, result.Failed);
+            Assert.AreEqual(0, result.Skipped);
+            Assert.AreEqual(0, result.FilesToRemove.Count);
+            CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsFalse(File.Exists(bmsonPath));
+        });
+    }
+
+    [TestMethod]
+    public void DeletePendingCharts_DeletesWholeAdapterlessBmsonPackageDirectoryByPathWithoutMaterializing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryPackageInstallService();
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "PendingBmsonPkg");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
+            PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+            package.path = packageDirectoryPath;
+
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [adapterlessBmsonEntry.Chart],
+                [package],
+                sendToRecycleBin: false,
+                deleteContainingPackageFoldersWhenNoBms: true,
+                new RealFileMutationService(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.Requested);
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(1, result.Removed);
+            Assert.AreEqual(0, result.Failed);
+            Assert.AreEqual(0, result.Skipped);
+            Assert.AreEqual(0, result.FilesToRemove.Count);
+            CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+        });
+    }
+
+    [TestMethod]
     public void DeletePendingFiles_FailedPackageFolderDeleteDoesNotMaterializeAdapterlessBmsonEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
