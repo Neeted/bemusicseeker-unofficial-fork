@@ -19915,11 +19915,38 @@ public class MainWindowViewModel : ViewModel
         }
         if (target.PackageEntry != null)
         {
-            return (chartPackage.ChartEntries ?? []).Any(entry => ReferenceEquals(entry, target.PackageEntry));
+            return (chartPackage.ChartEntries ?? []).Any(entry => IsSamePackageEntryTarget(entry, target.PackageEntry, chart));
         }
         if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null && ContainsChartTarget(chartPackage, chart.BmsFile))
         {
             return true;
+        }
+        return false;
+    }
+
+    private static bool IsSamePackageEntryTarget(PackageChartEntry currentEntry, PackageChartEntry sourceEntry, ChartFile targetChart)
+    {
+        if (currentEntry == null || sourceEntry == null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(currentEntry, sourceEntry))
+        {
+            return true;
+        }
+        ChartFile currentChart = currentEntry.Chart;
+        ChartFile sourceChart = sourceEntry.Chart ?? targetChart;
+        if (currentChart == null || sourceChart == null || currentChart.Kind != sourceChart.Kind)
+        {
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(currentChart.Path) && !string.IsNullOrWhiteSpace(sourceChart.Path))
+        {
+            return currentChart.Path.Equals(sourceChart.Path, StringComparison.OrdinalIgnoreCase);
+        }
+        if (!string.IsNullOrWhiteSpace(currentChart.PrimaryLookupHash) && !string.IsNullOrWhiteSpace(sourceChart.PrimaryLookupHash))
+        {
+            return currentChart.PrimaryLookupHash.Equals(sourceChart.PrimaryLookupHash, StringComparison.OrdinalIgnoreCase);
         }
         return false;
     }
@@ -19970,6 +19997,20 @@ public class MainWindowViewModel : ViewModel
         lock (lockCopyFile)
         {
             List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
+            ForceInstallPendingPackages(chartPackages);
+        }
+    }
+
+    internal void ForceInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException("targets");
+        }
+        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        lock (lockCopyFile)
+        {
+            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
             ForceInstallPendingPackages(chartPackages);
         }
     }
@@ -20519,6 +20560,20 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    internal void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException("targets");
+        }
+        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        lock (lockCopyFile)
+        {
+            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+            ManualInstallPendingPackages(chartPackages);
+        }
+    }
+
     public void RemovePendingPackagesAll()
     {
         RunPendingInstallMutation(delegate
@@ -20547,6 +20602,17 @@ public class MainWindowViewModel : ViewModel
         }
         List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(f => f != null)];
         List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
+        RemovePendingPackages(chartPackages);
+    }
+
+    internal void RemovePendingPackages(IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException("targets");
+        }
+        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
         RemovePendingPackages(chartPackages);
     }
 

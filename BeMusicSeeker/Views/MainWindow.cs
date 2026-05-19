@@ -6722,8 +6722,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> chartFiles = GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities.UpdateInstallDestination);
-        if (chartFiles == null || chartFiles.Count() == 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+        if (targets == null || targets.Count == 0)
         {
             return;
         }
@@ -6736,7 +6736,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ForceInstallPendingCharts(chartFiles);
+            viewModel.ForceInstallPendingCharts(targets);
         }).Logging("forceInstallSelectedPendingCharts");
     }
 
@@ -6753,8 +6753,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> chartFiles = GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities.UpdateInstallDestination);
-        if (chartFiles == null || chartFiles.Count() == 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+        if (targets == null || targets.Count == 0)
         {
             return;
         }
@@ -6771,7 +6771,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ManualInstallPendingCharts(chartFiles);
+            viewModel.ManualInstallPendingCharts(targets);
         }).Logging("manualInstallSelectedPendingCharts");
     }
 
@@ -6806,10 +6806,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> selectedChartFiles = isPendingSelected
-            ? GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities.UpdateInstallDestination)
-            : GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None);
-        if (selectedChartFiles.Count == 0)
+        List<ChartOperationTarget> selectedPendingTargets = isPendingSelected
+            ? GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)
+            : null;
+        List<BMSFile> selectedChartFiles = isInstalledSelected
+            ? GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.None)
+            : [];
+        int selectedRowCount = isPendingSelected ? selectedPendingTargets.Count : selectedChartFiles.Count;
+        if (selectedRowCount == 0)
         {
             return;
         }
@@ -6822,7 +6826,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + section + " treeSection=" + _currentTreeSelectionSection + " selectedRows=" + selectedChartFiles.Count);
+        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + section + " treeSection=" + _currentTreeSelectionSection + " selectedRows=" + selectedRowCount);
         e.Handled = true;
         ClearMainGridSelection();
         if (isPendingSelected)
@@ -6830,7 +6834,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
             await Task.Run(delegate
             {
-                viewModel.RemovePendingPackages(selectedChartFiles);
+                viewModel.RemovePendingPackages(selectedPendingTargets);
             }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {

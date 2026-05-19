@@ -845,6 +845,48 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PendingPackageChartHandlersUseChartTargetsForPackageOperations()
+    {
+        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string forceInstall = ExtractBetween(
+            mainWindowCode,
+            "private async void forceInstallSelectedPendingCharts",
+            "private static string GetManualInstallConfirmationMessage");
+        string manualInstall = ExtractBetween(
+            mainWindowCode,
+            "private async void manualInstallSelectedPendingCharts",
+            "private async void searchInstallDestinationSelectedPendingCharts");
+        string deletePackages = ExtractBetween(
+            mainWindowCode,
+            "private async void tableContextMenuItemDeleteInstallPackagesClick",
+            "private async void searchMergeDestinationSelectedPendingCharts");
+        string estimateSearch = ExtractBetween(
+            mainWindowCode,
+            "private async void searchInstallDestinationSelectedPendingCharts",
+            "private async void tableContextMenuItemDeleteInstallPackagesClick");
+        string mergeSearch = ExtractBetween(
+            mainWindowCode,
+            "private async void searchMergeDestinationSelectedPendingCharts",
+            "private bool ConfirmMergeDestinationSearch");
+
+        StringAssert.Contains(forceInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
+        StringAssert.Contains(forceInstall, "viewModel.ForceInstallPendingCharts(targets)");
+        Assert.IsFalse(forceInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        StringAssert.Contains(manualInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
+        StringAssert.Contains(manualInstall, "viewModel.ManualInstallPendingCharts(targets)");
+        Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
+        StringAssert.Contains(deletePackages, "viewModel.RemovePendingPackages(selectedPendingTargets)");
+        Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
+        StringAssert.Contains(estimateSearch, "viewModel.SearchInstallDestinationForPendingCharts(targets)");
+        Assert.IsFalse(estimateSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        StringAssert.Contains(mergeSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
+        StringAssert.Contains(mergeSearch, "viewModel.SearchMergeDestinationForPendingCharts(targets)");
+        Assert.IsFalse(mergeSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+    }
+
+    [TestMethod]
     public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

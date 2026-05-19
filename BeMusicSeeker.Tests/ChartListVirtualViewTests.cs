@@ -978,6 +978,63 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void ClearInstallDestinationForPendingChartTargets_ResolvesReplacedPackageEntryByChartIdentity()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var viewModel = new MainWindowViewModel();
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong();
+        PackageChartEntry staleEntry = PackageChartEntry.FromChart(
+            ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(bmsonSong),
+                @"C:\Installed\Old",
+                "Old",
+                "Artist",
+                []));
+        PackageChartEntry currentEntry = PackageChartEntry.FromChart(
+            ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(bmsonSong),
+                @"C:\Installed\Current",
+                "Current",
+                "Artist",
+                []));
+        ChartPackage package = ChartPackage.FromChartEntries([currentEntry]);
+        try
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
+                new ObservableCollection<ChartPackage>([package]),
+                Dispatcher.CurrentDispatcher);
+            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
+            var target = new ChartOperationTarget(
+                staleEntry.Chart,
+                () => throw new AssertFailedException("Replaced package entry target should not fall back to compatibility adapter."),
+                null,
+                ChartOperationSourceScope.PendingPackage,
+                isOwned: false,
+                isPending: true,
+                isPlaylistMissing: false,
+                ChartOperationCapabilities.UpdateInstallDestination,
+                staleEntry);
+
+            viewModel.ClearInstallDestinationForPendingCharts([target]);
+
+            Assert.IsNull(currentEntry.CompatibilityAdapter);
+            Assert.AreEqual(string.Empty, currentEntry.Chart.InstallDestination);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void VirtualNormalLibraryRequestModes_CoverRootAndFullScanTrees()
     {
         MainWindowViewModel.viewUpdateMode[] treeModes =
