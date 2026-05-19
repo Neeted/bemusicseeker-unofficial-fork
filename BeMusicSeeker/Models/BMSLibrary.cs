@@ -8380,40 +8380,6 @@ reportProgress,
         return [.. targetsByPath.Values];
     }
 
-    private static List<LR2SongDBExtended.bmson_song> BuildBmsonSongsFromChartRows(IEnumerable<BMSFile> files)
-    {
-        return [.. (files ?? [])
-            .OfType<PendingChartEntry>()
-            .Where(file => file.IsBmsonChart)
-            .Select(delegate (PendingChartEntry file)
-            {
-                LR2SongDBExtended.bmson_song source = file.BmsonSong ?? new LR2SongDBExtended.bmson_song();
-                var result = new LR2SongDBExtended.bmson_song
-                {
-                    path = file.path,
-                    folder = DirectoryExt.GetDirectoryNameSimple(file.path),
-                    title = source.title,
-                    subtitle = source.subtitle,
-                    artist = source.artist,
-                    genre = source.genre,
-                    level = source.level,
-                    mode_hint = source.mode_hint,
-                    md5 = source.md5 ?? file.hash,
-                    sha256 = source.sha256 ?? file.sha256,
-                    banner = source.banner,
-                    backbmp = source.backbmp,
-                    stagefile = source.stagefile,
-                    preview_music = source.preview_music,
-                    MaintenanceInfo = file.maintenanceInfo,
-                    wav_files = source.wav_files != null && source.wav_files.Count > 0 ? source.wav_files : file.WAVfiles?.ToList() ?? [],
-                    bga_files = source.bga_files != null && source.bga_files.Count > 0 ? source.bga_files : file.BGAfiles?.ToList() ?? []
-                };
-                result.MaintenanceInfo?.NormalizeForBmson(result.path, result.md5);
-                file.ReplaceBmsonSongReferenceAfterInstall(result);
-                return result;
-            })];
-    }
-
     private List<LR2SongDBExtended.bmson_song> ResolveAddedBmsonSongsFromInstalledPackages(IEnumerable<ChartPackage> installedPackages)
     {
         List<string> addedBmsonPaths = [.. (installedPackages ?? [])
@@ -10776,18 +10742,33 @@ reportProgress,
                     }
                     LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
-                    List<BMSFile> movedPackageFiles = mergeResult.Repackage.GetChartAdapters();
-                    List<BMSFile> movedBmsFiles = [.. movedPackageFiles.Where(PendingChartEntry.IsBmsChartFile)];
-                    List<LR2SongDBExtended.bmson_song> movedBmsonSongs = BuildBmsonSongsFromChartRows(movedPackageFiles);
+                    List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
+                    List<BMSFile> movedBmsFiles = [.. movedPackageEntries
+                        .Select(entry => entry?.Chart?.BmsFile ?? entry?.CompatibilityAdapter)
+                        .Where(PendingChartEntry.IsBmsChartFile)];
+                    List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
+                        .Select(entry => entry?.Chart?.BmsonSong)
+                        .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
                     dbGateway.UpsertSongs(movedBmsFiles);
                     if (movedBmsonSongs.Count > 0)
                     {
                         dbGateway.UpsertBmsonSongs(movedBmsonSongs);
                     }
+                    List<BMSFile> movedBmsonMaintenanceTargets = [.. movedBmsonSongs
+                        .Select(PendingChartEntry.CreateFromBmsonSong)
+                        .Where(file => file != null)];
+                    List<BMSFile> destinationBmsonMaintenanceTargets = [.. (BmsonSongs ?? [])
+                        .Where(song => song != null
+                            && !string.IsNullOrWhiteSpace(song.path)
+                            && song.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                        .Select(PendingChartEntry.CreateFromBmsonSong)
+                        .Where(file => file != null)];
                     List<BMSFile> maintenanceTargets =
                     [
                         .. movedBmsFiles,
+                        .. movedBmsonMaintenanceTargets,
                         .. BMSFiles.Where(f => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)),
+                        .. destinationBmsonMaintenanceTargets,
                     ];
                     setMaintenanceInfo(maintenanceTargets, forceUpdate: true);
                     var repackageBmsPathSet = new HashSet<string>(movedBmsFiles.Select(ff => ff.path), StringComparer.OrdinalIgnoreCase);

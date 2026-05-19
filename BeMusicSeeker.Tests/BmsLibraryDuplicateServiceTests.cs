@@ -296,6 +296,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 {
                     Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(srcChartPath));
                     Assert.IsNotNull(songDb.Find<LR2SongDBExtended.bmson_song>(dstChartPath));
+                    Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any(info => info.path == dstChartPath));
                 }
             }
             finally
