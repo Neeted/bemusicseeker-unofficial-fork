@@ -802,7 +802,9 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 var skipPathSet = new HashSet<string>(skippedEntries.Select(entry => entry?.Chart?.Path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
                 installTargetEntries = [.. installTargetEntries.Where(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.Path) && !skipPathSet.Contains(entry.Chart.Path))];
-                package.RemoveChartAdaptersByPath(skipPathSet);
+                package.RemoveChartEntries(entry =>
+                    !string.IsNullOrWhiteSpace(entry?.Chart?.Path)
+                    && skipPathSet.Contains(entry.Chart.Path));
             }
         }
 

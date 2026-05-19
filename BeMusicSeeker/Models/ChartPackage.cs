@@ -67,20 +67,6 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    internal void RemoveChartAdaptersByPath(ISet<string> pathsToRemove)
-    {
-        if (pathsToRemove == null || pathsToRemove.Count == 0)
-        {
-            return;
-        }
-        if (hasExplicitChartFiles)
-        {
-            chartEntries.RemoveAll(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.Path) && pathsToRemove.Contains(entry.Chart.Path));
-            return;
-        }
-        GetOrBuildPackageChartDiscoverySnapshot(out _).RemoveChartEntriesByPath(pathsToRemove);
-    }
-
     internal bool RemoveChartEntries(Func<PackageChartEntry, bool> predicate)
     {
         if (predicate == null)

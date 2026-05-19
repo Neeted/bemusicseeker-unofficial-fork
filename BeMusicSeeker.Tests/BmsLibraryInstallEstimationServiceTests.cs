@@ -1296,7 +1296,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void ChartPackage_RemoveChartAdaptersByPath_RemovesAdapterlessBmsonEntryWithoutMaterializing()
+    public void ChartPackage_RemoveChartEntriesPredicate_RemovesAdapterlessBmsonEntryWithoutMaterializing()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithPendingPackageSourceScanSetting(enabled: false, delegate
@@ -1320,7 +1320,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 List<PackageChartEntry> entries = package.ChartEntries;
                 PackageChartEntry removeEntry = entries.Single(entry => string.Equals(entry.Chart.Path, removeBmsonPath, StringComparison.OrdinalIgnoreCase));
 
-                package.RemoveChartAdaptersByPath(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { removeBmsonPath });
+                package.RemoveChartEntries(entry =>
+                    !string.IsNullOrWhiteSpace(entry?.Chart?.Path)
+                    && string.Equals(entry?.Chart?.Path, removeBmsonPath, StringComparison.OrdinalIgnoreCase));
 
                 Assert.IsNull(removeEntry.CompatibilityAdapter);
                 Assert.AreEqual(1, package.ChartEntries.Count);
