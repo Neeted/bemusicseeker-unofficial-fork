@@ -50,15 +50,6 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    internal bool ContainsChartAdapter(BMSFile chartFile)
-    {
-        if (chartFile == null)
-        {
-            return false;
-        }
-        return (ChartEntries ?? []).Any(entry => IsSameChartTarget(entry, chartFile));
-    }
-
     internal bool RemoveChartEntries(Func<PackageChartEntry, bool> predicate)
     {
         if (predicate == null)
@@ -125,29 +116,6 @@ public class ChartPackage : LR2SongDBExtended.install
                 ? PackageChartEntry.FromCompatibilityAdapter(entry.CompatibilityAdapter)
                 : PackageChartEntry.FromChart(entry.Chart);
         }
-    }
-
-    private static bool IsSameChartAdapter(BMSFile left, BMSFile right)
-    {
-        return left != null
-            && right != null
-            && (ReferenceEquals(left, right)
-                || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && left.path.Equals(right.path, StringComparison.OrdinalIgnoreCase)));
-    }
-
-    private static bool IsSameChartTarget(PackageChartEntry entry, BMSFile chartFile)
-    {
-        if (entry == null || chartFile == null)
-        {
-            return false;
-        }
-        if (IsSameChartAdapter(entry.CompatibilityAdapter, chartFile))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(entry.Chart?.Path)
-            && !string.IsNullOrWhiteSpace(chartFile.path)
-            && entry.Chart.Path.Equals(chartFile.path, StringComparison.OrdinalIgnoreCase);
     }
 
     public ChartPackage()

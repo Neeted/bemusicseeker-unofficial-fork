@@ -14921,7 +14921,7 @@ public class MainWindowViewModel : ViewModel
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
         if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
         {
-            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => pkg.ContainsChartAdapter(bmsFile)).FirstOrDefault();
+            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => ContainsChartTarget(pkg, bmsFile)).FirstOrDefault();
             if (chartPackage == null)
             {
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
@@ -19810,7 +19810,7 @@ public class MainWindowViewModel : ViewModel
         List<ChartPackage> packages = [];
         foreach (BeMusicSeeker.Models.BMSFile file in chartFiles)
         {
-            ChartPackage chartPackage = source.FirstOrDefault(p => p.ContainsChartAdapter(file));
+            ChartPackage chartPackage = source.FirstOrDefault(p => ContainsChartTarget(p, file));
             if (chartPackage == null)
             {
                 remainingChartFiles.Add(file);
@@ -19822,6 +19822,38 @@ public class MainWindowViewModel : ViewModel
         }
         chartFiles = remainingChartFiles;
         return [.. packages.Distinct()];
+    }
+
+    private static bool ContainsChartTarget(ChartPackage chartPackage, BeMusicSeeker.Models.BMSFile chartFile)
+    {
+        if (chartPackage == null || chartFile == null)
+        {
+            return false;
+        }
+        return (chartPackage.ChartEntries ?? []).Any(entry => IsSameChartTarget(entry, chartFile));
+    }
+
+    private static bool IsSameChartTarget(PackageChartEntry entry, BeMusicSeeker.Models.BMSFile chartFile)
+    {
+        if (entry == null || chartFile == null)
+        {
+            return false;
+        }
+        if (IsSameChartAdapter(entry.CompatibilityAdapter, chartFile))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart?.Path)
+            && !string.IsNullOrWhiteSpace(chartFile.path)
+            && entry.Chart.Path.Equals(chartFile.path, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSameChartAdapter(BeMusicSeeker.Models.BMSFile left, BeMusicSeeker.Models.BMSFile right)
+    {
+        return left != null
+            && right != null
+            && (ReferenceEquals(left, right)
+                || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && left.path.Equals(right.path, StringComparison.OrdinalIgnoreCase)));
     }
 
     public void ForceInstallPendingPackages(IEnumerable<ChartPackage> packages)
