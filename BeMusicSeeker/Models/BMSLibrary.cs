@@ -10882,7 +10882,7 @@ reportProgress,
                 ApplyLibraryMutationDelta(result.MutationDelta);
                 if (result.FilesToRemove.Count > 0)
                 {
-                    RemoveChartFiles(result.FilesToRemove);
+                    RemoveLibraryCharts(result.FilesToRemove.Select(LibraryChartRef.FromCompatibilityBmsFile));
                 }
                 if (result.MaintenanceTargets.Count > 0)
                 {
@@ -11153,11 +11153,6 @@ reportProgress,
     /// <summary>
     /// 指定された chart file 群をライブラリおよびファイルシステムから削除します。
     /// </summary>
-    public void RemoveChartFiles(IEnumerable<BMSFile> chartFiles, bool sendToRecycleBin = true)
-    {
-        RemoveLibraryCharts((chartFiles ?? []).Select(LibraryChartRef.FromCompatibilityBmsFile), sendToRecycleBin);
-    }
-
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<LibraryChartRef> charts)
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
