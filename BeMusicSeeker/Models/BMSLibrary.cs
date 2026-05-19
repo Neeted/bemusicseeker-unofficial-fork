@@ -8863,6 +8863,42 @@ reportProgress,
         }
     }
 
+    public void SearchEstimatedInstallationDirectoryForLooseCharts(IEnumerable<BMSFile> chartFiles, bool asParallel = true)
+    {
+        if (chartFiles == null)
+        {
+            throw new ArgumentNullException("chartFiles");
+        }
+        List<BMSFile> targetFiles = [.. chartFiles.Where(file => file != null)];
+        if (targetFiles.Count == 0)
+        {
+            return;
+        }
+        var stopwatch = Stopwatch.StartNew();
+        LogInstallPerformance("manual_estimate_progress start kind=loose_files total=" + targetFiles.Count);
+        try
+        {
+            RunPendingEstimateExclusive(delegate
+            {
+                int totalWorkCount = targetFiles.Count;
+                for (int i = 0; i < totalWorkCount; i++)
+                {
+                    BMSFile targetFile = targetFiles[i];
+                    string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(targetFile.path);
+                    SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i, displayName);
+                    SearchEstimatedInstallationDirectoryCore(targetFile, asParallel);
+                    SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
+                }
+            });
+        }
+        finally
+        {
+            stopwatch.Stop();
+            ClearInstallEstimationProgress();
+            LogInstallPerformance("manual_estimate_progress done kind=loose_files total=" + targetFiles.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+    }
+
     public void SearchMergeDestinationForPendingPackage(ChartPackage package)
     {
         if (package == null)

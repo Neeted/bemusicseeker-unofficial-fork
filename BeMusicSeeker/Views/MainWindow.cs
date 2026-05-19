@@ -6781,14 +6781,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> chartFiles = GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities.UpdateInstallDestination);
-        if (chartFiles != null && chartFiles.Count() != 0)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+        if (targets != null && targets.Count != 0)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
             e.Handled = true;
             await Task.Run(delegate
             {
-                viewModel.SearchInstallDestinationForPendingCharts(chartFiles);
+                viewModel.SearchInstallDestinationForPendingCharts(targets);
             }).Logging("searchInstallDestinationSelectedPendingCharts");
         }
     }
@@ -6861,8 +6861,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> chartFiles = GetSelectedPendingChartCompatibilityAdapters(ChartOperationCapabilities.UpdateInstallDestination);
-        if (chartFiles == null || chartFiles.Count == 0 || !ConfirmMergeDestinationSearch())
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+        if (targets == null || targets.Count == 0 || !ConfirmMergeDestinationSearch())
         {
             return;
         }
@@ -6870,7 +6870,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         await Task.Run(delegate
         {
-            viewModel.SearchMergeDestinationForPendingCharts(chartFiles);
+            viewModel.SearchMergeDestinationForPendingCharts(targets);
         }).Logging("searchMergeDestinationSelectedPendingCharts");
     }
 

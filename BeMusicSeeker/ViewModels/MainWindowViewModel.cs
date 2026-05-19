@@ -17736,6 +17736,32 @@ public class MainWindowViewModel : ViewModel
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
+    internal void SearchInstallDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException("targets");
+        }
+        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        lock (lockCopyFile)
+        {
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+            if (packages.Count > 0)
+            {
+                files.SearchEstimatedInstallationDirectory(packages);
+            }
+            List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
+                .Select(target => target.Chart.BmsFile ?? target.CompatibilityBmsFile)
+                .Where(file => file != null)];
+            if (remainingFiles.Count > 0)
+            {
+                files.SearchEstimatedInstallationDirectoryForLooseCharts(remainingFiles);
+            }
+        }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
+    }
+
     public void SearchMergeDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         if (chartFiles == null)
@@ -17753,6 +17779,32 @@ public class MainWindowViewModel : ViewModel
             if (chartFiles2.Count > 0)
             {
                 files.SearchMergeDestinationForPendingCharts(chartFiles2);
+            }
+        }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
+    }
+
+    internal void SearchMergeDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException("targets");
+        }
+        List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
+        lock (lockCopyFile)
+        {
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+            for (int num = 0; num < packages.Count; num++)
+            {
+                files.SearchMergeDestinationForPendingPackage(packages[num]);
+            }
+            List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
+                .Select(target => target.Chart.BmsFile ?? target.CompatibilityBmsFile)
+                .Where(file => file != null)];
+            if (remainingFiles.Count > 0)
+            {
+                files.SearchMergeDestinationForPendingCharts(remainingFiles);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
