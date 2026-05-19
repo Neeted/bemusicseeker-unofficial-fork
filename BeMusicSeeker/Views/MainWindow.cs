@@ -127,21 +127,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
-    private readonly Dictionary<BMSFile, PendingInstallDestinationEditState> _pendingInstallDestinationEditStates = [];
-
-    private sealed class PendingInstallDestinationEditState
-    {
-        public string InstallDestination { get; set; }
-
-        public string InstallDestinationTitle { get; set; }
-
-        public string InstallDestinationArtist { get; set; }
-
-        public IReadOnlyList<ChartWarning> Warnings { get; set; }
-
-        public IReadOnlyList<string> Suggestions { get; set; }
-    }
-
     private BitmapSource panelImage
     {
         get
@@ -805,21 +790,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             return;
         }
-        BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
-        if (compatibilityBmsFile == null)
-        {
-            e.Cancel = true;
-            return;
-        }
         if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
         {
-            if (!CanEditInstallDestinationInCurrentSection())
+            if (!CanEditInstallDestinationInCurrentSection()
+                || !GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
+                || !target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
             {
                 e.Cancel = true;
                 return;
             }
-            _pendingInstallDestinationEditStates[compatibilityBmsFile] = CapturePendingInstallDestinationEditState(compatibilityBmsFile);
-            compatibilityBmsFile.IsInstallDestinationSuggestionPopupOpen = compatibilityBmsFile.HasInstallDestinationSuggestions;
             return;
         }
         e.Cancel = true;
@@ -937,17 +916,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("customTableView_CellEditEnded");
                 return;
             }
-            BMSFile compatibilityBmsFile = GridRowResolver.GetCompatibilityBmsFile(e.Row, GetCurrentChartOperationSourceScope());
-            if (compatibilityBmsFile == null)
-            {
-                return;
-            }
             if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
             {
-                compatibilityBmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+                if (!GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
+                    || !target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
+                {
+                    return;
+                }
                 if (!e.Commit)
                 {
-                    ClearPendingInstallDestinationEditState(compatibilityBmsFile);
                     return;
                 }
                 if (!CanEditInstallDestinationInCurrentSection())
@@ -955,24 +932,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return;
                 }
                 string destinationDirectory = e.Text;
-                PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(compatibilityBmsFile);
-                compatibilityBmsFile.instl_dst = destinationDirectory;
                 Task.Run(delegate
                 {
-                    bool succeeded = viewModel.SetPendingInstallDestination(compatibilityBmsFile, destinationDirectory);
+                    viewModel.SetPendingInstallDestination(target, destinationDirectory);
                     base.Dispatcher.BeginInvoke((Action)delegate
                     {
                         if (_isClosingOrClosed)
                         {
                             return;
-                        }
-                        if (!succeeded)
-                        {
-                            RestorePendingInstallDestinationEditState(compatibilityBmsFile, originalState);
-                        }
-                        else
-                        {
-                            ClearPendingInstallDestinationEditState(compatibilityBmsFile);
                         }
                         RefreshCustomTableViewDisplay();
                     }, DispatcherPriority.Background);
@@ -1741,58 +1708,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             current = visualParent ?? LogicalTreeHelper.GetParent(current);
         }
         return false;
-    }
-    private PendingInstallDestinationEditState CapturePendingInstallDestinationEditState(BMSFile bmsFile)
-    {
-        if (bmsFile == null)
-        {
-            return null;
-        }
-        return new PendingInstallDestinationEditState
-        {
-            InstallDestination = bmsFile.instl_dst,
-            InstallDestinationTitle = bmsFile.InstallDestinationTitle,
-            InstallDestinationArtist = bmsFile.InstallDestinationArtist,
-            Warnings = bmsFile.Warnings.ToStructuredList(),
-            Suggestions = [.. (bmsFile.InstallDestinationSuggestions ?? [])]
-        };
-    }
-
-    private PendingInstallDestinationEditState CaptureOrGetPendingInstallDestinationEditState(BMSFile bmsFile)
-    {
-        if (bmsFile == null)
-        {
-            return null;
-        }
-        if (!_pendingInstallDestinationEditStates.TryGetValue(bmsFile, out PendingInstallDestinationEditState state) || state == null)
-        {
-            state = CapturePendingInstallDestinationEditState(bmsFile);
-            _pendingInstallDestinationEditStates[bmsFile] = state;
-        }
-        return state;
-    }
-
-    private void ClearPendingInstallDestinationEditState(BMSFile bmsFile)
-    {
-        if (bmsFile != null)
-        {
-            _pendingInstallDestinationEditStates.Remove(bmsFile);
-        }
-    }
-
-    private void RestorePendingInstallDestinationEditState(BMSFile bmsFile, PendingInstallDestinationEditState state)
-    {
-        if (bmsFile == null || state == null)
-        {
-            return;
-        }
-        bmsFile.instl_dst = state.InstallDestination;
-        bmsFile.InstallDestinationTitle = state.InstallDestinationTitle;
-        bmsFile.InstallDestinationArtist = state.InstallDestinationArtist;
-        bmsFile.ReplaceStructuredWarnings(state.Warnings ?? []);
-        bmsFile.InstallDestinationSuggestions = state.Suggestions ?? [];
-        bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-        ClearPendingInstallDestinationEditState(bmsFile);
     }
     private bool CanEditInstallDestinationInCurrentSection()
     {

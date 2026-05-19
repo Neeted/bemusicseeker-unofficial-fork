@@ -1143,6 +1143,57 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return ValidateInstallDestination(targetFile, pendingPackages, knownChartDirectories, destinationDirectory, allowStandaloneLibraryFile: false);
     }
 
+    public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
+    {
+        var result = new PendingInstallDestinationSelectionResult();
+        if (targetEntry?.Chart == null)
+        {
+            return result;
+        }
+        ChartPackage package = (pendingPackages ?? [])
+            .FirstOrDefault(pkg => pkg != null && pkg.ChartEntries.Any(entry => IsSameChartTarget(entry, targetEntry)));
+        if (package == null)
+        {
+            result.WarningMessage = Properties.Resources.Warn_PendingPackageNotFound;
+            return result;
+        }
+        result.TargetEntries.AddRange(package.ChartEntries.Where(entry => entry?.Chart != null));
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            result.Success = true;
+            AddSelectionTargetFiles(result, null, package);
+            return result;
+        }
+        string normalizedInput;
+        try
+        {
+            normalizedInput = Path.GetFullPath(destinationDirectory.Trim().Trim('"'));
+        }
+        catch (Exception ex)
+        {
+            result.WarningMessage = string.Format(Properties.Resources.Warn_InvalidInstallPath, destinationDirectory, ex.Message);
+            return result;
+        }
+        string installDirectory = File.Exists(normalizedInput)
+            ? DirectoryExt.GetDirectoryNameSimple(normalizedInput)
+            : normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!Directory.Exists(installDirectory))
+        {
+            result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirNotFound, installDirectory);
+            return result;
+        }
+        var knownDirectories = new HashSet<string>((knownChartDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        if (!knownDirectories.Contains(installDirectory))
+        {
+            result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirMustContainBms, installDirectory);
+            return result;
+        }
+        result.Success = true;
+        result.ValidatedDestinationDirectory = installDirectory;
+        AddSelectionTargetFiles(result, null, package);
+        return result;
+    }
+
     public PendingInstallDestinationSelectionResult ValidateInstallDestination(BMSFile targetFile, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryFile)
     {
         var result = new PendingInstallDestinationSelectionResult();
@@ -1315,6 +1366,25 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return !string.IsNullOrWhiteSpace(entry.Chart?.Path)
             && !string.IsNullOrWhiteSpace(targetFile.path)
             && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSameChartTarget(PackageChartEntry entry, PackageChartEntry targetEntry)
+    {
+        if (entry?.Chart == null || targetEntry?.Chart == null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(entry, targetEntry))
+        {
+            return true;
+        }
+        if (IsSameChartAdapter(entry.CompatibilityAdapter, targetEntry.CompatibilityAdapter))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(entry.Chart.Path)
+            && !string.IsNullOrWhiteSpace(targetEntry.Chart.Path)
+            && entry.Chart.Path.Equals(targetEntry.Chart.Path, StringComparison.OrdinalIgnoreCase);
     }
 
     private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)

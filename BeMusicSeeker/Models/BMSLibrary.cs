@@ -9934,6 +9934,36 @@ reportProgress,
         }
     }
 
+    internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory)
+    {
+        if (targetEntry == null)
+        {
+            throw new ArgumentNullException("targetEntry");
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockPendingInstallCharts.GetWriterGuard())
+            {
+                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidateInstallDestination(targetEntry, ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory);
+                if (!selection.Success)
+                {
+                    dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    return false;
+                }
+                bool preserveAmbiguousInstallContext = !string.IsNullOrWhiteSpace(selection.ValidatedDestinationDirectory)
+                    && (selection.TargetEntries.Any(entry => entry != null
+                            && entry.HasLowConfidenceInstallEstimationWarning()
+                            && entry.HasInstallDestinationSuggestion(selection.ValidatedDestinationDirectory))
+                        || selection.TargetFiles.Any(file => file != null
+                            && file.HasLowConfidenceInstallEstimationWarning()
+                            && (file.InstallDestinationSuggestions?.Any(path => string.Equals(path, selection.ValidatedDestinationDirectory, StringComparison.OrdinalIgnoreCase)) ?? false)));
+                ApplyResolvedInstallDestinationToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
+                ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
+                return true;
+            }
+        }
+    }
+
     private bool IsKnownLibraryChartFileUnsafe(BMSFile bmsFile)
     {
         if (bmsFile == null)

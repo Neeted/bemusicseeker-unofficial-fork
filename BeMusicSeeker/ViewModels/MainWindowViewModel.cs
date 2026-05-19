@@ -20727,6 +20727,40 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    internal bool SetPendingInstallDestination(ChartOperationTarget target, string destinationDirectory)
+    {
+        if (files == null)
+        {
+            return false;
+        }
+        if (target == null)
+        {
+            throw new ArgumentNullException("target");
+        }
+        lock (lockCopyFile)
+        {
+            bool changed;
+            if (target.PackageEntry != null)
+            {
+                changed = files.SetPendingInstallDestination(target.PackageEntry, destinationDirectory);
+            }
+            else
+            {
+                BeMusicSeeker.Models.BMSFile bmsFile = target.Chart?.BmsFile ?? target.CompatibilityBmsFile;
+                if (bmsFile == null)
+                {
+                    return false;
+                }
+                changed = files.SetPendingInstallDestination(bmsFile, destinationDirectory);
+            }
+            if (changed)
+            {
+                InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            }
+            return changed;
+        }
+    }
+
     public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
     {
         installDir = null;

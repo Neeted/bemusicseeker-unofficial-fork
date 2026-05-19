@@ -1046,9 +1046,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BMSFiles = [];
             library.BmsonSongs = [BmsonSongParser.Parse(installedBmsonPath)];
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(pendingSong);
-
-            bool succeeded = library.SetPendingInstallDestination(selectedChart, destinationDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(entry, destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.IsNull(entry.CompatibilityAdapter);
@@ -1191,8 +1189,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(pendingSong);
-            bool succeeded = library.SetPendingInstallDestination(selectedChart, candidateBDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(entry, candidateBDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.IsNull(entry.CompatibilityAdapter);

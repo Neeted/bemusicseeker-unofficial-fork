@@ -894,6 +894,27 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PendingInstallDestinationCellEditUsesChartTargets()
+    {
+        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string editBeginning = ExtractBetween(
+            mainWindowCode,
+            "private void customTableView_CellEditBeginning",
+            "private async void customTableView_CellActionRequested");
+        string editEnded = ExtractBetween(
+            mainWindowCode,
+            "private void customTableView_CellEditEnded",
+            "private static bool IsCustomTablePlaylistEditableProperty");
+
+        StringAssert.Contains(editBeginning, "GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)");
+        StringAssert.Contains(editBeginning, "target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)");
+        Assert.IsFalse(editBeginning.Contains("GetCompatibilityBmsFile"));
+        StringAssert.Contains(editEnded, "GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)");
+        StringAssert.Contains(editEnded, "viewModel.SetPendingInstallDestination(target, destinationDirectory)");
+        Assert.IsFalse(editEnded.Contains("GetCompatibilityBmsFile"));
+    }
+
+    [TestMethod]
     public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
