@@ -761,6 +761,137 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void ClearInstallDestinationForPendingChartTargets_DoesNotResolveAdapterlessBmsonCompatibilityFile()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var viewModel = new MainWindowViewModel();
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong();
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(
+            ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(bmsonSong),
+                @"C:\Installed\Target",
+                "Installed",
+                "Artist",
+                []));
+        ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+        try
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
+                new ObservableCollection<ChartPackage>([package]),
+                Dispatcher.CurrentDispatcher);
+            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
+            var target = new ChartOperationTarget(
+                adapterlessBmsonEntry.Chart,
+                () => throw new AssertFailedException("Compatibility adapter should not be resolved for package-owned bmson chart clearing."),
+                null,
+                ChartOperationSourceScope.PendingPackage,
+                isOwned: false,
+                isPending: true,
+                isPlaylistMissing: false,
+                ChartOperationCapabilities.UpdateInstallDestination,
+                adapterlessBmsonEntry);
+
+            viewModel.ClearInstallDestinationForPendingCharts([target]);
+
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
+            Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ClearInstallDestinationForPendingChartTargets_DoesNotResolveExtractedPackageTargetWhenStandaloneTargetSharesPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var viewModel = new MainWindowViewModel();
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong();
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(
+            ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(bmsonSong),
+                @"C:\Installed\Target",
+                "Installed",
+                "Artist",
+                []));
+        ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
+        try
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.ChartPackagesPending = new DispatcherCollection<ChartPackage>(
+                new ObservableCollection<ChartPackage>([package]),
+                Dispatcher.CurrentDispatcher);
+            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
+            var packageTarget = new ChartOperationTarget(
+                adapterlessBmsonEntry.Chart,
+                () => throw new AssertFailedException("Extracted package target should not be resolved by fallback."),
+                null,
+                ChartOperationSourceScope.PendingPackage,
+                isOwned: false,
+                isPending: true,
+                isPlaylistMissing: false,
+                ChartOperationCapabilities.UpdateInstallDestination,
+                adapterlessBmsonEntry);
+            BMSFile standaloneAdapter = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
+            standaloneAdapter.instl_dst = @"C:\Installed\Standalone";
+            ChartFile standaloneChart = ChartFileProjection.FromBmsonSong(bmsonSong);
+            var standaloneTarget = new ChartOperationTarget(
+                standaloneChart,
+                standaloneAdapter,
+                null,
+                ChartOperationSourceScope.PendingPackage,
+                isOwned: false,
+                isPending: true,
+                isPlaylistMissing: false,
+                ChartOperationCapabilities.UpdateInstallDestination);
+
+            viewModel.ClearInstallDestinationForPendingCharts([packageTarget, standaloneTarget]);
+
+            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
+            Assert.IsNull(standaloneAdapter.instl_dst);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PackageEntryRowsCarryPackageEntryIntoChartOperationTarget()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile adapter = CreateFile(
+            @"C:\Pkg\chart.bms",
+            "BMS",
+            "Pkg",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
+        Assert.AreSame(entry, target.PackageEntry);
+    }
+
+    [TestMethod]
     public void VirtualNormalLibraryRequestModes_CoverRootAndFullScanTrees()
     {
         MainWindowViewModel.viewUpdateMode[] treeModes =

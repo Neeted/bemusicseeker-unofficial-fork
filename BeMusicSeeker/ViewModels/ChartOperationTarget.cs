@@ -47,6 +47,8 @@ internal sealed class ChartOperationTarget
 
     internal BMSTableEntry PlaylistEntry { get; }
 
+    internal PackageChartEntry PackageEntry { get; }
+
     internal ChartOperationSourceScope SourceScope { get; }
 
     internal bool IsOwned { get; }
@@ -65,7 +67,8 @@ internal sealed class ChartOperationTarget
         bool isOwned,
         bool isPending,
         bool isPlaylistMissing,
-        ChartOperationCapabilities capabilities)
+        ChartOperationCapabilities capabilities,
+        PackageChartEntry packageEntry = null)
         : this(
             chart,
             () => compatibilityBmsFile,
@@ -74,7 +77,8 @@ internal sealed class ChartOperationTarget
             isOwned,
             isPending,
             isPlaylistMissing,
-            capabilities)
+            capabilities,
+            packageEntry)
     {
     }
 
@@ -86,11 +90,13 @@ internal sealed class ChartOperationTarget
         bool isOwned,
         bool isPending,
         bool isPlaylistMissing,
-        ChartOperationCapabilities capabilities)
+        ChartOperationCapabilities capabilities,
+        PackageChartEntry packageEntry = null)
     {
         Chart = chart ?? throw new ArgumentNullException(nameof(chart));
         compatibilityBmsFile = new Lazy<BMSFile>(() => compatibilityBmsFileProvider?.Invoke());
         PlaylistEntry = playlistEntry;
+        PackageEntry = packageEntry;
         SourceScope = sourceScope;
         IsOwned = isOwned;
         IsPending = isPending;

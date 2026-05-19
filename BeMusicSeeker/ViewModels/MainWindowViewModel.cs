@@ -16747,14 +16747,14 @@ public class MainWindowViewModel : ViewModel
         BeMusicSeeker.Models.BMSFile adapter = entry.CompatibilityAdapter;
         if (adapter != null)
         {
-            return LibraryChartRow.FromBmsFile(adapter);
+            return LibraryChartRow.FromBmsFile(adapter, entry);
         }
         ChartFile chart = entry.Chart;
         if (chart?.Kind == ChartFileKind.Bmson)
         {
             return LibraryChartRow.FromPackageChartEntry(entry);
         }
-        return chart?.BmsFile == null ? null : LibraryChartRow.FromBmsFile(chart.BmsFile);
+        return chart?.BmsFile == null ? null : LibraryChartRow.FromBmsFile(chart.BmsFile, entry);
     }
 
     private LibraryChartRow CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection(PackageChartEntry entry)
@@ -19824,6 +19824,27 @@ public class MainWindowViewModel : ViewModel
         return [.. packages.Distinct()];
     }
 
+    private List<ChartPackage> ExtractChartPackagesFromChartTargets(ref List<ChartOperationTarget> targets, bool isInstalled = false)
+    {
+        DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
+        List<ChartOperationTarget> remainingTargets = [];
+        List<ChartPackage> packages = [];
+        foreach (ChartOperationTarget target in targets)
+        {
+            ChartPackage chartPackage = source.FirstOrDefault(p => ContainsChartTarget(p, target));
+            if (chartPackage == null)
+            {
+                remainingTargets.Add(target);
+            }
+            else
+            {
+                packages.Add(chartPackage);
+            }
+        }
+        targets = remainingTargets;
+        return [.. packages.Distinct()];
+    }
+
     private static bool ContainsChartTarget(ChartPackage chartPackage, BeMusicSeeker.Models.BMSFile chartFile)
     {
         if (chartPackage == null || chartFile == null)
@@ -19831,6 +19852,24 @@ public class MainWindowViewModel : ViewModel
             return false;
         }
         return (chartPackage.ChartEntries ?? []).Any(entry => IsSameChartTarget(entry, chartFile));
+    }
+
+    private static bool ContainsChartTarget(ChartPackage chartPackage, ChartOperationTarget target)
+    {
+        ChartFile chart = target?.Chart;
+        if (chartPackage == null || chart == null)
+        {
+            return false;
+        }
+        if (target.PackageEntry != null)
+        {
+            return (chartPackage.ChartEntries ?? []).Any(entry => ReferenceEquals(entry, target.PackageEntry));
+        }
+        if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null && ContainsChartTarget(chartPackage, chart.BmsFile))
+        {
+            return true;
+        }
+        return false;
     }
 
     private static bool IsSameChartTarget(PackageChartEntry entry, BeMusicSeeker.Models.BMSFile chartFile)
@@ -20573,6 +20612,34 @@ public class MainWindowViewModel : ViewModel
     public void ClearInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         ClearInstallDestinationForCharts(chartFiles);
+    }
+
+    internal void ClearInstallDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException("targets");
+        }
+        if (files == null)
+        {
+            return;
+        }
+
+        List<ChartOperationTarget> targetList = [.. targets.Where(target => target?.Chart != null)];
+        List<ChartOperationTarget> remainingTargets = [.. targetList];
+        List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
+        for (int num = 0; num < chartPackages.Count; num++)
+        {
+            ClearChartPackageInstallDestinations(chartPackages[num]);
+        }
+        if (remainingTargets.Count > 0)
+        {
+            List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
+                .Select(target => target.Chart.BmsFile ?? target.CompatibilityBmsFile)
+                .Where(file => file != null)];
+            files.RemoveInstallDestination(remainingFiles);
+        }
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
     public void ClearInstallDestinationForCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)

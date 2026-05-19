@@ -6387,8 +6387,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             : ChartOperationCapabilities.UpdateInstallDestination;
         List<BMSFile> chartFiles = isInstalledLocationRepair
             ? GetSelectedChartCompatibilityAdapters(capability)
-            : GetSelectedPendingChartCompatibilityAdapters(capability);
-        if (chartFiles != null && chartFiles.Count() != 0)
+            : null;
+        List<ChartOperationTarget> pendingTargets = isInstalledLocationRepair
+            ? null
+            : GetSelectedChartTargets(capability, isPendingSection: true);
+        if ((chartFiles != null && chartFiles.Count() != 0) || (pendingTargets != null && pendingTargets.Count != 0))
         {
             var viewModel = base.DataContext as MainWindowViewModel;
             e.Handled = true;
@@ -6400,7 +6403,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
                 else
                 {
-                    viewModel.ClearInstallDestinationForPendingCharts(chartFiles);
+                    viewModel.ClearInstallDestinationForPendingCharts(pendingTargets);
                 }
             }).Logging("tableContextMenuRemoveInstallDestinationClick");
         }

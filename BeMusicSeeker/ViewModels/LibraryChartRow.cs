@@ -24,6 +24,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; private set; }
 
+    internal PackageChartEntry PackageEntry { get; }
+
     private PendingChartEntry bmsonChartAdapter;
 
     private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
@@ -65,12 +67,13 @@ internal sealed class LibraryChartRow : NotificationObject
         return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
     }
 
-    private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong, ChartFile chartOverride = null, Func<ChartFile> chartProvider = null)
+    private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong, ChartFile chartOverride = null, Func<ChartFile> chartProvider = null, PackageChartEntry packageEntry = null)
     {
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
         this.chartOverride = chartOverride;
         this.chartProvider = chartProvider;
+        PackageEntry = packageEntry;
         if (bmsFile is INotifyPropertyChanged propertyChangedSource)
         {
             PropertyChangedEventManager.AddHandler(propertyChangedSource, OnSourcePropertyChanged, string.Empty);
@@ -79,12 +82,17 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal static LibraryChartRow FromBmsFile(BMSFile file)
     {
+        return FromBmsFile(file, null);
+    }
+
+    internal static LibraryChartRow FromBmsFile(BMSFile file, PackageChartEntry packageEntry)
+    {
         if (file == null)
         {
             return null;
         }
         var pending = file as PendingChartEntry;
-        return new LibraryChartRow(file, pending?.IsBmsonChart == true ? pending.BmsonSong : null);
+        return new LibraryChartRow(file, pending?.IsBmsonChart == true ? pending.BmsonSong : null, packageEntry: packageEntry);
     }
 
     internal static LibraryChartRow FromBmsonSong(LR2SongDBExtended.bmson_song song)
@@ -114,13 +122,13 @@ internal sealed class LibraryChartRow : NotificationObject
         }
         if (entry.CompatibilityAdapter != null)
         {
-            return FromBmsFile(entry.CompatibilityAdapter);
+            return FromBmsFile(entry.CompatibilityAdapter, entry);
         }
         if (chart.BmsFile != null)
         {
-            return FromBmsFile(chart.BmsFile);
+            return FromBmsFile(chart.BmsFile, entry);
         }
-        return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart);
+        return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart, packageEntry: entry);
     }
 
     internal void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)
