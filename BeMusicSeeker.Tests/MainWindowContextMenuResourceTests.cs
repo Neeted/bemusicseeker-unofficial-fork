@@ -848,6 +848,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(mainWindowCode.Contains("GetSelectedChartCompatibilityAdapters("));
+        Assert.IsFalse(mainWindowCode.Contains("GetChartCompatibilityAdapterFromTarget"));
     }
 
     [TestMethod]

@@ -1158,23 +1158,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return section == MainWindowViewModel.MainViewOperationSection.ChartInfoParseError;
     }
 
-    private static BMSFile GetChartCompatibilityAdapterFromTarget(ChartOperationTarget target)
-    {
-        if (target?.Chart == null)
-        {
-            return null;
-        }
-        if (target.CompatibilityBmsFile != null)
-        {
-            return target.CompatibilityBmsFile;
-        }
-        if (target.Chart.BmsonSong != null)
-        {
-            return PendingChartEntry.CreateFromBmsonSong(target.Chart.BmsonSong);
-        }
-        return null;
-    }
-
     private static bool HasRequiredCapability(ChartOperationTarget target, ChartOperationCapabilities capability)
     {
         return target != null && (capability == ChartOperationCapabilities.None || target.HasCapability(capability));
@@ -1184,7 +1167,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         return [.. GetSelectedChartTargets(isPendingSection)
             .Where(target => HasRequiredCapability(target, capability) && target.Chart.Kind == ChartFileKind.Bms)
-            .Select(GetChartCompatibilityAdapterFromTarget)
+            .Select(target => target.Chart.BmsFile)
             .Where(PendingChartEntry.IsBmsChartFile)];
     }
 
@@ -4647,7 +4630,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             selectedTargets.Add(rowTarget);
         }
-        List<BMSFile> list = [.. selectedTargets.Select(GetChartCompatibilityAdapterFromTarget).Where(file => file != null)];
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
         bool hasBmsonSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bms);
@@ -4904,7 +4886,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         bool flag = false;
         bool hasScoreViewerTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
-        if (menuItem18 != null && list.Count > 1)
+        if (menuItem18 != null && selectedTargets.Count > 1)
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Register_chart_with_viewer;
             flag = (menuItem18.IsEnabled = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
@@ -5102,7 +5084,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItemDeleteInstallPackages != null)
         {
             menuItemDeleteInstallPackages.Visibility = (isInstallListSelected ? Visibility.Visible : Visibility.Collapsed);
-            menuItemDeleteInstallPackages.IsEnabled = isInstallListSelected && list.Count > 0;
+            menuItemDeleteInstallPackages.IsEnabled = isInstallListSelected && selectedTargets.Count > 0;
         }
         if (isNotOwnedPlaylistRow)
         {
