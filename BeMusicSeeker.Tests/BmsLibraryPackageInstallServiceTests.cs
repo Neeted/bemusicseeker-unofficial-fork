@@ -1446,6 +1446,133 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPackages_ReportsAdapterlessBmsonRowsWithoutMaterializingCompatibilityAdapter()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledPkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string sourceBmsonPath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            string destinationBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            File.WriteAllText(sourceBmsonPath, CreateBmsonJsonWithSound("new.wav"));
+
+            var bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = sourceBmsonPath,
+                folder = sourceDirectoryPath,
+                title = "Adapterless",
+                md5 = "dddddddddddddddddddddddddddddddd",
+                sha256 = new string('d', 64)
+            };
+            PackageChartEntry bmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+            ChartPackage package = ChartPackage.FromChartEntries([bmsonEntry]);
+            package.path = sourceDirectoryPath;
+
+            var service = new BmsLibraryPackageInstallService();
+            PackageInstallExecutionResult result = service.InstallPackages(
+                [package],
+                destinationDirectoryPath,
+                (movePackage, destination, deleteSourceContentsAfterSuccessfulInstall, existingHashes, excludedComponentPaths) =>
+                    service.MovePackageFiles(
+                        movePackage,
+                        destination,
+                        new BmsLibraryOptionsSnapshot
+                        {
+                            EnableSmartComponentOverwrite = false,
+                            KeepSmartOverwriteProtectedFilesByRenaming = false
+                        },
+                        (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                        ex => ex.Message,
+                        new RealFileMutationService(),
+                        null,
+                        null,
+                        null,
+                        _ => { },
+                        showMessageBoxOnInstallFail: false,
+                        deleteAllContents: deleteSourceContentsAfterSuccessfulInstall,
+                        existingHashes: existingHashes,
+                        excludedComponentPaths: excludedComponentPaths),
+                _ => { },
+                _ => { },
+                _ => { },
+                _ => { },
+                _ => { });
+
+            Assert.AreEqual(1, result.AddedEntries.Count);
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
+            Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
+            Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
+            Assert.IsNull(bmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(result.AddedEntries[0].CompatibilityAdapter);
+        });
+    }
+
+    [TestMethod]
+    public void InstallPackages_ReportsAdapterBackedBmsonRowAtInstalledPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledPkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string sourceBmsonPath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            string destinationBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            File.WriteAllText(sourceBmsonPath, CreateBmsonJsonWithSound("new.wav"));
+
+            PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
+            LR2SongDBExtended.bmson_song bmsonSong = bmsonAdapter.BmsonSong;
+            ChartPackage package = new ChartPackage([bmsonAdapter])
+            {
+                path = sourceDirectoryPath
+            };
+
+            var service = new BmsLibraryPackageInstallService();
+            PackageInstallExecutionResult result = service.InstallPackages(
+                [package],
+                destinationDirectoryPath,
+                (movePackage, destination, deleteSourceContentsAfterSuccessfulInstall, existingHashes, excludedComponentPaths) =>
+                    service.MovePackageFiles(
+                        movePackage,
+                        destination,
+                        new BmsLibraryOptionsSnapshot
+                        {
+                            EnableSmartComponentOverwrite = false,
+                            KeepSmartOverwriteProtectedFilesByRenaming = false
+                        },
+                        (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                        ex => ex.Message,
+                        new RealFileMutationService(),
+                        null,
+                        null,
+                        null,
+                        _ => { },
+                        showMessageBoxOnInstallFail: false,
+                        deleteAllContents: deleteSourceContentsAfterSuccessfulInstall,
+                        existingHashes: existingHashes,
+                        excludedComponentPaths: excludedComponentPaths),
+                _ => { },
+                _ => { },
+                _ => { },
+                _ => { },
+                _ => { });
+
+            Assert.AreEqual(1, result.AddedEntries.Count);
+            Assert.AreEqual(1, result.AddedFiles.Count);
+            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
+            Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
+            Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
+            Assert.AreEqual(destinationDirectoryPath, bmsonSong.folder);
+            Assert.AreEqual(destinationBmsonPath, bmsonAdapter.path);
+            Assert.AreSame(bmsonSong, bmsonAdapter.BmsonSong);
+            Assert.AreEqual(destinationBmsonPath, result.AddedEntries[0].Chart.Path);
+        });
+    }
+
+    [TestMethod]
     public void MovePackageFiles_MovesAdapterlessBmsonEntryWithoutMaterializingCompatibilityAdapter()
     {
         TestResourceInitializer.EnsureJapaneseResources();

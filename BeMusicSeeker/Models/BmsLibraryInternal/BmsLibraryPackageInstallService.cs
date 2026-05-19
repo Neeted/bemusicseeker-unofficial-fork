@@ -1726,20 +1726,26 @@ internal sealed class BmsLibraryPackageInstallService
             excludedComponentPathsByPackage?.TryGetValue(package, out excludedComponentPaths);
             if (movePackageFiles != null && movePackageFiles(package, installationDirectory, deleteSourceContentsAfterSuccessfulInstall, existingHashes, excludedComponentPaths))
             {
-                List<BMSFile> packageFiles = package.GetChartAdapters();
-                result.AddedFiles.AddRange(packageFiles);
+                List<PackageChartEntry> packageEntries = package.ChartEntries;
+                result.AddedEntries.AddRange(packageEntries);
+                result.AddedFiles.AddRange(packageEntries
+                    .Select(entry => entry?.Chart?.BmsFile ?? entry?.CompatibilityAdapter)
+                    .Where(file => file != null));
+                result.AddedBmsonSongs.AddRange(packageEntries
+                    .Select(entry => entry?.Chart?.BmsonSong)
+                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)));
                 if (existingHashes != null)
                 {
-                    foreach (BMSFile bmsFile in packageFiles)
+                    foreach (PackageChartEntry entry in packageEntries)
                     {
-                        string lookupKey = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
+                        string lookupKey = entry?.Chart?.PrimaryLookupHash;
                         if (!string.IsNullOrWhiteSpace(lookupKey))
                         {
                             existingHashes.Add(lookupKey);
                         }
                     }
                 }
-                bool shouldSkipInstalledPackageRegistration = skipInstalledPackageWhenNoBms && packageFiles.Count == 0;
+                bool shouldSkipInstalledPackageRegistration = skipInstalledPackageWhenNoBms && packageEntries.Count == 0;
                 if (!shouldSkipInstalledPackageRegistration)
                 {
                     result.InstalledPackagesToRegister.Add(package);
@@ -1753,23 +1759,24 @@ internal sealed class BmsLibraryPackageInstallService
         moveStopwatch.Stop();
         result.MoveMs = moveStopwatch.ElapsedMilliseconds;
 
-        foreach (BMSFile addedFile in result.AddedFiles.Where(file => file != null))
+        List<BMSFile> addedBmsFiles = [.. result.AddedEntries
+            .Select(entry => entry?.Chart?.BmsFile ?? entry?.CompatibilityAdapter)
+            .Where(PendingChartEntry.IsBmsChartFile)];
+        List<BMSFile> addedBmsonAdapters = [.. result.AddedEntries
+            .Select(entry => entry?.CompatibilityAdapter)
+            .Where(PendingChartEntry.IsBmsonChartFile)];
+        foreach (PackageChartEntry addedEntry in result.AddedEntries.Where(entry => entry?.Chart != null))
         {
-            addedFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-            addedFile.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
-            addedFile.InstallDestinationSuggestions = [];
-            addedFile.IsInstallDestinationSuggestionPopupOpen = false;
+            addedEntry.ClearPostInstallState();
         }
 
         var songDbStopwatch = Stopwatch.StartNew();
-        List<BMSFile> addedBmsFiles = [.. result.AddedFiles.Where(file => PendingChartEntry.IsBmsChartFile(file))];
-        List<BMSFile> addedChartFiles = [.. result.AddedFiles.Where(file => PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file))];
         upsertSongs?.Invoke(addedBmsFiles);
         songDbStopwatch.Stop();
         result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
 
         var maintenanceStopwatch = Stopwatch.StartNew();
-        updateMaintenance?.Invoke(addedChartFiles);
+        updateMaintenance?.Invoke([.. addedBmsFiles, .. addedBmsonAdapters]);
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 
@@ -1787,7 +1794,7 @@ internal sealed class BmsLibraryPackageInstallService
         result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
 
         var applyStopwatch = Stopwatch.StartNew();
-        applyState?.Invoke(result.AddedFiles);
+        applyState?.Invoke([.. addedBmsFiles, .. addedBmsonAdapters]);
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
 

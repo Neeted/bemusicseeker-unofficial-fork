@@ -333,7 +333,9 @@ internal sealed class BmsLibraryStateApplier(
             throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
         }
 
-        if (!string.IsNullOrWhiteSpace(oldPath) && !string.Equals(bmsonSong.path, oldPath, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(oldPath)
+            && !string.Equals(bmsonSong.path, oldPath, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(bmsonSong.path, newPath, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidCastException(Resources.Error_OldPathMismatch);
         }

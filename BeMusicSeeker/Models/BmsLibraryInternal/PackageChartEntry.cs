@@ -121,6 +121,15 @@ internal sealed class PackageChartEntry
         BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
         if (writebackFile != null)
         {
+            if (writebackFile is PendingChartEntry { IsBmsonChart: true, BmsonSong: { } bmsonSong } pendingBmson)
+            {
+                bmsonSong.path = installedPath;
+                bmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
+                bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
+                pendingBmson.ReplaceBmsonSongReferenceAfterInstall(bmsonSong);
+                chart = ChartFileProjection.FromBmsFile(pendingBmson);
+                return;
+            }
             writebackFile.path = installedPath;
             ClearInstalledChartAdapterMetadata(writebackFile);
             chart = ChartFileProjection.FromBmsFile(writebackFile);
@@ -131,6 +140,7 @@ internal sealed class PackageChartEntry
         {
             chart.BmsonSong.path = installedPath;
             chart.BmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
+            chart.BmsonSong.MaintenanceInfo?.NormalizeForBmson(chart.BmsonSong.path, chart.BmsonSong.md5);
             chart = ChartFileProjection.FromBmsonSong(chart.BmsonSong);
         }
     }
@@ -223,6 +233,22 @@ internal sealed class PackageChartEntry
         }
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+    }
+
+    internal void ClearPostInstallState()
+    {
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            writebackFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+            writebackFile.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
+            writebackFile.InstallDestinationSuggestions = [];
+            writebackFile.IsInstallDestinationSuggestionPopupOpen = false;
+            return;
+        }
+        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
+        ReplacePendingInstallDestination(Chart.InstallDestination, Chart.InstallDestinationTitle, Chart.InstallDestinationArtist, [], forceProjection: true);
     }
 
     internal void ClearStructuredWarnings()

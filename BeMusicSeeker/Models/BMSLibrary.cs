@@ -8145,6 +8145,10 @@ reportProgress,
                     AddResourceAffectedDirectory(directoryPath);
                 }
             }
+            foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedBmsonSongList)
+            {
+                AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedBmsonSong.path));
+            }
         }
 
         private void AddAffectedDirectory(string directoryPath)
@@ -8191,13 +8195,8 @@ reportProgress,
             {
                 List<BMSFile> addedFiles = [.. files.Where(file => file != null)];
                 List<BMSFile> addedBmsFiles = [.. addedFiles.Where(PendingChartEntry.IsBmsChartFile)];
-                List<LR2SongDBExtended.bmson_song> addedBmsonSongs = BuildBmsonSongsFromChartRows(addedFiles);
+                List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [];
                 addedBmsFilesForChartInfo.AddRange(addedBmsFiles);
-                addedBmsonSongsForChartInfo.AddRange(addedBmsonSongs);
-                if (addedBmsonSongs.Count > 0)
-                {
-                    dbGateway.UpsertBmsonSongs(addedBmsonSongs);
-                }
                 if (estimatedInstallBatchApplyContext != null)
                 {
                     estimatedInstallBatchApplyContext.AddInstalledFiles(addedFiles, addedBmsFiles, addedBmsonSongs, installationDirectory);
@@ -8226,6 +8225,54 @@ reportProgress,
             existingHashes,
             skipInstalledPackageWhenNoBms,
             deleteSourceContentsAfterSuccessfulInstall);
+        if (result.AddedBmsonSongs.Count > 0)
+        {
+            List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [.. result.AddedBmsonSongs.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+            var adapterBackedBmsonPaths = new HashSet<string>(
+                result.AddedFiles
+                    .Where(PendingChartEntry.IsBmsonChartFile)
+                    .Select(file => file.path)
+                    .Where(path => !string.IsNullOrWhiteSpace(path)),
+                StringComparer.OrdinalIgnoreCase);
+            List<LR2SongDBExtended.bmson_song> adapterlessAddedBmsonSongs = [.. addedBmsonSongs.Where(song => !adapterBackedBmsonPaths.Contains(song.path))];
+            List<BMSFile> adapterlessAddedBmsonMaintenanceTargets = [.. adapterlessAddedBmsonSongs
+                .Select(PendingChartEntry.CreateFromBmsonSong)
+                .Where(file => file != null)];
+            addedBmsonSongsForChartInfo.AddRange(addedBmsonSongs);
+            if (deferredMaintenanceTargets != null)
+            {
+                dbGateway.UpsertBmsonSongs(addedBmsonSongs);
+                deferredMaintenanceTargets.AddRange(adapterlessAddedBmsonMaintenanceTargets);
+            }
+            else if (adapterlessAddedBmsonMaintenanceTargets.Count > 0)
+            {
+                setMaintenanceInfo(adapterlessAddedBmsonMaintenanceTargets, forceUpdate: true);
+            }
+            if (estimatedInstallBatchApplyContext != null)
+            {
+                estimatedInstallBatchApplyContext.AddInstalledFiles([], [], addedBmsonSongs, installationDirectory);
+            }
+            else
+            {
+                var nextBmsonByPath = (BmsonSongs ?? [])
+                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                    .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
+                foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedBmsonSongs)
+                {
+                    nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
+                }
+                BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
+                ChartScanResult addedBmsonDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(adapterlessAddedBmsonSongs
+                    .Select(song => DirectoryExt.GetDirectoryNameSimple(song.path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase));
+                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+                foreach (string dir in addedBmsonDirectoryScan.ChartDirectories)
+                {
+                    reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedBmsonDirectoryScan));
+                }
+                LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
+            }
+        }
         if (estimatedInstallBatchApplyContext != null && result.FailedPackages.Count < installPackageList.Count)
         {
             estimatedInstallBatchApplyContext.AddInstalledFiles([], [], [], installationDirectory);
@@ -8241,7 +8288,7 @@ reportProgress,
                 ChartPackagesInstalled.AddRange(result.InstalledPackagesToRegister);
             }
         }
-        LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedFiles.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
+        LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
         if (deferredMaintenanceTargets == null)
         {
             BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedBmsFilesForChartInfo, addedBmsonSongsForChartInfo);
