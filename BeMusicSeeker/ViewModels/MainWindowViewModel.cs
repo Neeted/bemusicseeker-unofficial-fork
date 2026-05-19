@@ -17750,7 +17750,7 @@ public class MainWindowViewModel : ViewModel
                 files.SearchEstimatedInstallationDirectory(packages);
             }
             List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
-                .Select(target => target.Chart.BmsFile ?? target.CompatibilityBmsFile)
+                .Select(ResolveLegacyChartFile)
                 .Where(file => file != null)];
             if (remainingFiles.Count > 0)
             {
@@ -17776,7 +17776,7 @@ public class MainWindowViewModel : ViewModel
                 files.SearchMergeDestinationForPendingPackage(packages[num]);
             }
             List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
-                .Select(target => target.Chart.BmsFile ?? target.CompatibilityBmsFile)
+                .Select(ResolveLegacyChartFile)
                 .Where(file => file != null)];
             if (remainingFiles.Count > 0)
             {
@@ -20700,7 +20700,7 @@ public class MainWindowViewModel : ViewModel
         if (remainingTargets.Count > 0)
         {
             List<BeMusicSeeker.Models.BMSFile> remainingFiles = [.. remainingTargets
-                .Select(target => target.Chart.BmsFile ?? target.CompatibilityBmsFile)
+                .Select(ResolveLegacyChartFile)
                 .Where(file => file != null)];
             files.RemoveInstallDestination(remainingFiles);
         }
@@ -20744,27 +20744,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public bool SetPendingInstallDestination(BeMusicSeeker.Models.BMSFile bmsFile, string destinationDirectory)
-    {
-        if (files == null)
-        {
-            return false;
-        }
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException("bmsFile");
-        }
-        lock (lockCopyFile)
-        {
-            bool changed = files.SetPendingInstallDestination(bmsFile, destinationDirectory);
-            if (changed)
-            {
-                InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
-            }
-            return changed;
-        }
-    }
-
     internal bool SetPendingInstallDestination(ChartOperationTarget target, string destinationDirectory)
     {
         if (files == null)
@@ -20784,7 +20763,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                BeMusicSeeker.Models.BMSFile bmsFile = target.Chart?.BmsFile ?? target.CompatibilityBmsFile;
+                BeMusicSeeker.Models.BMSFile bmsFile = ResolveLegacyChartFile(target);
                 if (bmsFile == null)
                 {
                     return false;
@@ -20797,6 +20776,11 @@ public class MainWindowViewModel : ViewModel
             }
             return changed;
         }
+    }
+
+    private static BeMusicSeeker.Models.BMSFile ResolveLegacyChartFile(ChartOperationTarget target)
+    {
+        return target?.Chart?.BmsFile ?? target?.CompatibilityBmsFile;
     }
 
     public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
@@ -21641,7 +21625,7 @@ public class MainWindowViewModel : ViewModel
     {
         return [.. (targets ?? [])
             .Where(target => target != null && target.HasCapability(requiredCapability))
-            .Select(target => target.Chart?.BmsFile ?? target.CompatibilityBmsFile)
+            .Select(ResolveLegacyChartFile)
             .Where(file => file != null)];
     }
 
