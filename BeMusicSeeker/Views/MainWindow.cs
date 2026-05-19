@@ -902,12 +902,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     return;
                 }
+                MainWindowViewModel.RenameChartFolderTargetSnapshot targetSnapshot = viewModel.CreateRenameChartFolderTargetSnapshot(target);
+                if (!targetSnapshot.HasTarget)
+                {
+                    return;
+                }
                 string newFolder = e.Text;
                 Task.Run(delegate
                 {
                     try
                     {
-                        viewModel.RenameChartFolder(target, newFolder);
+                        viewModel.RenameChartFolder(targetSnapshot, newFolder);
                     }
                     finally
                     {

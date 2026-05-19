@@ -21606,11 +21606,21 @@ public class MainWindowViewModel : ViewModel
         }, bmsFiles);
     }
 
-    internal void RenameChartFolder(ChartOperationTarget target, string newFolder)
+    internal RenameChartFolderTargetSnapshot CreateRenameChartFolderTargetSnapshot(ChartOperationTarget target)
+    {
+        if (target == null
+            || !target.HasCapability(ChartOperationCapabilities.MoveInLibrary)
+            || string.IsNullOrWhiteSpace(target.Chart?.Path))
+        {
+            return RenameChartFolderTargetSnapshot.Empty;
+        }
+        return new RenameChartFolderTargetSnapshot(target.Chart, target.Chart.BmsFile);
+    }
+
+    internal void RenameChartFolder(RenameChartFolderTargetSnapshot target, string newFolder)
     {
         string chartPath = target?.Chart?.Path;
         if (target == null
-            || !target.HasCapability(ChartOperationCapabilities.MoveInLibrary)
             || string.IsNullOrWhiteSpace(chartPath)
             || string.IsNullOrWhiteSpace(newFolder))
         {
@@ -21618,9 +21628,9 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            if (target.CompatibilityBmsFile != null)
+            if (target.PlaybackBmsFile != null)
             {
-                stopPlayingBMSFile([target.CompatibilityBmsFile]);
+                stopPlayingBMSFile([target.PlaybackBmsFile]);
             }
             string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
@@ -21629,6 +21639,23 @@ public class MainWindowViewModel : ViewModel
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
         }
+    }
+
+    internal sealed class RenameChartFolderTargetSnapshot
+    {
+        internal static RenameChartFolderTargetSnapshot Empty { get; } = new(null, null);
+
+        internal RenameChartFolderTargetSnapshot(ChartFile chart, BeMusicSeeker.Models.BMSFile playbackBmsFile)
+        {
+            Chart = chart;
+            PlaybackBmsFile = playbackBmsFile;
+        }
+
+        internal ChartFile Chart { get; }
+
+        internal BeMusicSeeker.Models.BMSFile PlaybackBmsFile { get; }
+
+        internal bool HasTarget => Chart != null;
     }
 
     public void AutoRenameAllChartFolders(string parentDir = null)

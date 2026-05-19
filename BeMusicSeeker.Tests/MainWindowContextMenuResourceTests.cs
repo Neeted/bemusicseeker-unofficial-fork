@@ -803,6 +803,10 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private List<ChartFile> GetLibraryChartsForFolderOperations()",
             "internal void AutoRenameChartFolders");
+        string cellEditEnded = ExtractBetween(
+            mainWindowCode,
+            "private void customTableView_CellEditEnded",
+            "private static bool IsCustomTablePlaylistEditableProperty");
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(autoRenameClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary)");
@@ -817,6 +821,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(chartsForFolderOperations, "files?.BmsonSongs");
         StringAssert.Contains(chartsForFolderOperations, "ChartFileProjection.FromBmsonSong");
         Assert.IsFalse(chartsForFolderOperations.Contains("PendingChartEntry.CreateFromBmsonSong"));
+        StringAssert.Contains(cellEditEnded, "viewModel.CreateRenameChartFolderTargetSnapshot(target)");
+        StringAssert.Contains(cellEditEnded, "viewModel.RenameChartFolder(targetSnapshot, newFolder)");
+        Assert.IsFalse(cellEditEnded.Contains("viewModel.RenameChartFolder(target, newFolder)"));
     }
 
     [TestMethod]
