@@ -8856,35 +8856,42 @@ reportProgress,
         {
             return;
         }
-        List<BMSFile> list = package.GetChartAdapters();
-        if (list.Count == 0)
+        List<PackageChartEntry> entries = [.. package.ChartEntries.Where(entry => entry?.Chart != null)];
+        if (entries.Count == 0)
         {
             LogInstallPerformance("estimated_merge_skip reason=no_target package=" + package.path);
             return;
         }
-        foreach (BMSFile item in list)
+        foreach (PackageChartEntry entry in entries)
         {
-            item.instl_dst = null;
+            entry.ClearInstallDestination();
         }
-        LogInstallPerformance("estimated_merge_start package=" + package.path + " targets=" + list.Count);
+        LogInstallPerformance("estimated_merge_start package=" + package.path + " targets=" + entries.Count);
         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-        if (!TryResolveInstalledDestinationFromPackage(package, package.ChartEntries, list, out string resolvedDir))
+        if (!TryResolveInstalledDestinationFromPackage(package, entries, null, out string resolvedDir))
         {
+            List<BMSFile> list = [.. entries.Select(entry => entry.GetOrCreateCompatibilityAdapter()).Where(file => file != null)];
             SearchEstimatedInstallationDirectoryForChartsCore(package, list, asParallel: true, ChartInstallationEstimateMode.MergeCandidateOnly);
-        }
-        else
-        {
-            ApplyResolvedInstallDestinationToFiles(list, resolvedDir);
-        }
-        int num = list.Count(f => !string.IsNullOrWhiteSpace(f.instl_dst));
-        if (num == 0)
-        {
-            LogInstallPerformance("estimated_merge_skip reason=unresolved package=" + package.path + " targets=" + list.Count);
+            LogMergeDestinationResult(package, [.. list.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)]);
             return;
         }
-        string resolvedDestination = list.Select(f => f.instl_dst).Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
-        bool metadataResolved = list.Any(f => !string.IsNullOrWhiteSpace(f.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(f.InstallDestinationArtist));
-        LogInstallPerformance("estimated_merge_done package=" + package.path + " resolved=" + num + " targets=" + list.Count + " dst=" + resolvedDestination + " metadataResolved=" + metadataResolved);
+        ApplyResolvedInstallDestinationToEntries(entries, resolvedDir);
+        LogMergeDestinationResult(package, entries);
+    }
+
+    private void LogMergeDestinationResult(ChartPackage package, IReadOnlyCollection<PackageChartEntry> entries)
+    {
+        List<PackageChartEntry> targetEntries = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
+        int targetCount = targetEntries.Count;
+        int num = targetEntries.Count(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination));
+        if (num == 0)
+        {
+            LogInstallPerformance("estimated_merge_skip reason=unresolved package=" + package.path + " targets=" + targetCount);
+            return;
+        }
+        string resolvedDestination = targetEntries.Select(entry => entry.Chart?.InstallDestination).Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+        bool metadataResolved = targetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestinationArtist));
+        LogInstallPerformance("estimated_merge_done package=" + package.path + " resolved=" + num + " targets=" + targetCount + " dst=" + resolvedDestination + " metadataResolved=" + metadataResolved);
     }
 
     public void SearchMergeDestinationForPendingCharts(IEnumerable<BMSFile> chartFiles)

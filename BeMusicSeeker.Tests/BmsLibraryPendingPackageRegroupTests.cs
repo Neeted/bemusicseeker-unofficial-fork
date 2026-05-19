@@ -695,6 +695,37 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchMergeDestinationForPendingPackage_ResolvedAdapterlessBmsonStaysAdapterless()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "BmsonMergeAdapterless");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonMergeAdapterless");
+            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Installed Bmson", "Bmson Artist");
+            string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Installed Bmson", "Bmson Artist");
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+            library.BMSFiles = [];
+            library.BmsonSongs = [BmsonSongParser.Parse(installedBmsonPath)];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+
+            library.SearchMergeDestinationForPendingPackage(pendingPackage);
+
+            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
+            Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual("Bmson Artist", entry.Chart.InstallDestinationArtist);
+            BMSFile materializedAdapter = entry.GetOrCreateCompatibilityAdapter();
+            Assert.AreEqual(destinationDirectoryPath, materializedAdapter.instl_dst);
+            Assert.AreEqual("Installed Bmson", materializedAdapter.InstallDestinationTitle);
+            Assert.AreEqual("Bmson Artist", materializedAdapter.InstallDestinationArtist);
+        });
+    }
+
+    [TestMethod]
     public void SearchCorrectInstallationDirectoryCharts_BmsonOwnedChartIgnoresCurrentInstalledIndexSelfMatch()
     {
         TestResourceInitializer.EnsureJapaneseResources();
