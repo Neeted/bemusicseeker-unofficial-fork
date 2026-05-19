@@ -20637,7 +20637,7 @@ public class MainWindowViewModel : ViewModel
         RemoveInstalledPackageRecords(chartPackages);
     }
 
-    public void SearchCorrectInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    private void SearchCorrectInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         if (files != null)
         {
@@ -20655,13 +20655,14 @@ public class MainWindowViewModel : ViewModel
         SearchCorrectInstallationDirectoryCharts(CreateRepairInstalledLocationTargetSnapshot(targets));
     }
 
-    internal void SearchCorrectInstallationDirectoryCharts(RepairInstalledLocationTargetSnapshot targets)
+    internal void SearchCorrectInstallationDirectoryCharts(IRepairInstalledLocationTargetSnapshot targets)
     {
-        if (targets?.ChartFiles.Count > 0 != true)
+        RepairInstalledLocationTargetSnapshot snapshot = AsRepairInstalledLocationTargetSnapshot(targets);
+        if (snapshot?.HasTargets != true)
         {
             return;
         }
-        SearchCorrectInstallationDirectoryCharts(targets.ChartFiles);
+        SearchCorrectInstallationDirectoryCharts(snapshot.ChartFiles);
     }
 
     public void ClearInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
@@ -20676,11 +20677,6 @@ public class MainWindowViewModel : ViewModel
             ClearChartPackageInstallDestinations(list[num]);
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
-    }
-
-    public void ClearInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        ClearInstallDestinationForCharts(chartFiles);
     }
 
     internal void ClearInstallDestinationForPendingCharts(IEnumerable<ChartOperationTarget> targets)
@@ -20711,7 +20707,17 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
 
-    public void ClearInstallDestinationForCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    internal void ClearInstallDestinationForCharts(IRepairInstalledLocationTargetSnapshot targets)
+    {
+        RepairInstalledLocationTargetSnapshot snapshot = AsRepairInstalledLocationTargetSnapshot(targets);
+        if (snapshot?.HasTargets != true)
+        {
+            return;
+        }
+        ClearInstallDestinationForCharts(snapshot.ChartFiles);
+    }
+
+    private void ClearInstallDestinationForCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         if (files != null)
         {
@@ -21420,7 +21426,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void FixInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    private void FixInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
         lock (lockCopyFile)
         {
@@ -21438,13 +21444,14 @@ public class MainWindowViewModel : ViewModel
         FixInstallationDirectoryCharts(CreateRepairInstalledLocationTargetSnapshot(targets));
     }
 
-    internal void FixInstallationDirectoryCharts(RepairInstalledLocationTargetSnapshot targets)
+    internal void FixInstallationDirectoryCharts(IRepairInstalledLocationTargetSnapshot targets)
     {
-        if (targets?.ChartFiles.Count > 0 != true)
+        RepairInstalledLocationTargetSnapshot snapshot = AsRepairInstalledLocationTargetSnapshot(targets);
+        if (snapshot?.HasTargets != true)
         {
             return;
         }
-        FixInstallationDirectoryCharts(targets.ChartFiles);
+        FixInstallationDirectoryCharts(snapshot.ChartFiles);
     }
 
     public void RemoveChartFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
@@ -21646,7 +21653,7 @@ public class MainWindowViewModel : ViewModel
             .Where(file => file != null)];
     }
 
-    internal RepairInstalledLocationTargetSnapshot CreateRepairInstalledLocationTargetSnapshot(IEnumerable<ChartOperationTarget> targets)
+    internal IRepairInstalledLocationTargetSnapshot CreateRepairInstalledLocationTargetSnapshot(IEnumerable<ChartOperationTarget> targets)
     {
         List<BeMusicSeeker.Models.BMSFile> chartFiles = ResolveCompatibilityFiles(targets, ChartOperationCapabilities.RepairInstalledLocation);
         return new RepairInstalledLocationTargetSnapshot(chartFiles);
@@ -21668,7 +21675,19 @@ public class MainWindowViewModel : ViewModel
         internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles { get; }
     }
 
-    internal sealed class RepairInstalledLocationTargetSnapshot
+    internal interface IRepairInstalledLocationTargetSnapshot
+    {
+        bool HasTargets { get; }
+
+        bool HasInstallDestination { get; }
+    }
+
+    private static RepairInstalledLocationTargetSnapshot AsRepairInstalledLocationTargetSnapshot(IRepairInstalledLocationTargetSnapshot snapshot)
+    {
+        return snapshot as RepairInstalledLocationTargetSnapshot;
+    }
+
+    private sealed class RepairInstalledLocationTargetSnapshot : IRepairInstalledLocationTargetSnapshot
     {
         internal RepairInstalledLocationTargetSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
         {
@@ -21676,9 +21695,13 @@ public class MainWindowViewModel : ViewModel
             HasInstallDestination = ChartFiles.Any(file => !string.IsNullOrWhiteSpace(file.instl_dst));
         }
 
+        internal bool HasTargets => ChartFiles.Count > 0;
+
+        public bool HasInstallDestination { get; }
+
         internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles { get; }
 
-        internal bool HasInstallDestination { get; }
+        bool IRepairInstalledLocationTargetSnapshot.HasTargets => HasTargets;
     }
 
     /// <summary>

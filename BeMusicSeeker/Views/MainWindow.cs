@@ -6250,7 +6250,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ChartOperationCapabilities capability = isInstalledLocationRepair
             ? ChartOperationCapabilities.RepairInstalledLocation
             : ChartOperationCapabilities.UpdateInstallDestination;
-        MainWindowViewModel.RepairInstalledLocationTargetSnapshot repairTargets = null;
+        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot repairTargets = null;
         if (isInstalledLocationRepair)
         {
             List<ChartOperationTarget> targets = GetSelectedChartTargets(capability);
@@ -6259,14 +6259,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartOperationTarget> pendingTargets = isInstalledLocationRepair
             ? null
             : GetSelectedChartTargets(capability, isPendingSection: true);
-        if ((repairTargets?.ChartFiles.Count > 0) || (pendingTargets != null && pendingTargets.Count != 0))
+        if ((repairTargets?.HasTargets == true) || (pendingTargets != null && pendingTargets.Count != 0))
         {
             e.Handled = true;
             Task.Run(delegate
             {
                 if (isInstalledLocationRepair)
                 {
-                    viewModel.ClearInstallDestinationForCharts(repairTargets.ChartFiles);
+                    viewModel.ClearInstallDestinationForCharts(repairTargets);
                 }
                 else
                 {
@@ -6286,7 +6286,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (targets.Count != 0)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
-            MainWindowViewModel.RepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
+            MainWindowViewModel.IRepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
             Task.Run(delegate
             {
                 viewModel.SearchCorrectInstallationDirectoryCharts(repairTargets);
@@ -6307,7 +6307,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var viewModel = base.DataContext as MainWindowViewModel;
-        MainWindowViewModel.RepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
+        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
         e.Handled = true;
         if (!repairTargets.HasInstallDestination)
         {

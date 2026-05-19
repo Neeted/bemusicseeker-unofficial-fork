@@ -744,7 +744,16 @@ public sealed class ChartListVirtualViewTests
                 new ObservableCollection<ChartPackage>([package]),
                 Dispatcher.CurrentDispatcher);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
-            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
+            var selectedChart = new ChartOperationTarget(
+                adapterlessBmsonEntry.Chart,
+                () => PendingChartEntry.CreateFromBmsonSong(bmsonSong),
+                null,
+                ChartOperationSourceScope.PendingPackage,
+                isOwned: false,
+                isPending: true,
+                isPlaylistMissing: false,
+                ChartOperationCapabilities.UpdateInstallDestination,
+                adapterlessBmsonEntry);
 
             viewModel.ClearInstallDestinationForPendingCharts([selectedChart]);
 
