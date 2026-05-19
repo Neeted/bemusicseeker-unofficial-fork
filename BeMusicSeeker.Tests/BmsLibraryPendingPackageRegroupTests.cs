@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -84,8 +85,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
             Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
-            Assert.IsNotNull(entry.CompatibilityAdapter);
-            Assert.AreEqual(chartPath, entry.CompatibilityAdapter.path);
+            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.AreEqual(chartPath, entry.Chart.Path);
         });
     }
 
@@ -329,6 +330,94 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             StringAssert.Contains(pendingFile.WarningTooltipText, candidateADirectoryPath);
             StringAssert.Contains(pendingFile.WarningTooltipText, candidateADirectoryPath);
             StringAssert.Contains(pendingFile.WarningTooltipText, candidateBDirectoryPath);
+        });
+    }
+
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectory_AdapterlessBmsonLowConfidenceStaysOnChartEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonLowConfidence");
+            string candidateADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+            string candidateBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Pending Bmson", "Pending Artist");
+            CreateBmsFileWithContents(candidateADirectoryPath, "candidateA.bms", "#PLAYER 1\r\n#TITLE Candidate A\r\n#ARTIST Artist A\r\n");
+            CreateBmsFileWithContents(candidateBDirectoryPath, "candidateB.bms", "#PLAYER 1\r\n#TITLE Candidate B\r\n#ARTIST Artist B\r\n");
+            File.WriteAllText(Path.Combine(candidateADirectoryPath, "sound.wav"), "a");
+            File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
+
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
+            ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+            library.BMSFiles =
+            [
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateADirectoryPath, "candidateA.bms")),
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
+            ];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
+            Assert.AreEqual("Candidate A", entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual("Artist A", entry.Chart.InstallDestinationArtist);
+            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, entry.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+
+            BMSFile materializedAdapter = entry.GetOrCreateCompatibilityAdapter();
+            Assert.IsTrue(string.IsNullOrWhiteSpace(materializedAdapter.instl_dst));
+            Assert.AreEqual("Candidate A", materializedAdapter.InstallDestinationTitle);
+            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, materializedAdapter.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(materializedAdapter.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
+        });
+    }
+
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectory_BatchAdapterlessBmsonLowConfidenceStaysOnChartEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string firstSourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonBatchLowConfidence");
+            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonBatchOther");
+            string candidateADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+            string candidateBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+            string firstPendingBmsonPath = CreateBmsonFile(firstSourceDirectoryPath, "pending.bmson", "Pending Bmson", "Pending Artist");
+            string secondPendingBmsonPath = CreateBmsonFile(secondSourceDirectoryPath, "other.bmson", "Other Bmson", "Other Artist");
+            CreateBmsFileWithContents(candidateADirectoryPath, "candidateA.bms", "#PLAYER 1\r\n#TITLE Candidate A\r\n#ARTIST Artist A\r\n");
+            CreateBmsFileWithContents(candidateBDirectoryPath, "candidateB.bms", "#PLAYER 1\r\n#TITLE Candidate B\r\n#ARTIST Artist B\r\n");
+            File.WriteAllText(Path.Combine(candidateADirectoryPath, "sound.wav"), "a");
+            File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
+
+            PackageChartEntry firstEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(firstPendingBmsonPath)));
+            ChartPackage firstPackage = ChartPackage.FromChartEntries([firstEntry]);
+            firstPackage.path = firstSourceDirectoryPath;
+            firstPackage.delete_parent = false;
+            PackageChartEntry secondEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(secondPendingBmsonPath)));
+            ChartPackage secondPackage = ChartPackage.FromChartEntries([secondEntry]);
+            secondPackage.path = secondSourceDirectoryPath;
+            secondPackage.delete_parent = false;
+            library.BMSFiles =
+            [
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateADirectoryPath, "candidateA.bms")),
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
+            ];
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(firstSourceDirectoryPath, secondSourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
+            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(firstSourceDirectoryPath, secondSourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory([firstPackage, secondPackage]);
+
+            Assert.IsNull(firstEntry.CompatibilityAdapter);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(firstEntry.Chart.InstallDestination));
+            Assert.AreEqual("Candidate A", firstEntry.Chart.InstallDestinationTitle);
+            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, firstEntry.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(firstEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         });
     }
 
@@ -1073,6 +1162,49 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SetPendingInstallDestination_FromAdapterlessBmsonLowConfidenceCandidate_PreservesWarningAndSuggestions()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonLowConfidenceManual");
+            string candidateADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+            string candidateBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Pending Bmson", "Pending Artist");
+            CreateBmsFileWithContents(candidateADirectoryPath, "candidateA.bms", "#PLAYER 1\r\n#TITLE Candidate A\r\n#ARTIST Artist A\r\n");
+            CreateBmsFileWithContents(candidateBDirectoryPath, "candidateB.bms", "#PLAYER 1\r\n#TITLE Candidate B\r\n#ARTIST Artist B\r\n");
+            File.WriteAllText(Path.Combine(candidateADirectoryPath, "sound.wav"), "a");
+            File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
+
+            LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
+            ChartPackage pendingPackage = ChartPackage.FromChartEntries([entry]);
+            pendingPackage.path = sourceDirectoryPath;
+            pendingPackage.delete_parent = false;
+            library.BMSFiles =
+            [
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateADirectoryPath, "candidateA.bms")),
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
+            ];
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(pendingSong);
+            bool succeeded = library.SetPendingInstallDestination(selectedChart, candidateBDirectoryPath);
+
+            Assert.IsTrue(succeeded);
+            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.AreEqual(candidateBDirectoryPath, entry.Chart.InstallDestination);
+            Assert.AreEqual("Candidate B", entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual("Artist B", entry.Chart.InstallDestinationArtist);
+            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, entry.Chart.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        });
+    }
+
+    [TestMethod]
     public void SetPendingInstallDestination_WithManualDirectory_ClearsLowConfidenceState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1262,6 +1394,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             cache.AddDir(directoryPath, Directory.GetFiles(directoryPath, "*", SearchOption.TopDirectoryOnly).Select(Path.GetFileName));
         }
         return cache;
+    }
+
+    private static void SetLibraryResourceIndex(BMSLibrary library, DirectoryResourceLookupCache cache)
+    {
+        var index = new LibraryResourceIndex();
+        typeof(LibraryResourceIndex)
+            .GetProperty(nameof(LibraryResourceIndex.DirectoryLookupCache), BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
+            .SetValue(index, cache);
+        SetPrivateField(library, "libraryResourceIndex", index);
     }
 
     private static string[] LoadInstallPaths(string songDbPath)

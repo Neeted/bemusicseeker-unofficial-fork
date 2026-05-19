@@ -581,6 +581,43 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PackageChartEntryDisplayRow_ReflectsUpdatedAdapterlessBmsonEntryState()
+    {
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+        var result = new InstallEstimationResult
+        {
+            Confidence = InstallEstimationConfidence.Low,
+            HasViableDestination = true,
+            LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates
+        };
+        result.Candidates.Add(new InstallEstimationCandidate
+        {
+            DirectoryPath = @"C:\Candidate\A",
+            RepresentativeTitle = "Candidate A",
+            RepresentativeArtist = "Artist A"
+        });
+        result.Candidates.Add(new InstallEstimationCandidate
+        {
+            DirectoryPath = @"C:\Candidate\B",
+            RepresentativeTitle = "Candidate B",
+            RepresentativeArtist = "Artist B"
+        });
+        result.SuggestedDestinationDirectories.Add(@"C:\Candidate\A");
+        result.SuggestedDestinationDirectories.Add(@"C:\Candidate\B");
+
+        entry.ApplyInstallEstimationResult(result);
+
+        Assert.IsNull(entry.CompatibilityAdapter);
+        Assert.AreEqual(string.Empty, row.instl_dst);
+        Assert.AreEqual("Candidate A", row.InstallDestinationTitle);
+        Assert.AreEqual("Artist A", row.InstallDestinationArtist);
+        CollectionAssert.AreEqual(new[] { @"C:\Candidate\A", @"C:\Candidate\B" }, row.Chart.InstallDestinationSuggestions.ToArray());
+        Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+    }
+
+    [TestMethod]
     public void PackageChartSourceSnapshot_SplitsAdapterlessBmsonEntryWithoutMaterializing()
     {
         var bms = new TestableBmsFile();

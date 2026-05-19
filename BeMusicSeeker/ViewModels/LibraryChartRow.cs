@@ -16,6 +16,10 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class LibraryChartRow : NotificationObject
 {
+    private readonly ChartFile chartOverride;
+
+    private readonly Func<ChartFile> chartProvider;
+
     internal BMSFile BmsFile { get; }
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; private set; }
@@ -38,6 +42,15 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal ChartFile CreateChartFile(bool materializeBmsonChartAdapter)
     {
+        ChartFile providedChart = chartProvider?.Invoke();
+        if (providedChart != null)
+        {
+            return providedChart;
+        }
+        if (chartOverride != null)
+        {
+            return chartOverride;
+        }
         LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
         if (bmsonSong != null)
         {
@@ -52,10 +65,12 @@ internal sealed class LibraryChartRow : NotificationObject
         return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
     }
 
-    private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong)
+    private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong, ChartFile chartOverride = null, Func<ChartFile> chartProvider = null)
     {
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
+        this.chartOverride = chartOverride;
+        this.chartProvider = chartProvider;
         if (bmsFile is INotifyPropertyChanged propertyChangedSource)
         {
             PropertyChangedEventManager.AddHandler(propertyChangedSource, OnSourcePropertyChanged, string.Empty);
@@ -75,6 +90,37 @@ internal sealed class LibraryChartRow : NotificationObject
     internal static LibraryChartRow FromBmsonSong(LR2SongDBExtended.bmson_song song)
     {
         return song == null ? null : new LibraryChartRow(null, song);
+    }
+
+    internal static LibraryChartRow FromChartFile(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+        if (chart.BmsFile != null)
+        {
+            return FromBmsFile(chart.BmsFile);
+        }
+        return new LibraryChartRow(null, chart.BmsonSong, chart);
+    }
+
+    internal static LibraryChartRow FromPackageChartEntry(PackageChartEntry entry)
+    {
+        ChartFile chart = entry?.Chart;
+        if (chart == null)
+        {
+            return null;
+        }
+        if (entry.CompatibilityAdapter != null)
+        {
+            return FromBmsFile(entry.CompatibilityAdapter);
+        }
+        if (chart.BmsFile != null)
+        {
+            return FromBmsFile(chart.BmsFile);
+        }
+        return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart);
     }
 
     internal void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)

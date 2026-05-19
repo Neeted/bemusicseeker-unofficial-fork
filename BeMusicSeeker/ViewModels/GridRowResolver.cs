@@ -76,6 +76,11 @@ internal static class GridRowResolver
         return TryGetChartFile(row, materializeCompatibilityAdapter: true, out chart);
     }
 
+    internal static bool TryGetChartFileWithoutMaterializingCompatibilityAdapter(object row, out ChartFile chart)
+    {
+        return TryGetChartFile(row, materializeCompatibilityAdapter: false, out chart);
+    }
+
     private static bool TryGetChartFile(object row, bool materializeCompatibilityAdapter, out ChartFile chart)
     {
         chart = null;

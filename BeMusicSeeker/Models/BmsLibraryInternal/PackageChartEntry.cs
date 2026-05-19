@@ -20,6 +20,8 @@ internal sealed class PackageChartEntry
 
     private string installDestinationArtist;
 
+    private IReadOnlyList<string> installDestinationSuggestions = [];
+
     private bool hasInstallDestinationProjection;
 
     internal PackageChartEntry(ChartFile chart, BMSFile compatibilityAdapter = null)
@@ -29,7 +31,7 @@ internal sealed class PackageChartEntry
         if (compatibilityAdapter == null && chart.BmsFile == null)
         {
             ReplacePendingWarnings(chart.Warnings);
-            ReplacePendingInstallDestination(chart.InstallDestination, chart.InstallDestinationTitle, chart.InstallDestinationArtist);
+            ReplacePendingInstallDestination(chart.InstallDestination, chart.InstallDestinationTitle, chart.InstallDestinationArtist, chart.InstallDestinationSuggestions);
         }
     }
 
@@ -53,6 +55,7 @@ internal sealed class PackageChartEntry
                     hasInstallDestinationProjection ? installDestination : chart.InstallDestination,
                     hasInstallDestinationProjection ? installDestinationTitle : chart.InstallDestinationTitle,
                     hasInstallDestinationProjection ? installDestinationArtist : chart.InstallDestinationArtist,
+                    hasInstallDestinationProjection ? installDestinationSuggestions : chart.InstallDestinationSuggestions,
                     hasPendingWarningProjection ? [.. pendingWarnings.Values] : chart.Warnings)
                 : chart;
         }
@@ -90,9 +93,21 @@ internal sealed class PackageChartEntry
                 compatibilityAdapter.instl_dst = string.IsNullOrWhiteSpace(installDestination) ? null : installDestination;
                 compatibilityAdapter.InstallDestinationTitle = installDestinationTitle ?? string.Empty;
                 compatibilityAdapter.InstallDestinationArtist = installDestinationArtist ?? string.Empty;
+                compatibilityAdapter.InstallDestinationSuggestions = installDestinationSuggestions ?? [];
             }
         }
         return compatibilityAdapter;
+    }
+
+    internal bool HasInstallDestinationSuggestion(string destinationDirectory)
+    {
+        return !string.IsNullOrWhiteSpace(destinationDirectory)
+            && (Chart.InstallDestinationSuggestions?.Any(path => string.Equals(path, destinationDirectory, StringComparison.OrdinalIgnoreCase)) ?? false);
+    }
+
+    internal bool HasLowConfidenceInstallEstimationWarning()
+    {
+        return (Chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation && warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed);
     }
 
     internal void ApplyInstallDestination(string destinationDirectory, string title, string artist, bool preserveAmbiguousInstallContext = false)
@@ -111,11 +126,61 @@ internal sealed class PackageChartEntry
             }
             return;
         }
-        ReplacePendingInstallDestination(destinationDirectory, title, artist, forceProjection: true);
+        ReplacePendingInstallDestination(
+            destinationDirectory,
+            title,
+            artist,
+            preserveAmbiguousInstallContext ? installDestinationSuggestions : [],
+            forceProjection: true);
         if (!preserveAmbiguousInstallContext)
         {
             ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         }
+    }
+
+    internal void ApplyInstallEstimationResult(InstallEstimationResult result)
+    {
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            ApplyInstallEstimationResultToFile(writebackFile, result);
+            return;
+        }
+
+        InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
+        string[] suggestionPaths = [.. (result?.SuggestedDestinationDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)];
+        bool isLowConfidence = result?.Confidence == InstallEstimationConfidence.Low;
+        ReplacePendingInstallDestination(
+            result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory)
+                ? result.DestinationDirectory
+                : null,
+            result?.HasViableDestination == true ? selectedCandidate?.RepresentativeTitle ?? string.Empty : string.Empty,
+            result?.HasViableDestination == true ? selectedCandidate?.RepresentativeArtist ?? string.Empty : string.Empty,
+            isLowConfidence ? suggestionPaths : [],
+            forceProjection: true);
+        ApplyInstallEstimationWarnings(result);
+    }
+
+    internal void ApplyInstalledDestinationResolveFailed()
+    {
+        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        if (writebackFile != null)
+        {
+            writebackFile.instl_dst = null;
+            writebackFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+            writebackFile.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
+            writebackFile.InstallDestinationTitle = string.Empty;
+            writebackFile.InstallDestinationArtist = string.Empty;
+            writebackFile.InstallDestinationSuggestions = [];
+            writebackFile.IsInstallDestinationSuggestionPopupOpen = false;
+            return;
+        }
+        ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
+        ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
     }
 
     internal void ClearInstallDestination()
@@ -131,7 +196,7 @@ internal sealed class PackageChartEntry
             writebackFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             return;
         }
-        ReplacePendingInstallDestination(null, string.Empty, string.Empty, forceProjection: true);
+        ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
@@ -210,16 +275,78 @@ internal sealed class PackageChartEntry
         hasPendingWarningProjection = pendingWarnings.Count > 0;
     }
 
-    private void ReplacePendingInstallDestination(string destinationDirectory, string title, string artist, bool forceProjection = false)
+    private void ApplyInstallEstimationWarnings(InstallEstimationResult result)
+    {
+        ReplaceWarningsByCategory(ChartWarningCategory.InstallEstimation, BuildInstallEstimationWarnings(result));
+    }
+
+    private static IEnumerable<ChartWarning> BuildInstallEstimationWarnings(InstallEstimationResult result)
+    {
+        InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
+        InstallEstimationCandidate secondCandidate = result?.SecondCandidate;
+        string[] suggestionPaths = [.. (result?.SuggestedDestinationDirectories ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)];
+        bool isLowConfidence = result?.Confidence == InstallEstimationConfidence.Low;
+        InstallEstimationLowConfidenceKind lowConfidenceKind = result?.LowConfidenceKind ?? InstallEstimationLowConfidenceKind.None;
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates && selectedCandidate != null && secondCandidate != null)
+        {
+            return [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, string.Format(Properties.Resources.Warning_InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, secondCandidate.DirectoryPath))];
+        }
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous && suggestionPaths.Length >= 2)
+        {
+            return [ChartWarning.Create(ChartWarningKind.InstalledDestinationAmbiguous, string.Format(Properties.Resources.Warning_InstalledDestinationAmbiguous, string.Join(Environment.NewLine, suggestionPaths.Select(path => "- " + path))))];
+        }
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.MetadataMismatch && selectedCandidate != null)
+        {
+            return [ChartWarning.Create(ChartWarningKind.InstallEstimationMetadataMismatch, string.Format(Properties.Resources.Warning_InstallEstimationMetadataMismatch, selectedCandidate.DirectoryPath))];
+        }
+        if (isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.ReinstallNotImproved && selectedCandidate != null)
+        {
+            return [ChartWarning.Create(ChartWarningKind.InstallEstimationReinstallNotImproved, string.Format(Properties.Resources.Warning_InstallEstimationReinstallNotImproved, selectedCandidate.DirectoryPath))];
+        }
+        return [];
+    }
+
+    private static void ApplyInstallEstimationResultToFile(BMSFile bmsFile, InstallEstimationResult result)
+    {
+        if (bmsFile == null)
+        {
+            return;
+        }
+        InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
+        bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+        bmsFile.instl_dst = result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory) ? result.DestinationDirectory : null;
+        if (result?.HasViableDestination == true)
+        {
+            bmsFile.InstallDestinationTitle = selectedCandidate?.RepresentativeTitle ?? string.Empty;
+            bmsFile.InstallDestinationArtist = selectedCandidate?.RepresentativeArtist ?? string.Empty;
+        }
+        else
+        {
+            bmsFile.InstallDestinationTitle = string.Empty;
+            bmsFile.InstallDestinationArtist = string.Empty;
+        }
+        bmsFile.InstallDestinationSuggestions = result?.Confidence == InstallEstimationConfidence.Low
+            ? [.. (result?.SuggestedDestinationDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).Take(3)]
+            : [];
+        bmsFile.ReplaceWarningsByCategory(ChartWarningCategory.InstallEstimation, BuildInstallEstimationWarnings(result));
+    }
+
+    private void ReplacePendingInstallDestination(string destinationDirectory, string title, string artist, IReadOnlyList<string> suggestions, bool forceProjection = false)
     {
         installDestination = destinationDirectory ?? string.Empty;
         installDestinationTitle = title ?? string.Empty;
         installDestinationArtist = artist ?? string.Empty;
+        installDestinationSuggestions = suggestions ?? [];
         hasInstallDestinationProjection = forceProjection
             ||
             !string.IsNullOrWhiteSpace(installDestination)
             || !string.IsNullOrWhiteSpace(installDestinationTitle)
-            || !string.IsNullOrWhiteSpace(installDestinationArtist);
+            || !string.IsNullOrWhiteSpace(installDestinationArtist)
+            || installDestinationSuggestions.Count > 0;
     }
 
     internal static PackageChartEntry FromPath(string filePath)

@@ -61,6 +61,8 @@ internal sealed class ChartFile
 
     internal string InstallDestinationArtist { get; }
 
+    internal IReadOnlyList<string> InstallDestinationSuggestions { get; }
+
     internal IReadOnlyList<ChartWarning> Warnings { get; }
 
     internal int? WAVHealth { get; }
@@ -102,6 +104,7 @@ internal sealed class ChartFile
         string installDestination = null,
         string installDestinationTitle = null,
         string installDestinationArtist = null,
+        IReadOnlyList<string> installDestinationSuggestions = null,
         IReadOnlyList<ChartWarning> warnings = null,
         int? wavHealth = null,
         int? bgaHealth = null,
@@ -130,6 +133,7 @@ internal sealed class ChartFile
         InstallDestination = installDestination ?? string.Empty;
         InstallDestinationTitle = installDestinationTitle ?? string.Empty;
         InstallDestinationArtist = installDestinationArtist ?? string.Empty;
+        InstallDestinationSuggestions = installDestinationSuggestions ?? [];
         Warnings = warnings ?? [];
         WAVHealth = wavHealth;
         BGAHealth = bgaHealth;

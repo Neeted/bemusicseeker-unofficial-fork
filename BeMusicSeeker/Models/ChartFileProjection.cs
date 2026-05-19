@@ -20,6 +20,7 @@ internal static class ChartFileProjection
             source?.InstallDestination,
             source?.InstallDestinationTitle,
             source?.InstallDestinationArtist,
+            source?.InstallDestinationSuggestions,
             warnings);
     }
 
@@ -28,6 +29,23 @@ internal static class ChartFileProjection
         string installDestination,
         string installDestinationTitle,
         string installDestinationArtist,
+        IReadOnlyList<ChartWarning> warnings)
+    {
+        return WithPackageState(
+            source,
+            installDestination,
+            installDestinationTitle,
+            installDestinationArtist,
+            source?.InstallDestinationSuggestions,
+            warnings);
+    }
+
+    internal static ChartFile WithPackageState(
+        ChartFile source,
+        string installDestination,
+        string installDestinationTitle,
+        string installDestinationArtist,
+        IReadOnlyList<string> installDestinationSuggestions,
         IReadOnlyList<ChartWarning> warnings)
     {
         if (source == null)
@@ -56,6 +74,7 @@ internal static class ChartFileProjection
             installDestination,
             installDestinationTitle,
             installDestinationArtist,
+            installDestinationSuggestions,
             warnings,
             source.WAVHealth,
             source.BGAHealth,
@@ -102,6 +121,7 @@ internal static class ChartFileProjection
             file.instl_dst,
             file.InstallDestinationTitle,
             file.InstallDestinationArtist,
+            file.InstallDestinationSuggestions,
             GetWarnings(file, includeWarningSnapshot),
             file.WAVHealth,
             file.BGAHealth,
@@ -143,6 +163,7 @@ internal static class ChartFileProjection
             compatibilityBmsFile?.instl_dst,
             compatibilityBmsFile?.InstallDestinationTitle,
             compatibilityBmsFile?.InstallDestinationArtist,
+            compatibilityBmsFile?.InstallDestinationSuggestions,
             GetWarnings(compatibilityBmsFile, includeWarningSnapshot),
             song.MaintenanceInfo?.WAVHealth ?? compatibilityBmsFile?.WAVHealth,
             song.MaintenanceInfo?.BGAHealth ?? compatibilityBmsFile?.BGAHealth,
@@ -211,6 +232,7 @@ internal static class ChartFileProjection
             pending.instl_dst,
             pending.InstallDestinationTitle,
             pending.InstallDestinationArtist,
+            pending.InstallDestinationSuggestions,
             GetWarnings(pending, includeWarningSnapshot),
             pending.WAVHealth,
             pending.BGAHealth,

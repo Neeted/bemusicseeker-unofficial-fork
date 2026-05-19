@@ -16752,7 +16752,7 @@ public class MainWindowViewModel : ViewModel
         ChartFile chart = entry.Chart;
         if (chart?.Kind == ChartFileKind.Bmson)
         {
-            return LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+            return LibraryChartRow.FromPackageChartEntry(entry);
         }
         return chart?.BmsFile == null ? null : LibraryChartRow.FromBmsFile(chart.BmsFile);
     }
@@ -17696,6 +17696,7 @@ public class MainWindowViewModel : ViewModel
             files.SearchEstimatedInstallationDirectory(packages);
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
     public void SearchMergeDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
@@ -17713,6 +17714,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
     /// <summary>
@@ -17731,6 +17733,7 @@ public class MainWindowViewModel : ViewModel
             files.SearchEstimatedInstallationDirectory(chartFiles);
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
     public void SearchMergeDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
@@ -17753,6 +17756,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
     /// <summary>

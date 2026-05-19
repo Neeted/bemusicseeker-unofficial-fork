@@ -498,6 +498,23 @@ public sealed class CustomTableColumnFactoryTests
             new[] { "C:\\BMS\\A", "C:\\BMS\\B" },
             columns["InstallDst"].GetEditSuggestions(bmsFile).ToArray());
 
+        var adapterlessBmsonRow = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Bmson\\adapterless.bmson",
+                folder = "C:\\Bmson",
+                md5 = "cccccccccccccccccccccccccccccccc",
+                sha256 = new string('d', 64)
+            }),
+            null,
+            "Candidate",
+            "Artist",
+            ["C:\\Bmson\\EntryA", "", "C:\\Bmson\\EntryB"],
+            []));
+        CollectionAssert.AreEqual(
+            new[] { "C:\\Bmson\\EntryA", "C:\\Bmson\\EntryB" },
+            columns["InstallDst"].GetEditSuggestions(adapterlessBmsonRow).ToArray());
+
         var bmsonRow = LibraryChartRow.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Bmson\\chart.bmson",

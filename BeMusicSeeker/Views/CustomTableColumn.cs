@@ -433,7 +433,9 @@ internal static class CustomTableColumnFactory
 
     private static IEnumerable<string> GetInstallDestinationSuggestions(object row)
     {
-        return GridRowResolver.GetCompatibilityBmsFile(row)?.InstallDestinationSuggestions;
+        return GridRowResolver.TryGetChartFileWithoutMaterializingCompatibilityAdapter(row, out ChartFile chart)
+            ? chart.InstallDestinationSuggestions
+            : GridRowResolver.GetCompatibilityBmsFile(row)?.InstallDestinationSuggestions;
     }
 
     internal static string ConvertLigatureSymbolText(string text)
