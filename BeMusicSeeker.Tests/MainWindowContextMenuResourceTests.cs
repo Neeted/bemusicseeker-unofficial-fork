@@ -820,7 +820,6 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
         StringAssert.Contains(chartsForFolderOperations, "files?.BmsonSongs");
         StringAssert.Contains(chartsForFolderOperations, "ChartFileProjection.FromBmsonSong");
-        Assert.IsFalse(chartsForFolderOperations.Contains("PendingChartEntry.CreateFromBmsonSong"));
         StringAssert.Contains(cellEditEnded, "viewModel.CreateRenameChartFolderTargetSnapshot(target)");
         StringAssert.Contains(cellEditEnded, "viewModel.RenameChartFolder(targetSnapshot, newFolder)");
         Assert.IsFalse(cellEditEnded.Contains("viewModel.RenameChartFolder(target, newFolder)"));

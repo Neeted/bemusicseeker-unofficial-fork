@@ -845,7 +845,6 @@ public sealed class PlaylistViewPipelineTests
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
 
-        Assert.IsNotInstanceOfType(row, typeof(PendingChartEntry));
         Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
@@ -1078,6 +1077,7 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void RepairInstalledLocationTargetSnapshot_HasInstallDestinationUsesExistingChartSnapshotWithoutCreatingAdapter()
     {
+        TestResourceInitializer.EnsureJapaneseResources();
         var bmson = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Songs\\Bmson\\repair-existing.bmson",
@@ -1761,7 +1761,7 @@ public sealed class PlaylistViewPipelineTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = new string('b', 64)
         };
-        var pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        var pendingBmson = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\Bmson\\chart.bmson",
             folder = "C:\\Pending\\Bmson",
@@ -1769,10 +1769,11 @@ public sealed class PlaylistViewPipelineTests
             artist = "Artist",
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('c', 64)
-        });
+        };
+        PackageChartEntry pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson));
 
         var ownedRow = LibraryChartRow.FromBmsonSong(ownedBmson);
-        var pendingRow = LibraryChartRow.FromBmsFile(pendingBmson);
+        var pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
 
         Assert.IsNull(GridRowResolver.GetRealBmsFile(ownedRow));
         Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(ownedRow, ChartOperationSourceScope.Library, out ChartOperationTarget ownedTarget));

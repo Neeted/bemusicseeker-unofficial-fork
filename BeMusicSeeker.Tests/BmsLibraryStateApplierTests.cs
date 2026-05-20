@@ -409,12 +409,10 @@ public sealed class BmsLibraryStateApplierTests
                 folder = "C:\\Library",
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             };
-            var removedEntry = PendingChartEntry.CreateFromBmsonSong(removedSong);
-            var keptEntry = PendingChartEntry.CreateFromBmsonSong(keptSong);
-            var removedPackage = ChartPackageTestExtensions.CreatePackage([removedEntry]);
+            var removedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(removedSong))]);
             removedPackage.path = "C:\\Installed\\RemovePkg";
             removedPackage.delete_parent = false;
-            var keptPackage = ChartPackageTestExtensions.CreatePackage([keptEntry]);
+            var keptPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(keptSong))]);
             keptPackage.path = "C:\\Installed\\KeepPkg";
             keptPackage.delete_parent = false;
             using (var songDb = new LR2SongDBExtended(songDbPath))

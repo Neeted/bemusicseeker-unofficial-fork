@@ -68,7 +68,7 @@ public sealed class BmsonSongParserTests
     }
 
     [TestMethod]
-    public void Parse_ExtractsPendingHealthComponentFiles()
+    public void Parse_ExtractsResourceReferences()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -89,16 +89,13 @@ public sealed class BmsonSongParserTests
                 + "}");
 
             Models.LR2.LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(filePath);
-            var pending = PendingChartEntry.CreateFromBmsonSong(parsed);
-            pending.SetHealthStatus(forceUpdate: false, memClear: false);
+            ChartResourceSnapshot snapshot = ChartResourceSnapshot.Create(parsed);
 
-            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, pending.WAVfiles.ToArray());
-            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, pending.BGAfiles.ToArray());
-            Assert.AreEqual(string.Empty, pending.tag);
-            Assert.AreEqual(2, pending.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(0, pending.maintenanceInfo.wav_files_existing);
-            Assert.AreEqual(1, pending.maintenanceInfo.bga_files_defined);
-            Assert.AreEqual(1, pending.maintenanceInfo.movie_files_defined);
+            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, parsed.wav_files.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, parsed.bga_files.ToArray());
+            Assert.AreEqual(2, snapshot.AudioReferenceCount);
+            Assert.AreEqual(1, snapshot.VisualReferenceCount);
+            Assert.AreEqual(1, snapshot.MovieReferenceCount);
         }
         finally
         {
@@ -290,34 +287,6 @@ public sealed class BmsonSongParserTests
         Assert.AreEqual(24, BmsonSongParser.ResolvePlaylistMode("keyboard-24k"));
         Assert.AreEqual(48, BmsonSongParser.ResolvePlaylistMode("keyboard-24k-double"));
         Assert.IsNull(BmsonSongParser.ResolvePlaylistMode("unknown-mode"));
-    }
-
-    [TestMethod]
-    public void PendingChartEntry_UpdateFromBmsonSong_ReusesRowAndUpdatesDisplayFields()
-    {
-        var row = PendingChartEntry.CreateFromBmsonSong(new BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song
-        {
-            path = @"C:\Songs\OldFolder\chart.bmson",
-            folder = @"C:\Songs\OldFolder",
-            title = "OldTitle",
-            artist = "OldArtist",
-            mode_hint = "beat-7k"
-        });
-
-        row.UpdateFromBmsonSong(new BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song
-        {
-            path = @"C:\Songs\NewFolder\chart.bmson",
-            folder = @"C:\Songs\NewFolder",
-            title = "NewTitle",
-            artist = "NewArtist",
-            mode_hint = "keyboard-24k"
-        });
-
-        Assert.AreEqual(@"C:\Songs\NewFolder\chart.bmson", row.path);
-        Assert.AreEqual("NewFolder", row.Folder);
-        Assert.AreEqual("NewTitle", row.Title);
-        Assert.AreEqual("NewArtist", row.Artist);
-        Assert.AreEqual(24, row.mode);
     }
 
     private static void AssertBmsonEqual(BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song expected, BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song actual)

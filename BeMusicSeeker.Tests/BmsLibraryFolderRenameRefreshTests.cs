@@ -12,6 +12,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.ViewModels;
 using Livet;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -149,7 +150,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     folder = sourceDirectoryPath,
                     title = "Chart"
                 };
-                var row = PendingChartEntry.CreateFromBmsonSong(song);
                 int bmsFilesChangedCount = 0;
                 int bmsonSongsChangedCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -168,7 +168,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
                 library.RenameChartFolder(sourceDirectoryPath, "Renamed");
-                row.UpdateFromBmsonSong(song);
+                LibraryChartRow row = LibraryChartRow.FromBmsonSong(song);
 
                 Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
                 Assert.AreEqual(0, Volatile.Read(ref bmsonSongsChangedCount));

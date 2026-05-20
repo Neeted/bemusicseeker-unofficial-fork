@@ -93,11 +93,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         song.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
 
-        var entry = PendingChartEntry.CreateFromBmsonSong(song);
+        ChartFile chart = ChartFileProjection.FromBmsonSong(song);
+        BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(chart);
 
-        Assert.IsNotNull(entry);
-        Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, entry.MaintenanceInfoOrigin);
-        Assert.IsFalse(entry.HasValidMaintenanceInfoSnapshot);
+        Assert.IsNotNull(info);
+        Assert.AreEqual(song.md5, info.hash);
+        Assert.AreEqual(song.path, info.path);
+        Assert.IsFalse(song.MaintenanceInfo.IsInformationChecked());
     }
 
     [TestMethod]
@@ -601,14 +603,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void CreateFromBmsonSong_SetsMaintenanceHashAndPath()
+    public void CreateBmsonMaintenanceInfo_SetsHashAndPath()
     {
-        PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LR2SongDBExtended.bmson_song bmsonRow = CreateBmsonSong("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        BMSFileMaintenanceInfo info = BMSFileMaintenanceInfo.CreateForBmson(bmsonRow.path, bmsonRow.md5);
 
-        Assert.AreEqual(bmsonRow.hash, bmsonRow.maintenanceInfo.hash);
-        Assert.AreEqual(bmsonRow.path, bmsonRow.maintenanceInfo.path);
-        Assert.AreEqual("utf-8", bmsonRow.maintenanceInfo.encoding);
-        Assert.IsFalse(bmsonRow.maintenanceInfo.is_encoding_fixed);
+        Assert.AreEqual(bmsonRow.md5, info.hash);
+        Assert.AreEqual(bmsonRow.path, info.path);
+        Assert.AreEqual("utf-8", info.encoding);
+        Assert.IsFalse(info.is_encoding_fixed);
     }
 
     [TestMethod]
@@ -1697,12 +1700,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             TestableBmsFile bms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             bms.path = Path.Combine(tempDirectoryPath, "chart.bms");
-            PendingChartEntry bmson = CreateBmsonRow(Path.Combine(tempDirectoryPath, "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            LR2SongDBExtended.bmson_song bmson = CreateBmsonSong(Path.Combine(tempDirectoryPath, "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = bms.path, hash = bms.hash }, typeof(LR2SongDBExtended.maintenance));
-                songDb.InsertOrReplace(BMSFileMaintenanceInfo.CreateForBmson(bmson.path, bmson.hash), typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(BMSFileMaintenanceInfo.CreateForBmson(bmson.path, bmson.md5), typeof(LR2SongDBExtended.maintenance));
                 songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = Path.Combine(tempDirectoryPath, "stale.bms"), hash = "cccccccccccccccccccccccccccccccc" }, typeof(LR2SongDBExtended.maintenance));
             }
 
@@ -1776,11 +1779,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var file = new TestableBmsFile();
         file.SetHash(hash);
         return file;
-    }
-
-    private static PendingChartEntry CreateBmsonRow(string path, string md5)
-    {
-        return PendingChartEntry.CreateFromBmsonSong(CreateBmsonSong(path, md5));
     }
 
     private static LR2SongDBExtended.bmson_song CreateBmsonSong(string path, string md5)

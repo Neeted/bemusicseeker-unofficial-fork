@@ -475,7 +475,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsNull(bmsFile.instl_dst);
         Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
-        Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
     }
 
     [TestMethod]
@@ -668,18 +667,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNull(nestedEntry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             StringAssert.Contains(ChartWarningCollection.BuildTooltipText(nestedEntry.Chart.Warnings), Resources.Warning_NestedChartFileInPackage);
-            BMSFile materializedNestedAdapter = nestedEntry.GetOrCreateCompatibilityAdapter();
-            Assert.IsNotNull(materializedNestedAdapter);
-            Assert.IsTrue(materializedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
             PackageChartEntry normalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
             Assert.IsNull(normalizedNestedEntry.GetCompatibilityAdapterForTest());
-            BMSFile normalizedNestedAdapter = normalizedNestedEntry.GetOrCreateCompatibilityAdapter();
-            Assert.IsTrue(normalizedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+            Assert.IsTrue(normalizedNestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             PackageChartEntry clearedNormalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
             clearedNormalizedNestedEntry.ClearStructuredWarnings();
             Assert.IsFalse(clearedNormalizedNestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
-            BMSFile clearedNormalizedNestedAdapter = clearedNormalizedNestedEntry.GetOrCreateCompatibilityAdapter();
-            Assert.IsFalse(clearedNormalizedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
         });
     }
 
@@ -812,10 +805,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            BMSFile chart = result.PendingPackagesToAdd[0].ChartEntries
-                .Select(entry => entry.GetCompatibilityAdapterForTest())
-                .Single(file => file != null);
-            Assert.IsNotInstanceOfType(chart, typeof(PendingChartEntry));
+            PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries
+                .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
+            BMSFile chart = chartEntry.Chart.BmsFile;
+            Assert.IsNotNull(chart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, chart.maintenanceInfo.movie_files_defined);
@@ -857,10 +850,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            BMSFile chart = result.PendingPackagesToAdd[0].ChartEntries
-                .Select(entry => entry.GetCompatibilityAdapterForTest())
-                .Single(file => file != null);
-            Assert.IsNotInstanceOfType(chart, typeof(PendingChartEntry));
+            PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries
+                .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
+            BMSFile chart = chartEntry.Chart.BmsFile;
+            Assert.IsNotNull(chart);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
             Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -901,10 +894,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
-            BMSFile chart = result.AutoInstallCandidates[0].ChartEntries
-                .Select(entry => entry.GetCompatibilityAdapterForTest())
-                .Single(file => file != null);
-            Assert.IsNotInstanceOfType(chart, typeof(PendingChartEntry));
+            PackageChartEntry chartEntry = result.AutoInstallCandidates[0].ChartEntries
+                .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
+            BMSFile chart = chartEntry.Chart.BmsFile;
+            Assert.IsNotNull(chart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, chart.maintenanceInfo.movie_files_existing);
             Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -1062,15 +1055,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void PendingChartEntry_CreateFromBmsFile_CopiesMode()
+    public void PackageChartEntry_FromChartAdapter_ProjectsBmsMode()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         TestableBmsFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
         source.SetMode(7);
 
-        var pending = PendingChartEntry.CreateFromBmsFile(source);
+        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(source);
 
-        Assert.AreEqual(7, pending.mode);
+        Assert.AreEqual(7, entry.Chart.Mode);
     }
 
     [TestMethod]
@@ -1746,8 +1739,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(destinationBmsonPath, CreateBmsonJsonWithSound("old.wav"));
 
             var service = new BmsLibraryPackageInstallService();
-            var bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
-            var package = ChartPackageTestExtensions.CreatePackage([bmsonChart]);
+            PackageChartEntry bmsonEntry = PackageChartEntry.FromPath(sourceBmsonPath);
+            var package = ChartPackage.FromChartEntries([bmsonEntry]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
@@ -1772,7 +1765,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(destinationBmsonPath));
             Assert.IsTrue(File.Exists(renamedBmsonPath));
             Assert.AreEqual(destinationDirectoryPath, package.path);
-            Assert.AreEqual(renamedBmsonPath, package.MaterializeChartAdaptersForTest()[0].path);
+            Assert.AreEqual(renamedBmsonPath, package.ChartEntries.Single().Chart.Path);
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
         });
     }
@@ -1796,8 +1789,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(destinationBmsonPath, CreateBmsonJsonWithSound("old.wav"));
 
             var service = new BmsLibraryPackageInstallService();
-            var bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
-            var package = ChartPackageTestExtensions.CreatePackage([bmsonChart]);
+            PackageChartEntry bmsonEntry = PackageChartEntry.FromPath(sourceBmsonPath);
+            var package = ChartPackage.FromChartEntries([bmsonEntry]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
@@ -1822,7 +1815,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(destinationBmsonPath));
             Assert.IsTrue(File.Exists(renamedBmsonPath));
             Assert.AreEqual(destinationDirectoryPath, package.path);
-            Assert.AreEqual(renamedBmsonPath, package.MaterializeChartAdaptersForTest()[0].path);
+            Assert.AreEqual(renamedBmsonPath, package.ChartEntries.Single().Chart.Path);
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
         });
     }
@@ -1846,8 +1839,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(destinationBmsonPath, CreateBmsonJsonWithSound("old.wav"));
 
             var service = new BmsLibraryPackageInstallService();
-            var bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
-            var package = ChartPackageTestExtensions.CreatePackage([bmsonChart]);
+            PackageChartEntry bmsonEntry = PackageChartEntry.FromPath(sourceBmsonPath);
+            var package = ChartPackage.FromChartEntries([bmsonEntry]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
@@ -1872,7 +1865,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(destinationBmsonPath));
             Assert.IsTrue(File.Exists(renamedBmsonPath));
             Assert.AreEqual(destinationDirectoryPath, package.path);
-            Assert.AreEqual(renamedBmsonPath, package.MaterializeChartAdaptersForTest()[0].path);
+            Assert.AreEqual(renamedBmsonPath, package.ChartEntries.Single().Chart.Path);
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
         });
     }
@@ -2074,10 +2067,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string bmsonPath = Path.Combine(tempDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
             TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempDirectoryPath, "chart.bms"));
-            var bmsonEntry = PendingChartEntry.CreateFromFilePath(bmsonPath);
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
-            TestableBmsFile plainBmsonPath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempDirectoryPath, "plain.bmson"));
-            var package = ChartPackageTestExtensions.CreatePackage([bmsFile, bmsonEntry, plainBmsonPath]);
+            PackageChartEntry plainBmsonPathEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempDirectoryPath, "plain.bmson"),
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }));
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(bmsFile), adapterlessBmsonEntry, plainBmsonPathEntry]);
             ChartPackage adapterlessBmsonPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
             List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
@@ -2109,11 +2105,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             var service = new BmsLibraryPackageInstallService();
             string bmsonPath = Path.Combine(tempDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, "{}");
-            var bmsonFile = PendingChartEntry.CreateFromFilePath(bmsonPath);
             int renameCallCount = 0;
 
             PendingZeroNoteRenameResult result = service.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
-                [bmsonFile],
+                [],
                 delegate
                 {
                     renameCallCount++;
@@ -2152,11 +2147,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             TestableBmsFile renameFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", renameSourcePath);
             TestableBmsFile duplicateFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", duplicateSourcePath);
             TestableBmsFile failureFile = CreateFile("cccccccccccccccccccccccccccccccc", failureSourcePath);
-            var bmsonFile = PendingChartEntry.CreateFromFilePath(bmsonSourcePath);
             duplicateFile.SetHash(fileOperationService.TryComputeFileMd5ForPath(duplicateSourcePath));
 
             PendingExtensionRenameResult result = service.RenamePendingBmsFormatChartFileExtensions(
-                [renameFile, duplicateFile, failureFile, bmsonFile],
+                [renameFile, duplicateFile, failureFile],
                 ".bme",
                 delegate (BMSFile file, string requestedPath)
                 {
@@ -2490,7 +2484,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         StringAssert.Contains(bmsonBranch, "BmsonSongParser.Parse(remainingFilePath)");
         StringAssert.Contains(method.Substring(nonBmsonBranchStart), "ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5");
-        Assert.IsFalse(method.Contains("PendingChartEntry.CreateFromFilePath"));
     }
 
     [DataTestMethod]

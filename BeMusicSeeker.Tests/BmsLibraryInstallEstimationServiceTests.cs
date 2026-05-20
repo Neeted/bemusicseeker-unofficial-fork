@@ -143,13 +143,18 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         };
         TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
         TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
-        var pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        var pendingBmson = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\c.bmson",
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('c', 64)
-        });
-        var package = ChartPackageTestExtensions.CreatePackage([pendingA, pendingB, pendingBmson]);
+        };
+        var package = ChartPackage.FromChartEntries(
+        [
+            PackageChartEntry.FromChartAdapter(pendingA),
+            PackageChartEntry.FromChartAdapter(pendingB),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson))
+        ]);
         package.path = "C:\\Pending";
         package.delete_parent = false;
 
@@ -213,13 +218,17 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             sha256 = new string('b', 64)
         };
         TestableBmsFile pendingBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
-        var pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        var pendingBmson = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\b.bmson",
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = new string('b', 64)
-        });
-        var package = ChartPackageTestExtensions.CreatePackage([pendingBms, pendingBmson]);
+        };
+        var package = ChartPackage.FromChartEntries(
+        [
+            PackageChartEntry.FromChartAdapter(pendingBms),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson))
+        ]);
         package.path = "C:\\Pending";
         package.delete_parent = false;
 
@@ -942,24 +951,21 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     delete_parent = true
                 };
 
-                List<BMSFile> firstFiles = package.MaterializeChartAdaptersForTest();
-                List<BMSFile> secondFiles = package.MaterializeChartAdaptersForTest();
                 List<PackageChartEntry> firstEntries = package.ChartEntries;
                 List<PackageChartEntry> secondEntries = package.ChartEntries;
-                PackageInstallEstimationSnapshot firstSnapshot = BuildPackageSnapshot(package, firstFiles);
-                PackageInstallEstimationSnapshot secondSnapshot = BuildPackageSnapshot(package, firstFiles);
+                PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshotFromEntries(firstEntries);
+                PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshotFromEntries(firstEntries);
 
                 CollectionAssert.AreEqual(
-                    firstFiles.Select(file => file.path).ToList(),
-                    secondFiles.Select(file => file.path).ToList());
-                Assert.AreEqual(3, firstFiles.Count);
+                    firstEntries.Select(entry => entry.Chart.Path).ToList(),
+                    secondEntries.Select(entry => entry.Chart.Path).ToList());
                 Assert.AreEqual(3, firstEntries.Count);
                 Assert.AreEqual(3, secondEntries.Count);
-                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
-                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
+                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
+                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
                 Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bmson).All(entry => entry.GetCompatibilityAdapterForTest() == null));
-                Assert.AreEqual(1, firstFiles.OfType<PendingChartEntry>().Count(file => file.IsBmsonChart));
+                Assert.AreEqual(1, firstEntries.Count(entry => entry.Chart.Kind == ChartFileKind.Bmson));
                 Assert.AreEqual(3, firstSnapshot.ChartCount);
                 Assert.AreEqual(sourceDir, firstSnapshot.SourceDirectory);
                 Assert.AreEqual("fast", firstSnapshot.SourceSurfaceScanBackend);
@@ -992,20 +998,18 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 List<PackageChartEntry> firstEntries = package.ChartEntries;
                 string updatedPath = Path.Combine(sourceDir, "updated.bms");
-                firstEntries[0].GetCompatibilityAdapterForTest().path = updatedPath;
-                List<BMSFile> firstFiles = package.MaterializeChartAdaptersForTest();
+                firstEntries.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.BmsFile.path = updatedPath;
                 List<PackageChartEntry> secondEntries = package.ChartEntries;
 
                 Assert.AreEqual(2, firstEntries.Count);
-                Assert.AreEqual(2, firstFiles.Count);
                 Assert.AreEqual(2, secondEntries.Count);
-                Assert.AreEqual(updatedPath, secondEntries[0].Chart.Path);
+                Assert.IsTrue(secondEntries.Any(entry => string.Equals(entry.Chart.Path, updatedPath, StringComparison.OrdinalIgnoreCase)));
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
-                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.GetCompatibilityAdapterForTest() != null));
-                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
+                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
+                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
                 CollectionAssert.AreEqual(
-                    firstFiles.Select(file => file.path).ToList(),
-                    package.MaterializeChartAdaptersForTest().Select(file => file.path).ToList());
+                    secondEntries.Select(entry => entry.Chart.Path).OrderBy(path => path).ToList(),
+                    package.ChartEntries.Select(entry => entry.Chart.Path).OrderBy(path => path).ToList());
             });
         });
     }
@@ -1300,7 +1304,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, entries.Count);
                 Assert.AreEqual(ChartFileKind.Bmson, entries[0].Chart.Kind);
                 Assert.IsNull(entries[0].GetCompatibilityAdapterForTest());
-                Assert.AreEqual(1, package.MaterializeChartAdaptersForTest().Count);
                 Assert.IsNull(entries[0].GetCompatibilityAdapterForTest());
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
@@ -2000,7 +2003,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(Path.Combine(decoyDir, oggNames[i]), "decoy");
             }
 
-            var pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
+            LR2SongDBExtended.bmson_song pending = BmsonSongParser.Parse(bmsonPath);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["_circ_double_hard.bmson"]);
@@ -2008,7 +2011,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(decoyDir, oggNames.Take(10));
 
             InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
-                [pending],
+                [PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pending))],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
                 asParallel: false,
@@ -2994,6 +2997,17 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             metadataProfileResolver);
     }
 
+    private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<PackageChartEntry> chartEntries, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata>? representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)
+    {
+        return service.EstimateInstallationDirectory(
+            BuildLooseChartSnapshot(chartEntries, installedHashes, estimateMode)!,
+            directoryLookupCache!,
+            asParallel,
+            estimateMode,
+            representativeMetadataResolver,
+            metadataProfileResolver);
+    }
+
     private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata>? representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)
     {
         return service.EstimateInstallationDirectory(
@@ -3010,6 +3024,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         List<PackageChartEntry> targetEntries = [.. (chartFiles ?? [])
             .Select(PackageChartEntry.FromChartAdapter)
             .Where(entry => entry?.Chart != null)];
+        return BuildLooseChartSnapshot(targetEntries, installedHashes, estimateMode);
+    }
+
+    private static PackageInstallEstimationSnapshot? BuildLooseChartSnapshot(IEnumerable<PackageChartEntry> chartEntries, HashSet<string> installedHashes, ChartInstallationEstimateMode estimateMode)
+    {
+        List<PackageChartEntry> targetEntries = [.. (chartEntries ?? []).Where(entry => entry?.Chart != null)];
         if (targetEntries.Count == 0 || targetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination)))
         {
             return null;

@@ -29,7 +29,7 @@
 | chart row | `LibraryChartRow`, `ChartListSourceRow` | 通常一覧や仮想 filter / sort 用の read model。storage の正本ではない。 |
 | operation target | `ChartOperationTarget` | UI command / context menu が扱う操作対象。capability を持つ。 |
 | library chart ref | `LibraryChartRef` | model 層の移動 / 削除などで使う BMS / bmson 共通参照。 |
-| compatibility BMSFile | test fixture の旧 `PendingChartEntry` | bmson を既存 `BMSFile` 引数 API へ渡すために使っていた旧 adapter。production assembly からは外し、残る利用は旧挙動確認用 test fixture に限定する。 |
+| compatibility BMSFile | なし | bmson を既存 `BMSFile` 引数 API へ渡すために使っていた旧 adapter は削除済み。`BMSFile` 引数 API は BMS storage row / BMS-only 処理に限定し、bmson は `ChartFile` / `bmson_song` / `PackageChartEntry` を正本にする。 |
 
 ## Storage model
 
@@ -605,19 +605,19 @@ production の bmson は `PendingChartEntry.CreateFromBmsonSong(...)` で compat
    `LibraryChartRow`、`PlaylistDetailSourceRow`、`PlaylistDetailRow`、`GridRowResolver`、`ChartOperationTarget` は `ChartFile` を正本にし、owned bmson 用 `CompatibilityBmsFile` surface は削除済みである。production では adapter-backed bmson の storage owner 抽出も削除済みであり、`ChartFileProjection.FromBmsFile(...)` は BMS storage owner 専用である。残る課題は、後続の model / package / maintenance 境界が `ChartOperationTarget.Chart` から直接進めるか、内部で adapter を要求していないかを潰すことである。
 
 5. `PendingChartEntry : BMSFile` 境界  
-   `PendingChartEntry` は production assembly から外し、legacy test fixture に限定した。production の `ChartFileProjection.FromBmsFile(...)` / `ChartFileKindResolver` は bmson adapter を認識しない。残る課題は、test fixture の `PendingChartEntry` 参照を behavior test ごとに `bmson_song` / `ChartFile` / `PackageChartEntry` へ置き換え、旧 adapter lifecycle そのものを確認するテストを削ることである。
+   `PendingChartEntry` は production assembly だけでなく test fixture からも削除済みである。production の `ChartFileProjection.FromBmsFile(...)` / `ChartFileKindResolver` は bmson adapter を認識しない。残る課題は、test helper 側に残る BMS mirror 取得 helper を BMS-only fixture として必要最小限に縮め、adapter materialization を前提にしたテスト表現を `ChartFile` / `PackageChartEntry` assertion へ寄せることである。
 
 ### 推奨実装順
 
 1. resource health を chart-common 化する。`BuildResourceHealthWarnings`、pending package warning 判定、warning ignore / unignore、resource health index / projection の入力を `BMSFile` adapter ではなく `ChartFile` / `ChartResourceSnapshot` / maintenance row / storage owner へ寄せる。BMS-only encoding / zero-note は `BMSFile` 境界へ残す。
 2. playlist reference 表示と playlist detail の adapter mutation を分離する。pending / bmson の ref 表示は `PlaylistReferenceIndex` と chart identity から解決し、`BMSFile.RefTables` を持つ adapter へ書き戻さない。
 3. resource health / maintenance service 内の残存 BMSFile 境界を分類する。`BmsLibraryMaintenanceService` / inline maintenance は `bmson_song` と `ChartResourceSnapshot` を直接扱う状態まで進んだため、次は BMS 専用 maintenance API と chart-common warning projection の境界を分ける。
-4. test fixture の `PendingChartEntry` 参照を cleanup する。behavior test は `bmson_song` / `ChartFile` / `PackageChartEntry` を正本にし、旧 adapter lifecycle だけを確認するテストは削除または chart state assertion へ置き換える。
-5. テストと docs を cleanup する。production で使われない互換 API をテストのために残さず、adapter materialization を検証したい場合も test-local helper に閉じ込めたうえで最終的には代表ケースだけにする。
+4. test helper の adapter materialization 表現を cleanup する。behavior test は `bmson_song` / `ChartFile` / `PackageChartEntry` を正本にし、BMS storage mirror を読む helper は BMS-only fixture として必要な箇所に限定する。
+5. テストと docs を cleanup する。production で使われない互換 API をテストのために残さず、adapter materialization を検証したい場合も BMS storage mirror の代表ケースだけにする。
 
 ### 実装メモ
 
-- `PendingChartEntry : BMSFile` は production assembly から外し、legacy test fixture としてのみ残す。旧実装では `BMSFile` 引数 API に bmson adapter を渡して chart-common 処理へ入れる経路があったが、現行 production では `ChartFileProjection.FromBmsFile(...)` は BMS 専用、`ChartFileKindResolver.IsBmsChartFile(...)` も BMS storage row 判定専用とする。test 側で旧 adapter-backed bmson を使っていた behavior test は、順次 `bmson_song` / `ChartFile` / `PackageChartEntry` に置き換える。
+- `PendingChartEntry : BMSFile` は production assembly と test fixture の両方から削除する。旧実装では `BMSFile` 引数 API に bmson adapter を渡して chart-common 処理へ入れる経路があったが、現行 production では `ChartFileProjection.FromBmsFile(...)` は BMS 専用、`ChartFileKindResolver.IsBmsChartFile(...)` も BMS storage row 判定専用とする。test 側で旧 adapter-backed bmson を使っていた behavior test は `bmson_song` / `ChartFile` / `PackageChartEntry` に置き換え、旧 adapter lifecycle だけを確認するテストは削除する。
 - resource health の warning 計算は mutation から分離する。`BMSFile` の warning set を更新する入口は BMS / compatibility adapter へ降りる境界として残すが、一覧 filter / projection / pending package 判定は `ChartFile` と maintenance row から `ChartWarning` list を計算する。
 - bmson は parser 直後に `bmson_song.MaintenanceInfo` が存在していても、resource health の defined / existing count が未計算なら placeholder とみなし、`ChartResourceSnapshot` と現在の filesystem 状態から一時 maintenance snapshot を作る。hash が現在の `bmson_song.md5` と一致する場合だけ既存の ignored flag を引き継ぎ、hash が古い maintenance row は使わない。旧実装ではこの判定のために `PendingChartEntry` adapter を作って `SetHealthStatus()` していたが、adapter materialization は状態計算の副作用だったため移植しない。
 - `BmsLibraryMaintenanceService.UpdateMaintenanceInfo(bmsFiles, bmsonSongs, ...)` は BMS と bmson を内部で別 pipeline として処理する。旧実装は `bmson_song` を `PendingChartEntry` に変換して BMSFile pipeline へ混ぜ、同一 section log に載せていた。現行実装では `maintenance_target_summary` / `maintenance_update section_*` log が BMS section と bmson section に分かれる場合があるが、resource health / reparse / reused / failed / maintenance upsert / no song upsert の集計値は `MaintenanceWorkflowResult` に合算する。これは log 粒度だけの差であり、bmson を BMSFile list に混ぜる構造互換は移植しない。
@@ -656,7 +656,7 @@ production の bmson は `PendingChartEntry.CreateFromBmsonSong(...)` で compat
 
 - `BMSFile` は実体 BMS / LR2 `song` row / BMS-only operation に閉じている。
 - bmson を扱う通常表示、playlist detail、package / pending、duplicate、install destination、resource health の production 経路が `BMSFile` adapter 生成を要求しない。
-- `PendingChartEntry` が `BMSFile` を継承していない、または production から参照されない legacy adapter に限定されている。
+- `PendingChartEntry` が production / test fixture のどちらにも存在しない。
 - `ChartPackage.ChartEntries` / `PackageChartEntry.Chart` が package 内 chart の正本であり、package-level adapter list API が復活していない。
 - `CompatibilityBmsFile` / `CompatibilityAdapter` は production surface に残っていない。`GetOrCreateCompatibilityAdapter()` / `GetOrCreateBmsFormatAdapter()` / `GetExistingBmsFormatAdapter()` は production surface から削除済みであり、package 内 BMS storage owner は `PackageChartEntry.Chart.BmsFile` で読む。
 - storage は BMS `BMSFiles` / bmson `BmsonSongs` の二本立てを維持し、playlist / LR2 DB / settings の永続互換を壊していない。

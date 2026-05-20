@@ -75,13 +75,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             pendingPackage.DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline;
-            BMSFile selectedChart = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
+            PackageChartEntry selectedChart = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
 
             library.BMSFiles = [];
             SeedPendingPackages(library, songDbPath, pendingPackage);
             Assert.IsNull(pendingPackage.ChartEntries.Single().GetCompatibilityAdapterForTest());
 
-            library.SearchEstimatedInstallationDirectory([PackageChartEntry.FromChartAdapter(selectedChart)], asParallel: false, fixMode: false);
+            library.SearchEstimatedInstallationDirectory([selectedChart], asParallel: false, fixMode: false);
 
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
             Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
@@ -215,7 +215,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
-    public void ReinitializePendingWarningsForPackage_StoresMaterializedBmsonResourceWarningsOnChartState()
+    public void ReinitializePendingWarningsForPackage_StoresBmsonResourceWarningsOnChartState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -223,8 +223,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MaterializedBmsonResource");
             string bmsonPath = CreateBmsonFile(sourceDirectoryPath, "missing.bmson", "Missing", "Bmson");
             PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
-            PendingChartEntry adapter = (PendingChartEntry)entry.GetOrCreateCompatibilityAdapter();
-            adapter.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "stale");
+            entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "stale");
             ChartPackage package = ChartPackage.FromChartEntries([entry]);
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
@@ -234,8 +233,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
-            Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            Assert.IsTrue(adapter.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
         });
     }
 
@@ -430,11 +427,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, entry.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
 
-            BMSFile materializedAdapter = entry.GetOrCreateCompatibilityAdapter();
-            Assert.IsTrue(string.IsNullOrWhiteSpace(materializedAdapter.instl_dst));
-            Assert.AreEqual("Candidate A", materializedAdapter.InstallDestinationTitle);
-            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, materializedAdapter.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(materializedAdapter.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
         });
     }
 
@@ -852,10 +844,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Bmson Artist", entry.Chart.InstallDestinationArtist);
-            BMSFile materializedAdapter = entry.GetOrCreateCompatibilityAdapter();
-            Assert.AreEqual(destinationDirectoryPath, materializedAdapter.instl_dst);
-            Assert.AreEqual("Installed Bmson", materializedAdapter.InstallDestinationTitle);
-            Assert.AreEqual("Bmson Artist", materializedAdapter.InstallDestinationArtist);
         });
     }
 
@@ -1096,10 +1084,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Installed Artist", entry.Chart.InstallDestinationArtist);
-            BMSFile materializedAdapter = entry.GetOrCreateCompatibilityAdapter();
-            Assert.AreEqual(destinationDirectoryPath, materializedAdapter.instl_dst);
-            Assert.AreEqual("Installed Bmson", materializedAdapter.InstallDestinationTitle);
-            Assert.AreEqual("Installed Artist", materializedAdapter.InstallDestinationArtist);
         });
     }
 
@@ -1415,8 +1399,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         ChartPackage regroupedPackage = library.ChartPackagesPending.Single();
         Assert.AreEqual(expectedPackagePath, regroupedPackage.path);
         Assert.IsFalse(regroupedPackage.delete_parent);
-        Assert.AreEqual(expectedFileCount, regroupedPackage.MaterializeChartAdaptersForTest().Count);
-        Assert.IsTrue(regroupedPackage.MaterializeChartAdaptersForTest().All(file => string.Equals(file.instl_dst, expectedDestinationDirectory, StringComparison.OrdinalIgnoreCase)));
+        Assert.AreEqual(expectedFileCount, regroupedPackage.ChartEntries.Count);
+        Assert.IsTrue(regroupedPackage.ChartEntries.All(entry => string.Equals(entry.Chart.InstallDestination, expectedDestinationDirectory, StringComparison.OrdinalIgnoreCase)));
         return regroupedPackage;
     }
 

@@ -2848,7 +2848,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             Assert.AreEqual(1, result.PendingPackages.Count);
             Assert.AreEqual(1, result.SingleFileWarningCount);
-            Assert.IsTrue(result.PendingPackages[0].MaterializeChartAdaptersForTest()[0].Warnings.Contains(ChartWarningKind.SingleBmsonFile));
+            Assert.IsTrue(result.PendingPackages[0].ChartEntries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SingleBmsonFile));
         });
     }
 

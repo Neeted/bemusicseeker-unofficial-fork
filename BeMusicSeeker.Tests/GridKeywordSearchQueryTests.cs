@@ -426,30 +426,6 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
-    public void CreateFromBmsonSong_ExposesChartInfoForDisplayAndSearch()
-    {
-        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
-        var song = new LR2SongDBExtended.bmson_song
-        {
-            path = @"C:\Songs\Alpha\chart.bmson",
-            title = "Alpha Bmson",
-            artist = "ArtistX",
-            folder = "Alpha",
-            mode_hint = "beat-7k",
-            md5 = chartInfo.md5,
-            sha256 = chartInfo.sha256,
-            ChartInfo = chartInfo
-        };
-
-        var row = PendingChartEntry.CreateFromBmsonSong(song);
-
-        Assert.AreSame(chartInfo, row.ChartInfo);
-        Assert.AreEqual("12", row.ChartLevelText);
-        Assert.AreEqual(2500, row.ChartNotes);
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(row)));
-    }
-
-    [TestMethod]
     public void LibraryChartRow_FromBmsonSong_ExposesChartInfoForDisplayAndSearch()
     {
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
@@ -468,7 +444,6 @@ public sealed class GridKeywordSearchQueryTests
 
         var row = LibraryChartRow.FromBmsonSong(song);
 
-        Assert.IsNotInstanceOfType(row, typeof(PendingChartEntry));
         Assert.AreSame(chartInfo, row.ChartInfo);
         Assert.AreEqual("12", row.ChartLevelText);
         Assert.AreEqual(2500, row.ChartNotes);

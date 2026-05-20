@@ -727,7 +727,6 @@ public sealed class ChartListVirtualViewTests
 
         Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
-        Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
     }
 
     [TestMethod]
@@ -769,7 +768,6 @@ public sealed class ChartListVirtualViewTests
 
             Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
-            Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
         }
         finally
         {
@@ -819,7 +817,6 @@ public sealed class ChartListVirtualViewTests
 
             Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
-            Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
         }
         finally
         {
@@ -864,9 +861,12 @@ public sealed class ChartListVirtualViewTests
                 isPlaylistMissing: false,
                 ChartOperationCapabilities.UpdateInstallDestination,
                 adapterlessBmsonEntry);
-            BMSFile standaloneAdapter = PendingChartEntry.CreateFromBmsonSong(bmsonSong);
-            standaloneAdapter.instl_dst = @"C:\Installed\Standalone";
-            ChartFile standaloneChart = ChartFileProjection.FromBmsonSong(bmsonSong);
+            ChartFile standaloneChart = ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(bmsonSong),
+                @"C:\Installed\Standalone",
+                "Standalone",
+                "Artist",
+                []);
             var standaloneTarget = new ChartOperationTarget(
                 standaloneChart,
                 null,
@@ -880,7 +880,7 @@ public sealed class ChartListVirtualViewTests
 
             Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
-            Assert.AreEqual(@"C:\Installed\Standalone", standaloneAdapter.instl_dst);
+            Assert.AreEqual(@"C:\Installed\Standalone", standaloneChart.InstallDestination);
         }
         finally
         {
