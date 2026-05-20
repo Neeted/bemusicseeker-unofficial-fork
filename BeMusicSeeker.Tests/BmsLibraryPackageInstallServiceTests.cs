@@ -1532,7 +1532,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void InstallPackages_ReportsAdapterBackedBmsonRowAtInstalledPath()
+    public void InstallPackages_DropsAdapterBackedBmsonAdapterAfterInstalledPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -1586,18 +1586,19 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AddedEntries.Count);
             Assert.AreEqual(1, result.AddedCharts.Count);
             Assert.AreEqual(0, result.AddedBmsFiles.Count);
-            Assert.AreEqual(1, result.AddedBmsonAdapters.Count);
+            Assert.AreEqual(0, result.AddedBmsonAdapters.Count);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
             Assert.AreEqual(0, songUpserts.Count);
-            CollectionAssert.AreEqual(new[] { bmsonAdapter }, maintenanceTargets);
+            Assert.AreEqual(0, maintenanceTargets.Count);
             Assert.AreEqual(0, scoreTargets.Count);
-            CollectionAssert.AreEqual(new[] { bmsonAdapter }, applyTargets);
+            Assert.AreEqual(0, applyTargets.Count);
             Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
             Assert.AreEqual(destinationDirectoryPath, bmsonSong.folder);
             Assert.AreEqual(destinationBmsonPath, bmsonAdapter.path);
             Assert.AreSame(bmsonSong, bmsonAdapter.BmsonSong);
             Assert.AreEqual(destinationBmsonPath, result.AddedEntries[0].Chart.Path);
+            Assert.IsNull(result.AddedEntries[0].CompatibilityAdapter);
         });
     }
 

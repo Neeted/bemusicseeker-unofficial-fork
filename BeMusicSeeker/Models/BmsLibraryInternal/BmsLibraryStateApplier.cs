@@ -396,7 +396,7 @@ internal sealed class BmsLibraryStateApplier(
             return false;
         }
 
-        if (entry.CompatibilityAdapter != null && removedFiles.Contains(entry.CompatibilityAdapter))
+        if (entry.Chart.BmsFile != null && removedFiles.Contains(entry.Chart.BmsFile))
         {
             return true;
         }
@@ -430,11 +430,6 @@ internal sealed class BmsLibraryStateApplier(
         }
 
         if (entry.Chart.BmsonSong != null && removedSongs.Contains(entry.Chart.BmsonSong))
-        {
-            return true;
-        }
-
-        if (entry.CompatibilityAdapter is PendingChartEntry pending && pending.IsBmsonChart && pending.BmsonSong != null && removedSongs.Contains(pending.BmsonSong))
         {
             return true;
         }

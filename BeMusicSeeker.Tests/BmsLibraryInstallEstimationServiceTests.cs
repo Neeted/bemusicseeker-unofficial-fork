@@ -1129,6 +1129,58 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void PackageChartEntry_IsSameChartTarget_DoesNotMatchSameHashDifferentPath()
+    {
+        TestableBmsFile firstBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingA", "chart.bms"));
+        TestableBmsFile secondBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingB", "chart.bms"));
+        PackageChartEntry firstBmsEntry = PackageChartEntry.FromCompatibilityAdapter(firstBms);
+        PackageChartEntry secondBmsEntry = PackageChartEntry.FromCompatibilityAdapter(secondBms);
+        var firstBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\PendingA", "chart.bmson"),
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        var secondBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\PendingB", "chart.bmson"),
+            md5 = firstBmson.md5,
+            sha256 = firstBmson.sha256
+        };
+        PackageChartEntry firstBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(firstBmson));
+        PackageChartEntry secondBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(secondBmson));
+
+        Assert.IsFalse(firstBmsEntry.IsSameChartTarget(secondBmsEntry));
+        Assert.IsFalse(firstBmsonEntry.IsSameChartTarget(secondBmsonEntry));
+    }
+
+    [TestMethod]
+    public void PackageChartEntry_ToChartEntrySnapshot_DropsBmsonCompatibilityAdapter()
+    {
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\Pending", "chart.bmson"),
+            title = "BMSON",
+            artist = "Artist",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
+        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+        string destinationDirectory = Path.Combine("C:\\Installed", "Package");
+        entry.ApplyInstallDestination(destinationDirectory, "Resolved Title", "Resolved Artist");
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+
+        PackageChartEntry snapshot = entry.ToChartEntrySnapshot();
+
+        Assert.IsNotNull(snapshot);
+        Assert.IsNull(snapshot.CompatibilityAdapter);
+        Assert.AreEqual(ChartFileKind.Bmson, snapshot.Chart.Kind);
+        Assert.AreSame(song, snapshot.Chart.BmsonSong);
+        Assert.AreEqual(destinationDirectory, snapshot.Chart.InstallDestination);
+        Assert.IsTrue(snapshot.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
+    }
+
+    [TestMethod]
     public void ChartPackage_GetOrBuildInstallEstimationSnapshot_ResolvesPathMatchedBmsonTargetToPackageEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();

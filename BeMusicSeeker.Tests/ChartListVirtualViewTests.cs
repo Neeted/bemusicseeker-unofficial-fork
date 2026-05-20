@@ -639,6 +639,25 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PackageChartSourceSnapshot_TreatsAdapterBackedBmsonAsBmsonSource()
+    {
+        var bms = new TestableBmsFile();
+        bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(bmson);
+        ChartPackage package = ChartPackage.FromChartEntries(
+        [
+            PackageChartEntry.FromCompatibilityAdapter(bms),
+            PackageChartEntry.FromCompatibilityAdapter(bmsonAdapter)
+        ]);
+
+        PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
+
+        Assert.AreSame(bms, snapshot.BmsFiles.Single());
+        Assert.AreSame(bmson, snapshot.BmsonSongs.Single());
+    }
+
+    [TestMethod]
     public void PackageChartSourceRows_DoNotMaterializeAdapterlessBmsonDuringVirtualSort()
     {
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();

@@ -3606,33 +3606,7 @@ public class BMSLibrary : NotificationObject
 
     private static bool IsSamePackageChartTarget(PackageChartEntry entry, PackageChartEntry targetEntry)
     {
-        if (entry?.Chart == null || targetEntry?.Chart == null)
-        {
-            return false;
-        }
-        if (ReferenceEquals(entry, targetEntry))
-        {
-            return true;
-        }
-        if (entry.CompatibilityAdapter != null
-            && targetEntry.CompatibilityAdapter != null
-            && ReferenceEquals(entry.CompatibilityAdapter, targetEntry.CompatibilityAdapter))
-        {
-            return true;
-        }
-        ChartFile chart = entry.Chart;
-        ChartFile targetChart = targetEntry.Chart;
-        if (chart.Kind != targetChart.Kind)
-        {
-            return false;
-        }
-        if (!string.IsNullOrWhiteSpace(chart.Path) && !string.IsNullOrWhiteSpace(targetChart.Path))
-        {
-            return chart.Path.Equals(targetChart.Path, StringComparison.OrdinalIgnoreCase);
-        }
-        return !string.IsNullOrWhiteSpace(chart.PrimaryLookupHash)
-            && !string.IsNullOrWhiteSpace(targetChart.PrimaryLookupHash)
-            && chart.PrimaryLookupHash.Equals(targetChart.PrimaryLookupHash, StringComparison.OrdinalIgnoreCase);
+        return entry?.IsSameChartTarget(targetEntry) == true;
     }
 
     /// <summary>

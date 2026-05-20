@@ -108,13 +108,12 @@ public class ChartPackage : LR2SongDBExtended.install
     {
         foreach (PackageChartEntry entry in entries ?? [])
         {
-            if (entry?.Chart == null)
+            PackageChartEntry snapshot = entry?.ToChartEntrySnapshot();
+            if (snapshot?.Chart == null)
             {
                 continue;
             }
-            yield return entry.CompatibilityAdapter != null
-                ? PackageChartEntry.FromCompatibilityAdapter(entry.CompatibilityAdapter)
-                : PackageChartEntry.FromChart(entry.Chart);
+            yield return snapshot;
         }
     }
 

@@ -66,6 +66,66 @@ internal sealed class PackageChartEntry
 
     internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
 
+    internal PackageChartEntry ToChartEntrySnapshot()
+    {
+        ChartFile currentChart = Chart;
+        if (currentChart == null)
+        {
+            return null;
+        }
+
+        return currentChart.Kind == ChartFileKind.Bms && currentChart.BmsFile != null
+            ? FromCompatibilityAdapter(currentChart.BmsFile)
+            : FromChart(currentChart);
+    }
+
+    internal bool IsSameChartTarget(PackageChartEntry targetEntry)
+    {
+        if (targetEntry?.Chart == null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(this, targetEntry))
+        {
+            return true;
+        }
+        return IsSameChartTarget(Chart, targetEntry.Chart);
+    }
+
+    internal bool IsSameChartTarget(ChartFile targetChart)
+    {
+        return IsSameChartTarget(Chart, targetChart);
+    }
+
+    internal static bool IsSameChartTarget(ChartFile chart, ChartFile targetChart)
+    {
+        if (chart == null || targetChart == null || chart.Kind != targetChart.Kind)
+        {
+            return false;
+        }
+        if (ReferenceEquals(chart, targetChart))
+        {
+            return true;
+        }
+        if (chart.Kind == ChartFileKind.Bms
+            && chart.BmsFile != null
+            && targetChart.BmsFile != null
+            && ReferenceEquals(chart.BmsFile, targetChart.BmsFile))
+        {
+            return true;
+        }
+        if (chart.Kind == ChartFileKind.Bmson
+            && chart.BmsonSong != null
+            && targetChart.BmsonSong != null
+            && ReferenceEquals(chart.BmsonSong, targetChart.BmsonSong))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(chart.Path)
+            && !string.IsNullOrWhiteSpace(targetChart.Path)
+            && chart.Path.Equals(targetChart.Path, StringComparison.OrdinalIgnoreCase);
+    }
+
     internal PackageChartInstallDestinationState CaptureInstallDestinationState()
     {
         ChartFile currentChart = Chart;

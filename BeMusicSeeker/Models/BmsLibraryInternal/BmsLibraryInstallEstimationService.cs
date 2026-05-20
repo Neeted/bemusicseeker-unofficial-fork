@@ -1245,31 +1245,9 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             .Count();
     }
 
-    private static bool IsSameChartAdapter(BMSFile left, BMSFile right)
-    {
-        return left != null
-            && right != null
-            && (ReferenceEquals(left, right)
-                || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && left.path.Equals(right.path, StringComparison.OrdinalIgnoreCase)));
-    }
-
     private static bool IsSameChartTarget(PackageChartEntry entry, PackageChartEntry targetEntry)
     {
-        if (entry?.Chart == null || targetEntry?.Chart == null)
-        {
-            return false;
-        }
-        if (ReferenceEquals(entry, targetEntry))
-        {
-            return true;
-        }
-        if (IsSameChartAdapter(entry.CompatibilityAdapter, targetEntry.CompatibilityAdapter))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(entry.Chart.Path)
-            && !string.IsNullOrWhiteSpace(targetEntry.Chart.Path)
-            && entry.Chart.Path.Equals(targetEntry.Chart.Path, StringComparison.OrdinalIgnoreCase);
+        return entry?.IsSameChartTarget(targetEntry) == true;
     }
 
     private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
