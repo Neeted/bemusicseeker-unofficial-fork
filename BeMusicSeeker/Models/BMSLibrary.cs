@@ -9417,7 +9417,7 @@ reportProgress,
             bool isBmson = chart.Kind == ChartFileKind.Bmson;
             if (!isBmson)
             {
-                BMSFile bmsFile = entry.GetExistingBmsFormatAdapter();
+                BMSFile bmsFile = chart.BmsFile;
                 bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
             }
             entry.ClearStructuredWarnings();
@@ -9442,7 +9442,7 @@ reportProgress,
                 }
                 else
                 {
-                    BMSFile bmsFile = entry.GetExistingBmsFormatAdapter();
+                    BMSFile bmsFile = chart.BmsFile;
                     if (bmsFile != null)
                     {
                         ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
@@ -10260,7 +10260,7 @@ reportProgress,
             return [.. ChartPackagesPending
                 .Where(pkg => pkg != null)
                 .SelectMany(pkg => pkg.ChartEntries)
-                .Select(entry => entry?.GetExistingBmsFormatAdapter())
+                .Select(entry => entry?.Chart?.BmsFile)
                 .Where(adapter => adapter != null)
                 .Distinct()];
         }
@@ -10338,7 +10338,7 @@ reportProgress,
                 list.AddRange(ChartPackagesPending
                     .Where(pkg => pkg != null)
                     .SelectMany(pkg => pkg.ChartEntries)
-                    .Select(entry => entry?.GetExistingBmsFormatAdapter())
+                    .Select(entry => entry?.Chart?.BmsFile)
                     .Where(file => file != null && file.HasRefTable(table)));
             }
         }
@@ -10638,7 +10638,7 @@ reportProgress,
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
                     List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
                     List<BMSFile> movedBmsFiles = [.. movedPackageEntries
-                        .Select(entry => entry?.GetExistingBmsFormatAdapter())
+                        .Select(entry => entry?.Chart?.BmsFile)
                         .Where(PendingChartEntry.IsBmsChartFile)];
                     List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.BmsonSong)

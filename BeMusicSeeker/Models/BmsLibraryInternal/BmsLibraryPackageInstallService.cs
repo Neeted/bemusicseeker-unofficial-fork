@@ -385,17 +385,8 @@ internal sealed class BmsLibraryPackageInstallService
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
             .Where(IsBmsFormatChartEntry)
-            .Select(GetBmsFormatChartAdapter)
+            .Select(entry => entry?.Chart?.BmsFile)
             .Where(IsBmsFormatChartFile));
-    }
-
-    private static BMSFile GetBmsFormatChartAdapter(PackageChartEntry entry)
-    {
-        if (entry?.Chart == null)
-        {
-            return null;
-        }
-        return entry.GetExistingBmsFormatAdapter();
     }
 
     /// <summary>
@@ -1871,7 +1862,7 @@ internal sealed class BmsLibraryPackageInstallService
                     .Select(entry => entry?.Chart)
                     .Where(chart => chart != null));
                 result.AddedBmsFiles.AddRange(packageEntries
-                    .Select(entry => entry?.GetExistingBmsFormatAdapter())
+                    .Select(entry => entry?.Chart?.BmsFile)
                     .Where(PendingChartEntry.IsBmsChartFile));
                 result.AddedBmsonSongs.AddRange(packageEntries
                     .Select(entry => entry?.Chart?.BmsonSong)
