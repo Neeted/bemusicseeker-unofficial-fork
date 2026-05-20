@@ -14952,7 +14952,7 @@ public class MainWindowViewModel : ViewModel
                         return;
                     }
                 }
-                chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(bmsFile)]);
+                chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(bmsFile)]);
                 chartPackage.delete_parent = false;
             }
             string fileName = Path.GetFileName(bmsFile.path);

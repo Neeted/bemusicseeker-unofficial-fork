@@ -88,7 +88,7 @@ internal sealed class ChartOperationTarget
     internal PackageChartEntry ToPackageChartEntry()
     {
         return PackageEntry
-            ?? PackageChartEntry.FromChartAdapter(Chart?.BmsFile)
+            ?? PackageChartEntry.FromBmsFile(Chart?.BmsFile)
             ?? PackageChartEntry.FromChart(Chart);
     }
 

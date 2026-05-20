@@ -8971,7 +8971,7 @@ reportProgress,
                 return false;
             }
             return string.Equals(DirectoryExt.GetDirectoryNameSimple(f.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
-        }).Select(PackageChartEntry.FromChartAdapter).Where(entry => entry?.Chart != null)];
+        }).Select(PackageChartEntry.FromBmsFile).Where(entry => entry?.Chart != null)];
         entries.AddRange((BmsonSongs ?? []).Where(delegate (LR2SongDBExtended.bmson_song song)
         {
             if (song == null || string.IsNullOrWhiteSpace(song.path))

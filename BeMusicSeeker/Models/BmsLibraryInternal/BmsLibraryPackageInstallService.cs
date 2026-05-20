@@ -496,7 +496,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return PackageChartEntry.FromPath(filePath);
         }
-        return PackageChartEntry.FromChartAdapter(CreateBmsChartForDiscovery(filePath));
+        return PackageChartEntry.FromBmsFile(CreateBmsChartForDiscovery(filePath));
     }
 
     private static bool HasExistingPackageChartResources(PackageChartEntry entry)

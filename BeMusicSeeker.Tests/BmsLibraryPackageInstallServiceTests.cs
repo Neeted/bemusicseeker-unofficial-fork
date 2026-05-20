@@ -436,7 +436,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             sha256 = new string('b', 64),
             title = "Bmson"
         }));
-        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingFile), adapterlessBmsonEntry]);
+        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
         pendingPackage.path = "C:\\Pending\\Pkg1";
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
@@ -463,7 +463,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }), "C:\\Installed\\Target", "Installed", "Artist", []));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromChartAdapter(bmsFile),
+            PackageChartEntry.FromBmsFile(bmsFile),
             adapterlessBmsonEntry
         ]);
 
@@ -1055,13 +1055,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void PackageChartEntry_FromChartAdapter_ProjectsBmsMode()
+    public void PackageChartEntry_FromBmsFile_ProjectsBmsMode()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         TestableBmsFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
         source.SetMode(7);
 
-        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(source);
+        PackageChartEntry entry = PackageChartEntry.FromBmsFile(source);
 
         Assert.AreEqual(7, entry.Chart.Mode);
     }
@@ -1253,7 +1253,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 sha256 = new string('b', 64)
             }));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(chart), outsideBmsonEntry]);
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(chart), outsideBmsonEntry]);
             package.path = sourceDirectoryPath;
 
             var service = new BmsLibraryPackageInstallService();
@@ -1499,7 +1499,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 sha256 = new string('b', 64)
             }));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(chart), outsideBmsonEntry]);
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(chart), outsideBmsonEntry]);
             package.path = sourceDirectoryPath;
 
             var service = new BmsLibraryPackageInstallService();
@@ -2073,7 +2073,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 path = Path.Combine(tempDirectoryPath, "plain.bmson"),
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             }));
-            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(bmsFile), adapterlessBmsonEntry, plainBmsonPathEntry]);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(bmsFile), adapterlessBmsonEntry, plainBmsonPathEntry]);
             ChartPackage adapterlessBmsonPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
             List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
@@ -2593,7 +2593,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
             PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
-            result.Add(packageEntry ?? PackageChartEntry.FromChartAdapter(targetFile));
+            result.Add(packageEntry ?? PackageChartEntry.FromBmsFile(targetFile));
         }
         return [.. result.Where(entry => entry?.Chart != null)];
     }

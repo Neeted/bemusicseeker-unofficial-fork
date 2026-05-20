@@ -174,7 +174,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 folder = Path.Combine(tempDirectoryPath, "Pending"),
                 title = "Bmson"
             }));
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingFile), adapterlessBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
             var installedPackage = ChartPackageTestExtensions.CreatePackage([libraryFile]);
@@ -238,7 +238,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 title = "Bmson"
             }));
             adapterlessBmsonEntry.ApplyInstallDestination(folderPath, "Deleted title", "Deleted artist");
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingFile), adapterlessBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
             var lookupCache = new DirectoryResourceLookupCache();
@@ -777,7 +777,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 folder = Path.Combine(tempDirectoryPath, "Pending"),
                 title = "Bmson"
             }));
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingFile), adapterlessBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
