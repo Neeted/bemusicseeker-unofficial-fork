@@ -21535,19 +21535,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private void FixInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        lock (lockCopyFile)
-        {
-            if (chartFiles == null)
-            {
-                throw new ArgumentNullException("chartFiles");
-            }
-            stopPlayingBMSFile(chartFiles);
-            files.FixInstallationDirectoryCharts(chartFiles);
-        }
-    }
-
     internal void FixInstallationDirectoryCharts(IRepairInstalledLocationTargetSnapshot targets)
     {
         RepairInstalledLocationTargetSnapshot snapshot = AsRepairInstalledLocationTargetSnapshot(targets);

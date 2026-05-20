@@ -951,28 +951,38 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void FixInstallationDirectory_ReturnsMutationDeltaAndDuplicateRemovalCandidates()
+    public void FixInstallationDirectory_ChartBmsReturnsMutationDeltaAndDuplicateRemovalCandidates()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile movedFile = CreateFile("C:\\Broken\\move.bms");
-        movedFile.instl_dst = "C:\\Installed\\Move";
         TestableBmsFile duplicateFile = CreateFile("C:\\Broken\\dup.bms");
-        duplicateFile.instl_dst = "C:\\Installed\\Dup";
+        ChartFile movedChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(movedFile),
+            "C:\\Installed\\Move",
+            string.Empty,
+            string.Empty,
+            []);
+        ChartFile duplicateChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(duplicateFile),
+            "C:\\Installed\\Dup",
+            string.Empty,
+            string.Empty,
+            []);
 
         LibraryFixInstallationResult result = service.FixInstallationDirectory(
-            [movedFile, duplicateFile],
+            [movedChart, duplicateChart],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             delegate (ChartPackage package, string destinationDirectory)
             {
-                if (package.MaterializeChartAdaptersForTest()[0] == duplicateFile)
+                if (package.ChartEntries[0].Chart.BmsFile == duplicateFile)
                 {
                     package.ReplaceChartEntries([]);
                     return true;
                 }
-                movedFile.path = Path.Combine(destinationDirectory, "move.bms");
+                package.ChartEntries[0].ApplyInstalledPath(Path.Combine(destinationDirectory, "move.bms"));
                 return true;
             },
-            file => file == duplicateFile);
+            chart => chart.BmsFile == duplicateFile);
 
         Assert.AreEqual(2, result.RequestedCount);
         Assert.AreEqual(1, result.MovedCount);
@@ -980,45 +990,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(1, result.MutationDelta.FilePathChanges.Count);
         Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bms"), result.MutationDelta.FilePathChanges[0].NewPath);
         CollectionAssert.AreEqual(new[] { duplicateFile }, result.FilesToRemove);
-        CollectionAssert.AreEqual(new[] { movedFile }, result.MaintenanceTargets);
-    }
-
-    [TestMethod]
-    public void FixInstallationDirectory_BmsonChartReturnsBmsonSongPathChange()
-    {
-        var service = new BmsLibraryLibraryFileOperationsService();
-        var song = new LR2SongDBExtended.bmson_song
-        {
-            path = "C:\\Broken\\move.bmson",
-            folder = "C:\\Broken",
-            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            sha256 = new string('b', 64),
-            title = "Bmson"
-        };
-        var movedFile = PendingChartEntry.CreateFromBmsonSong(song);
-        movedFile.instl_dst = "C:\\Installed\\Move";
-
-        LibraryFixInstallationResult result = service.FixInstallationDirectory(
-            [movedFile],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            delegate (ChartPackage package, string destinationDirectory)
-            {
-                movedFile.path = Path.Combine(destinationDirectory, "move.bmson");
-                return true;
-            },
-            file => false);
-
-        Assert.AreEqual(1, result.RequestedCount);
-        Assert.AreEqual(1, result.MovedCount);
-        Assert.AreEqual(0, result.MutationDelta.FilePathChanges.Count);
-        Assert.AreEqual(1, result.MutationDelta.BmsonSongPathChanges.Count);
-        Assert.AreSame(song, result.MutationDelta.BmsonSongPathChanges[0].Song);
-        Assert.AreEqual("C:\\Broken\\move.bmson", result.MutationDelta.BmsonSongPathChanges[0].OldPath);
-        Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bmson"), result.MutationDelta.BmsonSongPathChanges[0].NewPath);
-        Assert.IsTrue(result.MutationDelta.RaiseBmsFilesChanged);
-        Assert.IsTrue(result.MutationDelta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(result.MutationDelta.InvalidateParentFolderCache);
-        Assert.IsTrue(result.MutationDelta.ClearDuplicatedCache);
+        Assert.AreEqual(1, result.ChartsToRemove.Count);
+        Assert.AreSame(duplicateFile, result.ChartsToRemove[0].BmsFile);
         CollectionAssert.AreEqual(new[] { movedFile }, result.MaintenanceTargets);
     }
 

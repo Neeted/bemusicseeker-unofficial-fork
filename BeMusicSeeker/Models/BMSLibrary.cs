@@ -10922,43 +10922,6 @@ reportProgress,
         }
     }
 
-    /// <summary>
-    /// リンク切れ chart file のインストール先ディレクトリを修正し、DB 上のパスを更新します。
-    /// </summary>
-    public void FixInstallationDirectoryCharts(IEnumerable<BMSFile> chartFiles)
-    {
-        if (chartFiles == null)
-        {
-            throw new ArgumentNullException("chartFiles");
-        }
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetWriterGuard())
-            {
-                List<BMSFile> files = [.. chartFiles.Where(f => f != null && !string.IsNullOrWhiteSpace(f.instl_dst))];
-                HashSet<string> existingHashes = CreateInstalledChartKeySnapshotExcludingUnsafe(files);
-                LibraryFixInstallationResult result = libraryFileOperationsService.FixInstallationDirectory(
-                    files,
-                    existingHashes,
-                    (package, destinationDirectory) => MoveChartPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
-                    delegate (BMSFile file)
-                    {
-                        return dialogService.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, file.path, string.Join(Environment.NewLine, from x in BMSFiles.Where(f => f.hash == file.hash).Except([file])
-                                                                                                                                                         select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
-                    });
-                ApplyLibraryMutationDelta(result.MutationDelta);
-                if (result.FilesToRemove.Count > 0)
-                {
-                    RemoveLibraryCharts(result.FilesToRemove.Select(LibraryChartRef.FromBmsFile));
-                }
-                if (result.MaintenanceTargets.Count > 0)
-                {
-                    setMaintenanceInfo(result.MaintenanceTargets, forceUpdate: true);
-                }
-            }
-        }
-    }
-
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
     {
         string lookupHash = chart?.PrimaryLookupHash;
