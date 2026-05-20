@@ -6326,7 +6326,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            repairTargets.MaterializeCompatibilityFiles();
             Task.Run(delegate
             {
                 viewModel.FixInstallationDirectoryCharts(repairTargets);

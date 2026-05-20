@@ -624,6 +624,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 if (confirmDuplicateRemoval != null && confirmDuplicateRemoval(file))
                 {
                     result.FilesToRemove.Add(file);
+                    result.ChartsToRemove.Add(LibraryChartRef.FromBmsFile(file));
                 }
                 continue;
             }
@@ -651,6 +652,88 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             result.MutationDelta.InvalidateParentFolderCache = true;
             result.MutationDelta.ClearDuplicatedCache = true;
             result.MaintenanceTargets.Add(file);
+            result.MovedCount++;
+        }
+        stopwatch.Stop();
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        result.MutationDelta.TotalMs = result.TotalMs;
+        return result;
+    }
+
+    public LibraryFixInstallationResult FixInstallationDirectory(
+        IEnumerable<ChartFile> charts,
+        HashSet<string> existingHashes,
+        Func<ChartPackage, string, bool> movePackageFiles,
+        Func<ChartFile, bool> confirmDuplicateRemoval)
+    {
+        var result = new LibraryFixInstallationResult();
+        var stopwatch = Stopwatch.StartNew();
+        List<ChartFile> targets = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
+        result.RequestedCount = targets.Count;
+        foreach (ChartFile chart in targets)
+        {
+            PackageChartEntry entry = PackageChartEntry.FromChart(chart);
+            if (entry == null)
+            {
+                continue;
+            }
+            var installPackage = ChartPackage.FromChartEntries([entry]);
+            installPackage.path = chart.Path;
+            installPackage.delete_parent = false;
+            string oldPath = chart.Path;
+            if (!(movePackageFiles?.Invoke(installPackage, chart.InstallDestination) ?? false))
+            {
+                continue;
+            }
+            if (installPackage.ChartEntries.Count == 0)
+            {
+                result.DuplicateSkippedCount++;
+                if (confirmDuplicateRemoval != null && confirmDuplicateRemoval(chart))
+                {
+                    BMSFile removableFile = chart.BmsFile;
+                    if (removableFile != null)
+                    {
+                        result.FilesToRemove.Add(removableFile);
+                    }
+                    LibraryChartRef removableChart = LibraryChartRef.FromChartFile(chart);
+                    if (removableChart != null)
+                    {
+                        result.ChartsToRemove.Add(removableChart);
+                    }
+                }
+                continue;
+            }
+
+            ChartFile movedChart = entry.Chart;
+            if (movedChart?.BmsFile != null)
+            {
+                movedChart.BmsFile.instl_dst = null;
+                result.MutationDelta.FilePathChanges.Add(new LibraryFilePathChange
+                {
+                    File = movedChart.BmsFile,
+                    NewPath = movedChart.BmsFile.path,
+                    OldPath = oldPath
+                });
+                result.MaintenanceTargets.Add(movedChart.BmsFile);
+            }
+            else if (movedChart?.BmsonSong != null)
+            {
+                result.MutationDelta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+                {
+                    Song = movedChart.BmsonSong,
+                    NewPath = movedChart.BmsonSong.path,
+                    OldPath = oldPath
+                });
+                result.MaintenanceCharts.Add(movedChart);
+            }
+            else
+            {
+                continue;
+            }
+            result.MutationDelta.RaiseBmsFilesChanged = true;
+            result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
+            result.MutationDelta.InvalidateParentFolderCache = true;
+            result.MutationDelta.ClearDuplicatedCache = true;
             result.MovedCount++;
         }
         stopwatch.Stop();

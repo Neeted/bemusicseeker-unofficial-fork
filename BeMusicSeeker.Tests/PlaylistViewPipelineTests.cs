@@ -14,6 +14,12 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistViewPipelineTests
 {
+    [ClassInitialize]
+    public static void ClassInitialize(TestContext _)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+    }
+
     [TestMethod]
     public void ApplyPlaylistViewFromSource_SortKeepsAllRowsVisible()
     {
@@ -994,14 +1000,98 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(snapshot.HasTargets);
         Assert.AreEqual(0, adapterRequestCount);
-        Assert.IsFalse(snapshot.HasInstallDestination);
-        Assert.AreEqual(0, adapterRequestCount);
+        Assert.IsTrue(snapshot.HasInstallDestination);
+        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreEqual("C:\\Installed\\Bmson", snapshot.RepairCharts[0].InstallDestination);
 
         snapshot.MaterializeCompatibilityFiles();
         Assert.AreEqual(1, adapterRequestCount);
 
-        Assert.IsFalse(snapshot.HasInstallDestination);
+        Assert.IsTrue(snapshot.HasInstallDestination);
         Assert.AreEqual(1, adapterRequestCount);
+    }
+
+    [TestMethod]
+    public void RepairInstalledLocationTargetSnapshot_RepairChartsOverlayCurrentCompatibilityInstallDestination()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\repair-playlist.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Repair Playlist Bmson",
+            artist = "Artist",
+            md5 = "70707070707070707070707070707070",
+            sha256 = new string('a', 64)
+        };
+        ChartFile staleChart = ChartFileProjection.FromBmsonSong(bmson);
+        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
+        adapter.instl_dst = "C:\\Installed\\PlaylistBmson";
+        var target = new ChartOperationTarget(
+            staleChart,
+            () => adapter,
+            playlistEntry: null,
+            ChartOperationSourceScope.PlaylistOwned,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.RepairInstalledLocation);
+
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot snapshot =
+            viewModel.CreateRepairInstalledLocationTargetSnapshot([target]);
+
+        Assert.IsTrue(snapshot.HasInstallDestination);
+        Assert.AreEqual("C:\\Installed\\PlaylistBmson", snapshot.RepairCharts[0].InstallDestination);
+        Assert.AreSame(bmson, snapshot.RepairCharts[0].BmsonSong);
+    }
+
+    [TestMethod]
+    public void RepairInstalledLocationTargetSnapshot_RepairChartsOverlayUsesPathBeforeHash()
+    {
+        string md5 = "71717171717171717171717171717171";
+        var firstBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\duplicate-a.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Duplicate A",
+            md5 = md5
+        };
+        var secondBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\duplicate-b.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Duplicate B",
+            md5 = md5
+        };
+        PendingChartEntry firstAdapter = PendingChartEntry.CreateFromBmsonSong(firstBmson);
+        firstAdapter.instl_dst = "C:\\Installed\\A";
+        PendingChartEntry secondAdapter = PendingChartEntry.CreateFromBmsonSong(secondBmson);
+        secondAdapter.instl_dst = "C:\\Installed\\B";
+        var firstTarget = new ChartOperationTarget(
+            ChartFileProjection.FromBmsonSong(firstBmson),
+            () => firstAdapter,
+            playlistEntry: null,
+            ChartOperationSourceScope.PlaylistOwned,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.RepairInstalledLocation);
+        var secondTarget = new ChartOperationTarget(
+            ChartFileProjection.FromBmsonSong(secondBmson),
+            () => secondAdapter,
+            playlistEntry: null,
+            ChartOperationSourceScope.PlaylistOwned,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.RepairInstalledLocation);
+
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot snapshot =
+            viewModel.CreateRepairInstalledLocationTargetSnapshot([firstTarget, secondTarget]);
+
+        Assert.AreEqual("C:\\Installed\\A", snapshot.RepairCharts[0].InstallDestination);
+        Assert.AreEqual("C:\\Installed\\B", snapshot.RepairCharts[1].InstallDestination);
     }
 
     [TestMethod]
@@ -1035,7 +1125,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(snapshot.HasTargets);
         Assert.IsTrue(snapshot.HasInstallDestination);
-        Assert.AreEqual(0, adapterCreateCount);
+        Assert.AreEqual(1, adapterCreateCount);
     }
 
     [TestMethod]

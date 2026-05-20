@@ -10959,6 +10959,61 @@ reportProgress,
         }
     }
 
+    private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
+    {
+        string lookupHash = chart?.PrimaryLookupHash;
+        if (string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return [];
+        }
+        IEnumerable<string> bmsPaths = (BMSFiles ?? [])
+            .Where(file => file != null
+                && !string.Equals(file.path, chart.Path, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(PendingChartEntry.GetPrimaryLookupHash(file), lookupHash, StringComparison.OrdinalIgnoreCase))
+            .Select(file => file.path);
+        IEnumerable<string> bmsonPaths = (BmsonSongs ?? [])
+            .Where(song => song != null
+                && !string.Equals(song.path, chart.Path, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(PendingChartEntry.GetPrimaryLookupHash(song), lookupHash, StringComparison.OrdinalIgnoreCase))
+            .Select(song => song.path);
+        return bmsPaths.Concat(bmsonPaths).Where(path => !string.IsNullOrWhiteSpace(path));
+    }
+
+    internal void FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts)
+    {
+        if (charts == null)
+        {
+            throw new ArgumentNullException("charts");
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetWriterGuard())
+            {
+                List<ChartFile> chartList = [.. charts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
+                HashSet<string> existingHashes = CreateInstalledChartKeySnapshotExcludingChartsUnsafe(chartList);
+                LibraryFixInstallationResult result = libraryFileOperationsService.FixInstallationDirectory(
+                    chartList,
+                    existingHashes,
+                    (package, destinationDirectory) => MoveChartPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
+                    delegate (ChartFile chart)
+                    {
+                        return dialogService.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, chart.Path, string.Join(Environment.NewLine, GetDuplicateInstallRepairPaths(chart))), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
+                    });
+                ApplyLibraryMutationDelta(result.MutationDelta);
+                if (result.ChartsToRemove.Count > 0)
+                {
+                    RemoveLibraryCharts(result.ChartsToRemove);
+                }
+                List<BMSFile> maintenanceTargets = [.. result.MaintenanceTargets];
+                maintenanceTargets.AddRange(CreateResourceMaintenanceTargets(result.MaintenanceCharts));
+                if (maintenanceTargets.Count > 0)
+                {
+                    setMaintenanceInfo(maintenanceTargets, forceUpdate: true);
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// 譜面ファイル群のフォルダ名をメタデータに基づいて自動リネームします。
     /// </summary>

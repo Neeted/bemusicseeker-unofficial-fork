@@ -8,7 +8,11 @@ internal sealed class LibraryFixInstallationResult
 
     public List<BMSFile> FilesToRemove { get; } = [];
 
+    public List<LibraryChartRef> ChartsToRemove { get; } = [];
+
     public List<BMSFile> MaintenanceTargets { get; } = [];
+
+    public List<ChartFile> MaintenanceCharts { get; } = [];
 
     public int RequestedCount { get; set; }
 

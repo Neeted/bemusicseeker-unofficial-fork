@@ -979,7 +979,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(fixRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
         StringAssert.Contains(fixRepair, "viewModel.CreateRepairInstalledLocationTargetSnapshot(targets)");
         StringAssert.Contains(fixRepair, "repairTargets.HasInstallDestination");
-        StringAssert.Contains(fixRepair, "repairTargets.MaterializeCompatibilityFiles()");
+        Assert.IsFalse(fixRepair.Contains("repairTargets.MaterializeCompatibilityFiles()"));
         StringAssert.Contains(fixRepair, "viewModel.FixInstallationDirectoryCharts(repairTargets)");
         Assert.IsFalse(fixRepair.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(fixRepair.Contains("target.Chart?.InstallDestination"));

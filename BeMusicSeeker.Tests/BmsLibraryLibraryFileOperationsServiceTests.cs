@@ -1023,6 +1023,92 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void FixInstallationDirectory_ChartBmsonReturnsBmsonSongPathChangeWithoutCompatibilityAdapter()
+    {
+        var service = new BmsLibraryLibraryFileOperationsService();
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Broken\\move.bmson",
+            folder = "C:\\Broken",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('b', 64),
+            title = "Bmson"
+        };
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(song),
+            "C:\\Installed\\Move",
+            string.Empty,
+            string.Empty,
+            []);
+
+        LibraryFixInstallationResult result = service.FixInstallationDirectory(
+            [chart],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            delegate (ChartPackage package, string destinationDirectory)
+            {
+                package.ChartEntries[0].ApplyInstalledPath(Path.Combine(destinationDirectory, "move.bmson"));
+                return true;
+            },
+            _ => false);
+
+        Assert.AreEqual(1, result.RequestedCount);
+        Assert.AreEqual(1, result.MovedCount);
+        Assert.AreEqual(0, result.MutationDelta.FilePathChanges.Count);
+        Assert.AreEqual(1, result.MutationDelta.BmsonSongPathChanges.Count);
+        Assert.AreSame(song, result.MutationDelta.BmsonSongPathChanges[0].Song);
+        Assert.AreEqual("C:\\Broken\\move.bmson", result.MutationDelta.BmsonSongPathChanges[0].OldPath);
+        Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bmson"), result.MutationDelta.BmsonSongPathChanges[0].NewPath);
+        Assert.AreEqual(0, result.MaintenanceTargets.Count);
+        Assert.AreEqual(1, result.MaintenanceCharts.Count);
+        Assert.AreSame(song, result.MaintenanceCharts[0].BmsonSong);
+    }
+
+    [TestMethod]
+    public void FixInstallationDirectory_ChartBmsonDuplicateReturnsChartRemovalCandidateAfterConfirmation()
+    {
+        var service = new BmsLibraryLibraryFileOperationsService();
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Broken\\dup.bmson",
+            folder = "C:\\Broken",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('b', 64),
+            title = "Bmson"
+        };
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(song),
+            "C:\\Installed\\Dup",
+            string.Empty,
+            string.Empty,
+            []);
+        int confirmCount = 0;
+
+        LibraryFixInstallationResult result = service.FixInstallationDirectory(
+            [chart],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            delegate (ChartPackage package, string _)
+            {
+                package.ReplaceChartEntries([]);
+                return true;
+            },
+            confirmedChart =>
+            {
+                confirmCount++;
+                Assert.AreSame(song, confirmedChart.BmsonSong);
+                return true;
+            });
+
+        Assert.AreEqual(1, result.RequestedCount);
+        Assert.AreEqual(0, result.MovedCount);
+        Assert.AreEqual(1, result.DuplicateSkippedCount);
+        Assert.AreEqual(1, confirmCount);
+        Assert.AreEqual(0, result.FilesToRemove.Count);
+        Assert.AreEqual(1, result.ChartsToRemove.Count);
+        Assert.AreEqual(LibraryChartKind.Bmson, result.ChartsToRemove[0].Kind);
+        Assert.AreSame(song, result.ChartsToRemove[0].BmsonSong);
+    }
+
+    [TestMethod]
     public void RenameLibraryFileExtensions_ReturnsRenamedAndDuplicateDeletedFiles()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)

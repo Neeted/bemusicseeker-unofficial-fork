@@ -21555,7 +21555,12 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        FixInstallationDirectoryCharts(snapshot.CompatibilityFiles);
+        lock (lockCopyFile)
+        {
+            IReadOnlyList<ChartFile> repairCharts = snapshot.RepairCharts;
+            stopPlayingBMSFile(repairCharts.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
+            files.FixInstallationDirectoryCharts(repairCharts);
+        }
     }
 
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)
@@ -21877,6 +21882,8 @@ public class MainWindowViewModel : ViewModel
 
         bool HasInstallDestination { get; }
 
+        IReadOnlyList<ChartFile> RepairCharts { get; }
+
         void MaterializeCompatibilityFiles();
     }
 
@@ -21894,15 +21901,85 @@ public class MainWindowViewModel : ViewModel
             Charts = [.. (charts ?? []).Where(chart => chart != null)];
             compatibilityFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
                 () => [.. (compatibilityFileFactory?.Invoke() ?? []).Where(file => file != null)]);
+            repairCharts = new Lazy<IReadOnlyList<ChartFile>>(CreateRepairCharts);
         }
+
+        private readonly Lazy<IReadOnlyList<ChartFile>> repairCharts;
 
         internal bool HasTargets => Charts.Count > 0;
 
-        public bool HasInstallDestination => Charts.Any(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination));
+        public bool HasInstallDestination => RepairCharts.Any(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination));
 
         internal IReadOnlyList<ChartFile> Charts { get; }
 
+        public IReadOnlyList<ChartFile> RepairCharts => repairCharts.Value;
+
         internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> CompatibilityFiles => compatibilityFiles.Value;
+
+        private IReadOnlyList<ChartFile> CreateRepairCharts()
+        {
+            IReadOnlyList<BeMusicSeeker.Models.BMSFile> files = CompatibilityFiles;
+            if (files.Count == 0)
+            {
+                return Charts;
+            }
+
+            var filesByChartKey = files
+                .Select(file => new
+                {
+                    File = file,
+                    Key = CreateRepairChartKey(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
+                })
+                .Where(item => !string.IsNullOrWhiteSpace(item.Key))
+                .GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().File, StringComparer.OrdinalIgnoreCase);
+
+            return [.. Charts.Select(chart =>
+            {
+                string key = CreateRepairChartKey(chart);
+                if (string.IsNullOrWhiteSpace(key) || !filesByChartKey.TryGetValue(key, out BeMusicSeeker.Models.BMSFile file))
+                {
+                    return chart;
+                }
+                if (!HasInstallDestinationState(file))
+                {
+                    return chart;
+                }
+
+                return ChartFileProjection.WithPackageState(
+                    chart,
+                    file.instl_dst,
+                    file.InstallDestinationTitle,
+                    file.InstallDestinationArtist,
+                    file.InstallDestinationSuggestions,
+                    chart.Warnings);
+            })];
+        }
+
+        private static bool HasInstallDestinationState(BeMusicSeeker.Models.BMSFile file)
+        {
+            return file != null
+                && (!string.IsNullOrWhiteSpace(file.instl_dst)
+                    || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle)
+                    || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist)
+                    || (file.InstallDestinationSuggestions?.Count ?? 0) > 0);
+        }
+
+        private static string CreateRepairChartKey(ChartFile chart)
+        {
+            if (chart == null)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(chart.Path))
+            {
+                return "path:" + chart.Path;
+            }
+
+            string hash = chart.PrimaryLookupHash;
+            return string.IsNullOrWhiteSpace(hash) ? null : "hash:" + hash;
+        }
 
         public void MaterializeCompatibilityFiles()
         {
