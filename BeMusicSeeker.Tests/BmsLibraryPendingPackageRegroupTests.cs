@@ -176,6 +176,30 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void ReinitializePendingWarningsForPackage_PreservesMaterializedBmsonResourceWarnings()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MaterializedBmsonResource");
+            string bmsonPath = CreateBmsonFile(sourceDirectoryPath, "missing.bmson", "Missing", "Bmson");
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
+            PendingChartEntry adapter = (PendingChartEntry)entry.GetOrCreateCompatibilityAdapter();
+            adapter.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "stale");
+            ChartPackage package = ChartPackage.FromChartEntries([entry]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+
+            InvokeReinitializePendingWarningsForPackage(library, package, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+            Assert.AreSame(adapter, entry.CompatibilityAdapter);
+            Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_ReinitializesWarningsWhenEligibleDirectoryIsSupplied()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -2349,8 +2349,23 @@ internal sealed class BmsLibraryInitializationService
                 }
                 else if (applyStrictWarning != null && entry.ResourceSnapshot.TotalReferenceCount > 0)
                 {
-                    BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
-                    if (bmsFile != null && applyStrictWarning(bmsFile))
+                    IReadOnlyList<ChartWarning> resourceWarnings = isBmson
+                        ? BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry, applyStrictWarning)
+                        : [];
+                    if (isBmson)
+                    {
+                        entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
+                    }
+                    else
+                    {
+                        BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                        if (bmsFile != null && applyStrictWarning(bmsFile))
+                        {
+                            result.StrictWarningCount++;
+                        }
+                        continue;
+                    }
+                    if (resourceWarnings.Count > 0)
                     {
                         result.StrictWarningCount++;
                     }

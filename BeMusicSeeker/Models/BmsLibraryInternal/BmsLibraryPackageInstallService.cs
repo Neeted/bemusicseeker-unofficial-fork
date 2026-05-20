@@ -545,7 +545,7 @@ internal sealed class BmsLibraryPackageInstallService
             .Concat(resources.MovieRelativePaths);
     }
 
-    private static IReadOnlyList<ChartWarning> BuildPendingResourceHealthWarnings(PackageChartEntry entry, Func<BMSFile, bool> requiresPendingWarning)
+    internal static IReadOnlyList<ChartWarning> BuildPendingResourceHealthWarnings(PackageChartEntry entry, Func<BMSFile, bool> requiresPendingWarning)
     {
         if (entry?.Chart == null || entry.ResourceSnapshot.TotalReferenceCount <= 0)
         {
@@ -555,9 +555,13 @@ internal sealed class BmsLibraryPackageInstallService
         if (file != null)
         {
             file.SetHealthStatus(forceUpdate: false, memClear: false);
-            return requiresPendingWarning?.Invoke(file) == true
-                ? [.. file.Warnings.ToStructuredList().Where(warning => warning?.Category == ChartWarningCategory.ResourceHealth)]
-                : [];
+            if (requiresPendingWarning != null)
+            {
+                return requiresPendingWarning(file)
+                    ? [.. file.Warnings.ToStructuredList().Where(warning => warning?.Category == ChartWarningCategory.ResourceHealth)]
+                    : [];
+            }
+            return BmsLibraryMaintenanceService.BuildResourceHealthWarnings(file.maintenanceInfo);
         }
         BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(entry.Chart);
         if (maintenanceInfo == null)

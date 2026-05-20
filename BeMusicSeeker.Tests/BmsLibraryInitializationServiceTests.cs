@@ -2690,6 +2690,43 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadInstallTable_AddsBmsonResourceWarningWithoutMaterializingCompatibilityAdapter()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string directoryPackagePath = Path.Combine(lr2RootPath, "PendingBmsonResource");
+            Directory.CreateDirectory(directoryPackagePath);
+            string bmsonPath = Path.Combine(directoryPackagePath, "chart.bmson");
+            File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("missing.wav"));
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new ChartPackage
+                {
+                    path = directoryPackagePath,
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+            }
+
+            var service = new BmsLibraryInitializationService();
+
+            InstallTableLoadResult result = service.LoadInstallTable(
+                new BmsLibraryDbGateway(songDbPath),
+                _ => false,
+                _ => throw new AssertFailedException("bmson resource warning should not require a compatibility adapter."));
+
+            ChartPackage pendingPackage = result.PendingPackages.Single();
+            PackageChartEntry entry = pendingPackage.ChartEntries.Single();
+            Assert.AreEqual(1, result.StrictWarningCount);
+            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
+            Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    [TestMethod]
     public void LoadInstallTable_RestoresNestedChartsAndPrioritizesNestedWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2926,6 +2963,16 @@ public sealed class BmsLibraryInitializationServiceTests
             + "},"
             + "\"sound_channels\":[],"
             + "\"bpm_events\":[],"
+            + "\"lines\":[{\"y\":0}]"
+            + "}";
+    }
+
+    private static string CreateBmsonJsonWithSound(string soundFileName)
+    {
+        return "{"
+            + "\"version\":\"1.0.0\","
+            + "\"info\":{\"title\":\"Resource\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},"
+            + "\"sound_channels\":[{\"name\":\"" + soundFileName + "\",\"notes\":[]}],"
             + "\"lines\":[{\"y\":0}]"
             + "}";
     }

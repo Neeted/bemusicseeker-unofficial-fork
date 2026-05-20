@@ -9468,10 +9468,18 @@ reportProgress,
             }
             else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
             {
-                BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
-                if (bmsFile != null)
+                if (isBmson)
                 {
-                    ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
+                    IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry, null);
+                    entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
+                }
+                else
+                {
+                    BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                    if (bmsFile != null)
+                    {
+                        ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
+                    }
                 }
             }
         }
