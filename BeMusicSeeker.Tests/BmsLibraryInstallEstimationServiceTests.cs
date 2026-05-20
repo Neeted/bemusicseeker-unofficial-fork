@@ -1519,7 +1519,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void ValidatePendingInstallDestination_ReturnsResolvedDirectoryForPendingPackage()
+    public void ValidateInstallDestination_ReturnsResolvedDirectoryForPendingPackage()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -1533,11 +1533,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             pendingPackage.path = pendingDirectoryPath;
             pendingPackage.delete_parent = false;
 
-            PendingInstallDestinationSelectionResult result = service.ValidatePendingInstallDestination(
+            PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
                 pendingFile,
                 [pendingPackage],
                 [installDirectoryPath],
-                installDirectoryPath);
+                installDirectoryPath,
+                allowStandaloneLibraryFile: false);
 
             Assert.IsTrue(result.Success);
             Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
@@ -1546,7 +1547,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void ValidatePendingInstallDestination_MatchesAdapterlessBmsonPackageByChartPath()
+    public void ValidateInstallDestination_MatchesAdapterlessBmsonPackageByChartPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithPendingPackageSourceScanSetting(enabled: false, delegate
@@ -1571,11 +1572,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, entries.Count);
                 Assert.IsNull(entries[0].CompatibilityAdapter);
 
-                PendingInstallDestinationSelectionResult result = service.ValidatePendingInstallDestination(
+                PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
                     targetFile,
                     [pendingPackage],
                     [installDirectoryPath],
-                    installDirectoryPath);
+                    installDirectoryPath,
+                    allowStandaloneLibraryFile: false);
 
                 Assert.IsTrue(result.Success);
                 Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
@@ -1588,7 +1590,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void ValidatePendingInstallDestination_DoesNotMaterializeAdapterlessBmsonWhenDestinationIsInvalid()
+    public void ValidateInstallDestination_DoesNotMaterializeAdapterlessBmsonWhenDestinationIsInvalid()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithPendingPackageSourceScanSetting(enabled: false, delegate
@@ -1611,11 +1613,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(1, entries.Count);
                 Assert.IsNull(entries[0].CompatibilityAdapter);
 
-                PendingInstallDestinationSelectionResult result = service.ValidatePendingInstallDestination(
+                PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
                     targetFile,
                     [pendingPackage],
                     [Path.Combine(tempRoot, "install")],
-                    Path.Combine(tempRoot, "missing"));
+                    Path.Combine(tempRoot, "missing"),
+                    allowStandaloneLibraryFile: false);
 
                 Assert.IsFalse(result.Success);
                 Assert.AreEqual(1, result.TargetEntries.Count);

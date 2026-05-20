@@ -1138,11 +1138,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
     }
 
-    public PendingInstallDestinationSelectionResult ValidatePendingInstallDestination(BMSFile targetFile, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
-    {
-        return ValidateInstallDestination(targetFile, pendingPackages, knownChartDirectories, destinationDirectory, allowStandaloneLibraryFile: false);
-    }
-
     public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
     {
         var result = new PendingInstallDestinationSelectionResult();
