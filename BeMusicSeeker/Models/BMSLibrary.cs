@@ -9321,8 +9321,6 @@ reportProgress,
         resolvedDestinationDirectory = null;
         skipReason = "unknown";
         List<PackageChartEntry> regroupedEntries = [];
-        HashSet<BMSFile> seenAdapterReferences = [];
-        var seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage sourcePackage in sourcePackages)
         {
             foreach (PackageChartEntry sourceEntry in sourcePackage.ChartEntries)
@@ -9332,10 +9330,7 @@ reportProgress,
                 {
                     continue;
                 }
-                BMSFile sourceAdapter = sourceEntry.CompatibilityAdapter;
-                bool uniqueReference = sourceAdapter == null || seenAdapterReferences.Add(sourceAdapter);
-                bool uniquePath = string.IsNullOrWhiteSpace(sourceChart.Path) || seenFilePaths.Add(sourceChart.Path);
-                if (uniqueReference && uniquePath)
+                if (!regroupedEntries.Any(entry => entry.IsSameChartTarget(sourceEntry)))
                 {
                     regroupedEntries.Add(sourceEntry);
                 }

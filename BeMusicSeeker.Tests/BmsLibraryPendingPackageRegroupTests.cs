@@ -151,6 +151,46 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_DeduplicatesAdapterlessBmsonByChartTarget()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonDuplicateRegroup");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageBmsonDuplicateRegroup");
+            string pendingBmsonPath = CreateHealthyBmsonFile(sourceDirectoryPath, "pending.bmson", "Duplicate Bmson", "Bmson Artist");
+            LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(pendingBmsonPath);
+            PackageChartEntry firstEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong));
+            string staleSnapshotPath = Path.Combine(sourceDirectoryPath, "pending-stale-snapshot.bmson");
+            PackageChartEntry secondEntry = PackageChartEntry.FromChart(WithChartPath(ChartFileProjection.FromBmsonSong(pendingSong), staleSnapshotPath));
+            ChartPackage firstPackage = ChartPackage.FromChartEntries([firstEntry]);
+            firstPackage.path = pendingBmsonPath;
+            firstPackage.delete_parent = true;
+            ChartPackage secondPackage = ChartPackage.FromChartEntries([secondEntry]);
+            secondPackage.path = staleSnapshotPath;
+            secondPackage.delete_parent = true;
+            string installedBmsonPath = CreateHealthyBmsonFile(destinationDirectoryPath, "installed.bmson", "Duplicate Bmson", "Bmson Artist");
+            LR2SongDBExtended.bmson_song installedSong = BmsonSongParser.Parse(installedBmsonPath);
+            Assert.IsNull(firstEntry.CompatibilityAdapter);
+            Assert.IsNull(secondEntry.CompatibilityAdapter);
+
+            library.BMSFiles = [];
+            library.BmsonSongs = [installedSong];
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
+
+            ChartPackage regroupedPackage = library.ChartPackagesPending.Single();
+            Assert.AreEqual(sourceDirectoryPath, regroupedPackage.path);
+            Assert.AreEqual(1, regroupedPackage.ChartEntries.Count);
+            Assert.IsNull(regroupedPackage.ChartEntries.Single().CompatibilityAdapter);
+            Assert.AreEqual(pendingBmsonPath, regroupedPackage.ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(destinationDirectoryPath, regroupedPackage.ChartEntries.Single().Chart.InstallDestination);
+            CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
+        });
+    }
+
+    [TestMethod]
     public void ReinitializePendingWarningsForPackage_DoesNotMaterializeHealthyAdapterlessBmsonDirectoryEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1457,6 +1497,52 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             + "\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]"
             + "}");
         return filePath;
+    }
+
+    private static string CreateHealthyBmsonFile(string directoryPath, string fileName, string title, string artist)
+    {
+        Directory.CreateDirectory(directoryPath);
+        string filePath = Path.Combine(directoryPath, fileName);
+        File.WriteAllText(filePath, "{"
+            + "\"version\":\"1.0.0\","
+            + "\"info\":{\"title\":\"" + title + "\",\"artist\":\"" + artist + "\",\"mode_hint\":\"beat-7k\"},"
+            + "\"sound_channels\":[]"
+            + "}");
+        return filePath;
+    }
+
+    private static ChartFile WithChartPath(ChartFile source, string path)
+    {
+        return new ChartFile(
+            source.Kind,
+            path,
+            source.Md5,
+            source.Sha256,
+            source.Title,
+            source.RawTitle,
+            source.Artist,
+            source.Genre,
+            source.Folder,
+            source.Tag,
+            source.LevelText,
+            source.Level,
+            source.Mode,
+            source.ChartInfo,
+            source.BmsFile,
+            source.BmsonSong,
+            source.Subtitle,
+            source.InstallDestination,
+            source.InstallDestinationTitle,
+            source.InstallDestinationArtist,
+            source.InstallDestinationSuggestions,
+            source.Warnings,
+            source.WAVHealth,
+            source.BGAHealth,
+            source.MovieHealth,
+            source.StagefileHealth,
+            source.BannerHealth,
+            source.BackbmpHealth,
+            source.EncodingName);
     }
 
     private static void ApplySingleFileWarnings(params ChartPackage[] packages)
