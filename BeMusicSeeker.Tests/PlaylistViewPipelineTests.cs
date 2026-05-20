@@ -1004,7 +1004,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, adapterRequestCount);
         Assert.AreEqual("C:\\Installed\\Bmson", snapshot.RepairCharts[0].InstallDestination);
 
-        snapshot.MaterializeCompatibilityFiles();
+        snapshot.MaterializeRepairEntries();
         Assert.AreEqual(1, adapterRequestCount);
 
         Assert.IsTrue(snapshot.HasInstallDestination);

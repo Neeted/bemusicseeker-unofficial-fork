@@ -19949,6 +19949,27 @@ public class MainWindowViewModel : ViewModel
         return [.. packages.Distinct()];
     }
 
+    private List<ChartPackage> ExtractChartPackagesFromChartEntries(ref List<PackageChartEntry> entries, bool isInstalled = false)
+    {
+        DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
+        List<PackageChartEntry> remainingEntries = [];
+        List<ChartPackage> packages = [];
+        foreach (PackageChartEntry entry in entries)
+        {
+            ChartPackage chartPackage = source?.FirstOrDefault(p => ContainsChartTarget(p, entry));
+            if (chartPackage == null)
+            {
+                remainingEntries.Add(entry);
+            }
+            else
+            {
+                packages.Add(chartPackage);
+            }
+        }
+        entries = remainingEntries;
+        return [.. packages.Distinct()];
+    }
+
     private List<ChartPackage> ExtractChartPackagesFromChartTargets(ref List<ChartOperationTarget> targets, bool isInstalled = false)
     {
         DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
@@ -19977,6 +19998,16 @@ public class MainWindowViewModel : ViewModel
             return false;
         }
         return (chartPackage.ChartEntries ?? []).Any(entry => IsSameChartTarget(entry, chartFile));
+    }
+
+    private static bool ContainsChartTarget(ChartPackage chartPackage, PackageChartEntry targetEntry)
+    {
+        ChartFile chart = targetEntry?.Chart;
+        if (chartPackage == null || chart == null)
+        {
+            return false;
+        }
+        return (chartPackage.ChartEntries ?? []).Any(entry => IsSamePackageEntryTarget(entry, targetEntry, chart));
     }
 
     private static bool ContainsChartTarget(ChartPackage chartPackage, ChartOperationTarget target)
@@ -20754,7 +20785,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        SearchCorrectInstallationDirectoryCharts(CreatePackageChartEntries(snapshot.CompatibilityFiles));
+        SearchCorrectInstallationDirectoryCharts(snapshot.RepairEntries);
     }
 
     public void ClearInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
@@ -20805,7 +20836,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        ClearInstallDestinationForCharts(CreatePackageChartEntries(snapshot.CompatibilityFiles));
+        ClearInstallDestinationForCharts(snapshot.RepairEntries);
     }
 
     private void ClearInstallDestinationForCharts(IEnumerable<PackageChartEntry> chartEntries)
@@ -20817,23 +20848,14 @@ public class MainWindowViewModel : ViewModel
                 throw new ArgumentNullException(nameof(chartEntries));
             }
             List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
-            List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. entries.Select(entry => entry.CompatibilityAdapter).Where(f => f != null)];
-            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
+            List<ChartPackage> chartPackages = ExtractChartPackagesFromChartEntries(ref entries);
             for (int num = 0; num < chartPackages.Count; num++)
             {
                 ClearChartPackageInstallDestinations(chartPackages[num]);
             }
-            List<PackageChartEntry> remainingEntries = [.. chartFiles2.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
-            files.RemoveInstallDestination(remainingEntries);
+            files.RemoveInstallDestination(entries);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
-    }
-
-    private static List<PackageChartEntry> CreatePackageChartEntries(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
-    {
-        return [.. (chartFiles ?? [])
-            .Select(PackageChartEntry.FromCompatibilityAdapter)
-            .Where(entry => entry?.Chart != null)];
     }
 
     private static void ClearChartPackageInstallDestinations(ChartPackage chartPackage)
@@ -21744,7 +21766,11 @@ public class MainWindowViewModel : ViewModel
     {
         List<ChartOperationTarget> targetList = [.. (targets ?? []).Where(target => target != null && target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation))];
         List<ChartFile> charts = [.. targetList.Select(target => target.Chart).Where(chart => chart != null)];
-        return new RepairInstalledLocationTargetSnapshot(charts, () => [.. targetList.Select(ResolveLegacyChartFile).Where(file => file != null)]);
+        return new RepairInstalledLocationTargetSnapshot(
+            charts,
+            () => [.. targetList
+                .Select(target => PackageChartEntry.FromCompatibilityAdapter(ResolveLegacyChartFile(target)) ?? PackageChartEntry.FromChart(target.Chart))
+                .Where(entry => entry?.Chart != null)]);
     }
 
     internal PendingInstallDestinationTargetSnapshot CreatePendingInstallDestinationTargetSnapshot(IEnumerable<ChartOperationTarget> targets)
@@ -21859,7 +21885,7 @@ public class MainWindowViewModel : ViewModel
 
         IReadOnlyList<ChartFile> RepairCharts { get; }
 
-        void MaterializeCompatibilityFiles();
+        void MaterializeRepairEntries();
     }
 
     private static RepairInstalledLocationTargetSnapshot AsRepairInstalledLocationTargetSnapshot(IRepairInstalledLocationTargetSnapshot snapshot)
@@ -21869,13 +21895,13 @@ public class MainWindowViewModel : ViewModel
 
     private sealed class RepairInstalledLocationTargetSnapshot : IRepairInstalledLocationTargetSnapshot
     {
-        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> compatibilityFiles;
+        private readonly Lazy<IReadOnlyList<PackageChartEntry>> repairEntries;
 
-        internal RepairInstalledLocationTargetSnapshot(IEnumerable<ChartFile> charts, Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> compatibilityFileFactory)
+        internal RepairInstalledLocationTargetSnapshot(IEnumerable<ChartFile> charts, Func<IReadOnlyList<PackageChartEntry>> repairEntryFactory)
         {
             Charts = [.. (charts ?? []).Where(chart => chart != null)];
-            compatibilityFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
-                () => [.. (compatibilityFileFactory?.Invoke() ?? []).Where(file => file != null)]);
+            repairEntries = new Lazy<IReadOnlyList<PackageChartEntry>>(
+                () => [.. (repairEntryFactory?.Invoke() ?? []).Where(entry => entry?.Chart != null)]);
             repairCharts = new Lazy<IReadOnlyList<ChartFile>>(CreateRepairCharts);
         }
 
@@ -21889,55 +21915,55 @@ public class MainWindowViewModel : ViewModel
 
         public IReadOnlyList<ChartFile> RepairCharts => repairCharts.Value;
 
-        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> CompatibilityFiles => compatibilityFiles.Value;
+        internal IReadOnlyList<PackageChartEntry> RepairEntries => repairEntries.Value;
 
         private IReadOnlyList<ChartFile> CreateRepairCharts()
         {
-            IReadOnlyList<BeMusicSeeker.Models.BMSFile> files = CompatibilityFiles;
-            if (files.Count == 0)
+            IReadOnlyList<PackageChartEntry> entries = RepairEntries;
+            if (entries.Count == 0)
             {
                 return Charts;
             }
 
-            var filesByChartKey = files
-                .Select(file => new
+            var entriesByChartKey = entries
+                .Select(entry => new
                 {
-                    File = file,
-                    Key = CreateRepairChartKey(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
+                    Entry = entry,
+                    Key = CreateRepairChartKey(entry.Chart)
                 })
                 .Where(item => !string.IsNullOrWhiteSpace(item.Key))
                 .GroupBy(item => item.Key, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First().File, StringComparer.OrdinalIgnoreCase);
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
             return [.. Charts.Select(chart =>
             {
                 string key = CreateRepairChartKey(chart);
-                if (string.IsNullOrWhiteSpace(key) || !filesByChartKey.TryGetValue(key, out BeMusicSeeker.Models.BMSFile file))
+                if (string.IsNullOrWhiteSpace(key) || !entriesByChartKey.TryGetValue(key, out var entry))
                 {
                     return chart;
                 }
-                if (!HasInstallDestinationState(file))
+                if (!HasInstallDestinationState(entry.Entry.Chart))
                 {
                     return chart;
                 }
 
                 return ChartFileProjection.WithPackageState(
                     chart,
-                    file.instl_dst,
-                    file.InstallDestinationTitle,
-                    file.InstallDestinationArtist,
-                    file.InstallDestinationSuggestions,
+                    entry.Entry.Chart.InstallDestination,
+                    entry.Entry.Chart.InstallDestinationTitle,
+                    entry.Entry.Chart.InstallDestinationArtist,
+                    entry.Entry.Chart.InstallDestinationSuggestions,
                     chart.Warnings);
             })];
         }
 
-        private static bool HasInstallDestinationState(BeMusicSeeker.Models.BMSFile file)
+        private static bool HasInstallDestinationState(ChartFile chart)
         {
-            return file != null
-                && (!string.IsNullOrWhiteSpace(file.instl_dst)
-                    || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle)
-                    || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist)
-                    || (file.InstallDestinationSuggestions?.Count ?? 0) > 0);
+            return chart != null
+                && (!string.IsNullOrWhiteSpace(chart.InstallDestination)
+                    || !string.IsNullOrWhiteSpace(chart.InstallDestinationTitle)
+                    || !string.IsNullOrWhiteSpace(chart.InstallDestinationArtist)
+                    || (chart.InstallDestinationSuggestions?.Count ?? 0) > 0);
         }
 
         private static string CreateRepairChartKey(ChartFile chart)
@@ -21956,9 +21982,9 @@ public class MainWindowViewModel : ViewModel
             return string.IsNullOrWhiteSpace(hash) ? null : "hash:" + hash;
         }
 
-        public void MaterializeCompatibilityFiles()
+        public void MaterializeRepairEntries()
         {
-            _ = CompatibilityFiles.Count;
+            _ = RepairEntries.Count;
         }
 
         bool IRepairInstalledLocationTargetSnapshot.HasTargets => HasTargets;
