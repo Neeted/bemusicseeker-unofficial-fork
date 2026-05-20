@@ -52,7 +52,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BMSFiles = [];
             SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
 
-            library.SearchEstimatedInstallationDirectory(firstPackage.MaterializeChartAdaptersForTest().Single(), asParallel: false, fixMode: false);
+            library.SearchEstimatedInstallationDirectory(PackageChartEntry.FromCompatibilityAdapter(firstPackage.MaterializeChartAdaptersForTest().Single()), asParallel: false, fixMode: false);
 
             AssertPendingPackagePaths(library, firstPackage.path, secondPackage.path);
             CollectionAssert.AreEquivalent(new[] { firstPackage.path, secondPackage.path }, LoadInstallPaths(songDbPath));
@@ -81,7 +81,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage);
             Assert.IsNull(pendingPackage.ChartEntries.Single().CompatibilityAdapter);
 
-            library.SearchEstimatedInstallationDirectory([selectedChart], asParallel: false, fixMode: false);
+            library.SearchEstimatedInstallationDirectory([PackageChartEntry.FromCompatibilityAdapter(selectedChart)], asParallel: false, fixMode: false);
 
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
             Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);

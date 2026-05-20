@@ -3617,9 +3617,28 @@ public class BMSLibrary : NotificationObject
         return (packages ?? []).Any(package => PackageContainsChartTarget(package, chartFile));
     }
 
+    private static bool PackageTargetsContainChartEntry(IEnumerable<ChartPackage> packages, PackageChartEntry chartEntry)
+    {
+        if (chartEntry?.Chart == null)
+        {
+            return false;
+        }
+        return (packages ?? []).Any(package => PackageContainsChartTarget(package, chartEntry));
+    }
+
     private static bool PackageContainsAnyChartTarget(ChartPackage package, HashSet<BMSFile> targetFileSet, HashSet<string> targetPathSet)
     {
         return (package?.ChartEntries ?? []).Any(entry => IsSamePackageChartTarget(entry, targetFileSet, targetPathSet));
+    }
+
+    private static bool PackageContainsAnyChartTarget(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries)
+    {
+        List<PackageChartEntry> targets = [.. (targetEntries ?? []).Where(entry => entry?.Chart != null)];
+        if (targets.Count == 0)
+        {
+            return false;
+        }
+        return (package?.ChartEntries ?? []).Any(entry => targets.Any(target => IsSamePackageChartTarget(entry, target)));
     }
 
     private static bool PackageContainsChartTarget(ChartPackage package, BMSFile targetFile)
@@ -3635,6 +3654,15 @@ public class BMSLibrary : NotificationObject
         return PackageContainsAnyChartTarget(package, targetFileSet, targetPathSet);
     }
 
+    private static bool PackageContainsChartTarget(ChartPackage package, PackageChartEntry targetEntry)
+    {
+        if (targetEntry?.Chart == null)
+        {
+            return false;
+        }
+        return (package?.ChartEntries ?? []).Any(entry => IsSamePackageChartTarget(entry, targetEntry));
+    }
+
     private static bool IsSamePackageChartTarget(PackageChartEntry entry, HashSet<BMSFile> targetFileSet, HashSet<string> targetPathSet)
     {
         if (entry?.Chart == null)
@@ -3646,6 +3674,37 @@ public class BMSLibrary : NotificationObject
             return true;
         }
         return !string.IsNullOrWhiteSpace(entry.Chart.Path) && targetPathSet != null && targetPathSet.Contains(entry.Chart.Path);
+    }
+
+    private static bool IsSamePackageChartTarget(PackageChartEntry entry, PackageChartEntry targetEntry)
+    {
+        if (entry?.Chart == null || targetEntry?.Chart == null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(entry, targetEntry))
+        {
+            return true;
+        }
+        if (entry.CompatibilityAdapter != null
+            && targetEntry.CompatibilityAdapter != null
+            && ReferenceEquals(entry.CompatibilityAdapter, targetEntry.CompatibilityAdapter))
+        {
+            return true;
+        }
+        ChartFile chart = entry.Chart;
+        ChartFile targetChart = targetEntry.Chart;
+        if (chart.Kind != targetChart.Kind)
+        {
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(chart.Path) && !string.IsNullOrWhiteSpace(targetChart.Path))
+        {
+            return chart.Path.Equals(targetChart.Path, StringComparison.OrdinalIgnoreCase);
+        }
+        return !string.IsNullOrWhiteSpace(chart.PrimaryLookupHash)
+            && !string.IsNullOrWhiteSpace(targetChart.PrimaryLookupHash)
+            && chart.PrimaryLookupHash.Equals(targetChart.PrimaryLookupHash, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -8817,45 +8876,6 @@ reportProgress,
         LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + completed + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
     }
 
-    private void SearchEstimatedInstallationDirectoryCore(BMSFile bmsFile, bool asParallel = true, bool fixMode = false)
-    {
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException("bmsFile");
-        }
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                ClearDeferredEstimateReasonForFilesUnsafe([bmsFile]);
-            }
-        }
-        bool resolvedInstalledDirectory = false;
-        if (!fixMode && PendingChartEntry.IsBmsonChartFile(bmsFile))
-        {
-            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-            {
-                using (rwlockPendingInstallCharts.GetReaderGuard())
-                {
-                    if (ContainsInstalledChartUnsafe(bmsFile))
-                    {
-                        List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), bmsFile);
-                        if (installedDirectories.Count == 1)
-                        {
-                            ApplyResolvedInstallDestinationToFiles([bmsFile], installedDirectories[0]);
-                            resolvedInstalledDirectory = true;
-                        }
-                    }
-                }
-            }
-            if (resolvedInstalledDirectory)
-            {
-                return;
-            }
-        }
-        SearchEstimatedInstallationDirectoryForChartsCore([bmsFile], asParallel, fixMode);
-    }
-
     private void SearchEstimatedInstallationDirectoryCore(PackageChartEntry chartEntry, bool asParallel = true, bool fixMode = false)
     {
         if (chartEntry?.Chart == null)
@@ -8895,17 +8915,21 @@ reportProgress,
         SearchEstimatedInstallationDirectoryForChartsCore(null, [], asParallel, fixMode ? ChartInstallationEstimateMode.ReinstallCorrection : ChartInstallationEstimateMode.Normal, [chartEntry]);
     }
 
-    public void SearchEstimatedInstallationDirectory(BMSFile bmsFile, bool asParallel = true, bool fixMode = false)
+    internal void SearchEstimatedInstallationDirectory(PackageChartEntry chartEntry, bool asParallel = true, bool fixMode = false)
     {
+        if (chartEntry?.Chart == null)
+        {
+            throw new ArgumentNullException(nameof(chartEntry));
+        }
         var stopwatch = Stopwatch.StartNew();
-        string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(bmsFile?.path);
-        LogInstallPerformance("manual_estimate_progress start kind=file total=1 current=" + displayName);
+        string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(chartEntry.Chart.Path);
+        LogInstallPerformance("manual_estimate_progress start kind=chart total=1 current=" + displayName);
         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 0, displayName);
         try
         {
             RunPendingEstimateExclusive(delegate
             {
-                SearchEstimatedInstallationDirectoryCore(bmsFile, asParallel, fixMode);
+                SearchEstimatedInstallationDirectoryCore(chartEntry, asParallel, fixMode);
             });
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
         }
@@ -8913,38 +8937,32 @@ reportProgress,
         {
             stopwatch.Stop();
             ClearInstallEstimationProgress();
-            LogInstallPerformance("manual_estimate_progress done kind=file total=1 elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            LogInstallPerformance("manual_estimate_progress done kind=chart total=1 elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
     }
 
-    public void SearchEstimatedInstallationDirectory(IEnumerable<BMSFile> bmsFiles, bool asParallel = true, bool fixMode = false)
+    internal void SearchEstimatedInstallationDirectory(IEnumerable<PackageChartEntry> chartEntries, bool asParallel = true, bool fixMode = false)
     {
-        if (bmsFiles == null)
+        if (chartEntries == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException(nameof(chartEntries));
         }
-        List<BMSFile> targetFiles = [.. bmsFiles.Where(file => file != null)];
-        if (targetFiles.Count == 0)
+        List<PackageChartEntry> targetEntries = [.. chartEntries.Where(entry => entry?.Chart != null)];
+        if (targetEntries.Count == 0)
         {
             return;
         }
         var stopwatch = Stopwatch.StartNew();
-        LogInstallPerformance("manual_estimate_progress start kind=files total=" + targetFiles.Count);
+        LogInstallPerformance("manual_estimate_progress start kind=charts total=" + targetEntries.Count);
         try
         {
-            var targetFileSet = new HashSet<BMSFile>(targetFiles);
-            var targetPathSet = new HashSet<string>(
-                targetFiles.Select(file => file.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.OrdinalIgnoreCase);
             List<ChartPackage> packageTargets;
             using (rwlockPendingInstallCharts.GetReaderGuard())
             {
-                packageTargets = [.. ChartPackagesPending.Where(package => package != null && PackageContainsAnyChartTarget(package, targetFileSet, targetPathSet))];
+                packageTargets = [.. ChartPackagesPending.Where(package => package != null && PackageContainsAnyChartTarget(package, targetEntries))];
             }
-            List<PackageChartEntry> looseEntries = [.. targetFiles
-                .Where(file => !PackageTargetsContainChartFile(packageTargets, file))
-                .Select(PackageChartEntry.FromCompatibilityAdapter)
-                .Where(entry => entry?.Chart != null)];
+            List<PackageChartEntry> looseEntries = [.. targetEntries
+                .Where(entry => !PackageTargetsContainChartEntry(packageTargets, entry))];
             if (!fixMode && looseEntries.Count == 0 && packageTargets.Count > 1)
             {
                 ProcessManualPackageEstimateBatch(packageTargets);
@@ -8980,7 +8998,7 @@ reportProgress,
         {
             stopwatch.Stop();
             ClearInstallEstimationProgress();
-            LogInstallPerformance("manual_estimate_progress done kind=files total=" + targetFiles.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            LogInstallPerformance("manual_estimate_progress done kind=charts total=" + targetEntries.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
     }
 
