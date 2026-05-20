@@ -7077,19 +7077,9 @@ reportProgress,
         return true;
     }
 
-    internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(BMSFile chartFile)
-    {
-        return GetResourceHealthIndexSnapshot("projection_read").GetProjection(chartFile);
-    }
-
     internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(ChartFile chart)
     {
         return GetResourceHealthIndexSnapshot("projection_read").GetProjection(chart);
-    }
-
-    internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(LR2SongDBExtended.bmson_song bmsonSong)
-    {
-        return GetResourceHealthIndexSnapshot("projection_read").GetProjection(bmsonSong);
     }
 
     internal ResourceHealthIndexSnapshot GetResourceHealthIndexSnapshotForView(string reason)

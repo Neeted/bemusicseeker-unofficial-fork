@@ -187,18 +187,6 @@ internal sealed class ResourceHealthIndexSnapshot
         return GetProjection(key);
     }
 
-    internal ResourceHealthWarningProjection GetProjection(BMSFile file)
-    {
-        var key = ResourceHealthChartKey.FromBmsFile(file);
-        return GetProjection(key);
-    }
-
-    internal ResourceHealthWarningProjection GetProjection(LR2SongDBExtended.bmson_song song)
-    {
-        var key = ResourceHealthChartKey.FromBmsonSong(song);
-        return GetProjection(key);
-    }
-
     private ResourceHealthWarningProjection GetProjection(ResourceHealthChartKey key)
     {
         if (!key.IsValid || !projectionsByKey.TryGetValue(key, out ResourceHealthWarningProjection projection))
@@ -233,24 +221,6 @@ internal sealed class ResourceHealthIndexSnapshot
                 chart.Kind == ChartFileKind.Bmson ? "bmson" : "bms",
                 chart.Path,
                 chart.Md5);
-        }
-
-        internal static ResourceHealthChartKey FromBmsFile(BMSFile file)
-        {
-            if (file == null)
-            {
-                return default;
-            }
-            return new ResourceHealthChartKey("bms", file.path, file.hash);
-        }
-
-        internal static ResourceHealthChartKey FromBmsonSong(LR2SongDBExtended.bmson_song song)
-        {
-            if (song == null)
-            {
-                return default;
-            }
-            return new ResourceHealthChartKey("bmson", song.path, song.md5);
         }
 
         public bool Equals(ResourceHealthChartKey other)

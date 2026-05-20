@@ -414,10 +414,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         CollectionAssert.AreEqual(new[] { activeChart }, snapshot.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(new[] { ignoredChart }, snapshot.IgnoredTargets.ToArray());
-        Assert.IsTrue(snapshot.GetProjection(active).HasIssues);
         Assert.IsTrue(snapshot.GetProjection(activeChart).HasIssues);
-        Assert.IsFalse(snapshot.GetProjection(active).IsIgnored);
-        Assert.IsTrue(snapshot.GetProjection(ignored).IsIgnored);
+        Assert.IsFalse(snapshot.GetProjection(activeChart).IsIgnored);
+        Assert.IsTrue(snapshot.GetProjection(ignoredChart).IsIgnored);
         Assert.IsFalse(active.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
         Assert.IsFalse(ignored.Warnings.Contains(ChartWarningKind.ResourceBgaMissing));
     }
@@ -442,7 +441,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         CollectionAssert.AreEqual(new[] { chart }, snapshot.ActiveTargets.ToArray());
         Assert.IsTrue(snapshot.GetProjection(chart).HasIssues);
-        Assert.IsTrue(snapshot.GetProjection(song).HasIssues);
         Assert.IsTrue(snapshot.GetProjection(chart).Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
     }
 
@@ -483,7 +481,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         ResourceHealthIndexSnapshot afterFix = snapshot.ApplyDelta([activeChart], null, service, version: 2);
 
         Assert.AreEqual(2, afterFix.TargetCount);
-        Assert.IsFalse(afterFix.GetProjection(active).HasIssues);
+        Assert.IsFalse(afterFix.GetProjection(activeChart).HasIssues);
         CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterFix.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(new[] { ignoredChart }, afterFix.IgnoredTargets.ToArray());
 
@@ -500,7 +498,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         ResourceHealthIndexSnapshot afterAdd = afterFix.ApplyDelta([addedChart], null, service, version: 3);
 
         Assert.AreEqual(3, afterAdd.TargetCount);
-        Assert.IsTrue(afterAdd.GetProjection(added).HasIssues);
         Assert.IsTrue(afterAdd.GetProjection(addedChart).HasIssues);
         CollectionAssert.AreEqual(new[] { addedChart }, afterAdd.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(new[] { ignoredChart }, afterAdd.IgnoredTargets.ToArray());
@@ -508,7 +505,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, [ignoredChart], service, version: 4);
 
         Assert.AreEqual(2, afterRemove.TargetCount);
-        Assert.IsFalse(afterRemove.GetProjection(ignored).HasIssues);
+        Assert.IsFalse(afterRemove.GetProjection(ignoredChart).HasIssues);
         CollectionAssert.AreEqual(new[] { addedChart }, afterRemove.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterRemove.IgnoredTargets.ToArray());
     }

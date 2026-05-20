@@ -11751,44 +11751,22 @@ public class MainWindowViewModel : ViewModel
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)
     {
-        if (files == null || row == null)
+        ChartFile chart = row?.Chart;
+        if (files == null || chart == null)
         {
             return ResourceHealthWarningProjection.Empty;
         }
-        if (row.Chart != null)
-        {
-            return files.GetResourceHealthWarningProjection(row.Chart);
-        }
-        if (row.BmsFile != null)
-        {
-            return files.GetResourceHealthWarningProjection(row.BmsFile);
-        }
-        if (row.BmsonSong != null)
-        {
-            return files.GetResourceHealthWarningProjection(row.BmsonSong);
-        }
-        return ResourceHealthWarningProjection.Empty;
+        return files.GetResourceHealthWarningProjection(chart);
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForSourceRow(ChartListSourceRow row)
     {
-        if (files == null || row == null)
+        ChartFile chart = row?.Chart;
+        if (files == null || chart == null)
         {
             return ResourceHealthWarningProjection.Empty;
         }
-        if (row.Chart != null)
-        {
-            return files.GetResourceHealthWarningProjection(row.Chart);
-        }
-        if (row.BmsFile != null)
-        {
-            return files.GetResourceHealthWarningProjection(row.BmsFile);
-        }
-        if (row.BmsonSong != null)
-        {
-            return files.GetResourceHealthWarningProjection(row.BmsonSong);
-        }
-        return ResourceHealthWarningProjection.Empty;
+        return files.GetResourceHealthWarningProjection(chart);
     }
 
     /// <summary>
