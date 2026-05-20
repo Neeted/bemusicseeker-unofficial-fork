@@ -578,7 +578,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsNotNull(row);
         Assert.AreEqual(bmson.path, row.path);
         Assert.AreEqual("BmsonTitle Subtitle", row.Title);
-        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(entry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
@@ -626,7 +626,7 @@ public sealed class ChartListVirtualViewTests
 
         entry.ApplyInstallEstimationResult(result);
 
-        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(entry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, row.instl_dst);
         Assert.AreEqual("Candidate A", row.InstallDestinationTitle);
         Assert.AreEqual("Artist A", row.InstallDestinationArtist);
@@ -651,7 +651,7 @@ public sealed class ChartListVirtualViewTests
 
         Assert.AreSame(bms, snapshot.BmsFiles.Single());
         Assert.AreSame(bmson, snapshot.BmsonSongs.Single());
-        Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
@@ -687,7 +687,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.instl_dst), ListSortDirection.Ascending, out _));
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
 
-        Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         Assert.AreSame(bmson, rows.Single().Chart.BmsonSong);
     }
 
@@ -706,7 +706,7 @@ public sealed class ChartListVirtualViewTests
         List<BMSFile> targets = MainWindowViewModel.CreatePackagePlaybackTargetSnapshot([package]);
 
         Assert.AreSame(bms, targets.Single());
-        Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
@@ -725,7 +725,7 @@ public sealed class ChartListVirtualViewTests
 
         viewModel.ClearInstallDestinationForPendingPackages([package]);
 
-        Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
     }
 
@@ -766,7 +766,7 @@ public sealed class ChartListVirtualViewTests
 
             viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([selectedChart]));
 
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
         }
         finally
@@ -815,7 +815,7 @@ public sealed class ChartListVirtualViewTests
 
             viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
         }
         finally
@@ -878,7 +878,7 @@ public sealed class ChartListVirtualViewTests
 
             viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([packageTarget, standaloneTarget]));
 
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
             Assert.AreEqual(@"C:\Installed\Standalone", standaloneChart.InstallDestination);
         }
@@ -940,7 +940,7 @@ public sealed class ChartListVirtualViewTests
 
             viewModel.SearchInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         }
         finally
         {
@@ -982,7 +982,7 @@ public sealed class ChartListVirtualViewTests
 
             viewModel.SearchMergeDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         }
         finally
         {
@@ -1037,7 +1037,7 @@ public sealed class ChartListVirtualViewTests
 
             viewModel.ClearInstallDestinationForPendingCharts(viewModel.CreatePendingInstallDestinationTargetSnapshot([target]));
 
-            Assert.IsNull(currentEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(currentEntry.GetBmsOwnerForTest());
             Assert.AreEqual(string.Empty, currentEntry.Chart.InstallDestination);
         }
         finally

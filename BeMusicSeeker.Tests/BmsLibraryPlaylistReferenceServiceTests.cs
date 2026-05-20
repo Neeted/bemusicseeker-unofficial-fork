@@ -93,7 +93,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(0, addedRefs);
         Assert.AreEqual(1, stats.Chunks);
-        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(entry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
@@ -132,7 +132,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(0, addedRefs);
-        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(entry.GetBmsOwnerForTest());
     }
 
     [TestMethod]

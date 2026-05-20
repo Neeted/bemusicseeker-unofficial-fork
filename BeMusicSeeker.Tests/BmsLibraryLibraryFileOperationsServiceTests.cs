@@ -180,7 +180,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var installedPackage = ChartPackageTestExtensions.CreatePackage([libraryFile]);
             installedPackage.path = nestedDirectoryPath;
             installedPackage.delete_parent = false;
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
             service.MoveFolderAndUpdateReferences(
                 sourceRoot,
@@ -212,7 +212,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 new[] { Path.Combine(destinationRoot, "Nested"), destinationRoot },
                 delta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
             Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), delta.UpdatedInstalledPackagePaths[0].NewPath);
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });
     }
 
@@ -243,7 +243,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             pendingPackage.delete_parent = false;
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(folderPath, []);
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsFile(libraryFile)],
@@ -263,7 +263,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestinationTitle);
             CollectionAssert.AreEqual(Array.Empty<string>(), adapterlessBmsonEntry.Chart.InstallDestinationSuggestions.ToArray());
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
             Assert.IsFalse(Directory.Exists(folderPath));
             Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
         });
@@ -780,7 +780,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingFile), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
             LibraryMergeResult result = service.PrepareMergeDirectory(
                 sourceRoot,
@@ -796,7 +796,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CollectionAssert.AreEquivalent(
                 new[] { destinationRoot, destinationRoot },
                 result.ReferenceMutationDelta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });
     }
 
@@ -821,7 +821,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
             LibraryMergeResult result = service.PrepareMergeDirectory(
                 sourceRoot,
@@ -836,7 +836,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryInstallDestinationChange change = result.ReferenceMutationDelta.UpdatedInstallDestinations.Single();
             Assert.AreSame(adapterlessBmsonEntry, change.Entry);
             Assert.AreEqual(destinationRoot, change.NewInstallDestination);
-            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });
     }
 
@@ -882,7 +882,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsTrue(result.Repackage.ChartEntries.Any(entry => ReferenceEquals(entry.Chart.BmsFile, bmsFile)));
             PackageChartEntry bmsonEntry = result.Repackage.ChartEntries.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson);
             Assert.AreSame(bmsonSong, bmsonEntry.Chart.BmsonSong);
-            Assert.IsNull(bmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(bmsonEntry.GetBmsOwnerForTest());
             CollectionAssert.AreEquivalent(new[] { bmsFile.hash, bmsonSong.md5 }, excludedHashes.ToArray());
         });
     }

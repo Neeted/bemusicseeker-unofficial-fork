@@ -605,14 +605,14 @@ production の bmson は `PendingChartEntry.CreateFromBmsonSong(...)` で compat
    `LibraryChartRow`、`PlaylistDetailSourceRow`、`PlaylistDetailRow`、`GridRowResolver`、`ChartOperationTarget` は `ChartFile` を正本にし、owned bmson 用 `CompatibilityBmsFile` surface は削除済みである。production では adapter-backed bmson の storage owner 抽出も削除済みであり、`ChartFileProjection.FromBmsFile(...)` は BMS storage owner 専用である。残る課題は、後続の model / package / maintenance 境界が `ChartOperationTarget.Chart` から直接進めるか、内部で adapter を要求していないかを潰すことである。
 
 5. `PendingChartEntry : BMSFile` 境界  
-   `PendingChartEntry` は production assembly だけでなく test fixture からも削除済みである。production の `ChartFileProjection.FromBmsFile(...)` / `ChartFileKindResolver` は bmson adapter を認識しない。`PackageChartEntry` の BMS mirror field も削除済みで、BMS owner は `ChartFile.BmsFile` だけである。残る課題は、test helper 側に残る compatibility wording を削り、adapter materialization を前提にしたテスト表現を `ChartFile` / `PackageChartEntry` assertion へ寄せることである。
+   `PendingChartEntry` は production assembly だけでなく test fixture からも削除済みである。production の `ChartFileProjection.FromBmsFile(...)` / `ChartFileKindResolver` は bmson adapter を認識しない。`PackageChartEntry` の BMS mirror field も削除済みで、BMS owner は `ChartFile.BmsFile` だけである。test helper の BMS owner 取得も `GetBmsOwnerForTest()` / `GetBmsOwnersForTest()` へ寄せている。残る課題は、adapter materialization を前提にしたテスト名や局所変数を `ChartFile` / `PackageChartEntry` assertion へ寄せることである。
 
 ### 推奨実装順
 
 1. resource health を chart-common 化する。`BuildResourceHealthWarnings`、pending package warning 判定、warning ignore / unignore、resource health index / projection の入力を `BMSFile` adapter ではなく `ChartFile` / `ChartResourceSnapshot` / maintenance row / storage owner へ寄せる。BMS-only encoding / zero-note は `BMSFile` 境界へ残す。
 2. playlist reference 表示と playlist detail の adapter mutation を分離する。pending / bmson の ref 表示は `PlaylistReferenceIndex` と chart identity から解決し、`BMSFile.RefTables` を持つ adapter へ書き戻さない。
 3. resource health / maintenance service 内の残存 BMSFile 境界を分類する。`BmsLibraryMaintenanceService` / inline maintenance は `bmson_song` と `ChartResourceSnapshot` を直接扱う状態まで進んだため、次は BMS 専用 maintenance API と chart-common warning projection の境界を分ける。
-4. test helper の adapter materialization 表現を cleanup する。behavior test は `bmson_song` / `ChartFile` / `PackageChartEntry` を正本にし、BMS storage mirror を読む helper は BMS-only fixture として必要な箇所に限定する。
+4. test の adapter materialization 表現を cleanup する。behavior test は `bmson_song` / `ChartFile` / `PackageChartEntry` を正本にし、BMS storage owner を読む helper は BMS-only fixture として必要な箇所に限定する。
 5. テストと docs を cleanup する。production で使われない互換 API をテストのために残さず、adapter materialization を検証したい場合も BMS storage mirror の代表ケースだけにする。
 
 ### 実装メモ
@@ -650,7 +650,7 @@ production の bmson は `PendingChartEntry.CreateFromBmsonSong(...)` で compat
 - UI row / operation target は owned bmson の `CompatibilityBmsFile` surface を持たない。旧実装では shared `PendingChartEntry` adapter が repair install destination や warning state の owner になり、row 再生成後も同じ adapter を参照していた。現行実装では ViewModel の `bmsonChartTransientStatesByKey` が `ChartFileTransientState` を保持し、`LibraryChartRow` / `PlaylistDetailSourceRow` / `ChartListSourceRow` へ `ChartFile` projection として重ねる。これにより、表示 state の保持は維持しつつ、operation target が bmson を BMSFile adapter に戻す副作用は移植しない。
 - adapter-backed bmson から `bmson_song` storage owner を取り出す互換処理は production から削除する。`LibraryChartRow`、`LibraryChartRef`、resource maintenance orchestration、state applier は `ChartFile` / `bmson_song` / `PackageChartEntry` を直接受け取り、BMSFile subtype の owner 抽出を行わない。旧実装では各所で `PendingChartEntry.BmsonSong` を直接読んでいたが、bmson adapter は最終形の storage owner ではないため、この副作用は移植しない。
 - `PackageChartEntry` は BMS format mirror を別 field として保持しない。BMS path / BMS parser result は `ChartFileProjection.FromBmsFile(...)` で `ChartFile.BmsFile` に接続し、bmson path は `ChartFileProjection.FromBmsonSong(...)` で `ChartFile.BmsonSong` に接続する。旧実装や一部 test helper では adapter-backed bmson entry が `compatibilityAdapter` field に残り得たが、bmson adapter は writeback mirror ではないため、この保持副作用は移植しない。
-- test helper の `GetCompatibilityAdapterForTest()` / `MaterializeChartAdaptersForTest()` は現時点では compatibility wording を残しているが、production field を reflection で読む helper ではなく、`PackageChartEntry.Chart.BmsFile` を読む BMS storage owner helper である。次の cleanup では helper 名と assertion を BMS owner 取得へ寄せ、adapter materialization を検証しているように読めるテスト表現を減らす。
+- test helper の `GetBmsOwnerForTest()` / `GetBmsOwnersForTest()` は production field を reflection で読む helper ではなく、`PackageChartEntry.Chart.BmsFile` を読む BMS storage owner helper である。旧 helper 名の `GetCompatibilityAdapterForTest()` / `MaterializeChartAdaptersForTest()` は削除済みである。残る adapter materialization 表現はテスト名や局所変数に限られるため、behavior が bmson adapter 非生成を明示する場合を除き、後続 cleanup で BMS owner / chart entry 表現へ寄せる。
 - package discovery の BMS path は `BMSFile.CreateBMSFileFromFile(...)` で BMS storage mirror を作る。旧実装では BMS path でも `PendingChartEntry.CreateFromFilePath(...)` を通し、BMS 用 pending adapter として package entry に入れていたが、BMS parser 結果は既に `BMSFile` であり、package entry が必要とする mutable state も `BMSFile` 側にあるため、BMS pending discovery 用の `PendingChartEntry` wrapper は作らない。bmson path は従来どおり `bmson_song` / `ChartFile` entry として保持する。
 
 ### 完了判定

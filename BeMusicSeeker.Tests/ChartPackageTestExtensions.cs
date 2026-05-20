@@ -27,19 +27,14 @@ internal static class ChartPackageTestExtensions
         return ChartPackage.FromChartEntries(entries);
     }
 
-    internal static List<BMSFile> MaterializeChartAdaptersForTest(this ChartPackage package)
+    internal static List<BMSFile> GetBmsOwnersForTest(this ChartPackage package)
     {
         return [.. (package?.ChartEntries ?? [])
-            .Select(entry => entry?.GetOrCreateCompatibilityAdapter())
+            .Select(entry => entry?.GetBmsOwnerForTest())
             .Where(file => file != null)];
     }
 
-    internal static BMSFile GetOrCreateCompatibilityAdapter(this PackageChartEntry entry)
-    {
-        return entry?.Chart?.BmsFile!;
-    }
-
-    internal static BMSFile GetCompatibilityAdapterForTest(this PackageChartEntry entry)
+    internal static BMSFile GetBmsOwnerForTest(this PackageChartEntry entry)
     {
         return entry?.Chart?.BmsFile!;
     }

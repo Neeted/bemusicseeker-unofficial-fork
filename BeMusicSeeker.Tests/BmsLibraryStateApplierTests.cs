@@ -344,7 +344,7 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreSame(mixedPackage, installedPackages.Single());
             Assert.AreEqual(1, mixedPackage.ChartEntries.Count);
             Assert.AreEqual(unmatchedBmsonEntry.Chart.Path, mixedPackage.ChartEntries.Single().Chart.Path);
-            Assert.IsNull(unmatchedBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(unmatchedBmsonEntry.GetBmsOwnerForTest());
         });
     }
 
@@ -484,8 +484,8 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreSame(package, installedPackages.Single());
             Assert.AreEqual(1, package.ChartEntries.Count);
             Assert.AreEqual(keptSong.path, package.ChartEntries.Single().Chart.Path);
-            Assert.IsNull(removedEntry.GetCompatibilityAdapterForTest());
-            Assert.IsNull(keptEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(removedEntry.GetBmsOwnerForTest());
+            Assert.IsNull(keptEntry.GetBmsOwnerForTest());
             Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
         });
     }
