@@ -3565,27 +3565,6 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private void ClearDeferredEstimateReasonForFilesUnsafe(IEnumerable<BMSFile> bmsFiles)
-    {
-        var fileSet = new HashSet<BMSFile>((bmsFiles ?? []).Where(file => file != null));
-        if (fileSet.Count == 0)
-        {
-            return;
-        }
-
-        IEnumerable<ChartPackage> pendingPackages = ChartPackagesPending ?? Enumerable.Empty<ChartPackage>();
-        var filePaths = new HashSet<string>(
-            fileSet.Select(file => file.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        foreach (ChartPackage pendingPackage in pendingPackages.Where(package => package != null))
-        {
-            if (PackageContainsAnyChartTarget(pendingPackage, fileSet, filePaths))
-            {
-                pendingPackage.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-            }
-        }
-    }
-
     private void ClearDeferredEstimateReasonForEntriesUnsafe(IEnumerable<PackageChartEntry> entries)
     {
         var entryPaths = new HashSet<string>(
@@ -3606,15 +3585,6 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private static bool PackageTargetsContainChartFile(IEnumerable<ChartPackage> packages, BMSFile chartFile)
-    {
-        if (chartFile == null)
-        {
-            return false;
-        }
-        return (packages ?? []).Any(package => PackageContainsChartTarget(package, chartFile));
-    }
-
     private static bool PackageTargetsContainChartEntry(IEnumerable<ChartPackage> packages, PackageChartEntry chartEntry)
     {
         if (chartEntry?.Chart == null)
@@ -3622,11 +3592,6 @@ public class BMSLibrary : NotificationObject
             return false;
         }
         return (packages ?? []).Any(package => PackageContainsChartTarget(package, chartEntry));
-    }
-
-    private static bool PackageContainsAnyChartTarget(ChartPackage package, HashSet<BMSFile> targetFileSet, HashSet<string> targetPathSet)
-    {
-        return (package?.ChartEntries ?? []).Any(entry => IsSamePackageChartTarget(entry, targetFileSet, targetPathSet));
     }
 
     private static bool PackageContainsAnyChartTarget(ChartPackage package, IEnumerable<PackageChartEntry> targetEntries)
@@ -3639,19 +3604,6 @@ public class BMSLibrary : NotificationObject
         return (package?.ChartEntries ?? []).Any(entry => targets.Any(target => IsSamePackageChartTarget(entry, target)));
     }
 
-    private static bool PackageContainsChartTarget(ChartPackage package, BMSFile targetFile)
-    {
-        if (targetFile == null)
-        {
-            return false;
-        }
-        var targetFileSet = new HashSet<BMSFile> { targetFile };
-        var targetPathSet = string.IsNullOrWhiteSpace(targetFile.path)
-            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>([targetFile.path], StringComparer.OrdinalIgnoreCase);
-        return PackageContainsAnyChartTarget(package, targetFileSet, targetPathSet);
-    }
-
     private static bool PackageContainsChartTarget(ChartPackage package, PackageChartEntry targetEntry)
     {
         if (targetEntry?.Chart == null)
@@ -3659,19 +3611,6 @@ public class BMSLibrary : NotificationObject
             return false;
         }
         return (package?.ChartEntries ?? []).Any(entry => IsSamePackageChartTarget(entry, targetEntry));
-    }
-
-    private static bool IsSamePackageChartTarget(PackageChartEntry entry, HashSet<BMSFile> targetFileSet, HashSet<string> targetPathSet)
-    {
-        if (entry?.Chart == null)
-        {
-            return false;
-        }
-        if (entry.CompatibilityAdapter != null && targetFileSet != null && targetFileSet.Contains(entry.CompatibilityAdapter))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(entry.Chart.Path) && targetPathSet != null && targetPathSet.Contains(entry.Chart.Path);
     }
 
     private static bool IsSamePackageChartTarget(PackageChartEntry entry, PackageChartEntry targetEntry)
