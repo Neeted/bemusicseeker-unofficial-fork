@@ -364,6 +364,7 @@ internal sealed class PackageChartEntry
         if (writebackFile != null)
         {
             writebackFile.ReplaceWarningsByCategory(category, warnings);
+            chart = ChartFileProjection.FromBmsFile(writebackFile);
             return;
         }
         foreach (ChartWarningKind kind in pendingWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())

@@ -72,7 +72,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         _ = file.maintenanceInfo;
         IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(file);
-        var snapshot = ResourceHealthIndexSnapshot.Build([file], service, version: 1);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        var snapshot = ResourceHealthIndexSnapshot.Build([chart], service, version: 1);
 
         Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, file.MaintenanceInfoOrigin);
         Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
@@ -119,6 +120,56 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(changes[0].is_files_warning_ignored);
         Assert.AreSame(entry.maintenanceInfo, song.MaintenanceInfo);
+        Assert.IsTrue(song.MaintenanceInfo.is_files_warning_ignored);
+    }
+
+    [TestMethod]
+    public void SetFilesWarningIgnored_ChartBmsonAttachesComputedMaintenanceInfoToSourceSong()
+    {
+        var service = new BmsLibraryMaintenanceService();
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Library\chart.bmson",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64),
+            wav_files = ["missing.wav"]
+        };
+        song.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
+        ChartFile chart = ChartFileProjection.FromBmsonSong(song);
+
+        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([chart], unset: false);
+
+        Assert.AreEqual(1, changes.Count);
+        Assert.AreSame(changes[0], song.MaintenanceInfo);
+        Assert.AreEqual(1, song.MaintenanceInfo.wav_files_defined);
+        Assert.AreEqual(0, song.MaintenanceInfo.wav_files_existing);
+        Assert.IsTrue(song.MaintenanceInfo.is_files_warning_ignored);
+    }
+
+    [TestMethod]
+    public void SetFilesWarningIgnored_ChartBmsonReplacesStaleMaintenanceHash()
+    {
+        var service = new BmsLibraryMaintenanceService();
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Library\chart.bmson",
+            md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            sha256 = new string('f', 64),
+            wav_files = ["missing.wav"]
+        };
+        song.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(song.path, "ffffffffffffffffffffffffffffffff");
+        song.MaintenanceInfo.wav_files_defined = 1;
+        song.MaintenanceInfo.wav_files_existing = 1;
+        song.MaintenanceInfo.is_files_warning_ignored = true;
+        ChartFile chart = ChartFileProjection.FromBmsonSong(song);
+
+        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([chart], unset: false);
+
+        Assert.AreEqual(1, changes.Count);
+        Assert.AreSame(changes[0], song.MaintenanceInfo);
+        Assert.AreEqual(song.md5, song.MaintenanceInfo.hash);
+        Assert.AreEqual(1, song.MaintenanceInfo.wav_files_defined);
+        Assert.AreEqual(0, song.MaintenanceInfo.wav_files_existing);
         Assert.IsTrue(song.MaintenanceInfo.is_files_warning_ignored);
     }
 
@@ -357,15 +408,42 @@ public sealed class BmsLibraryMaintenanceServiceTests
             is_files_warning_ignored = true
         }, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        var snapshot = ResourceHealthIndexSnapshot.Build([active, ignored], service, version: 3);
+        ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
+        ChartFile ignoredChart = ChartFileProjection.FromBmsFile(ignored);
+        var snapshot = ResourceHealthIndexSnapshot.Build([activeChart, ignoredChart], service, version: 3);
 
-        CollectionAssert.AreEqual(new[] { active }, snapshot.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignored }, snapshot.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { activeChart }, snapshot.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart }, snapshot.IgnoredTargets.ToArray());
         Assert.IsTrue(snapshot.GetProjection(active).HasIssues);
+        Assert.IsTrue(snapshot.GetProjection(activeChart).HasIssues);
         Assert.IsFalse(snapshot.GetProjection(active).IsIgnored);
         Assert.IsTrue(snapshot.GetProjection(ignored).IsIgnored);
         Assert.IsFalse(active.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
         Assert.IsFalse(ignored.Warnings.Contains(ChartWarningKind.ResourceBgaMissing));
+    }
+
+    [TestMethod]
+    public void ResourceHealthIndexSnapshot_BuildsBmsonTargetFromChartFile()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Library\chart.bmson",
+            md5 = "cccccccccccccccccccccccccccccccc",
+            sha256 = new string('c', 64)
+        };
+        song.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
+        song.MaintenanceInfo.wav_files_defined = 3;
+        song.MaintenanceInfo.wav_files_existing = 1;
+        ChartFile chart = ChartFileProjection.FromBmsonSong(song);
+
+        var snapshot = ResourceHealthIndexSnapshot.Build([chart], service, version: 5);
+
+        CollectionAssert.AreEqual(new[] { chart }, snapshot.ActiveTargets.ToArray());
+        Assert.IsTrue(snapshot.GetProjection(chart).HasIssues);
+        Assert.IsTrue(snapshot.GetProjection(song).HasIssues);
+        Assert.IsTrue(snapshot.GetProjection(chart).Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
     }
 
     [TestMethod]
@@ -391,7 +469,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_existing = 1,
             is_files_warning_ignored = true
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        var snapshot = ResourceHealthIndexSnapshot.Build([active, ignored], service, version: 1);
+        ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
+        ChartFile ignoredChart = ChartFileProjection.FromBmsFile(ignored);
+        var snapshot = ResourceHealthIndexSnapshot.Build([activeChart, ignoredChart], service, version: 1);
 
         active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
         {
@@ -399,12 +479,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
             wav_files_defined = 2,
             wav_files_existing = 2
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        ResourceHealthIndexSnapshot afterFix = snapshot.ApplyDelta([active], null, service, version: 2);
+        activeChart = ChartFileProjection.FromBmsFile(active);
+        ResourceHealthIndexSnapshot afterFix = snapshot.ApplyDelta([activeChart], null, service, version: 2);
 
         Assert.AreEqual(2, afterFix.TargetCount);
         Assert.IsFalse(afterFix.GetProjection(active).HasIssues);
-        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterFix.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignored }, afterFix.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterFix.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart }, afterFix.IgnoredTargets.ToArray());
 
         TestableBmsFile added = CreateFile("cccccccccccccccccccccccccccccccc");
         added.path = @"C:\Library\added.bms";
@@ -415,19 +496,21 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_existing = 3,
             is_files_warning_ignored = false
         }, suppressPropertyChanged: true, registerEventHandlers: false);
-        ResourceHealthIndexSnapshot afterAdd = afterFix.ApplyDelta([added], null, service, version: 3);
+        ChartFile addedChart = ChartFileProjection.FromBmsFile(added);
+        ResourceHealthIndexSnapshot afterAdd = afterFix.ApplyDelta([addedChart], null, service, version: 3);
 
         Assert.AreEqual(3, afterAdd.TargetCount);
         Assert.IsTrue(afterAdd.GetProjection(added).HasIssues);
-        CollectionAssert.AreEqual(new[] { added }, afterAdd.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(new[] { ignored }, afterAdd.IgnoredTargets.ToArray());
+        Assert.IsTrue(afterAdd.GetProjection(addedChart).HasIssues);
+        CollectionAssert.AreEqual(new[] { addedChart }, afterAdd.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart }, afterAdd.IgnoredTargets.ToArray());
 
-        ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, [ignored], service, version: 4);
+        ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, [ignoredChart], service, version: 4);
 
         Assert.AreEqual(2, afterRemove.TargetCount);
         Assert.IsFalse(afterRemove.GetProjection(ignored).HasIssues);
-        CollectionAssert.AreEqual(new[] { added }, afterRemove.ActiveTargets.ToArray());
-        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterRemove.IgnoredTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { addedChart }, afterRemove.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterRemove.IgnoredTargets.ToArray());
     }
 
     [TestMethod]

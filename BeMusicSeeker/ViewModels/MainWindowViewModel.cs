@@ -9258,7 +9258,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> ChartFilesNeedResourceFix
+    private IEnumerable<ChartFile> ChartFilesNeedResourceFix
     {
         get
         {
@@ -9270,7 +9270,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> ChartFilesNeedResourceFixIgnored
+    private IEnumerable<ChartFile> ChartFilesNeedResourceFixIgnored
     {
         get
         {
@@ -10060,9 +10060,9 @@ public class MainWindowViewModel : ViewModel
         return pruned;
     }
 
-    private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(BeMusicSeeker.Models.BMSFile file)
+    private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(ChartFile chart)
     {
-        var row = LibraryChartRow.FromBmsFile(file);
+        var row = LibraryChartRow.FromChartFile(chart);
         ApplyLibraryChartRowProviders(row);
         return row;
     }
@@ -11398,11 +11398,13 @@ public class MainWindowViewModel : ViewModel
         switch (treeMode)
         {
             case viewUpdateMode.FileMissingFilterSelected:
-                sourceFiles = ChartFilesNeedResourceFix;
+                sourceFiles = null;
+                sourceCharts = ChartFilesNeedResourceFix;
                 subsetName = "file_missing";
                 return true;
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                sourceFiles = ChartFilesNeedResourceFixIgnored;
+                sourceFiles = null;
+                sourceCharts = ChartFilesNeedResourceFixIgnored;
                 subsetName = "file_missing_ignored";
                 return true;
             case viewUpdateMode.DuplicateFilterSelected:
@@ -11797,6 +11799,10 @@ public class MainWindowViewModel : ViewModel
         {
             return ResourceHealthWarningProjection.Empty;
         }
+        if (row.Chart != null)
+        {
+            return files.GetResourceHealthWarningProjection(row.Chart);
+        }
         if (row.BmsFile != null)
         {
             return files.GetResourceHealthWarningProjection(row.BmsFile);
@@ -11813,6 +11819,10 @@ public class MainWindowViewModel : ViewModel
         if (files == null || row == null)
         {
             return ResourceHealthWarningProjection.Empty;
+        }
+        if (row.Chart != null)
+        {
+            return files.GetResourceHealthWarningProjection(row.Chart);
         }
         if (row.BmsFile != null)
         {
@@ -16837,6 +16847,13 @@ public class MainWindowViewModel : ViewModel
     {
         return [.. (charts ?? [])
             .Select(LibraryChartRow.FromChartFile)
+            .Where(row => row != null)];
+    }
+
+    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts, Func<ChartFile, LibraryChartRow> rowFactory)
+    {
+        return [.. (charts ?? [])
+            .Select(rowFactory ?? LibraryChartRow.FromChartFile)
             .Where(row => row != null)];
     }
 

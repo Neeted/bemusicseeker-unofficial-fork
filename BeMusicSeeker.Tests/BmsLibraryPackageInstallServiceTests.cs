@@ -659,15 +659,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
-                .Select(entry => entry.CompatibilityAdapter)
-                .OfType<PendingChartEntry>()
-                .Single();
-            Assert.IsTrue(chart.IsBmsonChart);
-            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
-            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            StringAssert.Contains(chart.WarningTooltipText, "WAV");
+            PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
+            Assert.IsNull(chartEntry.CompatibilityAdapter);
+            Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
+            Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            StringAssert.Contains(chartEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing).Message, "WAV");
         });
     }
 
@@ -900,14 +896,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.AutoInstallCandidates[0].path, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
-            PendingChartEntry chart = result.AutoInstallCandidates[0].ChartEntries
-                .Select(entry => entry.CompatibilityAdapter)
-                .OfType<PendingChartEntry>()
-                .Single();
-            Assert.IsTrue(chart.IsBmsonChart);
-            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
-            Assert.AreEqual(string.Empty, chart.WarningDigestText);
+            PackageChartEntry chartEntry = result.AutoInstallCandidates[0].ChartEntries.Single();
+            Assert.IsNull(chartEntry.CompatibilityAdapter);
+            Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
+            Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
+            Assert.AreEqual(0, chartEntry.Chart.Warnings.Count);
         });
     }
 

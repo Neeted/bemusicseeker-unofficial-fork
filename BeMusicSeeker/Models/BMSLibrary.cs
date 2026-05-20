@@ -1046,7 +1046,7 @@ public class BMSLibrary : NotificationObject
 
     public List<BMSFile> BMSFilesUnregistered => [.. BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent))];
 
-    public IEnumerable<BMSFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
+    internal IEnumerable<ChartFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
 
     public List<LR2SongDBExtended.bmson_song> BmsonSongs
     {
@@ -1076,7 +1076,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public IEnumerable<BMSFile> ChartFilesNeedResourceFixIgnored => GetChartsNeedResourceFix(null, forceUpdate: false, isInIgnoredList: true);
+    internal IEnumerable<ChartFile> ChartFilesNeedResourceFixIgnored => GetChartsNeedResourceFix(null, forceUpdate: false, isInIgnoredList: true);
 
     /// <summary>
     /// 重複検出済みの chart group 一覧です。重複検出処理の結果が格納されます。
@@ -6976,6 +6976,26 @@ reportProgress,
         return targets;
     }
 
+    private List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<BMSFile> bmsFiles, bool includeInstalledBmson)
+    {
+        List<ChartFile> charts = [.. (bmsFiles ?? [])
+            .Where(file => file != null)
+            .Select(file => ChartFileProjection.FromBmsFile(file))];
+        if (!includeInstalledBmson)
+        {
+            return charts;
+        }
+        charts.AddRange((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where(song => song != null)
+            .Select(song => ChartFileProjection.FromBmsonSong(song)));
+        return charts;
+    }
+
+    private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? []).Where(chart => chart != null)];
+    }
+
     private void InvalidateResourceHealthIndex(string reason)
     {
         _ = reason;
@@ -7006,7 +7026,7 @@ reportProgress,
 
     private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(string reason)
     {
-        List<BMSFile> targets = CreateResourceMaintenanceTargets(BMSFiles, includeInstalledBmson: true);
+        List<ChartFile> targets = CreateResourceMaintenanceCharts(BMSFiles, includeInstalledBmson: true);
         int version = Interlocked.Increment(ref resourceHealthIndexVersionSeed);
         var snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version);
         lock (resourceHealthIndexLock)
@@ -7041,8 +7061,8 @@ reportProgress,
         {
             return false;
         }
-        List<BMSFile> updatedTargetList = CreateResourceMaintenanceTargets(updatedTargets, includeInstalledBmson: false);
-        List<BMSFile> removedTargetList = CreateResourceMaintenanceTargets(removedTargets, includeInstalledBmson: false);
+        List<ChartFile> updatedTargetList = CreateResourceMaintenanceCharts(updatedTargets, includeInstalledBmson: false);
+        List<ChartFile> removedTargetList = CreateResourceMaintenanceCharts(removedTargets, includeInstalledBmson: false);
         if (updatedTargetList.Count == 0 && removedTargetList.Count == 0)
         {
             return false;
@@ -7068,6 +7088,11 @@ reportProgress,
     internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(BMSFile chartFile)
     {
         return GetResourceHealthIndexSnapshot("projection_read").GetProjection(chartFile);
+    }
+
+    internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(ChartFile chart)
+    {
+        return GetResourceHealthIndexSnapshot("projection_read").GetProjection(chart);
     }
 
     internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(LR2SongDBExtended.bmson_song bmsonSong)
@@ -7174,7 +7199,7 @@ reportProgress,
         return maintenanceService.ApplyResourceHealthWarnings(bmsFile, mtInfo, strictCheck);
     }
 
-    public List<BMSFile> GetChartsNeedResourceFix(IEnumerable<BMSFile> chartFiles, bool forceUpdate = false, bool isInIgnoredList = false)
+    internal List<ChartFile> GetChartsNeedResourceFix(IEnumerable<BMSFile> chartFiles, bool forceUpdate = false, bool isInIgnoredList = false)
     {
         bool includeInstalledBmson = chartFiles == null;
         chartFiles ??= BMSFiles;
@@ -7193,14 +7218,14 @@ reportProgress,
                 {
                     return [.. (isInIgnoredList ? snapshot.IgnoredTargets : snapshot.ActiveTargets)];
                 }
-                List<BMSFile> targets = CreateResourceMaintenanceTargets(chartFiles, includeInstalledBmson);
+                List<ChartFile> targets = CreateResourceMaintenanceCharts(chartFiles, includeInstalledBmson);
                 if (targets.Count == 0)
                 {
                     return [];
                 }
-                return [.. targets.Where(file =>
+                return [.. targets.Where(chart =>
                 {
-                    ResourceHealthWarningProjection projection = snapshot.GetProjection(file);
+                    ResourceHealthWarningProjection projection = snapshot.GetProjection(chart);
                     return projection.HasIssues && projection.IsIgnored == isInIgnoredList;
                 })];
             }
@@ -7290,7 +7315,7 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<BMSFile> targets = CreateResourceMaintenanceTargets(charts);
+                List<ChartFile> targets = CreateResourceMaintenanceCharts(charts);
                 if (targets.Count == 0)
                 {
                     return;

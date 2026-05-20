@@ -65,6 +65,135 @@ internal sealed class BmsLibraryMaintenanceService
         }
         _ = strictCheck;
         maintenanceInfo ??= bmsFile.HasValidMaintenanceInfoSnapshot ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null;
+        return BuildResourceHealthWarnings(maintenanceInfo);
+    }
+
+    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart, bool strictCheck = false)
+    {
+        if (chart == null || (chart.Kind != ChartFileKind.Bms && chart.Kind != ChartFileKind.Bmson))
+        {
+            return [];
+        }
+        _ = strictCheck;
+        return BuildResourceHealthWarnings(GetResourceHealthMaintenanceInfo(chart));
+    }
+
+    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart, BMSFileMaintenanceInfo maintenanceInfo, bool strictCheck = false)
+    {
+        if (chart == null || (chart.Kind != ChartFileKind.Bms && chart.Kind != ChartFileKind.Bmson))
+        {
+            return [];
+        }
+        _ = strictCheck;
+        return BuildResourceHealthWarnings(maintenanceInfo ?? GetResourceHealthMaintenanceInfo(chart));
+    }
+
+    internal static BMSFileMaintenanceInfo GetResourceHealthMaintenanceInfo(ChartFile chart)
+    {
+        if (chart?.BmsFile != null)
+        {
+            return chart.BmsFile.HasValidMaintenanceInfoSnapshot
+                ? chart.BmsFile.TryGetMaintenanceInfoWithoutCreating()
+                : null;
+        }
+        if (chart?.BmsonSong != null)
+        {
+            LR2SongDBExtended.bmson_song song = chart.BmsonSong;
+            BMSFileMaintenanceInfo maintenanceInfo = song.MaintenanceInfo;
+            if (IsCurrentBmsonMaintenanceInfo(song, maintenanceInfo) && HasResourceHealthSnapshot(maintenanceInfo))
+            {
+                maintenanceInfo.NormalizeForBmson(song.path, song.md5);
+                return maintenanceInfo;
+            }
+            BMSFileMaintenanceInfo computedInfo = BuildResourceHealthMaintenanceInfo(chart);
+            if (computedInfo != null && IsCurrentBmsonMaintenanceInfo(song, maintenanceInfo))
+            {
+                computedInfo.is_files_warning_ignored = maintenanceInfo.is_files_warning_ignored;
+            }
+            return computedInfo;
+        }
+        return BuildResourceHealthMaintenanceInfo(chart);
+    }
+
+    private static bool IsCurrentBmsonMaintenanceInfo(LR2SongDBExtended.bmson_song song, BMSFileMaintenanceInfo maintenanceInfo)
+    {
+        return song != null
+            && maintenanceInfo != null
+            && string.Equals(maintenanceInfo.hash, song.md5, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool HasResourceHealthSnapshot(BMSFileMaintenanceInfo maintenanceInfo)
+    {
+        return maintenanceInfo != null
+            && (maintenanceInfo.wav_files_defined.HasValue
+                || maintenanceInfo.bga_files_defined.HasValue
+                || maintenanceInfo.movie_files_defined.HasValue
+                || maintenanceInfo.is_stagefile_defined.HasValue
+                || maintenanceInfo.is_backbmp_defined.HasValue
+                || maintenanceInfo.is_banner_defined.HasValue);
+    }
+
+    internal static BMSFileMaintenanceInfo BuildResourceHealthMaintenanceInfo(ChartFile chart)
+    {
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+        {
+            return null;
+        }
+        string chartDirectory = Path.GetDirectoryName(chart.Path);
+        if (string.IsNullOrWhiteSpace(chartDirectory))
+        {
+            return null;
+        }
+
+        ChartResourceSnapshot resources = ChartResourceSnapshot.Create(chart);
+        var maintenanceInfo = new BMSFileMaintenanceInfo
+        {
+            path = chart.Path,
+            hash = chart.Md5,
+            encoding = chart.Kind == ChartFileKind.Bmson ? "utf-8" : null,
+            is_encoding_fixed = false
+        };
+
+        maintenanceInfo.wav_files_defined = resources.AudioReferenceCount;
+        if (maintenanceInfo.wav_files_defined > 0)
+        {
+            maintenanceInfo.wav_files_existing = CountExistingResourceReferences(chartDirectory, resources.AudioReferences, BMSFile.wavExtensions);
+        }
+        maintenanceInfo.bga_files_defined = resources.VisualReferenceCount;
+        if (maintenanceInfo.bga_files_defined > 0)
+        {
+            maintenanceInfo.bga_files_existing = CountExistingResourceReferences(chartDirectory, resources.VisualReferences, BMSFile.bgaImageExtensions);
+        }
+        maintenanceInfo.movie_files_defined = resources.MovieReferenceCount;
+        if (maintenanceInfo.movie_files_defined > 0)
+        {
+            maintenanceInfo.movie_files_existing = CountExistingResourceReferences(chartDirectory, resources.MovieReferences, BMSFile.bgaMovieExtensions);
+        }
+
+        string stagefile = chart.BmsFile?.stagefile ?? chart.BmsonSong?.stagefile;
+        string backbmp = chart.BmsFile?.backbmp ?? chart.BmsonSong?.backbmp;
+        string banner = chart.BmsFile?.banner ?? chart.BmsonSong?.banner;
+        maintenanceInfo.is_stagefile_defined = !string.IsNullOrWhiteSpace(stagefile);
+        if (maintenanceInfo.is_stagefile_defined == true)
+        {
+            maintenanceInfo.is_stagefile_existing = ExistsWithCompatibleExtensions(chartDirectory, stagefile, BMSFile.bgaImageExtensions);
+        }
+        maintenanceInfo.is_backbmp_defined = !string.IsNullOrWhiteSpace(backbmp);
+        if (maintenanceInfo.is_backbmp_defined == true)
+        {
+            maintenanceInfo.is_backbmp_existing = ExistsWithCompatibleExtensions(chartDirectory, backbmp, BMSFile.bgaImageExtensions);
+        }
+        maintenanceInfo.is_banner_defined = !string.IsNullOrWhiteSpace(banner);
+        if (maintenanceInfo.is_banner_defined == true)
+        {
+            maintenanceInfo.is_banner_existing = ExistsWithCompatibleExtensions(chartDirectory, banner, BMSFile.bgaImageExtensions);
+        }
+
+        return maintenanceInfo;
+    }
+
+    internal static IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFileMaintenanceInfo maintenanceInfo)
+    {
         if (maintenanceInfo == null)
         {
             return [];
@@ -77,6 +206,30 @@ internal sealed class BmsLibraryMaintenanceService
         AppendFlagWarning(warnings, maintenanceInfo.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing, Resources.Warning_BackbmpNotFound);
         AppendFlagWarning(warnings, maintenanceInfo.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing, Resources.Warning_BannerNotFound);
         return warnings;
+    }
+
+    private static int CountExistingResourceReferences(string chartDirectory, IEnumerable<ChartResourceSnapshot.ResourceReference> references, IEnumerable<string> extensions)
+    {
+        return (references ?? []).Count(reference => ExistsWithCompatibleExtensions(chartDirectory, reference.NormalizedPath, extensions));
+    }
+
+    private static bool ExistsWithCompatibleExtensions(string chartDirectory, string file, IEnumerable<string> extensions)
+    {
+        if (string.IsNullOrWhiteSpace(chartDirectory) || string.IsNullOrWhiteSpace(file))
+        {
+            return false;
+        }
+        try
+        {
+            string fullPath = Path.GetFullPath(Path.Combine(chartDirectory, ChartResourcePathNormalizer.NormalizeReferencePathForLookup(file) ?? file));
+            string directory = Path.GetDirectoryName(fullPath) + Path.DirectorySeparatorChar;
+            string basename = Path.GetFileNameWithoutExtension(fullPath);
+            return File.Exists(fullPath) || (extensions ?? []).Any(ext => !string.IsNullOrWhiteSpace(ext) && File.Exists(directory + basename + ext));
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public List<BMSFile> GetGarbledFiles(IEnumerable<BMSFile> bmsFiles, bool isInFixedList)
@@ -114,6 +267,34 @@ internal sealed class BmsLibraryMaintenanceService
             }
         }
         return changes;
+    }
+
+    public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<ChartFile> charts, bool unset)
+    {
+        List<BMSFileMaintenanceInfo> changes = [];
+        foreach (ChartFile chart in charts ?? [])
+        {
+            BMSFileMaintenanceInfo maintenanceInfo = GetResourceHealthMaintenanceInfo(chart);
+            if (maintenanceInfo == null || maintenanceInfo.is_files_warning_ignored != unset || changes.Contains(maintenanceInfo))
+            {
+                continue;
+            }
+            AttachResourceHealthMaintenanceInfo(chart, maintenanceInfo);
+            changes.Add(maintenanceInfo);
+        }
+        foreach (BMSFileMaintenanceInfo item in changes)
+        {
+            item.is_files_warning_ignored = !unset;
+        }
+        return changes;
+    }
+
+    private static void AttachResourceHealthMaintenanceInfo(ChartFile chart, BMSFileMaintenanceInfo maintenanceInfo)
+    {
+        if (chart?.BmsonSong != null && maintenanceInfo != null && !ReferenceEquals(chart.BmsonSong.MaintenanceInfo, maintenanceInfo))
+        {
+            chart.BmsonSong.MaintenanceInfo = maintenanceInfo;
+        }
     }
 
     public MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<BMSFile> bmsFiles, string encoding)

@@ -614,6 +614,13 @@ Kind ごとの storage 境界は次の通り。
 5. `PendingChartEntry : BMSFile` を解体する。必要な static helper は final owner へ移し、pending / package chart は `PackageChartEntry` / `ChartFile` / storage row を正本にする。`PendingChartEntry` を残す場合でも production から参照されない legacy adapter に限定する。
 6. テストと docs を cleanup する。production で使われない互換 API をテストのために残さず、adapter materialization を検証したい場合は test-local helper に閉じ込める。
 
+### 実装メモ
+
+- resource health の warning 計算は mutation から分離する。`BMSFile` の warning set を更新する入口は BMS / compatibility adapter へ降りる境界として残すが、一覧 filter / projection / pending package 判定は `ChartFile` と maintenance row から `ChartWarning` list を計算する。
+- bmson は parser 直後に `bmson_song.MaintenanceInfo` が存在していても、resource health の defined / existing count が未計算なら placeholder とみなし、`ChartResourceSnapshot` と現在の filesystem 状態から一時 maintenance snapshot を作る。hash が現在の `bmson_song.md5` と一致する場合だけ既存の ignored flag を引き継ぎ、hash が古い maintenance row は使わない。旧実装ではこの判定のために `PendingChartEntry` adapter を作って `SetHealthStatus()` していたが、adapter materialization は状態計算の副作用だったため移植しない。
+- BMS chart については、現時点では `BMSFile.HasValidMaintenanceInfoSnapshot` を持つ場合だけ resource health projection の入力にする。BMS の strict resource scan / encoding / zero-note はまだ BMS-only maintenance boundary へ残し、今回の chart-common 計算へ無理に混ぜない。
+- `ResourceHealthIndexSnapshot.ActiveTargets` / `IgnoredTargets` は `ChartFile` を返す。旧実装の `BMSFile` target list は UI filter へ BMS adapter を渡すための構造であり、bmson を adapterless に扱う最終形では chart row projection に直接渡す。
+
 ### 完了判定
 
 - `BMSFile` は実体 BMS / LR2 `song` row / BMS-only operation に閉じている。
