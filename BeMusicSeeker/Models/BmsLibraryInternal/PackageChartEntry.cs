@@ -29,7 +29,7 @@ internal sealed class PackageChartEntry
     {
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
         this.compatibilityAdapter = compatibilityAdapter;
-        if (compatibilityAdapter == null && chart.BmsFile == null)
+        if (GetBmsFormatMirror() == null)
         {
             ReplacePendingWarnings(chart.Warnings);
             ReplacePendingInstallDestination(chart.InstallDestination, chart.InstallDestinationTitle, chart.InstallDestinationArtist, chart.InstallDestinationSuggestions);
@@ -45,7 +45,7 @@ internal sealed class PackageChartEntry
     {
         get
         {
-            BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+            BMSFile writebackFile = GetBmsFormatMirror();
             if (writebackFile != null)
             {
                 return ChartFileProjection.FromBmsFile(writebackFile);
@@ -163,18 +163,12 @@ internal sealed class PackageChartEntry
 
     internal BMSFile GetOrCreateBmsFormatAdapter()
     {
-        ChartFile currentChart = Chart;
-        if (currentChart?.Kind != ChartFileKind.Bms)
-        {
-            return null;
-        }
-        return compatibilityAdapter ?? currentChart.BmsFile;
+        return GetBmsFormatMirror();
     }
 
     internal BMSFile GetExistingBmsFormatAdapter()
     {
-        ChartFile currentChart = Chart;
-        return currentChart?.Kind == ChartFileKind.Bms ? compatibilityAdapter ?? currentChart.BmsFile : null;
+        return GetBmsFormatMirror();
     }
 
     internal bool HasInstallDestinationSuggestion(string destinationDirectory)
@@ -190,7 +184,7 @@ internal sealed class PackageChartEntry
 
     internal void SetSearchingStatus(bool isSearching)
     {
-        BMSFile statusFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile statusFile = GetBmsFormatMirror();
         if (statusFile == null)
         {
             return;
@@ -212,18 +206,9 @@ internal sealed class PackageChartEntry
             return;
         }
 
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
-            if (writebackFile is PendingChartEntry { IsBmsonChart: true, BmsonSong: { } bmsonSong } pendingBmson)
-            {
-                bmsonSong.path = installedPath;
-                bmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
-                bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
-                pendingBmson.ReplaceBmsonSongReferenceAfterInstall(bmsonSong);
-                chart = ChartFileProjection.FromBmsFile(pendingBmson);
-                return;
-            }
             writebackFile.path = installedPath;
             ClearInstalledChartAdapterMetadata(writebackFile);
             chart = ChartFileProjection.FromBmsFile(writebackFile);
@@ -241,7 +226,7 @@ internal sealed class PackageChartEntry
 
     internal void ApplyInstallDestination(string destinationDirectory, string title, string artist, bool preserveAmbiguousInstallContext = false)
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.instl_dst = destinationDirectory;
@@ -269,7 +254,7 @@ internal sealed class PackageChartEntry
 
     internal void ApplyInstallDestinationMetadata(string destinationDirectory, string title, string artist)
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.instl_dst = destinationDirectory;
@@ -287,7 +272,7 @@ internal sealed class PackageChartEntry
 
     internal void ApplyInstallEstimationResult(InstallEstimationResult result)
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             ApplyInstallEstimationResultToFile(writebackFile, result);
@@ -313,7 +298,7 @@ internal sealed class PackageChartEntry
 
     internal void ApplyInstalledDestinationResolveFailed()
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.instl_dst = null;
@@ -332,7 +317,7 @@ internal sealed class PackageChartEntry
 
     internal void ClearInstallDestination()
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.instl_dst = null;
@@ -349,7 +334,7 @@ internal sealed class PackageChartEntry
 
     internal void ClearPostInstallState()
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
@@ -365,7 +350,7 @@ internal sealed class PackageChartEntry
 
     internal void ClearStructuredWarnings()
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.ClearStructuredWarnings();
@@ -377,7 +362,7 @@ internal sealed class PackageChartEntry
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.ClearWarningsByCategory(category);
@@ -392,7 +377,7 @@ internal sealed class PackageChartEntry
 
     internal void SetWarning(ChartWarningKind kind, string message)
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.SetWarning(kind, message);
@@ -405,7 +390,7 @@ internal sealed class PackageChartEntry
 
     internal void ReplaceWarningsByCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.ReplaceWarningsByCategory(category, warnings);
@@ -523,7 +508,7 @@ internal sealed class PackageChartEntry
 
     private void ReplaceInstallDestinationState(string destinationDirectory, string title, string artist, IReadOnlyList<string> suggestions)
     {
-        BMSFile writebackFile = compatibilityAdapter ?? chart.BmsFile;
+        BMSFile writebackFile = GetBmsFormatMirror();
         if (writebackFile != null)
         {
             writebackFile.instl_dst = destinationDirectory;
@@ -533,6 +518,16 @@ internal sealed class PackageChartEntry
             return;
         }
         ReplacePendingInstallDestination(destinationDirectory, title, artist, suggestions, forceProjection: true);
+    }
+
+    private BMSFile GetBmsFormatMirror()
+    {
+        if (compatibilityAdapter != null)
+        {
+            return compatibilityAdapter is PendingChartEntry { IsBmsonChart: true } ? null : compatibilityAdapter;
+        }
+
+        return chart?.Kind == ChartFileKind.Bms ? chart.BmsFile : null;
     }
 
     internal static PackageChartEntry FromPath(string filePath)

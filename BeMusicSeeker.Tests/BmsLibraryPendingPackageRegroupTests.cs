@@ -216,7 +216,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
-    public void ReinitializePendingWarningsForPackage_PreservesMaterializedBmsonResourceWarnings()
+    public void ReinitializePendingWarningsForPackage_StoresMaterializedBmsonResourceWarningsOnChartState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -234,8 +234,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             Assert.AreSame(adapter, entry.CompatibilityAdapter);
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsTrue(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
+            Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(adapter.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
         });
     }
 
@@ -820,9 +821,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            Assert.AreEqual(destinationDirectoryPath, pendingBmson.instl_dst);
-            Assert.AreEqual("Installed Bmson", pendingBmson.InstallDestinationTitle);
-            Assert.AreEqual("Bmson Artist", pendingBmson.InstallDestinationArtist);
+            PackageChartEntry entry = pendingPackage.ChartEntries.Single();
+            Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
+            Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
+            Assert.AreEqual("Bmson Artist", entry.Chart.InstallDestinationArtist);
+            Assert.IsNull(pendingBmson.instl_dst);
         });
     }
 
@@ -875,9 +878,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BmsonSongs = [sourceSong];
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, destinationDirectoryPath));
 
-            library.SearchCorrectInstallationDirectoryCharts([PackageChartEntry.FromChartAdapter(repairTarget)]);
+            PackageChartEntry entry = PackageChartEntry.FromChartAdapter(repairTarget);
+            library.SearchCorrectInstallationDirectoryCharts([entry]);
 
-            Assert.AreEqual(destinationDirectoryPath, repairTarget.instl_dst);
+            Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
+            Assert.IsNull(repairTarget.instl_dst);
         });
     }
 
@@ -910,10 +915,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            foreach (BMSFile pendingFile in pendingPackage.MaterializeChartAdaptersForTest())
+            foreach (PackageChartEntry pendingEntry in pendingPackage.ChartEntries)
             {
-                Assert.AreEqual(destinationDirectoryPath, pendingFile.instl_dst);
+                Assert.AreEqual(destinationDirectoryPath, pendingEntry.Chart.InstallDestination);
             }
+            Assert.AreEqual(destinationDirectoryPath, pendingBms.instl_dst);
+            Assert.IsNull(pendingBmson.instl_dst);
         });
     }
 
@@ -951,10 +958,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            foreach (BMSFile pendingFile in pendingPackage.MaterializeChartAdaptersForTest())
+            foreach (PackageChartEntry pendingEntry in pendingPackage.ChartEntries)
             {
-                Assert.AreEqual(primaryDestinationDirectoryPath, pendingFile.instl_dst);
+                Assert.AreEqual(primaryDestinationDirectoryPath, pendingEntry.Chart.InstallDestination);
             }
+            Assert.AreEqual(primaryDestinationDirectoryPath, pendingBmsA.instl_dst);
+            Assert.AreEqual(primaryDestinationDirectoryPath, pendingBmsB.instl_dst);
+            Assert.IsNull(pendingBmson.instl_dst);
         });
     }
 
@@ -990,10 +1000,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            foreach (BMSFile pendingFile in pendingPackage.MaterializeChartAdaptersForTest())
+            foreach (PackageChartEntry pendingEntry in pendingPackage.ChartEntries)
             {
-                Assert.AreEqual(resourceDestinationDirectoryPath, pendingFile.instl_dst);
+                Assert.AreEqual(resourceDestinationDirectoryPath, pendingEntry.Chart.InstallDestination);
             }
+            Assert.AreEqual(resourceDestinationDirectoryPath, pendingBms.instl_dst);
+            Assert.IsNull(pendingBmson.instl_dst);
         });
     }
 

@@ -1172,12 +1172,36 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         PackageChartEntry snapshot = entry.ToChartEntrySnapshot();
 
+        Assert.IsNull(adapter.instl_dst);
+        Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
         Assert.IsNotNull(snapshot);
         Assert.IsNull(snapshot.CompatibilityAdapter);
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.Chart.Kind);
         Assert.AreSame(song, snapshot.Chart.BmsonSong);
         Assert.AreEqual(destinationDirectory, snapshot.Chart.InstallDestination);
         Assert.IsTrue(snapshot.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
+    }
+
+    [TestMethod]
+    public void PackageChartEntry_BmsFormatMirrorMutatesBmsStorageOwner()
+    {
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
+        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(file);
+        string destinationDirectory = Path.Combine("C:\\Installed", "Package");
+        string installedPath = Path.Combine(destinationDirectory, "chart.bms");
+
+        entry.ApplyInstallDestination(destinationDirectory, "Resolved Title", "Resolved Artist");
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+        entry.ApplyInstalledPath(installedPath);
+
+        Assert.AreEqual(installedPath, file.path);
+        Assert.AreEqual(destinationDirectory, file.instl_dst);
+        Assert.AreEqual("Resolved Title", file.InstallDestinationTitle);
+        Assert.AreEqual("Resolved Artist", file.InstallDestinationArtist);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
+        Assert.AreEqual(installedPath, entry.Chart.Path);
+        Assert.AreEqual(destinationDirectory, entry.Chart.InstallDestination);
+        Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
     }
 
     [TestMethod]

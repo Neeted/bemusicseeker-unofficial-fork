@@ -480,7 +480,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
 
         Assert.IsNull(bmsFile.instl_dst);
-        Assert.IsNull(bmsonAdapter.instl_dst);
+        Assert.AreEqual("C:\\Installed\\Target", bmsonAdapter.instl_dst);
+        Assert.AreEqual(string.Empty, package.ChartEntries[1].Chart.InstallDestination);
         Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
         Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
@@ -1679,7 +1680,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, applyTargets.Count);
             Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
             Assert.AreEqual(destinationDirectoryPath, bmsonSong.folder);
-            Assert.AreEqual(destinationBmsonPath, bmsonAdapter.path);
+            Assert.AreEqual(sourceBmsonPath, bmsonAdapter.path);
             Assert.AreSame(bmsonSong, bmsonAdapter.BmsonSong);
             Assert.AreEqual(destinationBmsonPath, result.AddedEntries[0].Chart.Path);
             Assert.IsNull(result.AddedEntries[0].CompatibilityAdapter);
