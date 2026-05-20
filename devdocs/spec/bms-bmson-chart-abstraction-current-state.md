@@ -627,6 +627,7 @@ Kind ごとの storage 境界は次の通り。
 - `ChartPackage.ReplaceChartEntries(...)` / `PackageChartDiscoverySnapshot.ReplaceChartEntries(...)` は `PackageChartEntry.ToChartEntrySnapshot()` で snapshot 化する。BMS は LR2 `song` row owner を保持するため `BMSFile` adapter を残すが、bmson は `bmson_song` storage row と `ChartFile` projection を正本にし、materialized `PendingChartEntry` adapter は snapshot へ持ち越さない。これは旧実装の「bmson adapter があれば BMS 側 source として扱う」挙動を改善するもので、表示 source snapshot も `ChartFile.Kind` を見て bmson を bmson row 側へ分類する。
 - `LibraryChartRow.FromPackageChartEntry(...)` は `ChartFile.Kind` を優先する。package entry が materialized bmson adapter を持っていても、表示 row の storage shape は `bmson_song` 側に寄せ、`BmsFile` としては持たない。operation target は `PackageEntry` を保持するため、package 操作では row の `CompatibilityBmsFile` に戻らない。BMS-only row だけが `BmsFile` を持つ。
 - pending package の resource health warning 計算では、entry が materialized bmson adapter を持っていても `BMSFile.SetHealthStatus()` / `requiresPendingWarning(BMSFile)` に降りず、`ChartFile` / `bmson_song.MaintenanceInfo` / `ChartResourceSnapshot` から warning list を返す。旧実装では adapter-backed bmson の場合だけ warning 計算の副作用で adapter の warning collection を更新し得たが、bmson の正本は `bmson_song` と package entry state なのでこの副作用は移植しない。
+- `PackageChartEntry.GetOrCreateBmsFormatAdapter()` は BMS format chart 専用の adapter creation 境界である。起動時 pending warning 初期化や BMS extension rename snapshot のように BMS parser / maintenance API が必要な箇所だけがこの helper を呼び、bmson では null を返す。旧 `GetOrCreateCompatibilityAdapter()` は bmson も materialize できるため、chart-common 経路から直接呼ばない。
 
 ### 完了判定
 

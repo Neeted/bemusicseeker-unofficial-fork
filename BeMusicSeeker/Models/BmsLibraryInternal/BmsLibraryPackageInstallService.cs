@@ -395,7 +395,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return null;
         }
-        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile ?? entry.GetOrCreateCompatibilityAdapter();
+        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile ?? entry.GetOrCreateBmsFormatAdapter();
     }
 
     /// <summary>

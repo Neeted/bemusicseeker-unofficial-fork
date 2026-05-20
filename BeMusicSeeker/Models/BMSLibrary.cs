@@ -9424,7 +9424,7 @@ reportProgress,
             bool isBmson = chart.Kind == ChartFileKind.Bmson;
             if (!isBmson)
             {
-                BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                BMSFile bmsFile = entry.GetOrCreateBmsFormatAdapter();
                 bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
             }
             entry.ClearStructuredWarnings();
@@ -9449,7 +9449,7 @@ reportProgress,
                 }
                 else
                 {
-                    BMSFile bmsFile = entry.GetOrCreateCompatibilityAdapter();
+                    BMSFile bmsFile = entry.GetOrCreateBmsFormatAdapter();
                     if (bmsFile != null)
                     {
                         ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
