@@ -227,8 +227,15 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Directory.CreateDirectory(folderPath);
             string chartPath = Path.Combine(folderPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
+            string bmsonChartPath = Path.Combine(folderPath, "chart.bmson");
+            File.WriteAllText(bmsonChartPath, "{}");
             TestableBmsFile libraryFile = CreateFile(chartPath);
             libraryFile.instl_dst = folderPath;
+            var bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = bmsonChartPath,
+                folder = folderPath
+            };
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = folderPath;
             var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
@@ -246,8 +253,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
-                [LibraryChartRef.FromBmsFile(libraryFile)],
-                [LibraryChartRef.FromBmsFile(libraryFile)],
+                [LibraryChartRef.FromBmsFile(libraryFile), LibraryChartRef.FromBmsonSong(bmsonSong)],
+                [LibraryChartRef.FromBmsFile(libraryFile), LibraryChartRef.FromBmsonSong(bmsonSong)],
                 [pendingPackage],
                 lookupCache,
                 false,
@@ -256,7 +263,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 null,
                 null);
 
-            Assert.AreSame(libraryFile, result.RemovedCharts[0].BmsFile);
+            Assert.IsTrue(result.RemovedCharts.Any(chart => ReferenceEquals(chart.BmsFile, libraryFile)));
+            Assert.IsTrue(result.RemovedCharts.Any(chart => ReferenceEquals(chart.BmsonSong, bmsonSong)));
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsNull(pendingFile.instl_dst);
             Assert.IsNull(libraryFile.instl_dst);

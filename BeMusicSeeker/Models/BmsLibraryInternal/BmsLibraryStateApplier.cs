@@ -106,9 +106,9 @@ internal sealed class BmsLibraryStateApplier(
 
         foreach (LibraryInstallDestinationChange installDestinationChange in delta.UpdatedInstallDestinations)
         {
-            if (installDestinationChange?.File != null)
+            if (installDestinationChange?.BmsFile != null)
             {
-                installDestinationChange.File.instl_dst = installDestinationChange.NewInstallDestination;
+                installDestinationChange.BmsFile.instl_dst = installDestinationChange.NewInstallDestination;
             }
             else if (installDestinationChange?.Entry != null)
             {

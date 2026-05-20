@@ -71,7 +71,7 @@ internal sealed class LibraryFolderPathChange
 
 internal sealed class LibraryInstallDestinationChange
 {
-    public BMSFile File { get; set; }
+    public BMSFile BmsFile { get; set; }
 
     public PackageChartEntry Entry { get; set; }
 
