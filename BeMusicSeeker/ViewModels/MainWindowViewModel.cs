@@ -11321,7 +11321,7 @@ public class MainWindowViewModel : ViewModel
 
     internal static LibraryChartRow CreateLibraryChartRowFromPackageEntryForTest(PackageChartEntry entry)
     {
-        return CreateLibraryChartRowFromPackageEntry(entry);
+        return LibraryChartRow.FromPackageChartEntry(entry);
     }
 
     private static bool IsVirtualNormalLibraryModeSupported(viewUpdateMode mode)
@@ -16866,38 +16866,19 @@ public class MainWindowViewModel : ViewModel
 
     private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries)
     {
-        return ToLibraryChartRows(entries, CreateLibraryChartRowFromPackageEntry);
+        return ToLibraryChartRows(entries, LibraryChartRow.FromPackageChartEntry);
     }
 
     private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries, Func<PackageChartEntry, LibraryChartRow> rowFactory)
     {
         return [.. (entries ?? [])
-            .Select(rowFactory ?? CreateLibraryChartRowFromPackageEntry)
+            .Select(rowFactory ?? LibraryChartRow.FromPackageChartEntry)
             .Where(row => row != null)];
-    }
-
-    private static LibraryChartRow CreateLibraryChartRowFromPackageEntry(PackageChartEntry entry)
-    {
-        if (entry == null)
-        {
-            return null;
-        }
-        BeMusicSeeker.Models.BMSFile adapter = entry.CompatibilityAdapter;
-        if (adapter != null)
-        {
-            return LibraryChartRow.FromBmsFile(adapter, entry);
-        }
-        ChartFile chart = entry.Chart;
-        if (chart?.Kind == ChartFileKind.Bmson)
-        {
-            return LibraryChartRow.FromPackageChartEntry(entry);
-        }
-        return chart?.BmsFile == null ? null : LibraryChartRow.FromBmsFile(chart.BmsFile, entry);
     }
 
     private LibraryChartRow CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection(PackageChartEntry entry)
     {
-        LibraryChartRow row = CreateLibraryChartRowFromPackageEntry(entry);
+        LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
         if (row != null)
         {
             row.SetResourceHealthProjectionProvider(GetResourceHealthProjectionForRow);
