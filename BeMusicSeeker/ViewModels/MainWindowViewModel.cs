@@ -11408,7 +11408,9 @@ public class MainWindowViewModel : ViewModel
                 subsetName = "file_missing_ignored";
                 return true;
             case viewUpdateMode.DuplicateFilterSelected:
-                return TryGetVirtualDuplicateSourceFiles(parameter, out sourceFiles, out sourceBmsonSongs, out subsetName);
+                sourceFiles = null;
+                sourceBmsonSongs = null;
+                return TryGetVirtualDuplicateSourceCharts(parameter, out sourceCharts, out subsetName);
             case viewUpdateMode.GarbledFilterSelected:
                 sourceFiles = BMSFilesGarbled;
                 subsetName = "garbled";
@@ -11619,26 +11621,23 @@ public class MainWindowViewModel : ViewModel
             .Where(file => PendingChartEntry.IsBmsChartFile(file))];
     }
 
-    private bool TryGetVirtualDuplicateSourceFiles(
+    private bool TryGetVirtualDuplicateSourceCharts(
         object parameter,
-        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
-        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
+        out IEnumerable<ChartFile> sourceCharts,
         out string subsetName)
     {
-        return TryGetVirtualDuplicateSourceFilesCore(DuplicateChartGroups, parameter, out sourceFiles, out sourceBmsonSongs, out subsetName);
+        return TryGetVirtualDuplicateSourceChartsCore(DuplicateChartGroups, parameter, out sourceCharts, out subsetName);
     }
 
-    private static bool TryGetVirtualDuplicateSourceFilesCore(
+    private static bool TryGetVirtualDuplicateSourceChartsCore(
         IEnumerable<DuplicateGroup> duplicateGroups,
         object parameter,
-        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
-        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
+        out IEnumerable<ChartFile> sourceCharts,
         out string subsetName)
     {
         if (duplicateGroups == null)
         {
-            sourceFiles = [];
-            sourceBmsonSongs = [];
+            sourceCharts = [];
             subsetName = "duplicate_empty";
             return true;
         }
@@ -11647,7 +11646,7 @@ public class MainWindowViewModel : ViewModel
         object normalizedParameter = NormalizeDuplicateViewParameter(parameter);
         if (normalizedParameter == null)
         {
-            SetDuplicateSourceCharts(CreateDuplicateChartFileSnapshot(groupSnapshot), out sourceFiles, out sourceBmsonSongs);
+            sourceCharts = CreateDuplicateChartFileSnapshot(groupSnapshot);
             subsetName = "duplicate_all";
             return true;
         }
@@ -11656,42 +11655,31 @@ public class MainWindowViewModel : ViewModel
             if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
             {
                 DuplicateGroup duplicateGroup = groupSnapshot.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                SetDuplicateSourceCharts(duplicateGroup != null ? duplicateGroup.ChartFiles : CreateDuplicateChartFileSnapshot(groupSnapshot), out sourceFiles, out sourceBmsonSongs);
+                sourceCharts = duplicateGroup != null ? duplicateGroup.ChartFiles : CreateDuplicateChartFileSnapshot(groupSnapshot);
                 subsetName = "duplicate_group";
                 return true;
             }
 
-            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(groupSnapshot, duplicateContext.Value), out sourceFiles, out sourceBmsonSongs);
+            sourceCharts = CreateDuplicateFolderChartFileSnapshot(groupSnapshot, duplicateContext.Value);
             subsetName = "duplicate_folder";
             return true;
         }
         if (normalizedParameter is DuplicateGroup groupParameter)
         {
-            SetDuplicateSourceCharts(groupParameter.ChartFiles, out sourceFiles, out sourceBmsonSongs);
+            sourceCharts = groupParameter.ChartFiles;
             subsetName = "duplicate_group";
             return true;
         }
         if (normalizedParameter is string folderPath)
         {
-            SetDuplicateSourceCharts(CreateDuplicateFolderChartFileSnapshot(groupSnapshot, folderPath), out sourceFiles, out sourceBmsonSongs);
+            sourceCharts = CreateDuplicateFolderChartFileSnapshot(groupSnapshot, folderPath);
             subsetName = "duplicate_folder";
             return true;
         }
 
-        sourceFiles = null;
-        sourceBmsonSongs = null;
+        sourceCharts = null;
         subsetName = string.Empty;
         return false;
-    }
-
-    private static void SetDuplicateSourceCharts(
-        IEnumerable<ChartFile> charts,
-        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
-        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs)
-    {
-        List<ChartFile> snapshot = [.. (charts ?? []).Where(chart => chart != null)];
-        sourceFiles = [.. snapshot.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile)];
-        sourceBmsonSongs = [.. snapshot.Where(chart => chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null).Select(chart => chart.BmsonSong)];
     }
 
     private List<ChartFile> CreateDuplicateChartFileSnapshot()
@@ -11753,13 +11741,12 @@ public class MainWindowViewModel : ViewModel
 
     internal static List<ChartListSourceRow> CreateDuplicateVirtualSourceRowsForTest(IEnumerable<DuplicateGroup> duplicateGroups, object parameter)
     {
-        if (!TryGetVirtualDuplicateSourceFilesCore(duplicateGroups, parameter, out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles, out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs, out _))
+        if (!TryGetVirtualDuplicateSourceChartsCore(duplicateGroups, parameter, out IEnumerable<ChartFile> sourceCharts, out _))
         {
             return [];
         }
         return ChartListSourceRow.BuildStandardLibraryRows(
-            sourceFiles,
-            sourceBmsonSongs,
+            sourceCharts,
             resourceHealthProjectionProvider: null,
             playlistReferenceDisplayProvider: null);
     }

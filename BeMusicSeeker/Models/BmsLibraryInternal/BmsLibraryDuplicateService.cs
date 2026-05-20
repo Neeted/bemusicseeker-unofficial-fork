@@ -8,6 +8,13 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryDuplicateService
 {
+    /// <summary>
+    /// BMS / bmson storage row から重複判定用 snapshot を作成します。
+    /// bmson は compatibility adapter を作らず、storage row を持つ <see cref="ChartFile"/> として保持します。
+    /// </summary>
+    /// <param name="bmsFiles">BMS storage row。</param>
+    /// <param name="bmsonSongs">bmson storage row。</param>
+    /// <returns>重複判定用 snapshot。</returns>
     public List<DuplicateChartRow> BuildSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         List<DuplicateChartRow> rows =
@@ -22,6 +29,11 @@ internal sealed class BmsLibraryDuplicateService
         return rows;
     }
 
+    /// <summary>
+    /// BMS storage row に残っている重複 warning だけを消します。
+    /// bmson duplicate warning は duplicate group の <see cref="ChartFile"/> projection にだけ持つため、ここでは永続状態を消しません。
+    /// </summary>
+    /// <param name="files">BMS storage row。</param>
     public void ClearDuplicateState(IEnumerable<BMSFile> files)
     {
         foreach (BMSFile file in files ?? [])
@@ -34,6 +46,12 @@ internal sealed class BmsLibraryDuplicateService
         }
     }
 
+    /// <summary>
+    /// BMS storage row へ重複 warning を反映します。
+    /// bmson は storage row が warning collection を持たないため、<see cref="Analyze"/> が返す <see cref="DuplicateGroup.ChartFiles"/> の projection に反映します。
+    /// </summary>
+    /// <param name="files">重複 warning を付与する BMS storage row。</param>
+    /// <param name="duplicateWarningMessage">重複 warning の表示本文。</param>
     public void ApplyDuplicateWarnings(IEnumerable<BMSFile> files, string duplicateWarningMessage)
     {
         foreach (BMSFile file in files ?? [])
@@ -47,21 +65,28 @@ internal sealed class BmsLibraryDuplicateService
         }
     }
 
-    public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot)
+    /// <summary>
+    /// lookup hash が一致する chart を重複として検出し、接続されたディレクトリ単位の group へまとめます。
+    /// </summary>
+    /// <param name="snapshot">重複判定用 snapshot。</param>
+    /// <param name="duplicateWarningMessage">duplicate group の chart projection に重ねる warning 本文。</param>
+    /// <returns>重複解析結果。</returns>
+    public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot, string duplicateWarningMessage)
     {
         var result = new DuplicateAnalysisResult();
         List<DuplicateChartRow> snapshotRows = [.. (snapshot ?? []).Where(row => row != null && row.Chart != null && !string.IsNullOrWhiteSpace(row.LookupHash))];
         List<IGrouping<string, DuplicateChartRow>> duplicateHashGroups = [.. snapshotRows
             .GroupBy(row => row.LookupHash, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)];
+        HashSet<DuplicateChartRow> duplicateRows = [];
         foreach (IGrouping<string, DuplicateChartRow> duplicateHashGroup in duplicateHashGroups)
         {
             foreach (DuplicateChartRow item in duplicateHashGroup)
             {
-                BMSFile displayRow = item.GetOrCreateDisplayRow();
-                if (displayRow != null)
+                duplicateRows.Add(item);
+                if (item.BmsFile != null)
                 {
-                    result.DuplicateFiles.Add(displayRow);
+                    result.DuplicateBmsFiles.Add(item.BmsFile);
                 }
             }
         }
@@ -152,12 +177,29 @@ internal sealed class BmsLibraryDuplicateService
             }
             if (groupRows.Count > 0)
             {
-                List<ChartFile> groupCharts = [.. groupRows.Select(row => row.Chart).Where(chart => chart != null)];
+                List<ChartFile> groupCharts = [.. groupRows
+                    .Select(row => duplicateRows.Contains(row) ? ApplyDuplicateWarning(row.Chart, duplicateWarningMessage) : row.Chart)
+                    .Where(chart => chart != null)];
                 result.DuplicateGroups.Add(new DuplicateGroup(groupCharts, [.. dirs]));
             }
         }
         result.DuplicateGroups.Sort((x, y) => string.Compare(x.Header, y.Header, StringComparison.Ordinal));
         return result;
+    }
+
+    private static ChartFile ApplyDuplicateWarning(ChartFile chart, string duplicateWarningMessage)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+
+        List<ChartWarning> warnings =
+        [
+            .. (chart.Warnings ?? []).Where(warning => warning != null && warning.Kind != ChartWarningKind.DuplicateChart),
+            ChartWarning.Create(ChartWarningKind.DuplicateChart, duplicateWarningMessage),
+        ];
+        return ChartFileProjection.WithWarnings(chart, warnings);
     }
 
     private static int FindRoot(int[] parent, int node)

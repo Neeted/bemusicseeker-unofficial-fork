@@ -126,11 +126,11 @@ bmson library rows は全ての tree mode に無条件で混ざるわけでは�
 
 duplicate view は `DuplicateChartGroups` / `SearchDuplicateChartGroups()` を入口にし、現行 snapshot は `BmsLibraryDuplicateService.BuildSnapshot(...)` で `BMSFiles` と `BmsonSongs` を結合する。
 
-`DuplicateChartRow` は grouping / duplicate 判定用の path / primary lookup hash と、表示・operation の正本として `ChartFile` を持つ。bmson duplicate row は `ChartFile.BmsonSong` として storage owner を保持し、duplicate subset の仮想一覧表示は `DuplicateGroup.ChartFiles` を BMS storage row と bmson storage row に分けて `ChartListSourceRow` へ渡す。したがって duplicate tree から一覧を表示するだけなら、bmson を `BMSFile` compatibility adapter として扱う必要はない。
+`DuplicateChartRow` は grouping / duplicate 判定用の path / primary lookup hash と、表示・operation の正本として `ChartFile` を持つ。BMS duplicate row は storage owner として `BMSFile` も保持し、bmson duplicate row は `ChartFile.BmsonSong` として storage owner を保持する。bmson duplicate row は `PendingChartEntry` compatibility adapter を materialize しない。duplicate subset の仮想一覧表示は `DuplicateGroup.ChartFiles` をそのまま `ChartListSourceRow` へ渡すため、projection-only warning も落とさない。
 
 duplicate tree の group は `DuplicateGroup.ChartFiles` を正本にし、XAML は group の `Folders` だけを child node として表示する。旧 `DuplicateGroup.Files` facade と duplicate tree 用の `List<BMSFile>` parameter branch は削除済みであり、単一フォルダ内の重複 hash cleanup も `DuplicateGroup.ChartFiles` から削除対象を決め、ViewModel へ `ChartFile` として渡す。
 
-duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS は `BMSFile` に warning を付与し、bmson は duplicate view 用 adapter row に warning を持つため、標準一覧の bmson storage row へ duplicate warning を直接永続化する境界ではない。
+duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS は `BMSFile` に warning を付与して標準一覧にも反映する。bmson は `bmson_song` に warning collection を持たないため、duplicate view の `DuplicateGroup.ChartFiles` に warning 付き `ChartFile` projection を置く。標準一覧の bmson storage row へ duplicate warning を直接永続化する境界ではない。
 
 ## Operation model
 
@@ -637,6 +637,7 @@ Kind ごとの storage 境界は次の通り。
 - `PackageChartEntry.GetOrCreateBmsFormatAdapter()` は BMS format chart 専用の adapter creation 境界である。起動時 pending warning 初期化や BMS extension rename snapshot のように BMS parser / maintenance API が必要な箇所だけがこの helper を呼び、bmson では null を返す。旧 `GetOrCreateCompatibilityAdapter()` は bmson も materialize できるため、chart-common 経路から直接呼ばない。
 - `PackageChartEntry.GetExistingBmsFormatAdapter()` は既に存在する BMS format storage row / adapter を読むだけの境界である。playlist reference の `RefTables` 書き戻し、install result の `AddedBmsFiles` 抽出、install estimation の lock target、folder merge 後の BMS upsert target、package source row / playback stop target のように BMS-only side effect や BMS-only snapshot が必要な箇所ではこの helper を使う。bmson は adapter-backed であっても null とし、chart-common 表示 / resource / install metadata は `ChartFile` / `PackageChartEntry` 側を読む。
 - package 再生停止 target snapshot は `GetExistingBmsFormatAdapter()` を使う。旧実装は `CompatibilityAdapter` だけを見ていたため、`PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(...))` のような adapterless BMS entry は停止 target から漏れ得た。これは「既存 BMS storage owner を持つ package entry は BMS playback target である」という chart-domain 上の期待に反するため、旧挙動は移植せず BMS storage owner も含める。
+- duplicate analysis は bmson duplicate row の `PendingChartEntry` adapter を作らない。旧実装では duplicate 判定後に bmson adapter を materialize し、BMS と同じ `DuplicateFiles` set に入れて warning を付与していたが、duplicate tree 表示の正本は `DuplicateGroup.ChartFiles` であり、bmson storage row に warning collection もないため、この副作用は移植しない。BMS storage row には従来どおり `DuplicateChart` warning を付与し、bmson には duplicate group 内の `ChartFile` projection へ同 warning を重ねる。ただし duplicate group は connected directory 内の全 chart を表示するため、warning を重ねる対象は重複 hash group に属する row だけに限定する。旧実装でも warning 付与対象は duplicate hash group の `DuplicateFiles` だけだったため、同一フォルダ内の unrelated sibling chart を duplicate warning 対象にしない。
 
 ### 完了判定
 

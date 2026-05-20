@@ -7514,8 +7514,8 @@ reportProgress,
                     duplicateService.ClearDuplicateState(bmsSnapshot);
                     List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(bmsSnapshot, bmsonSnapshot);
                     var swNew = System.Diagnostics.Stopwatch.StartNew();
-                    DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot);
-                    duplicateService.ApplyDuplicateWarnings(analysis.DuplicateFiles, DuplicateWarningMessage);
+                    DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot, DuplicateWarningMessage);
+                    duplicateService.ApplyDuplicateWarnings(analysis.DuplicateBmsFiles, DuplicateWarningMessage);
                     DuplicateChartGroups = analysis.DuplicateGroups;
                     swNew.Stop();
                     LogInstallPerformance($"SearchDuplicateChartGroups: NewAlgo={swNew.ElapsedMilliseconds}ms, Groups={analysis.DuplicateGroups.Count}");

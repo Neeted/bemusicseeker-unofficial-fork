@@ -28,11 +28,12 @@ public sealed class BmsLibraryDuplicateServiceTests
             CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirC", "b.bms"))
         ];
 
-        DuplicateAnalysisResult result = service.Analyze(service.BuildSnapshot(files, null));
+        DuplicateAnalysisResult result = service.Analyze(service.BuildSnapshot(files, null), Resources.Warning_DuplicateBmsFile);
 
         Assert.AreEqual(1, result.DuplicateGroups.Count);
         CollectionAssert.AreEquivalent(new[] { "C:\\BMS\\DirA", "C:\\BMS\\DirB", "C:\\BMS\\DirC" }, result.DuplicateGroups[0].Folders);
-        Assert.AreEqual(4, result.DuplicateFiles.Count);
+        Assert.AreEqual(4, result.DuplicateBmsFiles.Count);
+        Assert.IsTrue(result.DuplicateGroups[0].ChartFiles.All(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
     }
 
     [TestMethod]
@@ -101,14 +102,43 @@ public sealed class BmsLibraryDuplicateServiceTests
             }
         ];
 
-        DuplicateAnalysisResult result = service.Analyze(service.BuildSnapshot(bmsFiles, bmsonSongs));
+        DuplicateAnalysisResult result = service.Analyze(service.BuildSnapshot(bmsFiles, bmsonSongs), Resources.Warning_DuplicateBmsFile);
 
         Assert.AreEqual(2, result.DuplicateGroups.Count);
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirD") && group.Folders.Contains("C:\\BMS\\DirE")));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Any(chart => chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null));
+        Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Where(chart => chart.Kind == ChartFileKind.Bmson).All(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
         Assert.IsFalse(result.DuplicateGroups.Any(group => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirF")));
-        Assert.AreEqual(4, result.DuplicateFiles.Count);
+        Assert.AreEqual(2, result.DuplicateBmsFiles.Count);
+    }
+
+    [TestMethod]
+    public void Analyze_DuplicateWarningTargetsOnlyRowsWithDuplicateHash()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryDuplicateService();
+        BMSFile duplicateBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
+        BMSFile uniqueSibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirA", "unique.bms"));
+        var duplicateBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\BMS", "DirB", "b.bmson"),
+            title = "bmson duplicate",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+
+        DuplicateAnalysisResult result = service.Analyze(
+            service.BuildSnapshot([duplicateBms, uniqueSibling], [duplicateBmson]),
+            Resources.Warning_DuplicateBmsFile);
+
+        Assert.AreEqual(1, result.DuplicateGroups.Count);
+        Assert.AreEqual(1, result.DuplicateBmsFiles.Count);
+        Assert.IsTrue(result.DuplicateBmsFiles.Contains(duplicateBms));
+        Assert.IsFalse(result.DuplicateBmsFiles.Contains(uniqueSibling));
+        ChartFile uniqueChart = result.DuplicateGroups[0].ChartFiles.Single(chart => string.Equals(chart.Path, uniqueSibling.path, System.StringComparison.OrdinalIgnoreCase));
+        Assert.IsFalse(uniqueChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+        ChartFile duplicateBmsonChart = result.DuplicateGroups[0].ChartFiles.Single(chart => chart.Kind == ChartFileKind.Bmson);
+        Assert.IsTrue(duplicateBmsonChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
     [TestMethod]

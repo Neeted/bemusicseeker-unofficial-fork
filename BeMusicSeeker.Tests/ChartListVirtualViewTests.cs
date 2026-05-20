@@ -1164,8 +1164,12 @@ public sealed class ChartListVirtualViewTests
         };
         var duplicateGroup = new DuplicateGroup(
             [
-                ChartFileProjection.FromBmsFile(bmsFile),
-                ChartFileProjection.FromBmsonSong(bmsonSong)
+                ChartFileProjection.WithWarnings(
+                    ChartFileProjection.FromBmsFile(bmsFile),
+                    [ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")]),
+                ChartFileProjection.WithWarnings(
+                    ChartFileProjection.FromBmsonSong(bmsonSong),
+                    [ChartWarning.Create(ChartWarningKind.DuplicateChart, "duplicate warning")])
             ],
             [Path.Combine("C:\\BMS", "DirA"), Path.Combine("C:\\BMS", "DirB")]);
 
@@ -1176,6 +1180,7 @@ public sealed class ChartListVirtualViewTests
         ChartListSourceRow bmsonRow = rows.Single(row => row.BmsonSong != null);
         Assert.AreSame(bmsonSong, bmsonRow.BmsonSong);
         Assert.IsNull(bmsonRow.BmsFile);
+        StringAssert.Contains(bmsonRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_DuplicateChart);
     }
 
     [TestMethod]

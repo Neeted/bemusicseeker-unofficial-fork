@@ -1,14 +1,16 @@
-using System;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// 重複判定で使う chart の正規化済み行です。
+/// BMS は storage row を保持しますが、bmson は <see cref="ChartFile"/> と <see cref="LR2SongDBExtended.bmson_song"/> を正本にして
+/// compatibility adapter を作らないようにします。
+/// </summary>
 internal sealed class DuplicateChartRow
 {
-    private readonly Func<BMSFile> displayRowProvider;
-
-    private BMSFile displayRow;
+    public BMSFile BmsFile { get; set; }
 
     public string Path { get; set; }
 
@@ -22,29 +24,15 @@ internal sealed class DuplicateChartRow
 
     public ChartFile Chart { get; set; }
 
-    public BMSFile GetOrCreateDisplayRow()
-    {
-        if (displayRow == null)
-        {
-            displayRow = displayRowProvider?.Invoke();
-        }
-        return displayRow;
-    }
-
-    private DuplicateChartRow(BMSFile displayRow, Func<BMSFile> displayRowProvider)
-    {
-        this.displayRow = displayRow;
-        this.displayRowProvider = displayRowProvider;
-    }
-
     public static DuplicateChartRow CreateFromBmsFile(BMSFile file)
     {
         if (file == null || string.IsNullOrWhiteSpace(file.path))
         {
             return null;
         }
-        return new DuplicateChartRow(file, null)
+        return new DuplicateChartRow
         {
+            BmsFile = file,
             Path = file.path,
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(file.path),
             LookupHash = PendingChartEntry.GetPrimaryLookupHash(file),
@@ -65,7 +53,7 @@ internal sealed class DuplicateChartRow
         {
             return null;
         }
-        return new DuplicateChartRow(null, () => PendingChartEntry.CreateFromBmsonSong(song))
+        return new DuplicateChartRow
         {
             Path = song.path,
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(song.path),
