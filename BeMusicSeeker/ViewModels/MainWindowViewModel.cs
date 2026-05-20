@@ -17893,7 +17893,10 @@ public class MainWindowViewModel : ViewModel
             }
             if (targets.CompatibilityFiles.Count > 0)
             {
-                files.SearchEstimatedInstallationDirectoryForLooseCharts(targets.CompatibilityFiles);
+                files.SearchEstimatedInstallationDirectoryForLooseCharts(
+                    targets.CompatibilityFiles
+                        .Select(PackageChartEntry.FromCompatibilityAdapter)
+                        .Where(entry => entry?.Chart != null));
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
