@@ -2272,30 +2272,26 @@ public sealed class PlaylistViewPipelineTests
             md5 = "dddddddddddddddddddddddddddddddd",
             sha256 = new string('d', 64)
         });
-        PendingChartEntry keepBmsonAdapter = PendingChartEntry.CreateFromBmsonSong(keepBmson.BmsonSong);
-        bool filterSawKeepBmsonAdapter = false;
+        int keepBmsonAdapterCreateCount = 0;
         keepBmson.SetBmsonChartAdapterProviders(
-            song => ReferenceEquals(song, keepBmson.BmsonSong) ? keepBmsonAdapter : null,
-            song => ReferenceEquals(song, keepBmson.BmsonSong) ? keepBmsonAdapter : null);
+            song =>
+            {
+                keepBmsonAdapterCreateCount++;
+                return PendingChartEntry.CreateFromBmsonSong(song);
+            },
+            existingProvider: null);
 
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
             [keepBms, skipBms],
             [keepBmson, skipBmson],
-            file =>
-            {
-                if (ReferenceEquals(file, keepBmsonAdapter))
-                {
-                    filterSawKeepBmsonAdapter = true;
-                }
-                return file.path.StartsWith("C:\\Keep", StringComparison.OrdinalIgnoreCase);
-            },
+            MainWindowViewModel.NormalLibraryTreeFilter.Create(MainWindowViewModel.FolderFilterType.DirectoryFilter, "C:\\Keep"),
             out LibraryRowsBuildMetrics metrics);
 
         Assert.AreEqual(2, rows.Count);
         CollectionAssert.AreEquivalent(new[] { "Keep Bms", "Keep Bmson" }, rows.Select(row => row.Title).ToArray());
         Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bms && row.BmsFile == keepBms));
         Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.BmsonSong == keepBmson.BmsonSong));
-        Assert.IsTrue(filterSawKeepBmsonAdapter);
+        Assert.AreEqual(0, keepBmsonAdapterCreateCount);
         Assert.IsFalse(rows.Any(row => row.Title == "Skip Bms" || row.Title == "Skip Bmson"));
         Assert.IsTrue(rows.All(row => row.GetType() == typeof(LibraryChartRow)));
         Assert.IsTrue(metrics.FolderFilterApplied);

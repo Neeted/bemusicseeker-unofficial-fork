@@ -4700,7 +4700,7 @@ public class MainWindowViewModel : ViewModel
         FilterNone
     }
 
-    private sealed class NormalLibraryTreeFilter
+    internal sealed class NormalLibraryTreeFilter
     {
         private NormalLibraryTreeFilter(FolderFilterType type, string term, string identity)
         {
@@ -4756,6 +4756,20 @@ public class MainWindowViewModel : ViewModel
             return Type switch
             {
                 FolderFilterType.DirectoryFilter => ContainsIgnoreCase(row.Path, Term),
+                FolderFilterType.ArtistFilter => ContainsIgnoreCase(row.Artist, Term),
+                _ => false,
+            };
+        }
+
+        internal bool Matches(LibraryChartRow row)
+        {
+            if (row == null)
+            {
+                return false;
+            }
+            return Type switch
+            {
+                FolderFilterType.DirectoryFilter => ContainsIgnoreCase(row.path, Term),
                 FolderFilterType.ArtistFilter => ContainsIgnoreCase(row.Artist, Term),
                 _ => false,
             };
@@ -5944,8 +5958,6 @@ public class MainWindowViewModel : ViewModel
     private string _PlaylistSummaryKeywordSearchSuggestionHeaderText = string.Empty;
 
     private PlaylistSummaryOwnedFilterType _PlaylistSummaryOwnedFilter = PlaylistSummaryOwnedFilterType.All;
-
-    private Func<BeMusicSeeker.Models.BMSFile, bool> _FolderFilter;
 
     private NormalLibraryTreeFilter virtualNormalLibraryTreeFilter;
 
@@ -8433,7 +8445,7 @@ public class MainWindowViewModel : ViewModel
     {
         MainViewRefreshDecision decision = BuildMainViewRefreshDecision(
             treeViewFilterTypeSelected,
-            FolderFilter != null,
+            virtualNormalLibraryTreeFilter != null,
             KeywordFilter,
             ModeFilter,
             SortParameters?.ColumnsName,
@@ -8449,7 +8461,7 @@ public class MainWindowViewModel : ViewModel
             + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
             + " keywordEmpty=" + string.IsNullOrWhiteSpace(KeywordFilter).ToString().ToLowerInvariant()
             + " modeFilter=" + ModeFilter
-            + " folderFilterApplied=" + (FolderFilter != null).ToString().ToLowerInvariant()
+            + " folderFilterApplied=" + (virtualNormalLibraryTreeFilter != null).ToString().ToLowerInvariant()
             + " isPlaylistDetailView=" + IsPlaylistDetailViewActive.ToString().ToLowerInvariant());
         if (!decision.ShouldRefresh)
         {
@@ -11162,7 +11174,7 @@ public class MainWindowViewModel : ViewModel
             + " treeMode=" + treeViewFilterTypeSelected
             + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
             + " sortDirection=" + (SortParameters?.Direction.ToString() ?? "Ascending")
-            + " folderFilterApplied=" + (FolderFilter != null)
+            + " folderFilterApplied=" + (virtualNormalLibraryTreeFilter != null)
             + " keywordLength=" + (KeywordFilter?.Length ?? 0)
             + " modeFilter=" + ModeFilter
             + " includeBmsonRows=" + includeBmsonRows);
@@ -13245,24 +13257,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private Func<BeMusicSeeker.Models.BMSFile, bool> FolderFilter
-    {
-        get
-        {
-            return _FolderFilter;
-        }
-        set
-        {
-            _FolderFilter = value;
-            RaisePropertyChanged("FolderFilter");
-            RefreshChartRowsView(viewUpdateMode.FolderFilterSelected);
-        }
-    }
-
     private void SetNormalLibraryTreeFilter(NormalLibraryTreeFilter filter)
     {
         virtualNormalLibraryTreeFilter = filter;
-        FolderFilter = filter == null ? null : new Func<BeMusicSeeker.Models.BMSFile, bool>(filter.Matches);
+        RaisePropertyChanged("FolderFilter");
+        RefreshChartRowsView(viewUpdateMode.FolderFilterSelected);
     }
 
     /// <summary>
@@ -16233,7 +16232,7 @@ public class MainWindowViewModel : ViewModel
         {
             case viewUpdateMode.FolderFilterSelected:
                 LibraryRowCacheBuildStats folderRowCacheStats = CreateRegularRowCacheBuildStats();
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), FolderFilter, file => GetOrCreateRegularBmsLibraryRow(file, folderRowCacheStats), folderRowCacheStats, out LibraryRowsBuildMetrics folderMetrics);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), virtualNormalLibraryTreeFilter, file => GetOrCreateRegularBmsLibraryRow(file, folderRowCacheStats), folderRowCacheStats, out LibraryRowsBuildMetrics folderMetrics);
                 LogMainViewFolderDetail(mode, folderMetrics);
                 break;
             case viewUpdateMode.FullScanAllChartsFilterSelected:
@@ -16467,7 +16466,7 @@ public class MainWindowViewModel : ViewModel
             bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;
             var modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
             bool isFullNormalLibraryResult = treeViewFilterTypeSelected == viewUpdateMode.FolderFilterSelected
-                && FolderFilter == null
+                && virtualNormalLibraryTreeFilter == null
                 && string.IsNullOrWhiteSpace(KeywordFilter)
                 && ModeFilter == ModeFilterType.All
                 && !isPlaylistDetailView
@@ -16580,7 +16579,7 @@ public class MainWindowViewModel : ViewModel
     internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
         IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
         IEnumerable<LibraryChartRow> bmsonRows,
-        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter)
+        NormalLibraryTreeFilter folderFilter)
     {
         return BuildStandardLibraryRowsForView(bmsFiles, bmsonRows, folderFilter, out _);
     }
@@ -16588,7 +16587,7 @@ public class MainWindowViewModel : ViewModel
     internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
         IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
         IEnumerable<LibraryChartRow> bmsonRows,
-        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        NormalLibraryTreeFilter folderFilter,
         out LibraryRowsBuildMetrics metrics)
     {
         return BuildStandardLibraryRowsForView(bmsFiles, bmsonRows, folderFilter, LibraryChartRow.FromBmsFile, null, out metrics);
@@ -16597,7 +16596,7 @@ public class MainWindowViewModel : ViewModel
     internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
         IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
         IEnumerable<LibraryChartRow> bmsonRows,
-        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        NormalLibraryTreeFilter folderFilter,
         Func<BeMusicSeeker.Models.BMSFile, LibraryChartRow> bmsRowFactory,
         LibraryRowCacheBuildStats rowCacheStats,
         out LibraryRowsBuildMetrics metrics)
@@ -16615,18 +16614,14 @@ public class MainWindowViewModel : ViewModel
         if (folderFilter != null)
         {
             var filterStopwatch = Stopwatch.StartNew();
-            regularRows = regularRows.AsParallel().Where(folderFilter);
+            regularRows = regularRows.AsParallel().Where(folderFilter.Matches);
             List<BeMusicSeeker.Models.BMSFile> filteredRegularRows = [.. regularRows];
             filterStopwatch.Stop();
             regularFilterMs = filterStopwatch.ElapsedMilliseconds;
             regularRows = filteredRegularRows;
 
             filterStopwatch.Restart();
-            // CompatibilityBmsFile can touch the shared bmson adapter cache, so resolve it before the PLINQ filter.
-            List<(LibraryChartRow Row, BeMusicSeeker.Models.BMSFile CompatibilityFile)> bmsonRowsWithCompatibilityFiles = [.. normalizedBmsonRows.Select(row => (row, row.CompatibilityBmsFile))];
-            normalizedBmsonRows = bmsonRowsWithCompatibilityFiles.AsParallel()
-                .Where(rowWithFile => folderFilter(rowWithFile.CompatibilityFile))
-                .Select(rowWithFile => rowWithFile.Row);
+            normalizedBmsonRows = normalizedBmsonRows.AsParallel().Where(folderFilter.Matches);
             List<LibraryChartRow> filteredBmsonRows = [.. normalizedBmsonRows];
             filterStopwatch.Stop();
             bmsonFilterMs = filterStopwatch.ElapsedMilliseconds;
