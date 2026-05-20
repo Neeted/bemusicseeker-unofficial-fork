@@ -837,7 +837,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ClearInstallDestinationForPendingChartTargets_DoesNotResolveExtractedPackageTargetWhenStandaloneTargetSharesPath()
+    public void ClearInstallDestinationForPendingChartTargets_DoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var viewModel = new MainWindowViewModel();
@@ -888,7 +888,7 @@ public sealed class ChartListVirtualViewTests
 
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
-            Assert.IsNull(standaloneAdapter.instl_dst);
+            Assert.AreEqual(@"C:\Installed\Standalone", standaloneAdapter.instl_dst);
         }
         finally
         {
@@ -914,6 +914,7 @@ public sealed class ChartListVirtualViewTests
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
         Assert.AreSame(entry, target.PackageEntry);
+        Assert.AreSame(entry, target.ToPackageChartEntry());
     }
 
     [TestMethod]

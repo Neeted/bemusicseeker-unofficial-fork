@@ -938,6 +938,68 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ChartOperationTarget_ToPackageChartEntry_DoesNotMaterializeBmsonCompatibilityAdapter()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\loose-entry.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Loose Entry Bmson",
+            artist = "Artist",
+            md5 = "68686868686868686868686868686868"
+        };
+        int adapterRequestCount = 0;
+        var target = new ChartOperationTarget(
+            ChartFileProjection.FromBmsonSong(bmson),
+            () =>
+            {
+                adapterRequestCount++;
+                return PendingChartEntry.CreateFromBmsonSong(bmson);
+            },
+            null,
+            ChartOperationSourceScope.PendingPackage,
+            isOwned: false,
+            isPending: true,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        PackageChartEntry entry = target.ToPackageChartEntry();
+
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.IsNotNull(entry);
+        Assert.IsNull(entry.CompatibilityAdapter);
+        Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
+        Assert.AreSame(bmson, entry.Chart.BmsonSong);
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_ToPackageChartEntry_UsesBmsStorageOwner()
+    {
+        BMSFile file = CreateBmsFile("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        int adapterRequestCount = 0;
+        var target = new ChartOperationTarget(
+            ChartFileProjection.FromBmsFile(file),
+            () =>
+            {
+                adapterRequestCount++;
+                return null;
+            },
+            null,
+            ChartOperationSourceScope.Library,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        PackageChartEntry entry = target.ToPackageChartEntry();
+
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.IsNotNull(entry);
+        Assert.AreSame(file, entry.CompatibilityAdapter);
+        Assert.AreSame(file, entry.Chart.BmsFile);
+    }
+
+    [TestMethod]
     public void ChartCompatibilityTargetSnapshot_UsesChartFileWithoutMaterializingBmsonCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song
@@ -971,7 +1033,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void RepairInstalledLocationTargetSnapshot_HasTargetsDoesNotMaterializeBmsonCompatibilityAdapter()
+    public void RepairInstalledLocationTargetSnapshot_HasInstallDestinationDoesNotMaterializeLooseBmsonCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1000,19 +1062,19 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(snapshot.HasTargets);
         Assert.AreEqual(0, adapterRequestCount);
-        Assert.IsTrue(snapshot.HasInstallDestination);
-        Assert.AreEqual(1, adapterRequestCount);
-        Assert.AreEqual("C:\\Installed\\Bmson", snapshot.RepairCharts[0].InstallDestination);
+        Assert.IsFalse(snapshot.HasInstallDestination);
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.AreEqual(string.Empty, snapshot.RepairCharts[0].InstallDestination);
 
         snapshot.MaterializeRepairEntries();
-        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreEqual(0, adapterRequestCount);
 
-        Assert.IsTrue(snapshot.HasInstallDestination);
-        Assert.AreEqual(1, adapterRequestCount);
+        Assert.IsFalse(snapshot.HasInstallDestination);
+        Assert.AreEqual(0, adapterRequestCount);
     }
 
     [TestMethod]
-    public void RepairInstalledLocationTargetSnapshot_RepairChartsOverlayCurrentCompatibilityInstallDestination()
+    public void RepairInstalledLocationTargetSnapshot_RepairChartsDoNotOverlayLooseCompatibilityInstallDestination()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1040,8 +1102,8 @@ public sealed class PlaylistViewPipelineTests
         MainWindowViewModel.IRepairInstalledLocationTargetSnapshot snapshot =
             viewModel.CreateRepairInstalledLocationTargetSnapshot([target]);
 
-        Assert.IsTrue(snapshot.HasInstallDestination);
-        Assert.AreEqual("C:\\Installed\\PlaylistBmson", snapshot.RepairCharts[0].InstallDestination);
+        Assert.IsFalse(snapshot.HasInstallDestination);
+        Assert.AreEqual(string.Empty, snapshot.RepairCharts[0].InstallDestination);
         Assert.AreSame(bmson, snapshot.RepairCharts[0].BmsonSong);
     }
 
@@ -1063,13 +1125,21 @@ public sealed class PlaylistViewPipelineTests
             title = "Duplicate B",
             md5 = md5
         };
-        PendingChartEntry firstAdapter = PendingChartEntry.CreateFromBmsonSong(firstBmson);
-        firstAdapter.instl_dst = "C:\\Installed\\A";
-        PendingChartEntry secondAdapter = PendingChartEntry.CreateFromBmsonSong(secondBmson);
-        secondAdapter.instl_dst = "C:\\Installed\\B";
-        var firstTarget = new ChartOperationTarget(
+        ChartFile firstChart = ChartFileProjection.WithPackageState(
             ChartFileProjection.FromBmsonSong(firstBmson),
-            () => firstAdapter,
+            "C:\\Installed\\A",
+            string.Empty,
+            string.Empty,
+            []);
+        ChartFile secondChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(secondBmson),
+            "C:\\Installed\\B",
+            string.Empty,
+            string.Empty,
+            []);
+        var firstTarget = new ChartOperationTarget(
+            firstChart,
+            null,
             playlistEntry: null,
             ChartOperationSourceScope.PlaylistOwned,
             isOwned: true,
@@ -1077,8 +1147,8 @@ public sealed class PlaylistViewPipelineTests
             isPlaylistMissing: false,
             ChartOperationCapabilities.RepairInstalledLocation);
         var secondTarget = new ChartOperationTarget(
-            ChartFileProjection.FromBmsonSong(secondBmson),
-            () => secondAdapter,
+            secondChart,
+            null,
             playlistEntry: null,
             ChartOperationSourceScope.PlaylistOwned,
             isOwned: true,
@@ -1125,11 +1195,12 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(snapshot.HasTargets);
         Assert.IsTrue(snapshot.HasInstallDestination);
-        Assert.AreEqual(1, adapterCreateCount);
+        Assert.AreEqual(0, adapterCreateCount);
+        Assert.AreEqual("C:\\Installed\\Bmson", snapshot.RepairCharts[0].InstallDestination);
     }
 
     [TestMethod]
-    public void PendingInstallDestinationTargetSnapshot_MaterializesLooseBmsonEntryBeforeBackgroundWork()
+    public void PendingInstallDestinationTargetSnapshot_DoesNotMaterializeLooseBmsonEntryBeforeBackgroundWork()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1168,10 +1239,11 @@ public sealed class PlaylistViewPipelineTests
 
         snapshot.MaterializeLooseEntries();
 
-        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(1, snapshot.LooseEntries.Count);
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.LooseEntries[0].Chart.Kind);
-        Assert.AreEqual(1, adapterRequestCount);
+        Assert.IsNull(snapshot.LooseEntries[0].CompatibilityAdapter);
+        Assert.AreEqual(0, adapterRequestCount);
     }
 
     [TestMethod]
@@ -1188,14 +1260,12 @@ public sealed class PlaylistViewPipelineTests
         };
         ChartFile chart = ChartFileProjection.FromBmsonSong(bmson);
         int adapterRequestCount = 0;
-        BMSFile createdAdapter = null!;
         var target = new ChartOperationTarget(
             chart,
             () =>
             {
                 adapterRequestCount++;
-                createdAdapter = PendingChartEntry.CreateFromBmsonSong(bmson);
-                return createdAdapter;
+                return PendingChartEntry.CreateFromBmsonSong(bmson);
             },
             null,
             ChartOperationSourceScope.PendingPackage,
@@ -1218,10 +1288,10 @@ public sealed class PlaylistViewPipelineTests
         PackageChartEntry editEntry = snapshot.GetOrCreateChartEntry();
         editEntry.ApplyInstallDestination("C:\\Installed\\Bmson", "Installed Bmson", "Installed Artist");
 
-        Assert.AreEqual(1, adapterRequestCount);
-        Assert.AreSame(createdAdapter, editEntry.CompatibilityAdapter);
-        Assert.AreEqual("C:\\Installed\\Bmson", createdAdapter.instl_dst);
-        Assert.AreEqual("Installed Bmson", createdAdapter.InstallDestinationTitle);
+        Assert.AreEqual(0, adapterRequestCount);
+        Assert.IsNull(editEntry.CompatibilityAdapter);
+        Assert.AreEqual("C:\\Installed\\Bmson", editEntry.Chart.InstallDestination);
+        Assert.AreEqual("Installed Bmson", editEntry.Chart.InstallDestinationTitle);
     }
 
     [TestMethod]
@@ -2571,6 +2641,13 @@ public sealed class PlaylistViewPipelineTests
         return new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null, entryChartInfo: chartInfo);
     }
 
+    private static BMSFile CreateBmsFile(string path, string title, string artist, string hash)
+    {
+        var file = new TestableBmsFile();
+        file.Apply(path, title, artist, hash);
+        return file;
+    }
+
     private static LR2SongDBExtended.chart_info CreateChartInfo(string sha256, string md5, int? level = 12, int notes = 2500, double total = 500)
     {
         return new LR2SongDBExtended.chart_info
@@ -2641,6 +2718,15 @@ public sealed class PlaylistViewPipelineTests
 
     private sealed class TestableBmsFile : BMSFile
     {
+        public void Apply(string filePath, string title, string artist, string md5)
+        {
+            path = filePath;
+            hash = md5;
+            Title = title;
+            Artist = artist;
+            folder = System.IO.Path.GetDirectoryName(filePath);
+        }
+
         public void ApplySnapshot(string snapshotHash, string snapshotTitle, int? snapshotMode)
         {
             hash = snapshotHash;
