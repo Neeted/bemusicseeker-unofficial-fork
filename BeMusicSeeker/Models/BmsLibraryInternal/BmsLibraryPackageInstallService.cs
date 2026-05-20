@@ -506,7 +506,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return false;
         }
-        BMSFile file = entry.GetExistingBmsFormatAdapter();
+        BMSFile file = entry.Chart.BmsFile;
         if (file != null)
         {
             return file.maintenanceInfo.wav_files_existing > 0
@@ -552,7 +552,7 @@ internal sealed class BmsLibraryPackageInstallService
                 : BmsLibraryMaintenanceService.BuildResourceHealthWarnings(bmsonMaintenanceInfo);
         }
 
-        BMSFile file = entry.GetExistingBmsFormatAdapter();
+        BMSFile file = chart.BmsFile;
         if (file != null)
         {
             file.SetHealthStatus(forceUpdate: false, memClear: false);

@@ -50,20 +50,20 @@ internal static class ChartPackageTestExtensions
             return existingAdapter;
         }
 
-        BMSFile bmsAdapter = entry.GetExistingBmsFormatAdapter();
+        BMSFile? bmsAdapter = entry.Chart?.BmsFile;
         if (bmsAdapter != null)
         {
             compatibilityAdapterField?.SetValue(entry, bmsAdapter);
             return bmsAdapter;
         }
 
-        ChartFile chart = entry.Chart;
+        ChartFile? chart = entry.Chart;
         if (chart?.Kind != ChartFileKind.Bmson || chart.BmsonSong == null)
         {
             return null!;
         }
 
-        PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(chart.BmsonSong);
+        PendingChartEntry? bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(chart.BmsonSong);
         if (bmsonAdapter == null)
         {
             return null!;

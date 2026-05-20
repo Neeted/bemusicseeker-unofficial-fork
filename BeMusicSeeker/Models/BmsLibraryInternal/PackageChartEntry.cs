@@ -159,11 +159,6 @@ internal sealed class PackageChartEntry
         return chart == null ? null : new PackageChartEntry(chart);
     }
 
-    internal BMSFile GetExistingBmsFormatAdapter()
-    {
-        return GetBmsFormatMirror();
-    }
-
     internal bool HasInstallDestinationSuggestion(string destinationDirectory)
     {
         return !string.IsNullOrWhiteSpace(destinationDirectory)
