@@ -967,6 +967,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(1, snapshot.Charts.Count);
+        Assert.IsTrue(snapshot.HasTargets);
         Assert.AreSame(bmson, snapshot.Charts[0].BmsonSong);
         Assert.AreEqual(0, adapterRequestCount);
 

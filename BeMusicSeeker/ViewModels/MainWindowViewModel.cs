@@ -17653,7 +17653,7 @@ public class MainWindowViewModel : ViewModel
 
     internal void ForceResourceHealthCheckCharts(ChartCompatibilityTargetSnapshot targets)
     {
-        if (targets?.ChartFiles.Count > 0 != true)
+        if (targets?.HasTargets != true)
         {
             return;
         }
@@ -17809,7 +17809,7 @@ public class MainWindowViewModel : ViewModel
 
     internal void SetChartResourceWarningsIgnored(ChartCompatibilityTargetSnapshot targets, bool unset = false)
     {
-        if (targets?.ChartFiles.Count > 0 != true)
+        if (targets?.HasTargets != true)
         {
             return;
         }
@@ -21858,6 +21858,8 @@ public class MainWindowViewModel : ViewModel
         internal IReadOnlyList<ChartFile> Charts { get; }
 
         internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles => chartFiles.Value;
+
+        internal bool HasTargets => Charts.Count > 0;
 
         internal void MaterializeCompatibilityFiles()
         {

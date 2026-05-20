@@ -849,6 +849,10 @@ public sealed class MainWindowContextMenuResourceTests
         string resourceHealthIgnoreClick = ExtractBetween(
             mainWindowCode,
             "private void ignoreFileScanCheckSelectedCharts",
+            "private void notIgnoredFileScanCheckSelectedCharts");
+        string resourceHealthUnignoreClick = ExtractBetween(
+            mainWindowCode,
+            "private void notIgnoredFileScanCheckSelectedCharts",
             "private async void forceInstallSelectedPendingCharts");
 
         StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension)");
@@ -862,10 +866,16 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(resourceHealthClick, "resourceTargets.MaterializeCompatibilityFiles()");
         StringAssert.Contains(resourceHealthIgnoreClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthIgnoreClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthIgnoreClick, "resourceTargets.MaterializeCompatibilityFiles()");
+        StringAssert.Contains(resourceHealthUnignoreClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthUnignoreClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthUnignoreClick, "resourceTargets.MaterializeCompatibilityFiles()");
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthIgnoreClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthIgnoreClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
+        Assert.IsFalse(resourceHealthUnignoreClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
+        Assert.IsFalse(resourceHealthUnignoreClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(mainWindowCode.Contains("GetSelectedChartCompatibilityAdapters("));
         Assert.IsFalse(mainWindowCode.Contains("GetChartCompatibilityAdapterFromTarget"));
     }
