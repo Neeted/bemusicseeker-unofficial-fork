@@ -190,6 +190,12 @@ internal sealed class PackageChartEntry
         return Chart.Kind == ChartFileKind.Bms ? GetOrCreateCompatibilityAdapter() : null;
     }
 
+    internal BMSFile GetExistingBmsFormatAdapter()
+    {
+        ChartFile currentChart = Chart;
+        return currentChart?.Kind == ChartFileKind.Bms ? compatibilityAdapter ?? currentChart.BmsFile : null;
+    }
+
     internal bool HasInstallDestinationSuggestion(string destinationDirectory)
     {
         return !string.IsNullOrWhiteSpace(destinationDirectory)

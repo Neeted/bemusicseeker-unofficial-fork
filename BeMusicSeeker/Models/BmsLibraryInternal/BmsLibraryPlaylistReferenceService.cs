@@ -120,7 +120,7 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
             if (TryGetReferenceTables(entry?.Chart, referenceMaps, out BMSTable[] value))
             {
                 matchedCharts++;
-                BMSFile file = entry.CompatibilityAdapter ?? entry.Chart?.BmsFile;
+                BMSFile file = entry.GetExistingBmsFormatAdapter();
                 if (file != null && value != null)
                 {
                     addCalls += file.AddRefTables(value, suppressFilePropertyChanged);

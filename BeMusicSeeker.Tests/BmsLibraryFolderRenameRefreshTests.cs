@@ -575,6 +575,38 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void AddReferenceBMSTables_UsesPlaylistIndexForAdapterBackedBmsonWithoutMutatingRefTables()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = @"C:\Pending\Package\matching.bmson",
+                md5 = matchingHash,
+                sha256 = new string('b', 64),
+                title = "Pending Bmson",
+                artist = "Artist"
+            });
+            PackageChartEntry matchingBmsonEntry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+            library.ChartPackagesPending = CreatePackageCollection(
+            [
+                ChartPackage.FromChartEntries([matchingBmsonEntry])
+            ]);
+            BMSTable table = CreateTable("Matched", "M", matchingHash);
+
+            library.AddReferenceBMSTables(table);
+
+            Assert.AreSame(adapter, matchingBmsonEntry.CompatibilityAdapter);
+            Assert.AreEqual(0, adapter.RefTables.Count);
+            Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
+            Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
+        });
+    }
+
+    [TestMethod]
     public void AddReferenceBMSTablesToPackageCharts_DoesNotMaterializeUnmatchedBmsonEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
