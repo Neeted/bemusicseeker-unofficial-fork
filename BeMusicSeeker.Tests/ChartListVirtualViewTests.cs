@@ -761,7 +761,6 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var selectedChart = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
-                () => PendingChartEntry.CreateFromBmsonSong(bmsonSong),
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,
@@ -812,7 +811,6 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
-                () => throw new AssertFailedException("Compatibility adapter should not be resolved for package-owned bmson chart clearing."),
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,
@@ -863,7 +861,6 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var packageTarget = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
-                () => throw new AssertFailedException("Extracted package target should not be resolved by fallback."),
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,
@@ -876,7 +873,6 @@ public sealed class ChartListVirtualViewTests
             ChartFile standaloneChart = ChartFileProjection.FromBmsonSong(bmsonSong);
             var standaloneTarget = new ChartOperationTarget(
                 standaloneChart,
-                () => standaloneAdapter,
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,
@@ -938,7 +934,6 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
-                () => throw new AssertFailedException("Compatibility adapter should not be resolved for package-owned bmson estimate search."),
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,
@@ -981,7 +976,6 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 adapterlessBmsonEntry.Chart,
-                () => throw new AssertFailedException("Compatibility adapter should not be resolved for package-owned bmson merge search."),
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,
@@ -1037,7 +1031,6 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             var target = new ChartOperationTarget(
                 staleEntry.Chart,
-                () => throw new AssertFailedException("Replaced package entry target should not fall back to compatibility adapter."),
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,

@@ -809,7 +809,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private static bool IsCustomTablePlaylistEditableProperty");
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
-        StringAssert.Contains(autoRenameClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary)");
+        StringAssert.Contains(autoRenameClick, "CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(autoRenameClick, "targetSnapshot.Charts.Count > 0");
         Assert.IsFalse(autoRenameClick.Contains("targetSnapshot.ChartFiles.Count"));
         StringAssert.Contains(autoRenameClick, "AutoRenameChartFolders(targetSnapshot)");
@@ -862,13 +862,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(audioConvertClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio)");
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
         StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
-        StringAssert.Contains(resourceHealthClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthClick, "CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
         Assert.IsFalse(resourceHealthClick.Contains("resourceTargets.MaterializeCompatibilityFiles()"));
         StringAssert.Contains(resourceHealthIgnoreClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
-        StringAssert.Contains(resourceHealthIgnoreClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthIgnoreClick, "CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
         Assert.IsFalse(resourceHealthIgnoreClick.Contains("resourceTargets.MaterializeCompatibilityFiles()"));
         StringAssert.Contains(resourceHealthUnignoreClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
-        StringAssert.Contains(resourceHealthUnignoreClick, "CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
+        StringAssert.Contains(resourceHealthUnignoreClick, "CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
         Assert.IsFalse(resourceHealthUnignoreClick.Contains("resourceTargets.MaterializeCompatibilityFiles()"));
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
@@ -919,7 +919,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(deletePackages, "viewModel.RemovePendingPackages(selectedPendingTargets)");
         StringAssert.Contains(deletePackages, "viewModel.RemoveInstalledPackageRecords(selectedInstalledTargets)");
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
-        Assert.IsFalse(deletePackages.Contains("CreateChartCompatibilityTargetSnapshot"));
+        Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(estimateSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
@@ -1659,7 +1659,6 @@ public sealed class MainWindowContextMenuResourceTests
             kind == ChartFileKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path } : null);
         return new ChartOperationTarget(
             chart,
-            () => bmsFile,
             null,
             ChartOperationSourceScope.Library,
             isOwned: true,

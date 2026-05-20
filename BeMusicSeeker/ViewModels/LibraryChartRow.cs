@@ -26,25 +26,19 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal PackageChartEntry PackageEntry { get; }
 
-    private PendingChartEntry bmsonChartAdapter;
-
-    private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
-
-    private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider;
-
     private Func<LibraryChartRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
     private Func<LibraryChartRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider;
+
+    private Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
 
     internal bool IsBmson => (BmsFile is PendingChartEntry pending && pending.IsBmsonChart) || (BmsonSong != null && BmsFile == null);
 
     internal bool IsBms => BmsFile != null && !PendingChartEntry.IsBmsonChartFile(BmsFile);
 
-    internal ChartFile Chart => CreateChartFile(materializeBmsonChartAdapter: false);
+    internal ChartFile Chart => CreateChartFile();
 
-    internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonChartAdapter();
-
-    internal ChartFile CreateChartFile(bool materializeBmsonChartAdapter)
+    internal ChartFile CreateChartFile()
     {
         ChartFile providedChart = chartProvider?.Invoke();
         if (providedChart != null)
@@ -62,9 +56,7 @@ internal sealed class LibraryChartRow : NotificationObject
             bool isPendingBmson = pending?.IsBmsonChart == true;
             return isPendingBmson
                 ? ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant)
-                : ChartFileProjection.FromBmsonSong(
-                    bmsonSong,
-                    ChartFileTransientState.FromCompatibilityFile(materializeBmsonChartAdapter ? GetOrCreateBmsonChartAdapter() : GetExistingBmsonChartAdapter()));
+                : ChartFileProjection.FromBmsonSong(bmsonSong, GetBmsonTransientState(includeWarningSnapshot: true));
         }
         return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
     }
@@ -140,86 +132,6 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(string.Empty);
     }
 
-    private PendingChartEntry GetOrCreateBmsonChartAdapter()
-    {
-        if (BmsonSong == null)
-        {
-            return null;
-        }
-        PendingChartEntry provided = bmsonChartAdapterProvider?.Invoke(BmsonSong);
-        if (provided != null)
-        {
-            if (!ReferenceEquals(bmsonChartAdapter, provided))
-            {
-                SetBmsonChartAdapter(provided);
-            }
-            return bmsonChartAdapter;
-        }
-        if (bmsonChartAdapter == null || !ReferenceEquals(bmsonChartAdapter.BmsonSong, BmsonSong))
-        {
-            SetBmsonChartAdapter(PendingChartEntry.CreateFromBmsonSong(BmsonSong));
-        }
-        else if (!string.Equals(bmsonChartAdapter.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
-        {
-            bmsonChartAdapter.UpdateFromBmsonSong(BmsonSong);
-        }
-        return bmsonChartAdapter;
-    }
-
-    private PendingChartEntry GetExistingBmsonChartAdapter()
-    {
-        if (BmsonSong == null)
-        {
-            return null;
-        }
-        if (bmsonChartAdapter == null)
-        {
-            PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(BmsonSong);
-            if (provided != null)
-            {
-                SetBmsonChartAdapter(provided);
-                return bmsonChartAdapter;
-            }
-            return null;
-        }
-        if (!ReferenceEquals(bmsonChartAdapter.BmsonSong, BmsonSong))
-        {
-            PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(BmsonSong);
-            if (provided != null)
-            {
-                SetBmsonChartAdapter(provided);
-                return bmsonChartAdapter;
-            }
-            return null;
-        }
-        if (!string.Equals(bmsonChartAdapter.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
-        {
-            bmsonChartAdapter.UpdateFromBmsonSong(BmsonSong);
-        }
-        return bmsonChartAdapter;
-    }
-
-    internal void SetBmsonChartAdapterProviders(
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> createProvider,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingProvider)
-    {
-        bmsonChartAdapterProvider = createProvider;
-        existingBmsonChartAdapterProvider = existingProvider;
-    }
-
-    private void SetBmsonChartAdapter(PendingChartEntry entry)
-    {
-        if (bmsonChartAdapter is INotifyPropertyChanged oldSource)
-        {
-            PropertyChangedEventManager.RemoveHandler(oldSource, OnSourcePropertyChanged, string.Empty);
-        }
-        bmsonChartAdapter = entry;
-        if (bmsonChartAdapter is INotifyPropertyChanged newSource)
-        {
-            PropertyChangedEventManager.AddHandler(newSource, OnSourcePropertyChanged, string.Empty);
-        }
-    }
-
     internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
     {
         resourceHealthProjectionProvider = provider;
@@ -228,6 +140,11 @@ internal sealed class LibraryChartRow : NotificationObject
     internal void SetPlaylistReferenceDisplayProvider(Func<LibraryChartRow, PlaylistReferenceDisplay> provider)
     {
         playlistReferenceDisplayProvider = provider;
+    }
+
+    internal void SetBmsonTransientStateProvider(Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> provider)
+    {
+        bmsonTransientStateProvider = provider;
     }
 
     internal void RaisePlaylistReferenceDisplayChanged()
@@ -463,6 +380,17 @@ internal sealed class LibraryChartRow : NotificationObject
         return playlistReferenceDisplayProvider == null
             ? PlaylistReferenceDisplay.Empty
             : playlistReferenceDisplayProvider.Invoke(this) ?? PlaylistReferenceDisplay.Empty;
+    }
+
+    private ChartFileTransientState GetBmsonTransientState(bool includeWarningSnapshot)
+    {
+        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
+        if (bmsonSong == null)
+        {
+            return ChartFileTransientState.Empty;
+        }
+        return bmsonTransientStateProvider?.Invoke(bmsonSong, includeWarningSnapshot)
+            ?? ChartFileTransientState.Empty;
     }
 
 }

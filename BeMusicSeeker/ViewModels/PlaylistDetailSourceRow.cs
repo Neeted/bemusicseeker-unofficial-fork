@@ -31,15 +31,7 @@ internal sealed class PlaylistDetailSourceRow
     /// </summary>
     internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
 
-    private PendingChartEntry bmsonChartAdapter;
-
-    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
-
-    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider;
-
     private readonly Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
-
-    internal BMSFile CompatibilityBmsFile => RealFile ?? GetOrCreateBmsonChartAdapter();
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
@@ -146,29 +138,6 @@ internal sealed class PlaylistDetailSourceRow
 
     internal bool HasEntryChartInfoDependency => RealFile == null && ResolvedBmson == null;
 
-    private PendingChartEntry GetOrCreateBmsonChartAdapter()
-    {
-        if (ResolvedBmson == null)
-        {
-            return null;
-        }
-        PendingChartEntry provided = bmsonChartAdapterProvider?.Invoke(ResolvedBmson);
-        if (provided != null)
-        {
-            bmsonChartAdapter = provided;
-            return bmsonChartAdapter;
-        }
-        if (bmsonChartAdapter == null || !ReferenceEquals(bmsonChartAdapter.BmsonSong, ResolvedBmson))
-        {
-            bmsonChartAdapter = PendingChartEntry.CreateFromBmsonSong(ResolvedBmson);
-        }
-        else if (!string.Equals(bmsonChartAdapter.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
-        {
-            bmsonChartAdapter.UpdateFromBmsonSong(ResolvedBmson);
-        }
-        return bmsonChartAdapter;
-    }
-
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
     internal double? ChartLevelSortKey => ChartInfo?.level ?? 0;
@@ -251,21 +220,16 @@ internal sealed class PlaylistDetailSourceRow
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null,
         Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
         ResolvedBmson = resolvedBmson;
         EntryChartInfo = entryChartInfo;
-        this.bmsonChartAdapterProvider = bmsonChartAdapterProvider;
-        this.existingBmsonChartAdapterProvider = existingBmsonChartAdapterProvider;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
-        BMSFile compatibilityBmsFile = GetExistingOrProvidedBmsonChartAdapter();
-        BMSFile snapshotSource = realFile ?? compatibilityBmsFile ?? scoreProbe;
+        BMSFile snapshotSource = realFile ?? scoreProbe;
         BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore ?? scoreProbe?.bmsScore;
         Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), entry.title);
         Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, entry.artist);
@@ -399,36 +363,13 @@ internal sealed class PlaylistDetailSourceRow
             return ChartFileTransientState.Empty;
         }
         return bmsonTransientStateProvider?.Invoke(ResolvedBmson, includeWarningSnapshot)
-            ?? ChartFileTransientState.FromCompatibilityFile(GetExistingOrProvidedBmsonChartAdapter(), includeWarningSnapshot);
+            ?? ChartFileTransientState.Empty;
     }
 
     private static bool HasProjectedWarning(ChartFile chart, BMSFile fallback)
     {
         return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false)
             || (chart?.Warnings.Count == 0 && (fallback?.HasHighlightedWarning ?? false));
-    }
-
-    private PendingChartEntry GetExistingOrProvidedBmsonChartAdapter()
-    {
-        if (ResolvedBmson == null)
-        {
-            return null;
-        }
-        PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(ResolvedBmson);
-        if (provided != null)
-        {
-            bmsonChartAdapter = provided;
-            return bmsonChartAdapter;
-        }
-        if (bmsonChartAdapter == null || !ReferenceEquals(bmsonChartAdapter.BmsonSong, ResolvedBmson))
-        {
-            return null;
-        }
-        if (!string.Equals(bmsonChartAdapter.path, ResolvedBmson.path, StringComparison.OrdinalIgnoreCase))
-        {
-            bmsonChartAdapter.UpdateFromBmsonSong(ResolvedBmson);
-        }
-        return bmsonChartAdapter;
     }
 
     private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)

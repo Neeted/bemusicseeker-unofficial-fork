@@ -61,15 +61,10 @@ internal static class GridRowResolver
 
     internal static bool TryGetChartFile(object row, out ChartFile chart)
     {
-        return TryGetChartFile(row, materializeCompatibilityAdapter: true, out chart);
+        return TryGetChartFileCore(row, out chart);
     }
 
-    internal static bool TryGetChartFileWithoutMaterializingCompatibilityAdapter(object row, out ChartFile chart)
-    {
-        return TryGetChartFile(row, materializeCompatibilityAdapter: false, out chart);
-    }
-
-    private static bool TryGetChartFile(object row, bool materializeCompatibilityAdapter, out ChartFile chart)
+    private static bool TryGetChartFileCore(object row, out ChartFile chart)
     {
         chart = null;
         switch (row)
@@ -81,7 +76,7 @@ internal static class GridRowResolver
                 chart = playlistSourceRow.Chart;
                 return chart != null;
             case LibraryChartRow libraryChartRow:
-                chart = libraryChartRow.CreateChartFile(materializeCompatibilityAdapter);
+                chart = libraryChartRow.Chart;
                 return chart != null;
             case BMSFile bmsFile:
                 chart = CreateChartFile(bmsFile);
@@ -104,7 +99,7 @@ internal static class GridRowResolver
     internal static bool TryGetChartOperationTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
     {
         target = null;
-        if (!TryGetChartFile(row, materializeCompatibilityAdapter: false, out ChartFile chart))
+        if (!TryGetChartFileCore(row, out ChartFile chart))
         {
             return false;
         }
@@ -128,7 +123,7 @@ internal static class GridRowResolver
         }
         bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
         ChartOperationCapabilities capabilities = BuildCapabilities(chart, playlistEntry, sourceScope, isPlaylistRow, isOwned, isPlaylistMissing);
-        target = new ChartOperationTarget(chart, () => ResolveCompatibilityBmsFile(row), playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities, ResolvePackageEntry(row));
+        target = new ChartOperationTarget(chart, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities, ResolvePackageEntry(row));
         return true;
     }
 
@@ -251,18 +246,6 @@ internal static class GridRowResolver
     private static ChartFile CreateChartFile(BMSFile file)
     {
         return ChartFileProjection.FromBmsFile(file);
-    }
-
-    private static BMSFile ResolveCompatibilityBmsFile(object row)
-    {
-        return row switch
-        {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.CompatibilityBmsFile,
-            PlaylistDetailSourceRow playlistSourceRow => playlistSourceRow.CompatibilityBmsFile,
-            LibraryChartRow libraryChartRow => libraryChartRow.CompatibilityBmsFile,
-            BMSFile bmsFile => bmsFile,
-            _ => null
-        };
     }
 
     private static PackageChartEntry ResolvePackageEntry(object row)

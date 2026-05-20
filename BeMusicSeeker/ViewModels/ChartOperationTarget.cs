@@ -39,11 +39,7 @@ internal enum ChartOperationCapabilities
 
 internal sealed class ChartOperationTarget
 {
-    private readonly Lazy<BMSFile> compatibilityBmsFile;
-
     internal ChartFile Chart { get; }
-
-    internal BMSFile CompatibilityBmsFile => compatibilityBmsFile.Value;
 
     internal BMSTableEntry PlaylistEntry { get; }
 
@@ -61,7 +57,6 @@ internal sealed class ChartOperationTarget
 
     internal ChartOperationTarget(
         ChartFile chart,
-        Func<BMSFile> compatibilityBmsFileProvider,
         BMSTableEntry playlistEntry,
         ChartOperationSourceScope sourceScope,
         bool isOwned,
@@ -71,7 +66,6 @@ internal sealed class ChartOperationTarget
         PackageChartEntry packageEntry = null)
     {
         Chart = chart ?? throw new ArgumentNullException(nameof(chart));
-        compatibilityBmsFile = new Lazy<BMSFile>(() => compatibilityBmsFileProvider?.Invoke());
         PlaylistEntry = playlistEntry;
         PackageEntry = packageEntry;
         SourceScope = sourceScope;

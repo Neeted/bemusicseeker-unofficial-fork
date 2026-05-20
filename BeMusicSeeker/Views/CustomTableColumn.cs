@@ -433,7 +433,7 @@ internal static class CustomTableColumnFactory
 
     private static IEnumerable<string> GetInstallDestinationSuggestions(object row)
     {
-        return GridRowResolver.TryGetChartFileWithoutMaterializingCompatibilityAdapter(row, out ChartFile chart)
+        return GridRowResolver.TryGetChartFile(row, out ChartFile chart)
             ? chart.InstallDestinationSuggestions
             : [];
     }

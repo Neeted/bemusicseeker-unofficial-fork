@@ -4,7 +4,7 @@
 
 ## 基本モデル
 
-- WARNING は主に `BMSFile.Warnings` または `PendingChartEntry` adapter 上の `Warnings` が保持する `ChartWarning` の集合です。所持 bmson の storage row は `bmson_song` であり、通常一覧では `LibraryChartRow` / operation adapter を通して表示・操作されます。
+- WARNING は主に BMS storage row の `BMSFile.Warnings`、pending package entry の warning state、または `ChartFile` projection 上の `ChartWarning` の集合として扱います。所持 bmson の storage row は `bmson_song` であり、通常一覧や playlist detail では operation adapter ではなく `ChartFile` / `ChartFileTransientState` を通して表示されます。
 - 通常一覧と導入済み直後の `新規` 画面の `ResourceHealth` warning は例外的に、cache-aware health 判定で更新した `maintenanceInfo` から構築する runtime `ResourceHealthIndexSnapshot` を `LibraryChartRow` が投影して表示します。DB 永続 warning ではありません。
 - `maintenanceInfo` は、`MaintenanceInfoOrigin.DbHydrated` または `MaintenanceInfoOrigin.Calculated` の値だけを resource health の正本として扱います。`BMSFile.maintenanceInfo` や bmson adapter の lazy default は `Placeholder` であり、DB 由来または計算済みの health と同じ意味には扱いません。DB 由来の partial snapshot は既存仕様どおり該当カテゴリの warning 投影に使いますが、bmson parse 直後の encoding-only placeholder は正本に昇格しません。
 - 旧来の自由文字列 `warning` は廃止済みで、表示・tooltip・行ハイライトは structured warning から算出します。
@@ -64,5 +64,6 @@
 
 - 定義: `BeMusicSeeker/Models/ChartWarning.cs`
 - `BMSFile` の表示 property と互換 alias: `BeMusicSeeker/Models/BMSFile.cs`
-- bmson / pending 用の `BMSFile` 互換 adapter: `BeMusicSeeker/Models/PendingChartEntry.cs`
+- bmson storage row と一時表示 state の projection: `BeMusicSeeker/Models/ChartFileProjection.cs`, `BeMusicSeeker/Models/ChartFileTransientState.cs`
+- pending 用の BMS format adapter 境界: `BeMusicSeeker/Models/PendingChartEntry.cs`
 - WARNING 列: `WarningDigestText` を本文、`WarningTooltipText` を tooltip、`HasHighlightedWarning` を行色判定に使います。

@@ -609,7 +609,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithCompatibilityBmsFile()
+    public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithBmsonChartFile()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -630,13 +630,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreSame(row.Chart, target.Chart);
-        Assert.AreSame(row.CompatibilityBmsFile, target.CompatibilityBmsFile);
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPlaylistMissing);
         Assert.IsNull(target.Chart.BmsFile);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(target.CompatibilityBmsFile));
         LibraryChartRef libraryRef = target.ToLibraryChartRef();
         Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
         Assert.IsNull(libraryRef.BmsFile);
@@ -656,7 +654,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlaylistDetailRow_BmsonCompatibilityAdapterIsCreatedOnlyWhenOperationNeedsIt()
+    public void PlaylistDetailRow_BmsonChartProjectionHasNoCompatibilityBmsFileSurface()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -669,28 +667,17 @@ public sealed class PlaylistViewPipelineTests
         var entry = new TestablePlaylistEntry();
         entry.SetMd5(bmson.md5);
         entry.SetSha256(bmson.sha256);
-        int createCount = 0;
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
             realFile: null,
-            resolvedBmson: bmson,
-            bmsonChartAdapterProvider: song =>
-            {
-                createCount++;
-                return PendingChartEntry.CreateFromBmsonSong(song);
-            });
+            resolvedBmson: bmson);
 
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
-        Assert.AreEqual(0, createCount);
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.IsNull(row.Chart.BmsFile);
-
-        BMSFile compatibilityBmsFile = row.CompatibilityBmsFile;
-
-        Assert.AreEqual(1, createCount);
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(compatibilityBmsFile));
+        Assert.IsNull(typeof(PlaylistDetailRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
     }
 
     [TestMethod]
@@ -704,28 +691,17 @@ public sealed class PlaylistViewPipelineTests
             md5 = "dddddddddddddddddddddddddddddddd",
             sha256 = new string('e', 64)
         };
-        int createCount = 0;
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(bmson);
-        row.SetBmsonChartAdapterProviders(
-            song =>
-            {
-                createCount++;
-                return PendingChartEntry.CreateFromBmsonSong(song);
-            },
-            existingProvider: null);
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreEqual(string.Empty, row.instl_dst);
-        Assert.AreEqual(0, createCount);
-
-        BMSFile compatibilityBmsFile = row.CompatibilityBmsFile;
-
-        Assert.AreEqual(1, createCount);
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(compatibilityBmsFile));
+        Assert.IsNull(row.Chart.BmsFile);
+        Assert.AreSame(bmson, row.Chart.BmsonSong);
+        Assert.IsNull(typeof(LibraryChartRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
     }
 
     [TestMethod]
-    public void LibraryChartRow_BmsonChartProjectionUsesExistingAdapterAfterSourceSongReplacement()
+    public void LibraryChartRow_BmsonChartProjectionUsesUpdatedStorageSongAfterSourceSongReplacement()
     {
         var oldSong = new LR2SongDBExtended.bmson_song
         {
@@ -743,30 +719,28 @@ public sealed class PlaylistViewPipelineTests
             md5 = oldSong.md5,
             sha256 = oldSong.sha256
         };
-        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(oldSong);
-        adapter.instl_dst = "C:\\Installed\\Bmson";
-        int existingLookupCount = 0;
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(oldSong);
-        row.SetBmsonChartAdapterProviders(
-            createProvider: null,
-            existingProvider: song =>
-            {
-                existingLookupCount++;
-                string installDestination = adapter.instl_dst;
-                adapter.UpdateFromBmsonSong(song);
-                adapter.instl_dst = installDestination;
-                return adapter;
-            });
-        Assert.AreEqual("C:\\Installed\\Bmson", row.Chart.InstallDestination);
-        Assert.AreEqual(1, existingLookupCount);
+        ChartFile statefulChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(newSong),
+            "C:\\Installed\\Bmson",
+            string.Empty,
+            string.Empty,
+            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+        int transientStateLookupCount = 0;
+        row.SetBmsonTransientStateProvider((song, includeWarningSnapshot) =>
+        {
+            transientStateLookupCount++;
+            Assert.AreSame(newSong, song);
+            return ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot);
+        });
 
         row.UpdateFromBmsonSong(newSong);
         ChartFile chart = row.Chart;
 
         Assert.AreSame(newSong, chart.BmsonSong);
-        Assert.AreSame(newSong, adapter.BmsonSong);
         Assert.AreEqual("C:\\Installed\\Bmson", chart.InstallDestination);
-        Assert.AreEqual(2, existingLookupCount);
+        Assert.IsTrue(chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        Assert.IsTrue(transientStateLookupCount > 0);
     }
 
     [TestMethod]
@@ -807,7 +781,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPlaylistMissing);
         Assert.AreSame(file, target.Chart.BmsFile);
-        Assert.AreSame(file, target.CompatibilityBmsFile);
         LibraryChartRef libraryRef = target.ToLibraryChartRef();
         Assert.AreEqual(LibraryChartKind.Bms, libraryRef.Kind);
         Assert.AreSame(file, libraryRef.BmsFile);
@@ -846,7 +819,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsNull(target.Chart.BmsFile);
-        Assert.AreSame(row, target.CompatibilityBmsFile);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
@@ -879,7 +851,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsNull(target.Chart.BmsFile);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(target.CompatibilityBmsFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
@@ -890,7 +861,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartOperationTarget_LibraryChartRowBmson_DelaysCompatibilityAdapterCreation()
+    public void ChartOperationTarget_LibraryChartRowBmson_HasNoCompatibilityAdapterSurface()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -902,39 +873,19 @@ public sealed class PlaylistViewPipelineTests
             sha256 = new string('5', 64)
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
-        int adapterRequestCount = 0;
-        PendingChartEntry adapter = null!;
-        row.SetBmsonChartAdapterProviders(song =>
-        {
-            adapterRequestCount++;
-            adapter ??= PendingChartEntry.CreateFromBmsonSong(song);
-            return adapter;
-        }, null);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsNull(target.Chart.BmsFile);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
+        Assert.IsNull(typeof(ChartOperationTarget).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
 
         LibraryChartRef libraryRef = target.ToLibraryChartRef();
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
         Assert.IsNull(libraryRef.BmsFile);
         Assert.AreSame(bmson, libraryRef.BmsonSong);
-
-        BMSFile compatibilityFile = target.CompatibilityBmsFile;
-
-        Assert.AreSame(adapter, compatibilityFile);
-        Assert.AreEqual(1, adapterRequestCount);
-        Assert.AreSame(adapter, target.CompatibilityBmsFile);
-        Assert.AreEqual(1, adapterRequestCount);
-        LibraryChartRef materializedRef = target.ToLibraryChartRef();
-        Assert.IsNull(materializedRef.BmsFile);
-        Assert.AreSame(bmson, materializedRef.BmsonSong);
-        Assert.AreEqual(1, adapterRequestCount);
     }
 
     [TestMethod]
@@ -948,14 +899,8 @@ public sealed class PlaylistViewPipelineTests
             artist = "Artist",
             md5 = "68686868686868686868686868686868"
         };
-        int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             ChartFileProjection.FromBmsonSong(bmson),
-            () =>
-            {
-                adapterRequestCount++;
-                return PendingChartEntry.CreateFromBmsonSong(bmson);
-            },
             null,
             ChartOperationSourceScope.PendingPackage,
             isOwned: false,
@@ -965,7 +910,6 @@ public sealed class PlaylistViewPipelineTests
 
         PackageChartEntry entry = target.ToPackageChartEntry();
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsNotNull(entry);
         Assert.IsNull(entry.CompatibilityAdapter);
         Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
@@ -976,14 +920,8 @@ public sealed class PlaylistViewPipelineTests
     public void ChartOperationTarget_ToPackageChartEntry_UsesBmsStorageOwner()
     {
         BMSFile file = CreateBmsFile("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             ChartFileProjection.FromBmsFile(file),
-            () =>
-            {
-                adapterRequestCount++;
-                return null;
-            },
             null,
             ChartOperationSourceScope.Library,
             isOwned: true,
@@ -993,14 +931,13 @@ public sealed class PlaylistViewPipelineTests
 
         PackageChartEntry entry = target.ToPackageChartEntry();
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsNotNull(entry);
         Assert.AreSame(file, entry.CompatibilityAdapter);
         Assert.AreSame(file, entry.Chart.BmsFile);
     }
 
     [TestMethod]
-    public void ChartCompatibilityTargetSnapshot_UsesChartFileWithoutMaterializingBmsonCompatibilityAdapter()
+    public void ChartOperationTargetSnapshot_UsesChartFileWithoutMaterializingBmsonCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1012,24 +949,16 @@ public sealed class PlaylistViewPipelineTests
             sha256 = new string('6', 64)
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
-        int adapterRequestCount = 0;
-        row.SetBmsonChartAdapterProviders(song =>
-        {
-            adapterRequestCount++;
-            return PendingChartEntry.CreateFromBmsonSong(song);
-        }, null);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         var viewModel = new MainWindowViewModel();
-        MainWindowViewModel.ChartCompatibilityTargetSnapshot snapshot = viewModel.CreateChartCompatibilityTargetSnapshot(
+        MainWindowViewModel.ChartOperationTargetSnapshot snapshot = viewModel.CreateChartOperationTargetSnapshot(
             [target],
             ChartOperationCapabilities.MoveInLibrary);
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(1, snapshot.Charts.Count);
         Assert.IsTrue(snapshot.HasTargets);
         Assert.AreSame(bmson, snapshot.Charts[0].BmsonSong);
-        Assert.AreEqual(0, adapterRequestCount);
     }
 
     [TestMethod]
@@ -1045,32 +974,19 @@ public sealed class PlaylistViewPipelineTests
             sha256 = new string('8', 64)
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
-        int adapterRequestCount = 0;
-        row.SetBmsonChartAdapterProviders(song =>
-        {
-            adapterRequestCount++;
-            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
-            adapter.instl_dst = "C:\\Installed\\Bmson";
-            return adapter;
-        }, null);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         var viewModel = new MainWindowViewModel();
         MainWindowViewModel.IRepairInstalledLocationTargetSnapshot snapshot =
             viewModel.CreateRepairInstalledLocationTargetSnapshot([target]);
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(snapshot.HasTargets);
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsFalse(snapshot.HasInstallDestination);
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(string.Empty, snapshot.RepairCharts[0].InstallDestination);
 
         snapshot.MaterializeRepairEntries();
-        Assert.AreEqual(0, adapterRequestCount);
 
         Assert.IsFalse(snapshot.HasInstallDestination);
-        Assert.AreEqual(0, adapterRequestCount);
     }
 
     [TestMethod]
@@ -1086,11 +1002,8 @@ public sealed class PlaylistViewPipelineTests
             sha256 = new string('a', 64)
         };
         ChartFile staleChart = ChartFileProjection.FromBmsonSong(bmson);
-        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
-        adapter.instl_dst = "C:\\Installed\\PlaylistBmson";
         var target = new ChartOperationTarget(
             staleChart,
-            () => adapter,
             playlistEntry: null,
             ChartOperationSourceScope.PlaylistOwned,
             isOwned: true,
@@ -1140,7 +1053,6 @@ public sealed class PlaylistViewPipelineTests
         var firstTarget = new ChartOperationTarget(
             firstChart,
             null,
-            playlistEntry: null,
             ChartOperationSourceScope.PlaylistOwned,
             isOwned: true,
             isPending: false,
@@ -1149,7 +1061,6 @@ public sealed class PlaylistViewPipelineTests
         var secondTarget = new ChartOperationTarget(
             secondChart,
             null,
-            playlistEntry: null,
             ChartOperationSourceScope.PlaylistOwned,
             isOwned: true,
             isPending: false,
@@ -1176,17 +1087,12 @@ public sealed class PlaylistViewPipelineTests
             md5 = "69696969696969696969696969696969",
             sha256 = new string('9', 64)
         };
-        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
-        adapter.instl_dst = "C:\\Installed\\Bmson";
-        var row = LibraryChartRow.FromBmsonSong(bmson);
-        int adapterCreateCount = 0;
-        row.SetBmsonChartAdapterProviders(
-            song =>
-            {
-                adapterCreateCount++;
-                return PendingChartEntry.CreateFromBmsonSong(song);
-            },
-            existingProvider: _ => adapter);
+        var row = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(bmson),
+            "C:\\Installed\\Bmson",
+            string.Empty,
+            string.Empty,
+            []));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         var viewModel = new MainWindowViewModel();
@@ -1195,7 +1101,6 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(snapshot.HasTargets);
         Assert.IsTrue(snapshot.HasInstallDestination);
-        Assert.AreEqual(0, adapterCreateCount);
         Assert.AreEqual("C:\\Installed\\Bmson", snapshot.RepairCharts[0].InstallDestination);
     }
 
@@ -1215,11 +1120,6 @@ public sealed class PlaylistViewPipelineTests
         int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             chart,
-            () =>
-            {
-                adapterRequestCount++;
-                return PendingChartEntry.CreateFromBmsonSong(bmson);
-            },
             null,
             ChartOperationSourceScope.PendingPackage,
             isOwned: false,
@@ -1262,11 +1162,6 @@ public sealed class PlaylistViewPipelineTests
         int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             chart,
-            () =>
-            {
-                adapterRequestCount++;
-                return PendingChartEntry.CreateFromBmsonSong(bmson);
-            },
             null,
             ChartOperationSourceScope.PendingPackage,
             isOwned: false,
@@ -1307,25 +1202,18 @@ public sealed class PlaylistViewPipelineTests
             sha256 = new string('b', 64)
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
-        int adapterRequestCount = 0;
-        row.SetBmsonChartAdapterProviders(song =>
-        {
-            adapterRequestCount++;
-            return PendingChartEntry.CreateFromBmsonSong(song);
-        }, null);
 
         Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out ChartOperationTarget target));
         var viewModel = new MainWindowViewModel();
         MainWindowViewModel.RenameChartFolderTargetSnapshot snapshot = viewModel.CreateRenameChartFolderTargetSnapshot(target);
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(snapshot.HasTarget);
         Assert.AreSame(bmson, snapshot.Chart.BmsonSong);
         Assert.IsNull(snapshot.PlaybackBmsFile);
     }
 
     [TestMethod]
-    public void LibraryChartRow_BmsonChartPrefersFreshSongMaintenanceOverExistingAdapterSnapshot()
+    public void LibraryChartRow_BmsonChartCombinesFreshSongMaintenanceWithTransientState()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1345,16 +1233,6 @@ public sealed class PlaylistViewPipelineTests
                 encoding = "utf-8"
             }
         };
-        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
-        adapter.maintenanceInfo.wav_files_defined = 10;
-        adapter.maintenanceInfo.wav_files_existing = 1;
-        adapter.maintenanceInfo.bga_files_defined = 8;
-        adapter.maintenanceInfo.bga_files_existing = 1;
-        adapter.maintenanceInfo.movie_files_defined = 0;
-        adapter.maintenanceInfo.encoding = "shift_jis";
-        adapter.instl_dst = "C:\\Installed\\Bmson";
-        adapter.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
-
         bmson.MaintenanceInfo = new BMSFileMaintenanceInfo
         {
             wav_files_defined = 10,
@@ -1364,8 +1242,13 @@ public sealed class PlaylistViewPipelineTests
             movie_files_defined = 0,
             encoding = "utf-16"
         };
-        var row = LibraryChartRow.FromBmsonSong(bmson);
-        row.SetBmsonChartAdapterProviders(_ => adapter, _ => adapter);
+        ChartFile statefulChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(bmson),
+            "C:\\Installed\\Bmson",
+            string.Empty,
+            string.Empty,
+            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+        var row = LibraryChartRow.FromChartFile(statefulChart);
 
         ChartFile chart = row.Chart;
 
@@ -1378,7 +1261,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartOperationTarget_BmsonRowsKeepCompatibilityFileForInstallLocationRepair()
+    public void ChartOperationTarget_BmsonRowsUseChartTransientStateForInstallLocationRepair()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1389,28 +1272,25 @@ public sealed class PlaylistViewPipelineTests
             md5 = "34343434343434343434343434343434",
             sha256 = new string('3', 64)
         };
-        var libraryRow = LibraryChartRow.FromBmsonSong(bmson);
+        ChartFile libraryChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(bmson),
+            "C:\\Installed\\Bmson",
+            string.Empty,
+            string.Empty,
+            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+        var libraryRow = LibraryChartRow.FromChartFile(libraryChart);
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(libraryRow, out ChartOperationTarget firstLibraryTarget));
-        List<string> changedProperties = [];
-        libraryRow.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName);
-        firstLibraryTarget.CompatibilityBmsFile.instl_dst = "C:\\Installed\\Bmson";
-        firstLibraryTarget.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(libraryRow, out ChartOperationTarget secondLibraryTarget));
 
-        Assert.AreSame(firstLibraryTarget.CompatibilityBmsFile, secondLibraryTarget.CompatibilityBmsFile);
-        Assert.AreEqual("C:\\Installed\\Bmson", secondLibraryTarget.CompatibilityBmsFile.instl_dst);
+        Assert.AreSame(firstLibraryTarget.Chart, secondLibraryTarget.Chart);
         Assert.AreEqual("C:\\Installed\\Bmson", secondLibraryTarget.Chart.InstallDestination);
         Assert.IsTrue(secondLibraryTarget.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         Assert.AreEqual("C:\\Installed\\Bmson", libraryRow.instl_dst);
-        CollectionAssert.Contains(changedProperties, nameof(LibraryChartRow.instl_dst));
         Assert.IsTrue(libraryRow.HasHighlightedWarning);
         StringAssert.Contains(libraryRow.WarningTooltipText, "ambiguous install destination");
 
-        var rebuiltWarningRow = LibraryChartRow.FromBmsonSong(bmson);
-        rebuiltWarningRow.SetBmsonChartAdapterProviders(
-            song => firstLibraryTarget.CompatibilityBmsFile as PendingChartEntry,
-            song => firstLibraryTarget.CompatibilityBmsFile as PendingChartEntry);
+        var rebuiltWarningRow = LibraryChartRow.FromChartFile(libraryChart);
         Assert.IsTrue(rebuiltWarningRow.HasHighlightedWarning);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltWarningRow.Chart.InstallDestination);
         StringAssert.Contains(rebuiltWarningRow.WarningTooltipText, "ambiguous install destination");
@@ -1418,25 +1298,29 @@ public sealed class PlaylistViewPipelineTests
         var entry = new TestablePlaylistEntry();
         entry.SetMd5(bmson.md5);
         entry.SetSha256(bmson.sha256);
-        PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+        ChartFile playlistChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(bmson),
+            "C:\\Installed\\PlaylistBmson",
+            "Installed Playlist Bmson",
+            "Installed Playlist Artist",
+            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "playlist ambiguous install destination")]);
+        PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(
+            entry,
+            realFile: null,
+            resolvedBmson: bmson,
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(playlistChart, includeWarningSnapshot)).CreateViewRow();
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget firstPlaylistTarget));
-        firstPlaylistTarget.CompatibilityBmsFile.instl_dst = "C:\\Installed\\PlaylistBmson";
-        firstPlaylistTarget.CompatibilityBmsFile.InstallDestinationTitle = "Installed Playlist Bmson";
-        firstPlaylistTarget.CompatibilityBmsFile.InstallDestinationArtist = "Installed Playlist Artist";
-        firstPlaylistTarget.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "playlist ambiguous install destination");
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget secondPlaylistTarget));
 
-        Assert.AreSame(firstPlaylistTarget.CompatibilityBmsFile, secondPlaylistTarget.CompatibilityBmsFile);
-        Assert.AreEqual("C:\\Installed\\PlaylistBmson", secondPlaylistTarget.CompatibilityBmsFile.instl_dst);
+        Assert.AreSame(firstPlaylistTarget.Chart, secondPlaylistTarget.Chart);
+        Assert.AreEqual("C:\\Installed\\PlaylistBmson", secondPlaylistTarget.Chart.InstallDestination);
 
         var rebuiltPlaylistSourceRow = new PlaylistDetailSourceRow(
             entry,
             realFile: null,
             resolvedBmson: bmson,
-            bmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry,
-            existingBmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry,
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromCompatibilityFile(firstPlaylistTarget.CompatibilityBmsFile, includeWarningSnapshot));
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(playlistChart, includeWarningSnapshot));
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.Chart.InstallDestination);
         Assert.AreEqual("Installed Playlist Bmson", rebuiltPlaylistSourceRow.InstallDestinationTitle);
@@ -1446,7 +1330,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartListSourceRow_BmsonUsesSharedChartAdapterForInstallRepairState()
+    public void ChartListSourceRow_BmsonUsesTransientStateForInstallRepairState()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1457,33 +1341,25 @@ public sealed class PlaylistViewPipelineTests
             md5 = "45454545454545454545454545454545",
             sha256 = new string('4', 64)
         };
-        Dictionary<LR2SongDBExtended.bmson_song, PendingChartEntry> adapters = [];
-        PendingChartEntry GetAdapter(LR2SongDBExtended.bmson_song song)
-        {
-            if (!adapters.TryGetValue(song, out PendingChartEntry adapter))
-            {
-                adapter = PendingChartEntry.CreateFromBmsonSong(song);
-                adapters[song] = adapter;
-            }
-            return adapter;
-        }
+        ChartFile statefulChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(bmson),
+            "C:\\Installed\\Bmson",
+            "Installed Bmson",
+            "Installed Artist",
+            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
 
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
             [bmson],
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromCompatibilityFile(GetAdapter(song), includeWarningSnapshot)).Single();
-        PendingChartEntry sharedAdapter = GetAdapter(bmson);
-        sharedAdapter.instl_dst = "C:\\Installed\\Bmson";
-        sharedAdapter.InstallDestinationTitle = "Installed Bmson";
-        sharedAdapter.InstallDestinationArtist = "Installed Artist";
-        sharedAdapter.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
             [bmson],
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromCompatibilityFile(GetAdapter(song), includeWarningSnapshot)).Single();
-        var rebuiltViewRow = LibraryChartRow.FromBmsonSong(rebuiltSourceRow.BmsonSong);
-        rebuiltViewRow.SetBmsonChartAdapterProviders(GetAdapter, GetAdapter);
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
+        var rebuiltViewRow = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsonSong(
+            rebuiltSourceRow.BmsonSong,
+            ChartFileTransientState.FromChartFile(statefulChart)));
 
         Assert.AreEqual("C:\\Installed\\Bmson", firstSourceRow.InstallDestination);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.InstallDestination);
@@ -1552,7 +1428,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(pending, row.BmsFile);
         Assert.AreSame(bmson, row.BmsonSong);
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
-        Assert.AreSame(pending, row.CompatibilityBmsFile);
         Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
         Assert.AreEqual(pending.DisplayWarning, row.DisplayWarning);
@@ -1563,7 +1438,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, isPendingSection: true, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.AreSame(pending, target.CompatibilityBmsFile);
+        Assert.AreSame(bmson, target.Chart.BmsonSong);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
@@ -1879,7 +1754,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void FolderEditChartOperationTarget_UsesBmsonCompatibilityForOwnedRowsAndRejectsPendingRows()
+    public void FolderEditChartOperationTarget_UsesBmsonChartForOwnedRowsAndRejectsPendingRows()
     {
         var ownedBmson = new LR2SongDBExtended.bmson_song
         {
@@ -1907,7 +1782,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(ownedRow, ChartOperationSourceScope.Library, out ChartOperationTarget ownedTarget));
         Assert.AreEqual(ChartFileKind.Bmson, ownedTarget.Chart.Kind);
         Assert.AreEqual(ownedBmson.path, ownedTarget.Chart.Path);
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(ownedTarget.CompatibilityBmsFile));
+        Assert.AreSame(ownedBmson, ownedTarget.Chart.BmsonSong);
         Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(pendingRow, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingTarget));
         Assert.IsNull(pendingTarget);
     }
@@ -1928,7 +1803,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartOperationTarget_ChartNamedApis_ReturnRealBmsAndTargetCompatibilityBmsFile()
+    public void ChartOperationTarget_ChartNamedApis_ReturnRealBmsAndTargetChartFile()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "Bms", 7);
@@ -1941,7 +1816,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
         Assert.AreSame(file, GridRowResolver.GetRealBmsFile(file));
         Assert.AreSame(file, target.Chart.BmsFile);
-        Assert.AreSame(file, target.CompatibilityBmsFile);
     }
 
     private static void AssertMainViewOperationContext(
@@ -2474,15 +2348,6 @@ public sealed class PlaylistViewPipelineTests
             md5 = "dddddddddddddddddddddddddddddddd",
             sha256 = new string('d', 64)
         });
-        int keepBmsonAdapterCreateCount = 0;
-        keepBmson.SetBmsonChartAdapterProviders(
-            song =>
-            {
-                keepBmsonAdapterCreateCount++;
-                return PendingChartEntry.CreateFromBmsonSong(song);
-            },
-            existingProvider: null);
-
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
             [keepBms, skipBms],
             [keepBmson, skipBmson],
@@ -2493,7 +2358,6 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEquivalent(new[] { "Keep Bms", "Keep Bmson" }, rows.Select(row => row.Title).ToArray());
         Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bms && row.BmsFile == keepBms));
         Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.BmsonSong == keepBmson.BmsonSong));
-        Assert.AreEqual(0, keepBmsonAdapterCreateCount);
         Assert.IsFalse(rows.Any(row => row.Title == "Skip Bms" || row.Title == "Skip Bmson"));
         Assert.IsTrue(rows.All(row => row.GetType() == typeof(LibraryChartRow)));
         Assert.IsTrue(metrics.FolderFilterApplied);
@@ -2623,7 +2487,6 @@ public sealed class PlaylistViewPipelineTests
         bool isPlaylistMissing = sourceScope == ChartOperationSourceScope.PlaylistMissing;
         return new ChartOperationTarget(
             chart,
-            () => null!,
             null,
             sourceScope,
             !isPending && !isPlaylistMissing,

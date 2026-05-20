@@ -6232,7 +6232,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
         if (targets.Count != 0)
         {
-            MainWindowViewModel.ChartCompatibilityTargetSnapshot resourceTargets = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
+            MainWindowViewModel.ChartOperationTargetSnapshot resourceTargets = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
             Task.Run(delegate
             {
                 viewModel.ForceResourceHealthCheckCharts(resourceTargets);
@@ -6402,7 +6402,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel.ChartCompatibilityTargetSnapshot targetSnapshot = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary);
+        MainWindowViewModel.ChartOperationTargetSnapshot targetSnapshot = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary);
         if (targetSnapshot.Charts.Count > 0)
         {
             Task.Run(delegate
@@ -6585,7 +6585,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
             if (targets.Count != 0)
             {
-                MainWindowViewModel.ChartCompatibilityTargetSnapshot resourceTargets = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
+                MainWindowViewModel.ChartOperationTargetSnapshot resourceTargets = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
                 viewModel.SetChartResourceWarningsIgnored(resourceTargets);
                 e.Handled = true;
             }
@@ -6603,7 +6603,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
             if (targets.Count != 0)
             {
-                MainWindowViewModel.ChartCompatibilityTargetSnapshot resourceTargets = viewModel.CreateChartCompatibilityTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
+                MainWindowViewModel.ChartOperationTargetSnapshot resourceTargets = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
                 viewModel.SetChartResourceWarningsIgnored(resourceTargets, unset: true);
                 e.Handled = true;
             }
