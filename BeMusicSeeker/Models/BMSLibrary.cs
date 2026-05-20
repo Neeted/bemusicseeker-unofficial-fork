@@ -10071,7 +10071,7 @@ reportProgress,
                 {
                     continue;
                 }
-                BMSFile adapter = entry.GetOrCreateCompatibilityAdapter();
+                BMSFile adapter = entry.GetPlaylistReferenceAdapter(materialize: true);
                 if (adapter != null)
                 {
                     matchedAdapters.Add(adapter);
@@ -10177,7 +10177,7 @@ reportProgress,
             {
                 continue;
             }
-            BMSFile adapter = materializeMatches ? entry.GetOrCreateCompatibilityAdapter() : entry.CompatibilityAdapter;
+            BMSFile adapter = entry.GetPlaylistReferenceAdapter(materializeMatches);
             if (adapter != null)
             {
                 matchedAdapters.Add(adapter);
@@ -10200,7 +10200,7 @@ reportProgress,
             {
                 continue;
             }
-            BMSFile adapter = entry.GetOrCreateCompatibilityAdapter();
+            BMSFile adapter = entry.GetPlaylistReferenceAdapter(materialize: true);
             if (adapter != null)
             {
                 matchedAdapters.Add(adapter);
@@ -10256,7 +10256,7 @@ reportProgress,
             return [.. ChartPackagesPending
                 .Where(pkg => pkg != null)
                 .SelectMany(pkg => pkg.ChartEntries)
-                .Select(entry => entry?.CompatibilityAdapter)
+                .Select(entry => entry?.GetPlaylistReferenceAdapter(materialize: false))
                 .Where(adapter => adapter != null)
                 .Distinct()];
         }
@@ -10314,7 +10314,7 @@ reportProgress,
                 list.AddRange(ChartPackagesPending
                     .Where(pkg => pkg != null)
                     .SelectMany(pkg => pkg.ChartEntries)
-                    .Select(entry => entry?.CompatibilityAdapter)
+                    .Select(entry => entry?.GetPlaylistReferenceAdapter(materialize: false))
                     .Where(file => file != null && file.HasRefTable(table)));
             }
         }

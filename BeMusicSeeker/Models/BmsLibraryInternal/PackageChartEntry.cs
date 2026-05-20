@@ -153,6 +153,13 @@ internal sealed class PackageChartEntry
         }
     }
 
+    internal BMSFile GetPlaylistReferenceAdapter(bool materialize)
+    {
+        return materialize
+            ? GetOrCreateCompatibilityAdapter()
+            : compatibilityAdapter;
+    }
+
     internal void ApplyInstalledPath(string installedPath)
     {
         if (string.IsNullOrWhiteSpace(installedPath))
