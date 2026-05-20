@@ -6272,6 +6272,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             e.Handled = true;
             repairTargets?.MaterializeCompatibilityFiles();
+            pendingInstallTargets?.MaterializeCompatibilityFiles();
             Task.Run(delegate
             {
                 if (isInstalledLocationRepair)
@@ -6686,6 +6687,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
             e.Handled = true;
+            snapshot.MaterializeCompatibilityFiles();
             await Task.Run(delegate
             {
                 viewModel.SearchInstallDestinationForPendingCharts(snapshot);
@@ -6777,6 +6779,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
+        snapshot.MaterializeCompatibilityFiles();
         await Task.Run(delegate
         {
             viewModel.SearchMergeDestinationForPendingCharts(snapshot);

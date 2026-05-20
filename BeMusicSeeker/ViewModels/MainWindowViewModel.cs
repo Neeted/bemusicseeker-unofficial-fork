@@ -21774,10 +21774,8 @@ public class MainWindowViewModel : ViewModel
             .Where(target => target?.Chart != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))];
         List<ChartOperationTarget> packageTargets = [.. remainingTargets.Where(target => target.PackageEntry != null)];
         remainingTargets = [.. remainingTargets.Where(target => target.PackageEntry == null)];
-        List<BeMusicSeeker.Models.BMSFile> chartFiles = [.. remainingTargets
-            .Select(ResolveLegacyChartFile)
-            .Where(file => file != null)];
-        return new PendingInstallDestinationTargetSnapshot(packageTargets, chartFiles);
+        List<ChartFile> charts = [.. remainingTargets.Select(target => target.Chart).Where(chart => chart != null)];
+        return new PendingInstallDestinationTargetSnapshot(packageTargets, charts, () => [.. remainingTargets.Select(ResolveLegacyChartFile).Where(file => file != null)]);
     }
 
     internal PendingInstallDestinationEditTargetSnapshot CreatePendingInstallDestinationEditTargetSnapshot(ChartOperationTarget target)
@@ -21795,17 +21793,31 @@ public class MainWindowViewModel : ViewModel
 
     internal sealed class PendingInstallDestinationTargetSnapshot
     {
-        internal PendingInstallDestinationTargetSnapshot(IEnumerable<ChartOperationTarget> packageTargets, IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFiles;
+
+        internal PendingInstallDestinationTargetSnapshot(
+            IEnumerable<ChartOperationTarget> packageTargets,
+            IEnumerable<ChartFile> charts,
+            Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFileFactory)
         {
             PackageTargets = [.. (packageTargets ?? []).Where(target => target?.PackageEntry != null && target.Chart != null)];
-            ChartFiles = [.. (chartFiles ?? []).Where(file => file != null)];
+            Charts = [.. (charts ?? []).Where(chart => chart != null)];
+            chartFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
+                () => [.. (chartFileFactory?.Invoke() ?? []).Where(file => file != null)]);
         }
 
         internal IReadOnlyList<ChartOperationTarget> PackageTargets { get; }
 
-        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles { get; }
+        internal IReadOnlyList<ChartFile> Charts { get; }
 
-        internal bool HasTargets => PackageTargets.Count > 0 || ChartFiles.Count > 0;
+        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles => chartFiles.Value;
+
+        internal bool HasTargets => PackageTargets.Count > 0 || Charts.Count > 0;
+
+        internal void MaterializeCompatibilityFiles()
+        {
+            _ = ChartFiles.Count;
+        }
     }
 
     internal sealed class PendingInstallDestinationEditTargetSnapshot

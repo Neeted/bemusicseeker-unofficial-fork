@@ -1080,9 +1080,15 @@ public sealed class PlaylistViewPipelineTests
         MainWindowViewModel.PendingInstallDestinationTargetSnapshot snapshot =
             viewModel.CreatePendingInstallDestinationTargetSnapshot([target]);
 
-        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(snapshot.HasTargets);
+        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(0, snapshot.PackageTargets.Count);
+        Assert.AreEqual(1, snapshot.Charts.Count);
+
+        snapshot.MaterializeCompatibilityFiles();
+
+        Assert.AreEqual(1, adapterRequestCount);
         Assert.AreEqual(1, snapshot.ChartFiles.Count);
         Assert.AreEqual(1, adapterRequestCount);
     }

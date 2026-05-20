@@ -913,10 +913,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(estimateSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
+        StringAssert.Contains(estimateSearch, "snapshot.MaterializeCompatibilityFiles()");
         StringAssert.Contains(estimateSearch, "viewModel.SearchInstallDestinationForPendingCharts(snapshot)");
         Assert.IsFalse(estimateSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(mergeSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(mergeSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
+        StringAssert.Contains(mergeSearch, "snapshot.MaterializeCompatibilityFiles()");
         StringAssert.Contains(mergeSearch, "viewModel.SearchMergeDestinationForPendingCharts(snapshot)");
         Assert.IsFalse(mergeSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
@@ -985,6 +987,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(clearInstallDestination, "GetSelectedChartTargets(capability)");
         StringAssert.Contains(clearInstallDestination, "CreateRepairInstalledLocationTargetSnapshot(targets)");
         StringAssert.Contains(clearInstallDestination, "repairTargets?.MaterializeCompatibilityFiles()");
+        StringAssert.Contains(clearInstallDestination, "pendingInstallTargets?.MaterializeCompatibilityFiles()");
         StringAssert.Contains(clearInstallDestination, "viewModel.ClearInstallDestinationForCharts(repairTargets)");
         Assert.IsFalse(clearInstallDestination.Contains("viewModel.ClearInstallDestinationForCharts(repairTargets.ChartFiles)"));
         Assert.IsFalse(clearInstallDestination.Contains("repairTargets.ChartFiles"));
