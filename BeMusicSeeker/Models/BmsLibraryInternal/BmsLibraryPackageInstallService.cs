@@ -1189,7 +1189,7 @@ internal sealed class BmsLibraryPackageInstallService
         try
         {
             lookupKey = PendingChartEntry.IsBmsonFilePath(remainingFilePath)
-                ? PendingChartEntry.GetPrimaryLookupHash(BmsonSongParser.Parse(remainingFilePath))
+                ? ChartLookupKey.GetPrimaryHash(BmsonSongParser.Parse(remainingFilePath))
                 : ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5;
         }
         catch (Exception ex)
@@ -1542,7 +1542,7 @@ internal sealed class BmsLibraryPackageInstallService
         var installedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile installedFile in installedFiles ?? [])
         {
-            string key = PendingChartEntry.GetPrimaryLookupHash(installedFile);
+            string key = ChartLookupKey.GetPrimaryHash(installedFile);
             if (!string.IsNullOrWhiteSpace(key))
             {
                 installedHashes.Add(key);
@@ -1550,7 +1550,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
         foreach (LR2SongDBExtended.bmson_song installedBmsonSong in installedBmsonSongs ?? [])
         {
-            string key2 = PendingChartEntry.GetPrimaryLookupHash(installedBmsonSong);
+            string key2 = ChartLookupKey.GetPrimaryHash(installedBmsonSong);
             if (!string.IsNullOrWhiteSpace(key2))
             {
                 installedHashes.Add(key2);

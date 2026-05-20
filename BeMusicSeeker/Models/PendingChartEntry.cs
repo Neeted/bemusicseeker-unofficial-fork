@@ -13,13 +13,6 @@ public enum PendingChartKind
     Bmson
 }
 
-public enum PendingChartLookupHashKind
-{
-    None,
-    Md5,
-    Sha256
-}
-
 public sealed class PendingChartEntry : BMSFile
 {
     public static readonly string[] bmsonExtensions = [".bmson"];
@@ -376,75 +369,6 @@ public sealed class PendingChartEntry : BMSFile
     public static string GetSecondarySha256(BMSFile file)
     {
         return file?.sha256;
-    }
-
-    public static string GetPrimaryLookupHash(BMSFile file)
-    {
-        if (!string.IsNullOrWhiteSpace(file?.hash))
-        {
-            return file.hash;
-        }
-        if (!string.IsNullOrWhiteSpace(file?.sha256))
-        {
-            return file.sha256;
-        }
-        return null;
-    }
-
-    public static PendingChartLookupHashKind GetPrimaryLookupHashKind(BMSFile file)
-    {
-        if (!string.IsNullOrWhiteSpace(file?.hash))
-        {
-            return PendingChartLookupHashKind.Md5;
-        }
-        if (!string.IsNullOrWhiteSpace(file?.sha256))
-        {
-            return PendingChartLookupHashKind.Sha256;
-        }
-        return PendingChartLookupHashKind.None;
-    }
-
-    public static string GetPrimaryLookupHash(LR2SongDBExtended.bmson_song song)
-    {
-        if (!string.IsNullOrWhiteSpace(song?.md5))
-        {
-            return song.md5;
-        }
-        if (!string.IsNullOrWhiteSpace(song?.sha256))
-        {
-            return song.sha256;
-        }
-        return null;
-    }
-
-    public static PendingChartLookupHashKind GetPrimaryLookupHashKind(LR2SongDBExtended.bmson_song song)
-    {
-        if (!string.IsNullOrWhiteSpace(song?.md5))
-        {
-            return PendingChartLookupHashKind.Md5;
-        }
-        if (!string.IsNullOrWhiteSpace(song?.sha256))
-        {
-            return PendingChartLookupHashKind.Sha256;
-        }
-        return PendingChartLookupHashKind.None;
-    }
-
-    public static IEnumerable<string> GetAllLookupHashes(BMSFile file)
-    {
-        if (!string.IsNullOrWhiteSpace(file?.hash))
-        {
-            yield return file.hash;
-        }
-        if (!string.IsNullOrWhiteSpace(file?.sha256))
-        {
-            yield return file.sha256;
-        }
-    }
-
-    public static IEnumerable<string> GetLookupKeys(BMSFile file)
-    {
-        return GetAllLookupHashes(file);
     }
 
     private void SetDisplayValue(ref string currentValue, string newValue, string propertyName)

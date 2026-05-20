@@ -6369,7 +6369,7 @@ reportProgress,
             installedChartKeyIndex.Clear();
             foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
             {
-                string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
+                string key = ChartLookupKey.GetPrimaryHash(bmsFile);
                 if (!string.IsNullOrWhiteSpace(key))
                 {
                     installedChartKeyIndex.Add(key);
@@ -6377,7 +6377,7 @@ reportProgress,
             }
             foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             {
-                string key2 = PendingChartEntry.GetPrimaryLookupHash(bmsonSong);
+                string key2 = ChartLookupKey.GetPrimaryHash(bmsonSong);
                 if (!string.IsNullOrWhiteSpace(key2))
                 {
                     installedChartKeyIndex.Add(key2);
@@ -6607,7 +6607,7 @@ reportProgress,
             {
                 continue;
             }
-            string key2 = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
+            string key2 = ChartLookupKey.GetPrimaryHash(bmsFile);
             if (!string.IsNullOrWhiteSpace(key2))
             {
                 installedKeyCounts[key2] = installedKeyCounts.TryGetValue(key2, out int value2) ? value2 + 1 : 1;
@@ -6615,7 +6615,7 @@ reportProgress,
         }
         foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
         {
-            string key3 = PendingChartEntry.GetPrimaryLookupHash(bmsonSong);
+            string key3 = ChartLookupKey.GetPrimaryHash(bmsonSong);
             if (!string.IsNullOrWhiteSpace(key3))
             {
                 installedKeyCounts[key3] = installedKeyCounts.TryGetValue(key3, out int value3) ? value3 + 1 : 1;
@@ -8973,7 +8973,7 @@ reportProgress,
             {
                 return false;
             }
-            string key = PendingChartEntry.GetPrimaryLookupHash(f);
+            string key = ChartLookupKey.GetPrimaryHash(f);
             if (string.IsNullOrWhiteSpace(key) || !hashSet.Contains(key))
             {
                 return false;
@@ -8986,7 +8986,7 @@ reportProgress,
             {
                 return false;
             }
-            string key = PendingChartEntry.GetPrimaryLookupHash(song);
+            string key = ChartLookupKey.GetPrimaryHash(song);
             if (!string.IsNullOrWhiteSpace(key) && hashSet.Contains(key))
             {
                 return string.Equals(DirectoryExt.GetDirectoryNameSimple(song.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
@@ -10691,12 +10691,12 @@ reportProgress,
         IEnumerable<string> bmsPaths = (BMSFiles ?? [])
             .Where(file => file != null
                 && !string.Equals(file.path, chart.Path, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(PendingChartEntry.GetPrimaryLookupHash(file), lookupHash, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(ChartLookupKey.GetPrimaryHash(file), lookupHash, StringComparison.OrdinalIgnoreCase))
             .Select(file => file.path);
         IEnumerable<string> bmsonPaths = (BmsonSongs ?? [])
             .Where(song => song != null
                 && !string.Equals(song.path, chart.Path, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(PendingChartEntry.GetPrimaryLookupHash(song), lookupHash, StringComparison.OrdinalIgnoreCase))
+                && string.Equals(ChartLookupKey.GetPrimaryHash(song), lookupHash, StringComparison.OrdinalIgnoreCase))
             .Select(song => song.path);
         return bmsPaths.Concat(bmsonPaths).Where(path => !string.IsNullOrWhiteSpace(path));
     }

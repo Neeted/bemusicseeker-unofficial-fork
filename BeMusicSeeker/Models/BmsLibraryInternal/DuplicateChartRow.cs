@@ -18,7 +18,7 @@ internal sealed class DuplicateChartRow
 
     public string LookupHash { get; set; }
 
-    public PendingChartLookupHashKind HashKind { get; set; }
+    public ChartLookupHashKind HashKind { get; set; }
 
     public PendingChartKind ChartKind { get; set; }
 
@@ -35,8 +35,8 @@ internal sealed class DuplicateChartRow
             BmsFile = file,
             Path = file.path,
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(file.path),
-            LookupHash = PendingChartEntry.GetPrimaryLookupHash(file),
-            HashKind = PendingChartEntry.GetPrimaryLookupHashKind(file),
+            LookupHash = ChartLookupKey.GetPrimaryHash(file),
+            HashKind = ChartLookupKey.GetPrimaryHashKind(file),
             ChartKind = PendingChartKind.Bms,
             Chart = ChartFileProjection.FromBmsFile(file),
         };
@@ -57,8 +57,8 @@ internal sealed class DuplicateChartRow
         {
             Path = song.path,
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(song.path),
-            LookupHash = PendingChartEntry.GetPrimaryLookupHash(song),
-            HashKind = PendingChartEntry.GetPrimaryLookupHashKind(song),
+            LookupHash = ChartLookupKey.GetPrimaryHash(song),
+            HashKind = ChartLookupKey.GetPrimaryHashKind(song),
             ChartKind = PendingChartKind.Bmson,
             Chart = chart
         };

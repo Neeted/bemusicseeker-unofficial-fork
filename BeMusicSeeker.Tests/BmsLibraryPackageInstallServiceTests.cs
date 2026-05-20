@@ -2471,7 +2471,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
             string remainingBmsonPath = Path.Combine(setup.ParentDirectoryPath, "remain-installed.bmson");
             File.WriteAllText(remainingBmsonPath, CreateBmsonJsonWithSound("sound.wav"));
-            string remainingHash = PendingChartEntry.GetPrimaryLookupHash(BmsonSongParser.Parse(remainingBmsonPath));
+            string remainingHash = ChartLookupKey.GetPrimaryHash(BmsonSongParser.Parse(remainingBmsonPath));
 
             bool moved = ExecuteSingleChartParentDeleteMove(
                 setup,
