@@ -7094,7 +7094,6 @@ reportProgress,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates,
-        IEnumerable<BMSFile> resourceHealthIndexDeltaTargets = null,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs = null)
     {
         if (bmsFiles == null && bmsonSongs == null && !includeInstalledBmson)
@@ -7117,13 +7116,10 @@ reportProgress,
             }
             bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
             bool resourceHealthDeltaApplied = false;
-            List<ChartFile> resourceHealthIndexDeltaCharts = resourceHealthIndexDeltaTargets != null
-                ? CreateResourceMaintenanceCharts(resourceHealthIndexDeltaTargets, null)
-                : maintenanceTargetCharts;
             if (rebuildResourceHealthIndex
                 && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
                 && !includeInstalledBmson
-                && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", resourceHealthIndexDeltaCharts, null, out ResourceHealthIndexSnapshot resourceHealthSnapshot))
+                && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", maintenanceTargetCharts, null, out ResourceHealthIndexSnapshot resourceHealthSnapshot))
             {
                 resourceHealthDeltaApplied = true;
             }
@@ -7285,7 +7281,7 @@ reportProgress,
                 }
                 using (rwlockSongDBMaintenance.GetWriterGuard())
                 {
-                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetFilesWarningIgnored(targets, unset);
+                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
                     dbGateway.UpsertMaintenanceInfos(changes);
                 }
                 RebuildResourceHealthIndexSnapshotLocked(unset ? "resource_health_unignore" : "resource_health_ignore");

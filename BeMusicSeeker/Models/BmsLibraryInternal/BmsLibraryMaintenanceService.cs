@@ -361,7 +361,7 @@ internal sealed class BmsLibraryMaintenanceService
         return [.. EnumerateBmsChartFiles(bmsFiles).Where(file => file.ChartInfo?.notes == 0)];
     }
 
-    public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<ChartFile> charts, bool unset)
+    public List<BMSFileMaintenanceInfo> SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset)
     {
         List<BMSFileMaintenanceInfo> changes = [];
         foreach (ChartFile chart in charts ?? [])

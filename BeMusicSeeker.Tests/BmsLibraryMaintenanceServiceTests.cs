@@ -103,7 +103,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetFilesWarningIgnored_ChartBmsonPlaceholderAttachesMaintenanceInfoToSourceSong()
+    public void SetChartResourceWarningsIgnored_ChartBmsonPlaceholderAttachesMaintenanceInfoToSourceSong()
     {
         var service = new BmsLibraryMaintenanceService();
         var song = new LR2SongDBExtended.bmson_song
@@ -115,7 +115,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsNull(song.MaintenanceInfo);
 
         ChartFile chart = ChartFileProjection.FromBmsonSong(song);
-        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([chart], unset: false);
+        List<BMSFileMaintenanceInfo> changes = service.SetChartResourceWarningsIgnored([chart], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(changes[0].is_files_warning_ignored);
@@ -124,7 +124,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetFilesWarningIgnored_ChartBmsonAttachesComputedMaintenanceInfoToSourceSong()
+    public void SetChartResourceWarningsIgnored_ChartBmsonAttachesComputedMaintenanceInfoToSourceSong()
     {
         var service = new BmsLibraryMaintenanceService();
         var song = new LR2SongDBExtended.bmson_song
@@ -137,7 +137,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         song.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
         ChartFile chart = ChartFileProjection.FromBmsonSong(song);
 
-        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([chart], unset: false);
+        List<BMSFileMaintenanceInfo> changes = service.SetChartResourceWarningsIgnored([chart], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.AreSame(changes[0], song.MaintenanceInfo);
@@ -147,7 +147,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetFilesWarningIgnored_ChartBmsonReplacesStaleMaintenanceHash()
+    public void SetChartResourceWarningsIgnored_ChartBmsonReplacesStaleMaintenanceHash()
     {
         var service = new BmsLibraryMaintenanceService();
         var song = new LR2SongDBExtended.bmson_song
@@ -163,7 +163,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         song.MaintenanceInfo.is_files_warning_ignored = true;
         ChartFile chart = ChartFileProjection.FromBmsonSong(song);
 
-        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([chart], unset: false);
+        List<BMSFileMaintenanceInfo> changes = service.SetChartResourceWarningsIgnored([chart], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.AreSame(changes[0], song.MaintenanceInfo);
@@ -575,13 +575,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(bmsonChart);
         Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-        Assert.AreEqual(1, service.SetFilesWarningIgnored([bmsonChart], unset: false).Count);
+        Assert.AreEqual(1, service.SetChartResourceWarningsIgnored([bmsonChart], unset: false).Count);
 
         Assert.IsTrue(bmsonSong.MaintenanceInfo.is_files_warning_ignored);
     }
 
     [TestMethod]
-    public void SetFilesWarningIgnored_TogglesOnlyMatchingEntries()
+    public void SetChartResourceWarningsIgnored_TogglesOnlyMatchingEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
@@ -593,7 +593,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([ChartFileProjection.FromBmsFile(file)], unset: false);
+        List<BMSFileMaintenanceInfo> changes = service.SetChartResourceWarningsIgnored([ChartFileProjection.FromBmsFile(file)], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(info.is_files_warning_ignored);
