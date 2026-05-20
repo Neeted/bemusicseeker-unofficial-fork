@@ -110,32 +110,23 @@ internal readonly struct LibraryRowsBuildMetrics
 }
 
 /// <summary>
-/// Holds package chart sources in the two shapes accepted by the virtual chart-list pipeline.
+/// Holds package chart sources accepted by the virtual chart-list pipeline.
 /// </summary>
 internal sealed class PackageChartSourceSnapshot
 {
     /// <summary>
-    /// Initializes a snapshot whose two lists map directly to the virtual row factory inputs.
+    /// Initializes a snapshot whose chart list maps directly to the virtual row factory input.
     /// </summary>
-    /// <param name="bmsFiles">BMS files and already materialized compatibility adapters.</param>
-    /// <param name="bmsonSongs">Adapterless bmson storage rows.</param>
-    internal PackageChartSourceSnapshot(
-        IReadOnlyList<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonSongs)
+    /// <param name="charts">Package chart sources.</param>
+    internal PackageChartSourceSnapshot(IReadOnlyList<ChartFile> charts)
     {
-        BmsFiles = bmsFiles ?? [];
-        BmsonSongs = bmsonSongs ?? [];
+        Charts = charts ?? [];
     }
 
     /// <summary>
-    /// Gets BMS files and already materialized compatibility adapters.
+    /// Gets package chart sources.
     /// </summary>
-    internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> BmsFiles { get; }
-
-    /// <summary>
-    /// Gets adapterless bmson storage rows that can be displayed without compatibility materialization.
-    /// </summary>
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs { get; }
+    internal IReadOnlyList<ChartFile> Charts { get; }
 }
 
 internal readonly struct BmsonLibraryRowCacheSyncResult
@@ -11368,6 +11359,7 @@ public class MainWindowViewModel : ViewModel
         out IEnumerable<ChartFile> sourceCharts,
         out string subsetName)
     {
+        sourceFiles = null;
         sourceBmsonSongs = null;
         sourceCharts = null;
         switch (treeMode)
@@ -11413,8 +11405,7 @@ public class MainWindowViewModel : ViewModel
                     parameter,
                     "newly_installed_all",
                     "newly_installed_package",
-                    out sourceFiles,
-                    out sourceBmsonSongs,
+                    out sourceCharts,
                     out subsetName);
             case viewUpdateMode.PendingInstallFolderSelected:
                 return TryGetVirtualPackageSourceFiles(
@@ -11422,8 +11413,7 @@ public class MainWindowViewModel : ViewModel
                     parameter,
                     "pending_install_all",
                     "pending_install_package",
-                    out sourceFiles,
-                    out sourceBmsonSongs,
+                    out sourceCharts,
                     out subsetName);
             default:
                 sourceFiles = null;
@@ -11439,29 +11429,25 @@ public class MainWindowViewModel : ViewModel
         object parameter,
         string allSubsetName,
         string packageSubsetName,
-        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
-        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
+        out IEnumerable<ChartFile> sourceCharts,
         out string subsetName)
     {
         if (packages == null)
         {
-            sourceFiles = [];
-            sourceBmsonSongs = [];
+            sourceCharts = [];
             subsetName = allSubsetName;
             return true;
         }
         if (parameter is ChartPackage package)
         {
             PackageChartSourceSnapshot packageSnapshot = CreatePackageChartSourceSnapshot(package);
-            sourceFiles = packageSnapshot.BmsFiles;
-            sourceBmsonSongs = packageSnapshot.BmsonSongs;
+            sourceCharts = packageSnapshot.Charts;
             subsetName = packageSubsetName;
             return true;
         }
 
         PackageChartSourceSnapshot snapshot = CreatePackageChartSourceSnapshot(packages);
-        sourceFiles = snapshot.BmsFiles;
-        sourceBmsonSongs = snapshot.BmsonSongs;
+        sourceCharts = snapshot.Charts;
         subsetName = allSubsetName;
         return true;
     }
@@ -11470,7 +11456,7 @@ public class MainWindowViewModel : ViewModel
     /// Creates a virtual-list source snapshot from package chart entries without materializing adapterless bmson rows.
     /// </summary>
     /// <param name="packages">Packages whose chart entries should be exposed to the virtual list.</param>
-    /// <returns>A split source snapshot for BMS/adapter rows and adapterless bmson rows.</returns>
+    /// <returns>A chart source snapshot for the virtual list.</returns>
     internal static PackageChartSourceSnapshot CreatePackageChartSourceSnapshot(IEnumerable<ChartPackage> packages)
     {
         PackageChartSourceSnapshot snapshot = null;
@@ -11484,7 +11470,7 @@ public class MainWindowViewModel : ViewModel
         {
             Thread.Sleep(100);
         }, 100u);
-        return snapshot ?? new PackageChartSourceSnapshot([], []);
+        return snapshot ?? new PackageChartSourceSnapshot([]);
     }
 
     private static PackageChartSourceSnapshot CreatePackageChartSourceSnapshot(ChartPackage package)
@@ -11494,54 +11480,40 @@ public class MainWindowViewModel : ViewModel
 
     private static PackageChartSourceSnapshot CreatePackageChartSourceSnapshotCore(IEnumerable<ChartPackage> packages)
     {
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles = [];
-        List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+        List<ChartFile> charts = [];
         foreach (ChartPackage package in packages ?? [])
         {
             try
             {
                 if (package != null)
                 {
-                    AppendPackageChartSourceEntries(package.ChartEntries, bmsFiles, bmsonSongs);
+                    AppendPackageChartSourceEntries(package.ChartEntries, charts);
                 }
             }
             catch
             {
             }
         }
-        return new PackageChartSourceSnapshot(bmsFiles, bmsonSongs);
+        return new PackageChartSourceSnapshot(charts);
     }
 
     private static PackageChartSourceSnapshot CreatePackageChartSourceSnapshotFromEntries(IEnumerable<PackageChartEntry> entries)
     {
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles = [];
-        List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
-        AppendPackageChartSourceEntries(entries, bmsFiles, bmsonSongs);
-        return new PackageChartSourceSnapshot(bmsFiles, bmsonSongs);
+        List<ChartFile> charts = [];
+        AppendPackageChartSourceEntries(entries, charts);
+        return new PackageChartSourceSnapshot(charts);
     }
 
     private static void AppendPackageChartSourceEntries(
         IEnumerable<PackageChartEntry> entries,
-        ICollection<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        ICollection<LR2SongDBExtended.bmson_song> bmsonSongs)
+        ICollection<ChartFile> charts)
     {
         foreach (PackageChartEntry entry in entries ?? [])
         {
             ChartFile chart = entry?.Chart;
-            if (chart?.Kind == ChartFileKind.Bmson)
+            if (chart != null)
             {
-                if (chart.BmsonSong != null)
-                {
-                    bmsonSongs.Add(chart.BmsonSong);
-                }
-                continue;
-            }
-            if (chart?.Kind == ChartFileKind.Bms)
-            {
-                if (chart.BmsFile != null)
-                {
-                    bmsFiles.Add(chart.BmsFile);
-                }
+                charts.Add(chart);
             }
         }
     }

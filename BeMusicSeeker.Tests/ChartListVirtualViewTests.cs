@@ -635,7 +635,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PackageChartSourceSnapshot_SplitsAdapterlessBmsonEntryWithoutMaterializing()
+    public void PackageChartSourceSnapshot_UsesChartSourcesWithoutMaterializingBmson()
     {
         var bms = new TestableBmsFile();
         bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
@@ -649,13 +649,13 @@ public sealed class ChartListVirtualViewTests
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.BmsFiles.Single());
-        Assert.AreSame(bmson, snapshot.BmsonSongs.Single());
+        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).BmsFile);
+        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).BmsonSong);
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
-    public void PackageChartSourceSnapshot_TreatsBmsonEntryAsBmsonSource()
+    public void PackageChartSourceSnapshot_TreatsBmsonEntryAsChartSource()
     {
         var bms = new TestableBmsFile();
         bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
@@ -668,8 +668,8 @@ public sealed class ChartListVirtualViewTests
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.BmsFiles.Single());
-        Assert.AreSame(bmson, snapshot.BmsonSongs.Single());
+        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).BmsFile);
+        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).BmsonSong);
     }
 
     [TestMethod]
@@ -679,9 +679,7 @@ public sealed class ChartListVirtualViewTests
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
-        List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(
-            snapshot.BmsFiles,
-            snapshot.BmsonSongs);
+        List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(snapshot.Charts);
 
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, out _));
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.instl_dst), ListSortDirection.Ascending, out _));
