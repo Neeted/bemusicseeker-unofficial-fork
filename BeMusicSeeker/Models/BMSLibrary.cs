@@ -9963,14 +9963,14 @@ reportProgress,
         stopwatchApplySong.Stop();
         PlaylistReferenceApplyStats pendingApplyStats = default;
         var stopwatchApplyPending = Stopwatch.StartNew();
-        List<BMSFile> pendingFilesSnapshot = null;
+        List<PackageChartEntry> pendingEntriesSnapshot = null;
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
         {
-            pendingFilesSnapshot = SnapshotPendingFilesForPlaylistReferenceApply(referenceMaps);
+            pendingEntriesSnapshot = SnapshotPendingChartEntriesForPlaylistReferenceApply(referenceMaps);
         }
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && pendingFilesSnapshot != null && pendingFilesSnapshot.Count > 0)
+        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && pendingEntriesSnapshot != null && pendingEntriesSnapshot.Count > 0)
         {
-            addedPendingRefs = playlistReferenceService.ApplyReferenceMap(pendingFilesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats, suppressFilePropertyChanged);
+            addedPendingRefs = playlistReferenceService.ApplyReferenceMap(pendingEntriesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats, suppressFilePropertyChanged);
         }
         stopwatchApplyPending.Stop();
         int tableCount = 1;
@@ -10016,10 +10016,10 @@ reportProgress,
                 stopwatchApplySong.Stop();
                 applySongMs = stopwatchApplySong.ElapsedMilliseconds;
                 var stopwatchApplyPending = Stopwatch.StartNew();
-                List<BMSFile> pendingFilesSnapshot = SnapshotPendingFilesForPlaylistReferenceApply(referenceMaps);
-                if (pendingFilesSnapshot != null && pendingFilesSnapshot.Count > 0)
+                List<PackageChartEntry> pendingEntriesSnapshot = SnapshotPendingChartEntriesForPlaylistReferenceApply(referenceMaps);
+                if (pendingEntriesSnapshot != null && pendingEntriesSnapshot.Count > 0)
                 {
-                    addedPendingRefs = playlistReferenceService.ApplyReferenceMap(pendingFilesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats, suppressFilePropertyChanged);
+                    addedPendingRefs = playlistReferenceService.ApplyReferenceMap(pendingEntriesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats, suppressFilePropertyChanged);
                 }
                 stopwatchApplyPending.Stop();
                 applyPendingMs = stopwatchApplyPending.ElapsedMilliseconds;
@@ -10075,10 +10075,10 @@ reportProgress,
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    List<BMSFile> packageFilesSnapshot = FilterPackagePlaylistReferenceTargets(SnapshotPackageChartEntriesForPlaylistReferenceApply(packageList), referenceMaps);
-                    if (packageFilesSnapshot.Count > 0)
+                    List<PackageChartEntry> packageEntriesSnapshot = FilterPackagePlaylistReferenceTargets(SnapshotPackageChartEntriesForPlaylistReferenceApply(packageList), referenceMaps);
+                    if (packageEntriesSnapshot.Count > 0)
                     {
-                        addedPackageRefs = playlistReferenceService.ApplyReferenceMap(packageFilesSnapshot, referenceMaps, out matchedPackageFiles, out packageApplyStats, suppressFilePropertyChanged);
+                        addedPackageRefs = playlistReferenceService.ApplyReferenceMap(packageEntriesSnapshot, referenceMaps, out matchedPackageFiles, out packageApplyStats, suppressFilePropertyChanged);
                     }
                 }
             }
@@ -10100,7 +10100,7 @@ reportProgress,
         }
     }
 
-    private List<BMSFile> SnapshotPendingFilesForPlaylistReferenceApply(PlaylistReferenceMaps referenceMaps)
+    private List<PackageChartEntry> SnapshotPendingChartEntriesForPlaylistReferenceApply(PlaylistReferenceMaps referenceMaps)
     {
         if (ChartPackagesPending == null || ChartPackagesPending.Count == 0)
         {
@@ -10112,7 +10112,7 @@ reportProgress,
         }
         using (rwlockPendingInstallCharts.GetReaderGuard())
         {
-            List<BMSFile> matchedAdapters = [];
+            List<PackageChartEntry> matchedEntries = [];
             foreach (PackageChartEntry entry in ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartEntries))
             {
                 ChartFile chart = entry?.Chart;
@@ -10120,13 +10120,9 @@ reportProgress,
                 {
                     continue;
                 }
-                BMSFile adapter = entry.GetPlaylistReferenceAdapter(materialize: true);
-                if (adapter != null)
-                {
-                    matchedAdapters.Add(adapter);
-                }
+                matchedEntries.Add(entry);
             }
-            return [.. matchedAdapters.Distinct()];
+            return [.. matchedEntries.Distinct()];
         }
     }
 
@@ -10142,19 +10138,25 @@ reportProgress,
     {
         List<BMSTableEntry> oldEntriesSnapshot = SnapshotPlaylistReferenceEntries(oldTable, oldEntries);
         List<BMSTableEntry> newEntriesSnapshot = SnapshotPlaylistReferenceEntries(newTable, newEntries);
-        (List<BMSFile> OldSongFiles, List<BMSFile> OldPendingFiles) = ResolvePlaylistReferenceTargets(oldEntriesSnapshot, materializePendingMatches: false);
-        (List<BMSFile> NewSongFiles, List<BMSFile> NewPendingFiles) = ResolvePlaylistReferenceTargets(newEntriesSnapshot);
-        LogInstallPerformance("playlist_ref_replace targetsOldSong=" + OldSongFiles.Count + " targetsOldPending=" + OldPendingFiles.Count + " targetsNewSong=" + NewSongFiles.Count + " targetsNewPending=" + NewPendingFiles.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
+        BuildPlaylistReferenceHashSets(oldEntriesSnapshot, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
+        BuildPlaylistReferenceHashSets(newEntriesSnapshot, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
+        List<BMSFile> oldSongFiles = FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), oldMd5Hashes, oldSha256Hashes);
+        List<BMSFile> oldPendingFiles = FilterPlaylistReferenceTargets(SnapshotPendingExistingChartAdaptersForPlaylistReferenceMutation(), oldMd5Hashes, oldSha256Hashes);
+        List<BMSFile> newSongFiles = FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
+        List<PackageChartEntry> newPendingEntries = FilterPendingPlaylistReferenceTargetEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
+        LogInstallPerformance("playlist_ref_replace targetsOldSong=" + oldSongFiles.Count + " targetsOldPending=" + oldPendingFiles.Count + " targetsNewSong=" + newSongFiles.Count + " targetsNewPending=" + newPendingEntries.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
         if (oldTable != null)
         {
             RemovePlaylistReferenceIndexTable(oldTable);
-            RemoveReferenceBMSTables(oldTable, OldSongFiles);
-            RemoveReferenceBMSTables(oldTable, OldPendingFiles);
+            RemoveReferenceBMSTables(oldTable, oldSongFiles);
+            RemoveReferenceBMSTables(oldTable, oldPendingFiles);
         }
         if (newTable != null)
         {
-            AddReferenceBMSTables(newTable, NewSongFiles);
-            AddReferenceBMSTables(newTable, NewPendingFiles);
+            PlaylistReferenceMaps newReferenceMaps = playlistReferenceService.BuildReferenceMaps(newTable, newEntriesSnapshot);
+            ReplacePlaylistReferenceIndexTable(newTable, newEntriesSnapshot);
+            AddReferenceBMSTableToFiles(newTable, newSongFiles);
+            AddReferenceBMSTableToPackageEntries(newPendingEntries, newReferenceMaps);
         }
     }
 
@@ -10172,12 +10174,6 @@ reportProgress,
         {
             return [.. table.entries.Where(entry => entry != null && !entry.is_removed)];
         }
-    }
-
-    private (List<BMSFile> SongFiles, List<BMSFile> PendingFiles) ResolvePlaylistReferenceTargets(IEnumerable<BMSTableEntry> entries, bool materializePendingMatches = true)
-    {
-        BuildPlaylistReferenceHashSets(entries, out HashSet<string> md5Hashes, out HashSet<string> sha256Hashes);
-        return (FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), md5Hashes, sha256Hashes), FilterPendingPlaylistReferenceTargets(SnapshotPendingChartEntriesForPlaylistReferenceApply(), md5Hashes, sha256Hashes, materializePendingMatches));
     }
 
     private List<PackageChartEntry> SnapshotPendingChartEntriesForPlaylistReferenceApply()
@@ -10212,13 +10208,13 @@ reportProgress,
         }).Distinct()];
     }
 
-    private static List<BMSFile> FilterPendingPlaylistReferenceTargets(IEnumerable<PackageChartEntry> entries, HashSet<string> md5Hashes, HashSet<string> sha256Hashes, bool materializeMatches = true)
+    private static List<PackageChartEntry> FilterPendingPlaylistReferenceTargetEntries(IEnumerable<PackageChartEntry> entries, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
     {
         if (entries == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
         {
             return [];
         }
-        List<BMSFile> matchedAdapters = [];
+        List<PackageChartEntry> matchedEntries = [];
         foreach (PackageChartEntry entry in entries)
         {
             ChartFile chart = entry?.Chart;
@@ -10226,22 +10222,18 @@ reportProgress,
             {
                 continue;
             }
-            BMSFile adapter = entry.GetPlaylistReferenceAdapter(materializeMatches);
-            if (adapter != null)
-            {
-                matchedAdapters.Add(adapter);
-            }
+            matchedEntries.Add(entry);
         }
-        return [.. matchedAdapters.Distinct()];
+        return [.. matchedEntries.Distinct()];
     }
 
-    private static List<BMSFile> FilterPackagePlaylistReferenceTargets(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps)
+    private static List<PackageChartEntry> FilterPackagePlaylistReferenceTargets(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps)
     {
         if (entries == null || ((referenceMaps?.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps?.Sha256ToTablesMap?.Count ?? 0) == 0))
         {
             return [];
         }
-        List<BMSFile> matchedAdapters = [];
+        List<PackageChartEntry> matchedEntries = [];
         foreach (PackageChartEntry entry in entries)
         {
             ChartFile chart = entry?.Chart;
@@ -10249,13 +10241,9 @@ reportProgress,
             {
                 continue;
             }
-            BMSFile adapter = entry.GetPlaylistReferenceAdapter(materialize: true);
-            if (adapter != null)
-            {
-                matchedAdapters.Add(adapter);
-            }
+            matchedEntries.Add(entry);
         }
-        return [.. matchedAdapters.Distinct()];
+        return [.. matchedEntries.Distinct()];
     }
 
     private static bool HasPlaylistReferenceMapMatch(ChartFile chart, PlaylistReferenceMaps referenceMaps)
@@ -10318,10 +10306,30 @@ reportProgress,
             return;
         }
         ReplacePlaylistReferenceIndexTable(table);
+        AddReferenceBMSTableToFiles(table, files);
+    }
+
+    private static int AddReferenceBMSTableToFiles(BMSTable table, IEnumerable<BMSFile> files)
+    {
+        if (table == null || files == null)
+        {
+            return 0;
+        }
+        int addedRefs = 0;
         foreach (BMSFile file in files)
         {
-            file.AddRefTable(table);
+            addedRefs += file?.AddRefTables([table]) ?? 0;
         }
+        return addedRefs;
+    }
+
+    private int AddReferenceBMSTableToPackageEntries(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps, bool suppressFilePropertyChanged = false)
+    {
+        if (entries == null || referenceMaps == null)
+        {
+            return 0;
+        }
+        return playlistReferenceService.ApplyReferenceMap(entries, referenceMaps, out _, out _, suppressFilePropertyChanged);
     }
 
     internal void RefreshReferenceDisplayForFiles(IEnumerable<BMSFile> files, bool suppressFilePropertyChanged = false)

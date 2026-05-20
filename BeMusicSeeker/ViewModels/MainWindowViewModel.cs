@@ -16374,12 +16374,12 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (parameter != null && parameter is ChartPackage)
                 {
-                    ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage)?.ChartEntries);
+                    ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage)?.ChartEntries, CreateLibraryChartRowFromPackageEntry);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageChartEntrySnapshot(ChartPackagesPending));
+                    ChartRowsFolderView = ToLibraryChartRows(CreatePackageChartEntrySnapshot(ChartPackagesPending), CreateLibraryChartRowFromPackageEntry);
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -16869,14 +16869,16 @@ public class MainWindowViewModel : ViewModel
             .Where(row => row != null)];
     }
 
-    private LibraryChartRow CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection(PackageChartEntry entry)
+    private LibraryChartRow CreateLibraryChartRowFromPackageEntry(PackageChartEntry entry)
     {
         LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
-        if (row != null)
-        {
-            row.SetResourceHealthProjectionProvider(GetResourceHealthProjectionForRow);
-        }
+        ApplyLibraryChartRowProviders(row);
         return row;
+    }
+
+    private LibraryChartRow CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection(PackageChartEntry entry)
+    {
+        return CreateLibraryChartRowFromPackageEntry(entry);
     }
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode mode, viewUpdateMode currentTreeMode)

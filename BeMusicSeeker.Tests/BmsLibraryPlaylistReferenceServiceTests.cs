@@ -75,6 +75,45 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
+    public void ApplyReferenceMap_PackageEntryDoesNotMaterializeAdapterlessBmson()
+    {
+        var service = new BmsLibraryPlaylistReferenceService(2);
+        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        BMSTable table = CreateTable(CreateEntry(md5));
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Pending\chart.bmson",
+            md5 = md5,
+            sha256 = new string('a', 64)
+        }));
+
+        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
+        int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats stats);
+
+        Assert.AreEqual(1, matchedCharts);
+        Assert.AreEqual(0, addedRefs);
+        Assert.AreEqual(1, stats.Chunks);
+        Assert.IsNull(entry.CompatibilityAdapter);
+    }
+
+    [TestMethod]
+    public void ApplyReferenceMap_PackageEntryMutatesExistingCompatibilityAdapter()
+    {
+        var service = new BmsLibraryPlaylistReferenceService(2);
+        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        BMSTable table = CreateTable(CreateEntry(md5));
+        TestableBmsFile file = CreateFile(md5);
+        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(file);
+
+        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
+        int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
+
+        Assert.AreEqual(1, matchedCharts);
+        Assert.AreEqual(1, addedRefs);
+        Assert.IsTrue(file.RefTables.Contains(table));
+    }
+
+    [TestMethod]
     public void PlaylistReferenceIndex_FindsSha256OnlyBmsonReference()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);

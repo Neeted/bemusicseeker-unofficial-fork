@@ -103,6 +103,55 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         return addCalls;
     }
 
+    public int ApplyReferenceMap(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats, bool suppressFilePropertyChanged = false)
+    {
+        matchedCharts = 0;
+        applyStats = default;
+        if (entries == null || referenceMaps == null || ((referenceMaps.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps.Sha256ToTablesMap?.Count ?? 0) == 0))
+        {
+            return 0;
+        }
+
+        int addCalls = 0;
+        int processed = 0;
+        var chunkStopwatch = Stopwatch.StartNew();
+        foreach (PackageChartEntry entry in entries)
+        {
+            if (TryGetReferenceTables(entry?.Chart, referenceMaps, out BMSTable[] value))
+            {
+                matchedCharts++;
+                BMSFile file = entry.CompatibilityAdapter ?? entry.Chart?.BmsFile;
+                if (file != null && value != null)
+                {
+                    addCalls += file.AddRefTables(value, suppressFilePropertyChanged);
+                }
+            }
+            processed++;
+            if (processed % playlistReferenceApplyChunkSize == 0)
+            {
+                chunkStopwatch.Stop();
+                applyStats.Chunks++;
+                if (chunkStopwatch.ElapsedMilliseconds > applyStats.MaxChunkMs)
+                {
+                    applyStats.MaxChunkMs = chunkStopwatch.ElapsedMilliseconds;
+                }
+                Thread.Sleep(0);
+                applyStats.YieldCount++;
+                chunkStopwatch.Restart();
+            }
+        }
+        chunkStopwatch.Stop();
+        if (processed % playlistReferenceApplyChunkSize != 0 || processed == 0)
+        {
+            applyStats.Chunks++;
+            if (chunkStopwatch.ElapsedMilliseconds > applyStats.MaxChunkMs)
+            {
+                applyStats.MaxChunkMs = chunkStopwatch.ElapsedMilliseconds;
+            }
+        }
+        return addCalls;
+    }
+
     private static void AddEntriesToReferenceMaps(Dictionary<string, HashSet<BMSTable>> md5Dictionary, Dictionary<string, HashSet<BMSTable>> sha256Dictionary, BMSTable table, IEnumerable<BMSTableEntry> entries)
     {
         if (table == null || entries == null)
@@ -134,5 +183,21 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
                 value.Add(table);
             }
         }
+    }
+
+    private static bool TryGetReferenceTables(ChartFile chart, PlaylistReferenceMaps referenceMaps, out BMSTable[] tables)
+    {
+        tables = null;
+        if (chart == null || referenceMaps == null)
+        {
+            return false;
+        }
+
+        bool matched = !string.IsNullOrWhiteSpace(chart.Md5) && referenceMaps.Md5ToTablesMap != null && referenceMaps.Md5ToTablesMap.TryGetValue(chart.Md5, out tables);
+        if (!matched && !string.IsNullOrWhiteSpace(chart.Sha256) && referenceMaps.Sha256ToTablesMap != null)
+        {
+            matched = referenceMaps.Sha256ToTablesMap.TryGetValue(chart.Sha256, out tables);
+        }
+        return matched && tables != null;
     }
 }
