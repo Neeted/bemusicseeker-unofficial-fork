@@ -582,15 +582,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         {
             var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
             {
                 path = @"C:\Pending\Package\matching.bmson",
                 md5 = matchingHash,
                 sha256 = new string('b', 64),
                 title = "Pending Bmson",
                 artist = "Artist"
-            });
-            PackageChartEntry matchingBmsonEntry = PackageChartEntry.FromChartAdapter(adapter);
+            };
+            PackageChartEntry matchingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
             library.ChartPackagesPending = CreatePackageCollection(
             [
                 ChartPackage.FromChartEntries([matchingBmsonEntry])
@@ -600,7 +600,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.AddReferenceBMSTables(table);
 
             Assert.IsNull(matchingBmsonEntry.GetCompatibilityAdapterForTest());
-            Assert.AreEqual(0, adapter.RefTables.Count);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
         });

@@ -25,13 +25,8 @@ internal static class ChartFileKindResolver
             || BmsonExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
-    internal static bool IsBmsonChartFile(BMSFile file)
-    {
-        return file is PendingChartEntry pending && pending.IsBmsonChart;
-    }
-
     internal static bool IsBmsChartFile(BMSFile file)
     {
-        return file != null && !IsBmsonChartFile(file);
+        return file != null;
     }
 }

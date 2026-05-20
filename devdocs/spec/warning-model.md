@@ -21,7 +21,7 @@
 - 行ハイライトは、いずれかの warning が `HighlightRow = true` の場合に有効です。
 - `ResourceHealth` category の warning は、`instl_dst` が未設定の間だけ digest に出ます。tooltip には導入先設定後も詳細が残ります。
 - resource health の一覧所属判定は chart warning collection を mutation せず、`maintenanceInfo` 由来の side-effect-free index で行います。BMS は有効な `BMSFile.maintenanceInfo`、bmson は現在の md5 と一致し resource health snapshot を持つ `bmson_song.MaintenanceInfo` を入力にします。bmson の maintenance row が parser 直後の encoding-only placeholder だったり、hash が古かったりする場合は、adapter を materialize せず `ChartResourceSnapshot` と現在の filesystem 状態から一時 snapshot を作ります。manual rescan / inline initialization でも bmson は `bmson_song` と `ChartResourceSnapshot` から直接 maintenance row を作り、`PendingChartEntry` shim は使いません。`maintenanceInfo` の resource health は file scan 由来の directory resource index を優先し、必要時のみ実ファイル確認へ fallback します。
-- 保留画面の `ResourceHealth` warning は導入前配置を評価するための一時状態です。導入成功時に source `BMSFile` / `PendingChartEntry` の warning collection から `ResourceHealth` category を消し、導入後の通常一覧・新規画面では `maintenanceInfo` / resource health index から投影します。
+- 保留画面の `ResourceHealth` warning は導入前配置を評価するための一時状態です。導入成功時に source BMS row または `PackageChartEntry` の warning state から `ResourceHealth` category を消し、導入後の通常一覧・新規画面では `maintenanceInfo` / resource health index から投影します。bmson は `BMSFile` adapter へ戻さず、`bmson_song` / `ChartFile` / package entry state を正本にします。
 
 ## Warning 定義
 
@@ -65,5 +65,5 @@
 - 定義: `BeMusicSeeker/Models/ChartWarning.cs`
 - `BMSFile` の表示 property と互換 alias: `BeMusicSeeker/Models/BMSFile.cs`
 - bmson storage row と一時表示 state の projection: `BeMusicSeeker/Models/ChartFileProjection.cs`, `BeMusicSeeker/Models/ChartFileTransientState.cs`
-- pending 用の BMS format adapter 境界: `BeMusicSeeker/Models/PendingChartEntry.cs`
+- pending package の chart state: `BeMusicSeeker/Models/BmsLibraryInternal/PackageChartEntry.cs`
 - WARNING 列: `WarningDigestText` を本文、`WarningTooltipText` を tooltip、`HasHighlightedWarning` を行色判定に使います。

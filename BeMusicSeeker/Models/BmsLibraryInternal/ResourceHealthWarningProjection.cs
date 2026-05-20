@@ -241,8 +241,7 @@ internal sealed class ResourceHealthIndexSnapshot
             {
                 return default;
             }
-            bool isBmson = ChartFileKindResolver.IsBmsonChartFile(file);
-            return new ResourceHealthChartKey(isBmson ? "bmson" : "bms", file.path, file.hash);
+            return new ResourceHealthChartKey("bms", file.path, file.hash);
         }
 
         internal static ResourceHealthChartKey FromBmsonSong(LR2SongDBExtended.bmson_song song)

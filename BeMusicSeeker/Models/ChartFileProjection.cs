@@ -95,11 +95,6 @@ internal static class ChartFileProjection
             return null;
         }
 
-        if (file is PendingChartEntry { IsBmsonChart: true, BmsonSong: { } song } pending)
-        {
-            return FromPendingBmsonAdapter(pending, song, includeWarningSnapshot);
-        }
-
         return new ChartFile(
             ChartFileKind.Bms,
             file.path,
@@ -130,11 +125,6 @@ internal static class ChartFileProjection
             file.BannerHealth,
             file.BackbmpHealth,
             file.encoding);
-    }
-
-    internal static LR2SongDBExtended.bmson_song GetBmsonStorageOwner(BMSFile file)
-    {
-        return file is PendingChartEntry { IsBmsonChart: true, BmsonSong: { } song } ? song : null;
     }
 
     internal static ChartFile FromBmsonSong(
@@ -220,43 +210,6 @@ internal static class ChartFileProjection
             chartInfo,
             null,
             null);
-    }
-
-    private static ChartFile FromPendingBmsonAdapter(
-        PendingChartEntry pending,
-        LR2SongDBExtended.bmson_song song,
-        bool includeWarningSnapshot)
-    {
-        return new ChartFile(
-            ChartFileKind.Bmson,
-            pending.path,
-            pending.hash,
-            pending.sha256,
-            pending.Title,
-            pending.GetRawTitleForDisplay(),
-            pending.Artist,
-            pending.genre,
-            pending.Folder,
-            pending.tag,
-            pending.Level,
-            pending.level ?? song.level,
-            pending.mode ?? BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
-            pending.ChartInfo,
-            null,
-            song,
-            pending.subtitle,
-            pending.instl_dst,
-            pending.InstallDestinationTitle,
-            pending.InstallDestinationArtist,
-            pending.InstallDestinationSuggestions,
-            GetWarnings(pending, includeWarningSnapshot),
-            pending.WAVHealth,
-            pending.BGAHealth,
-            pending.MovieHealth,
-            pending.StagefileHealth,
-            pending.BannerHealth,
-            pending.BackbmpHealth,
-            pending.encoding);
     }
 
     private static IReadOnlyList<ChartWarning> GetWarnings(BMSFile file, bool includeWarningSnapshot)

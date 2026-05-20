@@ -32,9 +32,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
 
-    internal bool IsBmson => ChartFileKindResolver.IsBmsonChartFile(BmsFile) || (BmsonSong != null && BmsFile == null);
+    internal bool IsBmson => BmsonSong != null && BmsFile == null;
 
-    internal bool IsBms => BmsFile != null && !ChartFileKindResolver.IsBmsonChartFile(BmsFile);
+    internal bool IsBms => BmsFile != null;
 
     internal ChartFile Chart => CreateChartFile();
 
@@ -85,7 +85,7 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        return new LibraryChartRow(file, ChartFileProjection.GetBmsonStorageOwner(file), packageEntry: packageEntry);
+        return new LibraryChartRow(file, null, packageEntry: packageEntry);
     }
 
     internal static LibraryChartRow FromBmsonSong(LR2SongDBExtended.bmson_song song)
@@ -361,7 +361,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private LR2SongDBExtended.bmson_song GetBmsonSong()
     {
-        return ChartFileProjection.GetBmsonStorageOwner(BmsFile) ?? BmsonSong;
+        return BmsonSong;
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjection()

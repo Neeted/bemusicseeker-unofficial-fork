@@ -456,12 +456,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg\\a.bms");
         bmsFile.instl_dst = "C:\\Installed\\Target";
-        PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
-        {
-            path = "C:\\Pending\\Pkg\\linked.bmson",
-            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-        });
-        bmsonAdapter.instl_dst = "C:\\Installed\\Target";
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.WithPackageState(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\Pkg\\adapterless.bmson",
@@ -470,7 +464,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         ChartPackage package = ChartPackage.FromChartEntries(
         [
             PackageChartEntry.FromChartAdapter(bmsFile),
-            PackageChartEntry.FromChartAdapter(bmsonAdapter),
             adapterlessBmsonEntry
         ]);
 
@@ -480,8 +473,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
 
         Assert.IsNull(bmsFile.instl_dst);
-        Assert.AreEqual("C:\\Installed\\Target", bmsonAdapter.instl_dst);
-        Assert.AreEqual(string.Empty, package.ChartEntries[1].Chart.InstallDestination);
         Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
         Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
@@ -502,8 +493,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 wav_files = ["missing.wav"]
             };
-            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
-            PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
             bool legacyWarningCallbackCalled = false;
 
             IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(
@@ -516,7 +506,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.IsFalse(legacyWarningCallbackCalled);
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -1630,9 +1620,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string destinationBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
             File.WriteAllText(sourceBmsonPath, CreateBmsonJsonWithSound("new.wav"));
 
-            PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
-            LR2SongDBExtended.bmson_song bmsonSong = bmsonAdapter.BmsonSong;
-            ChartPackage package = ChartPackageTestExtensions.CreatePackage([bmsonAdapter]);
+            LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(sourceBmsonPath);
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))]);
             package.path = sourceDirectoryPath;
             List<BMSFile> songUpserts = [];
             List<BMSFile> maintenanceTargets = [];
@@ -1680,8 +1669,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, applyTargets.Count);
             Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
             Assert.AreEqual(destinationDirectoryPath, bmsonSong.folder);
-            Assert.AreEqual(sourceBmsonPath, bmsonAdapter.path);
-            Assert.AreSame(bmsonSong, bmsonAdapter.BmsonSong);
             Assert.AreEqual(destinationBmsonPath, result.AddedEntries[0].Chart.Path);
             Assert.IsNull(result.AddedEntries[0].GetCompatibilityAdapterForTest());
         });

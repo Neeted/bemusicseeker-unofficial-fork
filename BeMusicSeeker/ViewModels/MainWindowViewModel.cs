@@ -14920,10 +14920,6 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (ChartFileKindResolver.IsBmsonChartFile(bmsFile))
-        {
-            return;
-        }
         nowPlayingChartRowsViewIndex = indexChartRowsView;
         if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
         {
@@ -15132,7 +15128,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !ChartFileKindResolver.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
@@ -15195,7 +15191,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !ChartFileKindResolver.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;

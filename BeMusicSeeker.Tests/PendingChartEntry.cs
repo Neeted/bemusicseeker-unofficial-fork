@@ -6,6 +6,8 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
 
+#nullable disable
+
 public enum PendingChartKind
 {
     Bms,

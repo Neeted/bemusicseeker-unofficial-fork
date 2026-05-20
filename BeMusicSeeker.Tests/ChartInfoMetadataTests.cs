@@ -2943,8 +2943,8 @@ createTempDirectory);
             Directory.CreateDirectory(installDir);
             string sourceChartPath = Path.Combine(sourceDir, "install.bms");
             File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE install bms\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
-            var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = ChartPackageTestExtensions.CreatePackage([pendingChart]);
+            BMSFile pendingChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingChart)]);
             package.path = sourceDir;
             package.delete_parent = false;
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
@@ -2981,8 +2981,8 @@ createTempDirectory);
                     + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]"
                     + "}",
                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-            var pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
-            var package = ChartPackageTestExtensions.CreatePackage([pendingChart]);
+            LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(sourceChartPath);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong))]);
             package.path = sourceDir;
             package.delete_parent = false;
             var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());

@@ -814,7 +814,7 @@ public sealed class PlaylistViewPipelineTests
             md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
             sha256 = new string('f', 64)
         };
-        var row = PendingChartEntry.CreateFromBmsonSong(bmson);
+        var row = LibraryChartRow.FromBmsonSong(bmson);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
@@ -1420,21 +1420,19 @@ public sealed class PlaylistViewPipelineTests
         bmson.MaintenanceInfo.wav_files_defined = 4;
         bmson.MaintenanceInfo.wav_files_existing = 1;
 
-        var pending = PendingChartEntry.CreateFromBmsonSong(bmson);
-        pending.SetWarning(ChartWarningKind.AlreadyInstalled, "installed chart warning");
-        pending.instl_dst = "C:\\Library\\Destination";
-        var row = LibraryChartRow.FromBmsFile(pending);
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        entry.SetWarning(ChartWarningKind.AlreadyInstalled, "installed chart warning");
+        entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
+        var row = LibraryChartRow.FromPackageChartEntry(entry);
 
-        Assert.AreSame(pending, row.BmsFile);
+        Assert.IsNull(row.BmsFile);
         Assert.AreSame(bmson, row.BmsonSong);
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
-        Assert.AreEqual(pending.DisplayWarning, row.DisplayWarning);
-        Assert.AreEqual(pending.WarningDigestText, row.WarningDigestText);
-        Assert.AreEqual(pending.WarningTooltipText, row.WarningTooltipText);
-        Assert.AreEqual(pending.instl_dst, row.instl_dst);
-        Assert.AreEqual(pending.WAVHealth, row.WAVHealth);
+        Assert.IsTrue(row.DisplayWarning.Contains("installed chart warning"));
+        Assert.AreEqual("C:\\Library\\Destination", row.instl_dst);
+        Assert.AreEqual(bmson.MaintenanceInfo.WAVHealth, row.WAVHealth);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, isPendingSection: true, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
@@ -1445,9 +1443,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
 
-        var chartRef = LibraryChartRef.FromBmsFile(pending);
+        var chartRef = LibraryChartRef.FromChartFile(row.Chart);
         Assert.IsNull(chartRef.BmsFile);
-        Assert.AreSame(pending.BmsonSong, chartRef.BmsonSong);
+        Assert.AreSame(bmson, chartRef.BmsonSong);
     }
 
     [TestMethod]
@@ -1462,16 +1460,16 @@ public sealed class PlaylistViewPipelineTests
             md5 = "56565656565656565656565656565656",
             sha256 = new string('5', 64)
         };
-        var pending = PendingChartEntry.CreateFromBmsonSong(bmson);
-        pending.path = "C:\\Pending\\Package\\chart.bmson";
-        pending.folder = "C:\\Pending\\Package";
-        var row = LibraryChartRow.FromBmsFile(pending);
+        bmson.path = "C:\\Pending\\Package\\chart.bmson";
+        bmson.folder = "C:\\Pending\\Package";
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        var row = LibraryChartRow.FromPackageChartEntry(entry);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
 
         Assert.AreEqual(ChartOperationSourceScope.PendingPackage, target.SourceScope);
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.AreEqual(pending.path, target.Chart.Path);
+        Assert.AreEqual(bmson.path, target.Chart.Path);
         Assert.IsFalse(target.IsOwned);
         Assert.IsTrue(target.IsPending);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
@@ -1631,7 +1629,6 @@ public sealed class PlaylistViewPipelineTests
             md5 = "67676767676767676767676767676767",
             sha256 = new string('6', 64)
         };
-        var pending = PendingChartEntry.CreateFromBmsonSong(original);
         var installed = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Library\\Package\\chart.bmson",
@@ -1641,8 +1638,7 @@ public sealed class PlaylistViewPipelineTests
             md5 = original.md5,
             sha256 = original.sha256
         };
-        pending.ReplaceBmsonSongReferenceAfterInstall(installed);
-        var row = LibraryChartRow.FromBmsFile(pending);
+        var row = LibraryChartRow.FromBmsonSong(installed);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.NewlyInstalledPackage, out ChartOperationTarget target));
 
@@ -1657,7 +1653,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.AreEqual(installed.path, LibraryChartRef.FromBmsFile(pending).Path);
+        Assert.AreEqual(installed.path, LibraryChartRef.FromChartFile(target.Chart).Path);
     }
 
     [TestMethod]
@@ -1696,7 +1692,7 @@ public sealed class PlaylistViewPipelineTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = new string('b', 64)
         });
-        var pendingBmson = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        var pendingBmson = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\Bmson\\chart.bmson",
             folder = "C:\\Pending\\Bmson",
@@ -1704,11 +1700,11 @@ public sealed class PlaylistViewPipelineTests
             artist = "Artist",
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('c', 64)
-        });
+        })));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bms, out ChartOperationTarget bmsTarget));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bmson, out ChartOperationTarget bmsonTarget));
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(LibraryChartRow.FromBmsFile(pendingBmson), ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingBmsonTarget));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(pendingBmson, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingBmsonTarget));
 
         foreach (ChartOperationCapabilities commonCapability in new[]
         {

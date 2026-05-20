@@ -49,17 +49,6 @@ internal sealed class LibraryChartRef
         {
             return null;
         }
-        if (ChartFileKindResolver.IsBmsonChartFile(file))
-        {
-            LR2SongDBExtended.bmson_song song = ChartFileProjection.GetBmsonStorageOwner(file);
-            return new LibraryChartRef(
-                LibraryChartKind.Bmson,
-                file.path,
-                file.hash,
-                file.sha256,
-                null,
-                song);
-        }
         return new LibraryChartRef(
             LibraryChartKind.Bms,
             file.path,

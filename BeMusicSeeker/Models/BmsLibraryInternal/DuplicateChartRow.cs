@@ -20,7 +20,7 @@ internal sealed class DuplicateChartRow
 
     public ChartLookupHashKind HashKind { get; set; }
 
-    public PendingChartKind ChartKind { get; set; }
+    public ChartFileKind ChartKind { get; set; }
 
     public ChartFile Chart { get; set; }
 
@@ -37,7 +37,7 @@ internal sealed class DuplicateChartRow
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(file.path),
             LookupHash = ChartLookupKey.GetPrimaryHash(file),
             HashKind = ChartLookupKey.GetPrimaryHashKind(file),
-            ChartKind = PendingChartKind.Bms,
+            ChartKind = ChartFileKind.Bms,
             Chart = ChartFileProjection.FromBmsFile(file),
         };
     }
@@ -59,7 +59,7 @@ internal sealed class DuplicateChartRow
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(song.path),
             LookupHash = ChartLookupKey.GetPrimaryHash(song),
             HashKind = ChartLookupKey.GetPrimaryHashKind(song),
-            ChartKind = PendingChartKind.Bmson,
+            ChartKind = ChartFileKind.Bmson,
             Chart = chart
         };
     }

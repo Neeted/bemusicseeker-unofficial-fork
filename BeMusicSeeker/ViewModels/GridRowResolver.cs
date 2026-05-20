@@ -52,10 +52,6 @@ internal static class GridRowResolver
         {
             file = row as BMSFile;
         }
-        if (ChartFileKindResolver.IsBmsonChartFile(file))
-        {
-            return null;
-        }
         return file;
     }
 

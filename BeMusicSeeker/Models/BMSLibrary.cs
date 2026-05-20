@@ -6912,19 +6912,10 @@ reportProgress,
     }
 
     private List<LR2SongDBExtended.bmson_song> CreateResourceMaintenanceBmsonSongs(
-        IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         bool includeInstalledBmson)
     {
         var songsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsonChartFile))
-        {
-            LR2SongDBExtended.bmson_song song = ChartFileProjection.GetBmsonStorageOwner(file);
-            if (song != null && !string.IsNullOrWhiteSpace(song.path))
-            {
-                songsByPath[song.path] = song;
-            }
-        }
         foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
         {
             songsByPath[song.path] = song;
@@ -7123,7 +7114,7 @@ reportProgress,
         using (rwlockBMSFiles.GetReaderGuard())
         {
             List<BMSFile> bmsMaintenanceTargets = CreateResourceMaintenanceBmsTargets(bmsFiles);
-            List<LR2SongDBExtended.bmson_song> bmsonMaintenanceSongs = CreateResourceMaintenanceBmsonSongs(bmsFiles, bmsonSongs, includeInstalledBmson);
+            List<LR2SongDBExtended.bmson_song> bmsonMaintenanceSongs = CreateResourceMaintenanceBmsonSongs(bmsonSongs, includeInstalledBmson);
             List<ChartFile> maintenanceTargetCharts = CreateResourceMaintenanceCharts(bmsMaintenanceTargets, bmsonMaintenanceSongs);
             LogInstallPerformance("maintenance_update start inputCount=" + maintenanceTargetCharts.Count
                 + " forceUpdate=" + forceUpdate

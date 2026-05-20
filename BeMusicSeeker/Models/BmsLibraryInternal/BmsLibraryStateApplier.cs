@@ -404,25 +404,6 @@ internal sealed class BmsLibraryStateApplier(
         return !string.IsNullOrWhiteSpace(entry.Chart.Path) && removedPaths.Contains(entry.Chart.Path);
     }
 
-    private static bool IsMatchedRemovedBmsonFile(BMSFile file, HashSet<string> removedPaths, HashSet<LR2SongDBExtended.bmson_song> removedSongs)
-    {
-        if (file == null)
-        {
-            return false;
-        }
-
-        if (ChartFileKindResolver.IsBmsonChartFile(file))
-        {
-            LR2SongDBExtended.bmson_song song = ChartFileProjection.GetBmsonStorageOwner(file);
-            if (song != null && removedSongs.Contains(song))
-            {
-                return true;
-            }
-        }
-
-        return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
-    }
-
     private static bool IsMatchedRemovedBmsonFile(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<LR2SongDBExtended.bmson_song> removedSongs)
     {
         if (entry?.Chart == null)

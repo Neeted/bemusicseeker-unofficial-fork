@@ -582,11 +582,10 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PackageChartEntryDisplayRow_TreatsAdapterBackedBmsonAsBmsonRow()
+    public void PackageChartEntryDisplayRow_TreatsBmsonEntryAsBmsonRow()
     {
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
-        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
-        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
 
         LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
 
@@ -656,16 +655,15 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PackageChartSourceSnapshot_TreatsAdapterBackedBmsonAsBmsonSource()
+    public void PackageChartSourceSnapshot_TreatsBmsonEntryAsBmsonSource()
     {
         var bms = new TestableBmsFile();
         bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
-        PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(bmson);
         ChartPackage package = ChartPackage.FromChartEntries(
         [
             PackageChartEntry.FromChartAdapter(bms),
-            PackageChartEntry.FromChartAdapter(bmsonAdapter)
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson))
         ]);
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
@@ -698,12 +696,10 @@ public sealed class ChartListVirtualViewTests
     {
         var bms = new TestableBmsFile();
         bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
-        PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(CreateBmsonSong());
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(CreateBmsonSong()));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
             PackageChartEntry.FromChartAdapter(bms),
-            PackageChartEntry.FromChartAdapter(bmsonAdapter),
             adapterlessBmsonEntry
         ]);
 

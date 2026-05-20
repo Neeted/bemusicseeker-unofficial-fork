@@ -554,49 +554,31 @@ public sealed class BmsLibraryMaintenanceServiceTests
         normalFile.SetChartInfo(CreateChartInfo(normalFile.hash, notes: 1200));
         TestableBmsFile missingChartInfoFile = CreateFile("dddddddddddddddddddddddddddddddd");
         missingChartInfoFile.SetNotes(0);
-        PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "cccccccccccccccccccccccccccccccc");
-        SetNotes(bmsonRow, 0);
-        bmsonRow.SetChartInfo(CreateChartInfo(bmsonRow.hash, notes: 0));
 
-        List<BMSFile> result = service.GetZeroNoteFiles([zeroNoteFile, normalFile, missingChartInfoFile, bmsonRow]);
+        List<BMSFile> result = service.GetZeroNoteFiles([zeroNoteFile, normalFile, missingChartInfoFile]);
 
         CollectionAssert.AreEqual(new[] { zeroNoteFile }, result);
     }
 
     [TestMethod]
-    public void BmsOnlyMaintenanceOperations_SkipBmsonPendingRows()
+    public void BmsonMaintenanceOperations_UseChartEntryPoints()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
-        PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        string originalTitle = bmsonRow.Title;
-        string originalArtist = bmsonRow.Artist;
-        bmsonRow.SetMaintenanceInfo(new BMSFileMaintenanceInfo(bmsonRow)
-        {
-            hash = bmsonRow.hash,
-            encoding = "gb2312",
-            is_encoding_fixed = false,
-            is_files_warning_ignored = false,
-            wav_files_defined = 1,
-            wav_files_existing = 0
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
-        SetNotes(bmsonRow, 0);
+        LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        bmsonSong.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(bmsonSong.path, bmsonSong.md5);
+        bmsonSong.MaintenanceInfo.encoding = "gb2312";
+        bmsonSong.MaintenanceInfo.is_encoding_fixed = false;
+        bmsonSong.MaintenanceInfo.is_files_warning_ignored = false;
+        bmsonSong.MaintenanceInfo.wav_files_defined = 1;
+        bmsonSong.MaintenanceInfo.wav_files_existing = 0;
+        ChartFile bmsonChart = ChartFileProjection.FromBmsonSong(bmsonSong);
 
-        Assert.IsTrue(service.ApplyResourceHealthWarnings(bmsonRow));
-        Assert.AreEqual(0, service.GetGarbledFiles([bmsonRow], isInFixedList: false).Count);
-        Assert.AreEqual(0, service.GetZeroNoteFiles([bmsonRow]).Count);
-        Assert.AreEqual(1, service.SetFilesWarningIgnored([ChartFileProjection.FromBmsonSong(bmsonRow.BmsonSong)], unset: false).Count);
+        IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(bmsonChart);
+        Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        Assert.AreEqual(1, service.SetFilesWarningIgnored([bmsonChart], unset: false).Count);
 
-        MaintenanceEncodingUpdateResult encodingResult = service.ApplyEncoding([bmsonRow], "shift_jis");
-
-        Assert.AreEqual(0, encodingResult.SongsToUpsert.Count);
-        Assert.AreEqual(0, encodingResult.MaintenanceInfosToUpsert.Count);
-        Assert.AreEqual(originalTitle, bmsonRow.Title);
-        Assert.AreEqual(originalArtist, bmsonRow.Artist);
-        Assert.AreEqual("gb2312", bmsonRow.maintenanceInfo.encoding);
-        Assert.IsFalse(bmsonRow.maintenanceInfo.is_encoding_fixed);
-        Assert.IsFalse(bmsonRow.maintenanceInfo.is_files_warning_ignored);
-        Assert.IsTrue(bmsonRow.BmsonSong.MaintenanceInfo.is_files_warning_ignored);
+        Assert.IsTrue(bmsonSong.MaintenanceInfo.is_files_warning_ignored);
     }
 
     [TestMethod]

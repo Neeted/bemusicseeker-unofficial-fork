@@ -44,12 +44,6 @@ internal sealed class BmsLibraryMaintenanceService
             .Where(file => file != null && ChartFileKindResolver.IsBmsChartFile(file));
     }
 
-    private static IEnumerable<BMSFile> EnumerateResourceHealthChartFiles(IEnumerable<BMSFile> bmsFiles)
-    {
-        return (bmsFiles ?? [])
-            .Where(file => file != null && (ChartFileKindResolver.IsBmsChartFile(file) || ChartFileKindResolver.IsBmsonChartFile(file)));
-    }
-
     public bool ApplyResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
     {
         IReadOnlyList<ChartWarning> warnings = BuildResourceHealthWarnings(bmsFile, maintenanceInfo, strictCheck);
@@ -59,7 +53,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
     {
-        if (bmsFile == null || (!ChartFileKindResolver.IsBmsChartFile(bmsFile) && !ChartFileKindResolver.IsBmsonChartFile(bmsFile)))
+        if (bmsFile == null)
         {
             return [];
         }
@@ -588,14 +582,12 @@ internal sealed class BmsLibraryMaintenanceService
             return result;
         }
         var stopwatch = Stopwatch.StartNew();
-        List<BMSFile> sourceFiles = [.. EnumerateResourceHealthChartFiles(bmsFiles)];
+        List<BMSFile> sourceFiles = [.. EnumerateBmsChartFiles(bmsFiles)];
         List<BMSFile> targets = [];
         foreach (BMSFile file in sourceFiles)
         {
-            bool isBms = ChartFileKindResolver.IsBmsChartFile(file);
-            bool isBmson = ChartFileKindResolver.IsBmsonChartFile(file);
             bool missingInfo = file?.maintenanceInfo?.IsInformationChecked() != true;
-            bool missingEncoding = isBms && string.IsNullOrWhiteSpace(file?.maintenanceInfo?.encoding);
+            bool missingEncoding = string.IsNullOrWhiteSpace(file?.maintenanceInfo?.encoding);
             bool isTarget = forceUpdate || missingInfo || missingEncoding;
             if (!isTarget)
             {
@@ -614,14 +606,10 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 result.MissingEncodingTargetCount++;
             }
-            if (isBmson && !HasFreshCurrentBmsonResourceReferences(file))
-            {
-                result.BmsonMissingFreshResourceReferenceCount++;
-            }
         }
         result.CheckedFileCount = targets.Count;
         result.BmsResourceTargetCount = targets.Count(ChartFileKindResolver.IsBmsChartFile);
-        result.BmsonResourceTargetCount = targets.Count(ChartFileKindResolver.IsBmsonChartFile);
+        result.BmsonResourceTargetCount = 0;
         result.HealthTargetCount = targets.Count;
         result.HealthDegree = maintenanceHealthDegree;
         resourceLookupContext ??= new ResourceHealthLookupContext(null);
@@ -694,40 +682,7 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 Parallel.ForEach(filesInSection, new ParallelOptions { MaxDegreeOfParallelism = maintenanceHealthDegree }, delegate (BMSFile file)
                 {
-                    bool isBmson = ChartFileKindResolver.IsBmsonChartFile(file);
                     string originalHash = file.hash;
-                    if (isBmson)
-                    {
-                        file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
-                        if (forceUpdate || !file.maintenanceInfo.IsInformationChecked())
-                        {
-                            long bmsonRefreshStart = Stopwatch.GetTimestamp();
-                            BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(file, forceUpdate);
-                            AddElapsedTicks(ref bmsonRefreshTicks, bmsonRefreshStart);
-                            if (refreshResult == BmsonResourceRefreshResult.Success)
-                            {
-                                lock (bmsonReparseLock)
-                                {
-                                    bmsonReparsedInSection++;
-                                }
-                            }
-                            else if (refreshResult == BmsonResourceRefreshResult.Failed)
-                            {
-                                lock (bmsonReparseLock)
-                                {
-                                    bmsonReparseFailedInSection++;
-                                }
-                                return;
-                            }
-                            else if (refreshResult == BmsonResourceRefreshResult.Reused)
-                            {
-                                lock (bmsonReparseLock)
-                                {
-                                    bmsonResourceReferencesReusedInSection++;
-                                }
-                            }
-                        }
-                    }
                     var beforeSnapshot = MaintenanceSnapshot.FromFile(file);
                     int retryCount = 0;
                     while (true)
@@ -735,7 +690,7 @@ internal sealed class BmsLibraryMaintenanceService
                         try
                         {
                             long healthStart = Stopwatch.GetTimestamp();
-                            file.SetHealthStatusUsingLookupContext(resourceLookupContext, forceUpdate, memClear: !isBmson);
+                            file.SetHealthStatusUsingLookupContext(resourceLookupContext, forceUpdate, memClear: true);
                             AddElapsedTicks(ref healthTicks, healthStart);
                             break;
                         }
@@ -755,17 +710,13 @@ internal sealed class BmsLibraryMaintenanceService
                             throw;
                         }
                     }
-                    if (isBmson)
-                    {
-                        file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
-                    }
-                    else if (forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))
+                    if (forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))
                     {
                         long encodingStart = Stopwatch.GetTimestamp();
                         file.SetEncosingInfo();
                         AddElapsedTicks(ref encodingTicks, encodingStart);
                     }
-                    if (!isBmson && !string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
+                    if (!string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
                     {
                         long encodingStart = Stopwatch.GetTimestamp();
                         BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
@@ -776,7 +727,7 @@ internal sealed class BmsLibraryMaintenanceService
                             reloadedFiles.Add(file);
                         }
                     }
-                    else if (!isBmson && originalHash != file.hash)
+                    else if (originalHash != file.hash)
                     {
                         lock (reloadedLock)
                         {
@@ -794,12 +745,6 @@ internal sealed class BmsLibraryMaintenanceService
                     if (encodingChanged || healthChanged)
                     {
                         file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
-                    }
-                    LR2SongDBExtended.bmson_song bmsonSong = ChartFileProjection.GetBmsonStorageOwner(file);
-                    if (isBmson && bmsonSong != null && file.maintenanceInfo?.IsInformationChecked() == true)
-                    {
-                        file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
-                        bmsonSong.MaintenanceInfo = file.maintenanceInfo;
                     }
                 });
                 List<BMSFileMaintenanceInfo> maintenanceInfos = [.. filesInSection.Where(file => file.maintenanceInfo.IsInformationChecked()).Select(file => file.maintenanceInfo)];
@@ -1192,38 +1137,6 @@ internal sealed class BmsLibraryMaintenanceService
         return stopwatchTicks <= 0L ? 0L : (long)(stopwatchTicks * 1000.0 / Stopwatch.Frequency);
     }
 
-    private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(BMSFile file, bool forceUpdate)
-    {
-        if (!ChartFileKindResolver.IsBmsonChartFile(file) || string.IsNullOrWhiteSpace(file.path) || !File.Exists(file.path))
-        {
-            return BmsonResourceRefreshResult.NotApplicable;
-        }
-        if (!forceUpdate && HasFreshCurrentBmsonResourceReferences(file))
-        {
-            return BmsonResourceRefreshResult.Reused;
-        }
-        try
-        {
-            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(file.path);
-            LR2SongDBExtended.bmson_song owner = ChartFileProjection.GetBmsonStorageOwner(file);
-            if (owner != null)
-            {
-                owner.MaintenanceInfo ??= file.maintenanceInfo;
-                UpdateBmsonResourceReferences(owner, parsed);
-                CopyBmsonResourceReferencesToBmsFile(file, owner);
-            }
-            else
-            {
-                CopyBmsonResourceReferencesToBmsFile(file, parsed);
-            }
-            return BmsonResourceRefreshResult.Success;
-        }
-        catch
-        {
-            return BmsonResourceRefreshResult.Failed;
-        }
-    }
-
     private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(LR2SongDBExtended.bmson_song song, bool forceUpdate)
     {
         if (song == null || string.IsNullOrWhiteSpace(song.path) || !File.Exists(song.path))
@@ -1259,25 +1172,6 @@ internal sealed class BmsLibraryMaintenanceService
         target.wav_files = parsed.wav_files ?? [];
         target.bga_files = parsed.bga_files ?? [];
         target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
-    }
-
-    private static void CopyBmsonResourceReferencesToBmsFile(BMSFile target, LR2SongDBExtended.bmson_song source)
-    {
-        if (target == null || source == null)
-        {
-            return;
-        }
-        target.ReplaceResourceReferences(
-            source.stagefile,
-            source.banner,
-            source.backbmp,
-            source.wav_files,
-            source.bga_files);
-    }
-
-    private static bool HasFreshCurrentBmsonResourceReferences(BMSFile file)
-    {
-        return HasFreshCurrentBmsonResourceReferences(ChartFileProjection.GetBmsonStorageOwner(file));
     }
 
     private static bool HasFreshCurrentBmsonResourceReferences(LR2SongDBExtended.bmson_song song)

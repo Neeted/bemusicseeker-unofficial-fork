@@ -365,7 +365,6 @@ internal sealed class BmsLibraryPackageInstallService
     {
         string extension = Path.GetExtension(file?.path);
         return file != null
-            && !ChartFileKindResolver.IsBmsonChartFile(file)
             && !string.IsNullOrWhiteSpace(extension)
             && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }

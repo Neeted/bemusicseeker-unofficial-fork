@@ -1169,16 +1169,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             artist = "Artist",
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         };
-        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
-        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         entry.ApplyInstallDestination(destinationDirectory, "Resolved Title", "Resolved Artist");
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
 
         PackageChartEntry snapshot = entry.ToChartEntrySnapshot();
 
-        Assert.IsNull(adapter.instl_dst);
-        Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
         Assert.IsNotNull(snapshot);
         Assert.IsNull(snapshot.GetCompatibilityAdapterForTest());
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.Chart.Kind);
@@ -1643,7 +1640,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(
                     bmsonPath,
                     "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
-                BMSFile targetFile = PendingChartEntry.CreateFromFilePath(bmsonPath);
+                PackageChartEntry targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
                 var pendingPackage = new ChartPackage
                 {
                     path = pendingDirectoryPath,
@@ -1654,7 +1651,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsNull(entries[0].GetCompatibilityAdapterForTest());
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                    PackageChartEntry.FromChartAdapter(targetFile),
+                    targetEntry,
                     [pendingPackage],
                     [installDirectoryPath],
                     installDirectoryPath);
@@ -1682,7 +1679,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(
                     bmsonPath,
                     "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7}}");
-                BMSFile targetFile = PendingChartEntry.CreateFromFilePath(bmsonPath);
+                PackageChartEntry targetEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(bmsonPath)));
                 var pendingPackage = new ChartPackage
                 {
                     path = pendingDirectoryPath,
@@ -1693,7 +1690,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsNull(entries[0].GetCompatibilityAdapterForTest());
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                    PackageChartEntry.FromChartAdapter(targetFile),
+                    targetEntry,
                     [pendingPackage],
                     [Path.Combine(tempRoot, "install")],
                     Path.Combine(tempRoot, "missing"));
@@ -1930,22 +1927,19 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\"},\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]}],\"lines\":[{\"y\":0}]}");
             File.WriteAllText(Path.Combine(candidateDir, "keysound.wav"), "dummy");
 
-            var pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
-            pending.WAVfiles = [];
-            pending.BGAfiles = [];
-            pending.SetMaintenanceInfo(CreateMaintenanceInfo(pending, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
-            var package = ChartPackageTestExtensions.CreatePackage([pending]);
+            LR2SongDBExtended.bmson_song pendingSong = BmsonSongParser.Parse(bmsonPath);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingSong))]);
             package.path = sourceDir;
             package.delete_parent = true;
-            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [pending]);
+            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, []);
 
             var lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, ["chart.bmson"]);
             lookupCache.AddDir(candidateDir, ["keysound.wav"]);
 
             Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
-            Assert.AreEqual(pending.path, snapshot.RepresentativeChart.Path);
-            Assert.AreSame(pending.BmsonSong, snapshot.RepresentativeChart.BmsonSong);
+            Assert.AreEqual(pendingSong.path, snapshot.RepresentativeChart.Path);
+            Assert.AreSame(pendingSong, snapshot.RepresentativeChart.BmsonSong);
             Assert.IsNull(snapshot.RepresentativeChart.BmsFile);
             CollectionAssert.Contains(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "keysound");
 

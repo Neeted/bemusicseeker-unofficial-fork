@@ -457,7 +457,7 @@ public sealed class PlaylistUrlCompletionTests
             var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4004, "BmsonTable");
             InsertPlaylistHeader(tempDbPath, table);
-            var pending = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            var song = new LR2SongDBExtended.bmson_song
             {
                 path = Path.Combine(Path.GetTempPath(), "playlist-bmson-test", "song.bmson"),
                 folder = string.Empty,
@@ -466,8 +466,8 @@ public sealed class PlaylistUrlCompletionTests
                 level = 12,
                 md5 = "99999999999999999999999999999999",
                 sha256 = "8989898989898989898989898989898989898989898989898989898989898989"
-            });
-            var entry = new BMSTableEntry(pending)
+            };
+            var entry = new BMSTableEntry(ChartFileProjection.FromBmsonSong(song))
             {
                 folder = string.Empty,
                 playlist_id = table.playlist_id,

@@ -216,10 +216,6 @@ internal sealed class ChartResourceSnapshot
         {
             return;
         }
-        if (ChartFileKindResolver.IsBmsonChartFile(file))
-        {
-            return;
-        }
         BMSFile.SetBMSComponentFilesFromBMSFile(file);
     }
 

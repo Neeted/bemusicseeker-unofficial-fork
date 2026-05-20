@@ -119,20 +119,19 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Pending\chart.bmson",
             md5 = md5,
             sha256 = new string('a', 64)
-        });
-        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
+        };
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
         int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(0, addedRefs);
-        Assert.IsFalse(adapter.RefTables.Contains(table));
         Assert.IsNull(entry.GetCompatibilityAdapterForTest());
     }
 
