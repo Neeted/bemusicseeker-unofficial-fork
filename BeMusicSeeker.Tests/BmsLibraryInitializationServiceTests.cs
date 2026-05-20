@@ -2683,9 +2683,9 @@ public sealed class BmsLibraryInitializationServiceTests
             PackageChartEntry installedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
             PackageChartEntry unmatchedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(1, result.InstalledWarningCount);
-            Assert.IsNull(installedEntry.CompatibilityAdapter);
+            Assert.IsNull(installedEntry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsNull(unmatchedEntry.CompatibilityAdapter);
+            Assert.IsNull(unmatchedEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -2720,7 +2720,7 @@ public sealed class BmsLibraryInitializationServiceTests
             ChartPackage pendingPackage = result.PendingPackages.Single();
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
             Assert.AreEqual(1, result.StrictWarningCount);
-            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         });

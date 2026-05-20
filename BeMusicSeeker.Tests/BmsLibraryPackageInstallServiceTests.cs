@@ -170,11 +170,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(delta.HasChanges);
         Assert.AreEqual(1, delta.RemainingPackages.Count);
         Assert.AreSame(package, delta.RemainingPackages[0]);
-        Assert.IsNull(keepEntry.CompatibilityAdapter);
-        Assert.IsNull(removeEntry.CompatibilityAdapter);
+        Assert.IsNull(keepEntry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(removeEntry.GetCompatibilityAdapterForTest());
         Assert.AreEqual(1, package.ChartEntries.Count);
         Assert.AreEqual(keepEntry.Chart.Path, package.ChartEntries[0].Chart.Path);
-        Assert.IsNull(package.ChartEntries[0].CompatibilityAdapter);
+        Assert.IsNull(package.ChartEntries[0].GetCompatibilityAdapterForTest());
         Assert.AreEqual(0, delta.InstallPathsToDelete.Count);
     }
 
@@ -394,7 +394,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(0, result.DeferredBmsMaintenanceTargets.Count);
         Assert.AreEqual(1, result.DeferredBmsonMaintenanceSongs.Count);
         Assert.AreSame(bmsonSong, result.DeferredBmsonMaintenanceSongs[0]);
-        Assert.IsNull(bmsonEntry.CompatibilityAdapter);
+        Assert.IsNull(bmsonEntry.GetCompatibilityAdapterForTest());
         Assert.AreEqual(string.Empty, bmsonEntry.Chart.InstallDestination);
     }
 
@@ -438,7 +438,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }));
         ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingFile), adapterlessBmsonEntry]);
         pendingPackage.path = "C:\\Pending\\Pkg1";
-        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
 
         ForceInstallBatchResult result = service.ForceInstallPackages(
             [pendingPackage],
@@ -448,7 +448,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         Assert.AreEqual(1, result.Skipped);
         Assert.AreEqual(0, result.Processed);
-        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
     }
 
     [TestMethod]
@@ -482,7 +482,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsNull(bmsFile.instl_dst);
         Assert.AreEqual("C:\\Installed\\Target", bmsonAdapter.instl_dst);
         Assert.AreEqual(string.Empty, package.ChartEntries[1].Chart.InstallDestination);
-        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+        Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
         Assert.IsNull(adapterlessBmsonEntry.GetOrCreateCompatibilityAdapter().instl_dst);
     }
@@ -626,7 +626,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Packages.Count);
             Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
             Assert.AreEqual(1, result.Packages[0].ChartEntries.Count(entry => entry?.Chart?.Kind == ChartFileKind.Bmson));
-            Assert.IsTrue(result.Packages[0].ChartEntries.All(entry => entry.CompatibilityAdapter == null));
+            Assert.IsTrue(result.Packages[0].ChartEntries.All(entry => entry.GetCompatibilityAdapterForTest() == null));
         });
     }
 
@@ -674,15 +674,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
             bool applied = BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
 
             Assert.IsTrue(applied);
-            Assert.IsNull(rootEntry.CompatibilityAdapter);
-            Assert.IsNull(nestedEntry.CompatibilityAdapter);
+            Assert.IsNull(rootEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(nestedEntry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             StringAssert.Contains(ChartWarningCollection.BuildTooltipText(nestedEntry.Chart.Warnings), Resources.Warning_NestedChartFileInPackage);
             BMSFile materializedNestedAdapter = nestedEntry.GetOrCreateCompatibilityAdapter();
             Assert.IsNotNull(materializedNestedAdapter);
             Assert.IsTrue(materializedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
             PackageChartEntry normalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
-            Assert.IsNull(normalizedNestedEntry.CompatibilityAdapter);
+            Assert.IsNull(normalizedNestedEntry.GetCompatibilityAdapterForTest());
             BMSFile normalizedNestedAdapter = normalizedNestedEntry.GetOrCreateCompatibilityAdapter();
             Assert.IsTrue(normalizedNestedAdapter.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
             PackageChartEntry clearedNormalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
@@ -747,7 +747,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
-            Assert.IsNull(chartEntry.CompatibilityAdapter);
+            Assert.IsNull(chartEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
             Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             StringAssert.Contains(chartEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing).Message, "WAV");
@@ -784,9 +784,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             PackageChartEntry unmatchedEntry = result.DiscoveredPackages
                 .SelectMany(package => package.ChartEntries)
                 .First(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
-            Assert.IsNull(installedEntry.CompatibilityAdapter);
+            Assert.IsNull(installedEntry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsNull(unmatchedEntry.CompatibilityAdapter);
+            Assert.IsNull(unmatchedEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -823,7 +823,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
-                .Select(entry => entry.CompatibilityAdapter)
+                .Select(entry => entry.GetCompatibilityAdapterForTest())
                 .OfType<PendingChartEntry>()
                 .Single();
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
@@ -868,7 +868,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
-                .Select(entry => entry.CompatibilityAdapter)
+                .Select(entry => entry.GetCompatibilityAdapterForTest())
                 .OfType<PendingChartEntry>()
                 .Single();
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
@@ -912,7 +912,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
             PendingChartEntry chart = result.AutoInstallCandidates[0].ChartEntries
-                .Select(entry => entry.CompatibilityAdapter)
+                .Select(entry => entry.GetCompatibilityAdapterForTest())
                 .OfType<PendingChartEntry>()
                 .Single();
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
@@ -984,7 +984,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.AutoInstallCandidates[0].path, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
             PackageChartEntry chartEntry = result.AutoInstallCandidates[0].ChartEntries.Single();
-            Assert.IsNull(chartEntry.CompatibilityAdapter);
+            Assert.IsNull(chartEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(0, chartEntry.Chart.Warnings.Count);
@@ -1309,8 +1309,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(destinationDirectoryPath, package.path);
             Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), chart.path);
             Assert.AreEqual(1, package.ChartEntries.Count);
-            Assert.AreSame(chart, package.ChartEntries[0].CompatibilityAdapter);
-            Assert.IsNull(outsideBmsonEntry.CompatibilityAdapter);
+            Assert.AreSame(chart, package.ChartEntries[0].GetCompatibilityAdapterForTest());
+            Assert.IsNull(outsideBmsonEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -1399,7 +1399,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         Assert.AreEqual(1, result.SucceededInstall);
         Assert.IsTrue(checkedInstallDestination);
-        Assert.IsNull(entry.CompatibilityAdapter);
+        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
         Assert.AreEqual("C:\\Installed\\Install", entry.Chart.InstallDestination);
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
     }
@@ -1439,7 +1439,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             _ => { });
 
         Assert.AreEqual(1, result.Failed);
-        Assert.IsNull(entry.CompatibilityAdapter);
+        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
         Assert.AreEqual("C:\\Original", entry.Chart.InstallDestination);
         Assert.AreEqual("Original", entry.Chart.InstallDestinationTitle);
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
@@ -1547,7 +1547,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(moved);
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "InstalledAuto"), package.path);
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "InstalledAuto", "chart.bms"), chart.path);
-            Assert.IsNull(outsideBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(outsideBmsonEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -1612,8 +1612,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
             Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
-            Assert.IsNull(bmsonEntry.CompatibilityAdapter);
-            Assert.IsNull(result.AddedEntries[0].CompatibilityAdapter);
+            Assert.IsNull(bmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(result.AddedEntries[0].GetCompatibilityAdapterForTest());
         });
     }
 
@@ -1683,7 +1683,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(sourceBmsonPath, bmsonAdapter.path);
             Assert.AreSame(bmsonSong, bmsonAdapter.BmsonSong);
             Assert.AreEqual(destinationBmsonPath, result.AddedEntries[0].Chart.Path);
-            Assert.IsNull(result.AddedEntries[0].CompatibilityAdapter);
+            Assert.IsNull(result.AddedEntries[0].GetCompatibilityAdapterForTest());
         });
     }
 
@@ -1735,8 +1735,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(destinationDirectoryPath, package.path);
             Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
             Assert.AreEqual(destinationDirectoryPath, bmsonSong.folder);
-            Assert.IsNull(bmsonEntry.CompatibilityAdapter);
-            Assert.IsNull(package.ChartEntries.Single().CompatibilityAdapter);
+            Assert.IsNull(bmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(package.ChartEntries.Single().GetCompatibilityAdapterForTest());
             Assert.AreEqual(destinationBmsonPath, package.ChartEntries.Single().Chart.Path);
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
         });
@@ -1965,7 +1965,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
         });
     }
@@ -2001,7 +2001,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.IsFalse(File.Exists(bmsonPath));
         });
     }
@@ -2037,7 +2037,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
         });
     }
@@ -2073,7 +2073,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             Assert.AreEqual(0, result.ChartPathsToRemove.Count);
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(File.Exists(bmsonPath));
         });
     }
@@ -2096,7 +2096,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
 
             CollectionAssert.AreEqual(new[] { bmsFile }, result);
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -2111,7 +2111,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
 
         CollectionAssert.AreEqual(new[] { bmsFile }, result);
-        Assert.IsNull(bmsEntry.CompatibilityAdapter);
+        Assert.IsNull(bmsEntry.GetCompatibilityAdapterForTest());
     }
 
     [TestMethod]
@@ -2623,7 +2623,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         {
             return false;
         }
-        if (ReferenceEquals(entry.CompatibilityAdapter, targetFile))
+        if (ReferenceEquals(entry.GetCompatibilityAdapterForTest(), targetFile))
         {
             return true;
         }

@@ -79,13 +79,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.BMSFiles = [];
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            Assert.IsNull(pendingPackage.ChartEntries.Single().CompatibilityAdapter);
+            Assert.IsNull(pendingPackage.ChartEntries.Single().GetCompatibilityAdapterForTest());
 
             library.SearchEstimatedInstallationDirectory([PackageChartEntry.FromChartAdapter(selectedChart)], asParallel: false, fixMode: false);
 
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
             Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
-            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(chartPath, entry.Chart.Path);
         });
     }
@@ -132,7 +132,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartPackage bmsPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "chart.bms", "Regroup Bms"), destinationDirectoryPath);
             string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Regroup Bmson", "Bmson Artist");
             LR2SongDBExtended.bmson_song installedSong = BmsonSongParser.Parse(installedBmsonPath);
-            Assert.IsNull(adapterlessPackage.ChartEntries.Single().CompatibilityAdapter);
+            Assert.IsNull(adapterlessPackage.ChartEntries.Single().GetCompatibilityAdapterForTest());
 
             library.BMSFiles = [];
             library.BmsonSongs = [installedSong];
@@ -142,7 +142,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
             PendingChartEntry regroupedBmson = regroupedPackage.ChartEntries
-                .Select(entry => entry.CompatibilityAdapter)
+                .Select(entry => entry.GetCompatibilityAdapterForTest())
                 .OfType<PendingChartEntry>()
                 .Single();
             Assert.AreEqual(pendingBmsonPath, regroupedBmson.path);
@@ -171,8 +171,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             secondPackage.delete_parent = true;
             string installedBmsonPath = CreateHealthyBmsonFile(destinationDirectoryPath, "installed.bmson", "Duplicate Bmson", "Bmson Artist");
             LR2SongDBExtended.bmson_song installedSong = BmsonSongParser.Parse(installedBmsonPath);
-            Assert.IsNull(firstEntry.CompatibilityAdapter);
-            Assert.IsNull(secondEntry.CompatibilityAdapter);
+            Assert.IsNull(firstEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(secondEntry.GetCompatibilityAdapterForTest());
 
             library.BMSFiles = [];
             library.BmsonSongs = [installedSong];
@@ -183,7 +183,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartPackage regroupedPackage = library.ChartPackagesPending.Single();
             Assert.AreEqual(sourceDirectoryPath, regroupedPackage.path);
             Assert.AreEqual(1, regroupedPackage.ChartEntries.Count);
-            Assert.IsNull(regroupedPackage.ChartEntries.Single().CompatibilityAdapter);
+            Assert.IsNull(regroupedPackage.ChartEntries.Single().GetCompatibilityAdapterForTest());
             Assert.AreEqual(pendingBmsonPath, regroupedPackage.ChartEntries.Single().Chart.Path);
             Assert.AreEqual(destinationDirectoryPath, regroupedPackage.ChartEntries.Single().Chart.InstallDestination);
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
@@ -211,7 +211,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             InvokeReinitializePendingWarningsForPackage(library, package, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
-            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -232,7 +232,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             InvokeReinitializePendingWarningsForPackage(library, package, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
-            Assert.AreSame(adapter, entry.CompatibilityAdapter);
+            Assert.AreSame(adapter, entry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
             Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -424,7 +424,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
             Assert.AreEqual("Candidate A", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist A", entry.Chart.InstallDestinationArtist);
@@ -475,7 +475,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory([firstPackage, secondPackage]);
 
-            Assert.IsNull(firstEntry.CompatibilityAdapter);
+            Assert.IsNull(firstEntry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(string.IsNullOrWhiteSpace(firstEntry.Chart.InstallDestination));
             Assert.AreEqual("Candidate A", firstEntry.Chart.InstallDestinationTitle);
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, firstEntry.Chart.InstallDestinationSuggestions.ToArray());
@@ -849,7 +849,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchMergeDestinationForPendingPackage(pendingPackage);
 
-            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Bmson Artist", entry.Chart.InstallDestinationArtist);
@@ -1094,7 +1094,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(entry, destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
-            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Installed Artist", entry.Chart.InstallDestinationArtist);
@@ -1153,7 +1153,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(sourceEntry, destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
-            Assert.IsNull(sourceEntry.CompatibilityAdapter);
+            Assert.IsNull(sourceEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(destinationDirectoryPath, sourceEntry.Chart.InstallDestination);
             Assert.AreEqual("Destination Bmson", sourceEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Destination Artist", sourceEntry.Chart.InstallDestinationArtist);
@@ -1263,7 +1263,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(entry, candidateBDirectoryPath);
 
             Assert.IsTrue(succeeded);
-            Assert.IsNull(entry.CompatibilityAdapter);
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(candidateBDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Candidate B", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist B", entry.Chart.InstallDestinationArtist);

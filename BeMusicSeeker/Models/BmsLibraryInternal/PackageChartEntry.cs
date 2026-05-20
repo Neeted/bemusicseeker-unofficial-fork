@@ -62,8 +62,6 @@ internal sealed class PackageChartEntry
         }
     }
 
-    internal BMSFile CompatibilityAdapter => compatibilityAdapter;
-
     internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
 
     internal PackageChartEntry ToChartEntrySnapshot()

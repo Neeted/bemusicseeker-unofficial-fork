@@ -911,7 +911,7 @@ public sealed class PlaylistViewPipelineTests
         PackageChartEntry entry = target.ToPackageChartEntry();
 
         Assert.IsNotNull(entry);
-        Assert.IsNull(entry.CompatibilityAdapter);
+        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
         Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
         Assert.AreSame(bmson, entry.Chart.BmsonSong);
     }
@@ -932,7 +932,7 @@ public sealed class PlaylistViewPipelineTests
         PackageChartEntry entry = target.ToPackageChartEntry();
 
         Assert.IsNotNull(entry);
-        Assert.AreSame(file, entry.CompatibilityAdapter);
+        Assert.AreSame(file, entry.GetCompatibilityAdapterForTest());
         Assert.AreSame(file, entry.Chart.BmsFile);
     }
 
@@ -1142,7 +1142,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(1, snapshot.LooseEntries.Count);
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.LooseEntries[0].Chart.Kind);
-        Assert.IsNull(snapshot.LooseEntries[0].CompatibilityAdapter);
+        Assert.IsNull(snapshot.LooseEntries[0].GetCompatibilityAdapterForTest());
         Assert.AreEqual(0, adapterRequestCount);
     }
 
@@ -1184,7 +1184,7 @@ public sealed class PlaylistViewPipelineTests
         editEntry.ApplyInstallDestination("C:\\Installed\\Bmson", "Installed Bmson", "Installed Artist");
 
         Assert.AreEqual(0, adapterRequestCount);
-        Assert.IsNull(editEntry.CompatibilityAdapter);
+        Assert.IsNull(editEntry.GetCompatibilityAdapterForTest());
         Assert.AreEqual("C:\\Installed\\Bmson", editEntry.Chart.InstallDestination);
         Assert.AreEqual("Installed Bmson", editEntry.Chart.InstallDestinationTitle);
     }

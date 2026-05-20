@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -43,9 +44,10 @@ internal static class ChartPackageTestExtensions
         {
             return null!;
         }
-        if (entry.CompatibilityAdapter != null)
+        BMSFile existingAdapter = entry.GetCompatibilityAdapterForTest();
+        if (existingAdapter != null)
         {
-            return entry.CompatibilityAdapter;
+            return existingAdapter;
         }
 
         BMSFile bmsAdapter = entry.GetOrCreateBmsFormatAdapter();
@@ -73,5 +75,11 @@ internal static class ChartPackageTestExtensions
         bmsonAdapter.InstallDestinationSuggestions = chart.InstallDestinationSuggestions ?? [];
         compatibilityAdapterField?.SetValue(entry, bmsonAdapter);
         return bmsonAdapter;
+    }
+
+    internal static BMSFile GetCompatibilityAdapterForTest(this PackageChartEntry entry)
+    {
+        Assert.IsNotNull(compatibilityAdapterField, "PackageChartEntry compatibility adapter field was not found.");
+        return entry == null ? null! : (BMSFile)compatibilityAdapterField.GetValue(entry)!;
     }
 }

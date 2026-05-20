@@ -540,7 +540,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTables(table);
 
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -566,8 +566,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTables(table);
 
-            Assert.IsNull(matchingBmsonEntry.CompatibilityAdapter);
-            Assert.IsNull(unmatchedBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(matchingBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(unmatchedBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(unmatchedBmsonEntry.Chart).Symbols);
@@ -599,7 +599,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTables(table);
 
-            Assert.AreSame(adapter, matchingBmsonEntry.CompatibilityAdapter);
+            Assert.AreSame(adapter, matchingBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(0, adapter.RefTables.Count);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
@@ -621,7 +621,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
 
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -645,8 +645,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
 
-            Assert.IsNull(matchingBmsonEntry.CompatibilityAdapter);
-            Assert.IsNull(unmatchedBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(matchingBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(unmatchedBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(unmatchedBmsonEntry.Chart).Symbols);
@@ -672,12 +672,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             BMSTable oldTable = CreateTable("Old", "O", oldHash);
             BMSTable newTable = CreateTable("New", "N", newHash);
             library.AddReferenceBMSTables(oldTable);
-            Assert.IsNull(oldOnlyBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(oldOnlyBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual("O", library.GetPlaylistReferenceDisplay(oldOnlyBmsonEntry.Chart).Symbols);
 
             library.ReplaceReferenceBMSTable(oldTable, newTable);
 
-            Assert.IsNull(oldOnlyBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(oldOnlyBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(oldOnlyBmsonEntry.Chart).Symbols);
         });
     }
@@ -700,7 +700,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.SynchronizeReferenceBMSTables([table], suppressFilePropertyChanged: true);
 
-            Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(adapterlessBmsonEntry.GetCompatibilityAdapterForTest());
         });
     }
 
@@ -722,14 +722,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ]);
             BMSTable table = CreateTableWithHashes("Sha", "S", md5: string.Empty, sha256: sha256);
             library.AddReferenceBMSTables(table);
-            Assert.IsNull(matchingBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(matchingBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual("S", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
 
             List<BMSTableEntry> removedEntries = [.. table.entries];
             table.entries.Clear();
             library.RemoveReferenceBMSTables(table, removedEntries);
 
-            Assert.IsNull(matchingBmsonEntry.CompatibilityAdapter);
+            Assert.IsNull(matchingBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
         });
     }
