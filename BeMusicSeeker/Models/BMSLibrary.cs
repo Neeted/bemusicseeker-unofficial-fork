@@ -9079,22 +9079,23 @@ reportProgress,
             LogInstallPerformance("estimated_merge_skip reason=no_target");
             return;
         }
+        List<PackageChartEntry> entries = [.. list.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    ClearDeferredEstimateReasonForFilesUnsafe(list);
+                    ClearDeferredEstimateReasonForEntriesUnsafe(entries);
                 }
             }
         }
-        foreach (BMSFile item in list)
+        foreach (PackageChartEntry entry in entries)
         {
-            item.instl_dst = null;
-            SearchEstimatedInstallationDirectoryForChartsCore([item], asParallel: true, ChartInstallationEstimateMode.MergeCandidateOnly);
+            entry.ClearInstallDestination();
+            SearchEstimatedInstallationDirectoryForChartsCore(null, [], asParallel: true, ChartInstallationEstimateMode.MergeCandidateOnly, [entry]);
         }
-        int num = list.Count(f => !string.IsNullOrWhiteSpace(f.instl_dst));
+        int num = entries.Count(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination));
         if (num == 0)
         {
             LogInstallPerformance("estimated_merge_skip reason=unresolved targets=" + list.Count);
