@@ -319,7 +319,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         List<PendingChartDeletionTarget> deduplicated = [];
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSFile> references = [];
+        HashSet<ChartFile> references = [];
         foreach (PendingChartDeletionTarget target in targets ?? [])
         {
             if (target == null)
@@ -334,7 +334,7 @@ internal sealed class BmsLibraryPackageInstallService
                     continue;
                 }
             }
-            else if (target.CompatibilityFile != null && !references.Add(target.CompatibilityFile))
+            else if (target.Chart != null && !references.Add(target.Chart))
             {
                 continue;
             }
@@ -2260,14 +2260,13 @@ internal sealed class BmsLibraryPackageInstallService
         var selectedPaths = new HashSet<string>(
             selectedTargets.Select(target => target.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var selectedFileRefs = new HashSet<BMSFile>(selectedTargets.Select(target => target.CompatibilityFile).Where(file => file != null));
         var handledByFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var blockedByFailedFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
 
         if (deleteContainingPackageFoldersWhenNoBms)
         {
-            foreach (ChartPackage pendingPackage in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(pendingPackages, selectedPaths, selectedFileRefs))
+            foreach (ChartPackage pendingPackage in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(pendingPackages, selectedPaths))
             {
                 if (!Directory.Exists(pendingPackage.path))
                 {
@@ -2318,14 +2317,7 @@ internal sealed class BmsLibraryPackageInstallService
                 if (File.Exists(pendingChartPath))
                 {
                     fileMutationService.DeleteFileShell(pendingChartPath, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
-                    if (pendingChart.CompatibilityFile != null)
-                    {
-                        result.FilesToRemove.Add(pendingChart.CompatibilityFile);
-                    }
-                    else
-                    {
-                        result.ChartPathsToRemove.Add(pendingChartPath);
-                    }
+                    result.ChartPathsToRemove.Add(pendingChartPath);
                     result.Removed++;
                 }
                 else
@@ -2350,17 +2342,14 @@ internal sealed class BmsLibraryPackageInstallService
 
     private sealed class PendingChartDeletionTarget
     {
-        private PendingChartDeletionTarget(ChartFile chart, BMSFile compatibilityFile)
+        private PendingChartDeletionTarget(ChartFile chart)
         {
             Chart = chart;
-            CompatibilityFile = compatibilityFile;
         }
 
         internal ChartFile Chart { get; }
 
-        internal BMSFile CompatibilityFile { get; }
-
-        internal string Path => Chart?.Path ?? CompatibilityFile?.path;
+        internal string Path => Chart?.Path;
 
         internal static PendingChartDeletionTarget FromChartFile(ChartFile chart)
         {
@@ -2368,7 +2357,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 return null;
             }
-            return new PendingChartDeletionTarget(chart, chart.Kind == ChartFileKind.Bms ? chart.BmsFile : null);
+            return new PendingChartDeletionTarget(chart);
         }
     }
 
@@ -2387,19 +2376,6 @@ internal sealed class BmsLibraryPackageInstallService
             entry?.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
             entry?.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
         }
-    }
-
-    private static bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
-    {
-        if (file == null)
-        {
-            return false;
-        }
-        if (removedFiles != null && removedFiles.Contains(file))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
     }
 
     private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)

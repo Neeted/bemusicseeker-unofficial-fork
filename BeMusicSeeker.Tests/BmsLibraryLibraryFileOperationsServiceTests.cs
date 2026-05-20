@@ -140,8 +140,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         List<ChartPackage> result = service.GetPendingPackagesFullyCoveredBySelection(
             [pkg1, pkg2],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedA.path, selectedB.path, partial.path },
-            [selectedA, selectedB, partial]);
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedA.path, selectedB.path, partial.path });
 
         CollectionAssert.AreEqual(new[] { pkg1 }, result);
     }

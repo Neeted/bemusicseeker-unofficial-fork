@@ -1869,7 +1869,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Removed);
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
-            Assert.AreEqual(0, result.FilesToRemove.Count);
             CollectionAssert.AreEqual(new[] { chartPath }, result.ChartPathsToRemove);
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
         });
@@ -1905,7 +1904,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Removed);
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
-            Assert.AreEqual(0, result.FilesToRemove.Count);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
@@ -1942,7 +1940,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Removed);
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
-            Assert.AreEqual(0, result.FilesToRemove.Count);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.IsFalse(File.Exists(bmsonPath));
@@ -1979,7 +1976,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Removed);
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
-            Assert.AreEqual(0, result.FilesToRemove.Count);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
@@ -2016,7 +2012,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Removed);
             Assert.AreEqual(1, result.Failed);
             Assert.AreEqual(0, result.Skipped);
-            Assert.AreEqual(0, result.FilesToRemove.Count);
             Assert.AreEqual(0, result.ChartPathsToRemove.Count);
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
             Assert.IsTrue(File.Exists(bmsonPath));

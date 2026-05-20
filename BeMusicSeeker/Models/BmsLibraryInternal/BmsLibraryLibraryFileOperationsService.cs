@@ -896,13 +896,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<ChartPackage> pendingPackages, HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
+    public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<ChartPackage> pendingPackages, HashSet<string> selectedPaths)
     {
         List<ChartPackage> result = [];
         foreach (ChartPackage package in (pendingPackages ?? []).Where(pkg => pkg != null))
         {
             List<PackageChartEntry> packageEntries = package.ChartEntries;
-            if (packageEntries.Count > 0 && packageEntries.All(entry => IsMatchedRemovedEntry(entry, selectedPaths, selectedFileRefs)))
+            if (packageEntries.Count > 0 && packageEntries.All(entry => IsMatchedRemovedEntry(entry, selectedPaths)))
             {
                 result.Add(package);
             }
@@ -910,28 +910,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return result;
     }
 
-    public bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
-    {
-        if (file == null)
-        {
-            return false;
-        }
-        if (removedFiles != null && removedFiles.Contains(file))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
-    }
-
-    private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
+    private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths)
     {
         if (entry?.Chart == null)
         {
             return false;
-        }
-        if (entry.CompatibilityAdapter != null && removedFiles != null && removedFiles.Contains(entry.CompatibilityAdapter))
-        {
-            return true;
         }
         return !string.IsNullOrWhiteSpace(entry.Chart.Path) && removedPaths != null && removedPaths.Contains(entry.Chart.Path);
     }
