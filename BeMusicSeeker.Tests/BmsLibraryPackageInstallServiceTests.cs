@@ -2084,7 +2084,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void GetPendingBmsFormatChartFilesSnapshot_UsesBmsStorageOwnerWithoutCompatibilityAdapter()
+    public void GetPendingBmsFormatChartFilesSnapshot_UsesBmsStorageOwnerFromChartFile()
     {
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
@@ -2094,7 +2094,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
 
         CollectionAssert.AreEqual(new[] { bmsFile }, result);
-        Assert.IsNull(bmsEntry.GetCompatibilityAdapterForTest());
+        Assert.AreSame(bmsFile, bmsEntry.GetCompatibilityAdapterForTest());
     }
 
     [TestMethod]

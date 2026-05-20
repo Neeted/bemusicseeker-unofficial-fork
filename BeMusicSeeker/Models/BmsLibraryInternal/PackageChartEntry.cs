@@ -9,8 +9,6 @@ internal sealed class PackageChartEntry
 {
     private ChartFile chart;
 
-    private BMSFile compatibilityAdapter;
-
     private readonly Dictionary<ChartWarningKind, ChartWarning> pendingWarnings = [];
 
     private bool hasPendingWarningProjection;
@@ -25,10 +23,9 @@ internal sealed class PackageChartEntry
 
     private bool hasInstallDestinationProjection;
 
-    internal PackageChartEntry(ChartFile chart, BMSFile compatibilityAdapter = null)
+    internal PackageChartEntry(ChartFile chart)
     {
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
-        this.compatibilityAdapter = ChartFileKindResolver.IsBmsChartFile(compatibilityAdapter) ? compatibilityAdapter : null;
         if (GetBmsFormatMirror() == null)
         {
             ReplacePendingWarnings(chart.Warnings);
@@ -36,8 +33,8 @@ internal sealed class PackageChartEntry
         }
     }
 
-    internal PackageChartEntry(BMSFile compatibilityAdapter)
-        : this(ChartFileProjection.FromBmsFile(compatibilityAdapter), compatibilityAdapter)
+    internal PackageChartEntry(BMSFile bmsFile)
+        : this(ChartFileProjection.FromBmsFile(bmsFile))
     {
     }
 
@@ -510,9 +507,7 @@ internal sealed class PackageChartEntry
 
     private BMSFile GetBmsFormatMirror()
     {
-        return ChartFileKindResolver.IsBmsChartFile(compatibilityAdapter)
-            ? compatibilityAdapter
-            : chart?.Kind == ChartFileKind.Bms ? chart.BmsFile : null;
+        return chart?.Kind == ChartFileKind.Bms ? chart.BmsFile : null;
     }
 
     internal static PackageChartEntry FromPath(string filePath)
