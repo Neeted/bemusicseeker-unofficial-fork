@@ -61,29 +61,6 @@ internal sealed class ChartOperationTarget
 
     internal ChartOperationTarget(
         ChartFile chart,
-        BMSFile compatibilityBmsFile,
-        BMSTableEntry playlistEntry,
-        ChartOperationSourceScope sourceScope,
-        bool isOwned,
-        bool isPending,
-        bool isPlaylistMissing,
-        ChartOperationCapabilities capabilities,
-        PackageChartEntry packageEntry = null)
-        : this(
-            chart,
-            () => compatibilityBmsFile,
-            playlistEntry,
-            sourceScope,
-            isOwned,
-            isPending,
-            isPlaylistMissing,
-            capabilities,
-            packageEntry)
-    {
-    }
-
-    internal ChartOperationTarget(
-        ChartFile chart,
         Func<BMSFile> compatibilityBmsFileProvider,
         BMSTableEntry playlistEntry,
         ChartOperationSourceScope sourceScope,

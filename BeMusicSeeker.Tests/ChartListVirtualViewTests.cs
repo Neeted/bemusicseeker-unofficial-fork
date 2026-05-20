@@ -860,7 +860,7 @@ public sealed class ChartListVirtualViewTests
             ChartFile standaloneChart = ChartFileProjection.FromBmsonSong(bmsonSong);
             var standaloneTarget = new ChartOperationTarget(
                 standaloneChart,
-                standaloneAdapter,
+                () => standaloneAdapter,
                 null,
                 ChartOperationSourceScope.PendingPackage,
                 isOwned: false,

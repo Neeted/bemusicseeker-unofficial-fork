@@ -1658,7 +1658,7 @@ public sealed class MainWindowContextMenuResourceTests
             kind == ChartFileKind.Bmson ? new LR2SongDBExtended.bmson_song { path = path } : null);
         return new ChartOperationTarget(
             chart,
-            bmsFile,
+            () => bmsFile,
             null,
             ChartOperationSourceScope.Library,
             isOwned: true,
