@@ -8856,6 +8856,45 @@ reportProgress,
         SearchEstimatedInstallationDirectoryForChartsCore([bmsFile], asParallel, fixMode);
     }
 
+    private void SearchEstimatedInstallationDirectoryCore(PackageChartEntry chartEntry, bool asParallel = true, bool fixMode = false)
+    {
+        if (chartEntry?.Chart == null)
+        {
+            throw new ArgumentNullException("chartEntry");
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockPendingInstallCharts.GetWriterGuard())
+            {
+                ClearDeferredEstimateReasonForEntriesUnsafe([chartEntry]);
+            }
+        }
+        bool resolvedInstalledDirectory = false;
+        if (!fixMode && chartEntry.Chart.Kind == ChartFileKind.Bmson)
+        {
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+            {
+                using (rwlockPendingInstallCharts.GetReaderGuard())
+                {
+                    if (ContainsInstalledChartUnsafe(chartEntry.Chart))
+                    {
+                        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), chartEntry.Chart);
+                        if (installedDirectories.Count == 1)
+                        {
+                            ApplyResolvedInstallDestinationToEntries([chartEntry], installedDirectories[0]);
+                            resolvedInstalledDirectory = true;
+                        }
+                    }
+                }
+            }
+            if (resolvedInstalledDirectory)
+            {
+                return;
+            }
+        }
+        SearchEstimatedInstallationDirectoryForChartsCore(null, [], asParallel, fixMode ? ChartInstallationEstimateMode.ReinstallCorrection : ChartInstallationEstimateMode.Normal, [chartEntry]);
+    }
+
     public void SearchEstimatedInstallationDirectory(BMSFile bmsFile, bool asParallel = true, bool fixMode = false)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -8902,15 +8941,18 @@ reportProgress,
             {
                 packageTargets = [.. ChartPackagesPending.Where(package => package != null && PackageContainsAnyChartTarget(package, targetFileSet, targetPathSet))];
             }
-            List<BMSFile> looseFiles = [.. targetFiles.Where(file => !PackageTargetsContainChartFile(packageTargets, file))];
-            if (!fixMode && looseFiles.Count == 0 && packageTargets.Count > 1)
+            List<PackageChartEntry> looseEntries = [.. targetFiles
+                .Where(file => !PackageTargetsContainChartFile(packageTargets, file))
+                .Select(PackageChartEntry.FromCompatibilityAdapter)
+                .Where(entry => entry?.Chart != null)];
+            if (!fixMode && looseEntries.Count == 0 && packageTargets.Count > 1)
             {
                 ProcessManualPackageEstimateBatch(packageTargets);
             }
             else
             {
                 List<object> workItems = [.. packageTargets.Cast<object>()
-, .. looseFiles.Cast<object>()];
+, .. looseEntries.Cast<object>()];
                 int totalWorkCount = workItems.Count;
                 RunPendingEstimateExclusive(delegate
                 {
@@ -8919,7 +8961,7 @@ reportProgress,
                         object workItem = workItems[i];
                         string displayName = workItem is ChartPackage package
                             ? PendingInstallEstimateBatchRequest.GetDisplayName(package.path)
-                            : PendingInstallEstimateBatchRequest.GetDisplayName(((BMSFile)workItem).path);
+                            : PendingInstallEstimateBatchRequest.GetDisplayName(((PackageChartEntry)workItem).Chart.Path);
                         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i, displayName);
                         if (workItem is ChartPackage targetPackage)
                         {
@@ -8927,7 +8969,7 @@ reportProgress,
                         }
                         else
                         {
-                            SearchEstimatedInstallationDirectoryCore((BMSFile)workItem, asParallel, fixMode);
+                            SearchEstimatedInstallationDirectoryCore((PackageChartEntry)workItem, asParallel, fixMode);
                         }
                         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
                     }
