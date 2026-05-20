@@ -9342,7 +9342,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> ChartInfoParseFailedChartFiles
+    private IEnumerable<ChartFile> ChartInfoParseFailedChartFiles
     {
         get
         {
@@ -10375,7 +10375,13 @@ public class MainWindowViewModel : ViewModel
         viewUpdateMode treeMode = treeViewFilterTypeSelected;
         object subsetParameter = GetVirtualChartSubsetParameter(treeMode, parameter);
         if (!IsVirtualChartSubsetRequestModeSupported(mode, treeMode)
-            || !TryGetVirtualChartSubsetSourceFiles(treeMode, subsetParameter, out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles, out IEnumerable<LR2SongDBExtended.bmson_song> subsetBmsonSongs, out string subsetName))
+            || !TryGetVirtualChartSubsetSourceFiles(
+                treeMode,
+                subsetParameter,
+                out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles,
+                out IEnumerable<LR2SongDBExtended.bmson_song> subsetBmsonSongs,
+                out IEnumerable<ChartFile> subsetCharts,
+                out string subsetName))
         {
             return false;
         }
@@ -10397,12 +10403,18 @@ public class MainWindowViewModel : ViewModel
 
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
-            subsetFiles,
-            subsetBmsonSongs,
-            applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-            GetPlaylistReferenceDisplayForSourceRow,
-            materializeBmsonAdapterOnDemand: !IsVirtualPackageSubsetTreeMode(treeMode));
+        List<ChartListSourceRow> sourceRows = subsetCharts != null
+            ? ChartListSourceRow.BuildStandardLibraryRows(
+                subsetCharts,
+                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
+                GetPlaylistReferenceDisplayForSourceRow,
+                materializeBmsonAdapterOnDemand: !IsVirtualPackageSubsetTreeMode(treeMode))
+            : ChartListSourceRow.BuildStandardLibraryRows(
+                subsetFiles,
+                subsetBmsonSongs,
+                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
+                GetPlaylistReferenceDisplayForSourceRow,
+                materializeBmsonAdapterOnDemand: !IsVirtualPackageSubsetTreeMode(treeMode));
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
         long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
@@ -10543,22 +10555,24 @@ public class MainWindowViewModel : ViewModel
         {
             return null;
         }
-        if (sourceRow.BmsFile == null)
+        LibraryChartRow row;
+        if (sourceRow.HasSourceChartProjection)
+        {
+            row = LibraryChartRow.FromChartFile(sourceRow.Chart);
+        }
+        else if (sourceRow.BmsFile == null)
         {
             if (sourceRow.BmsonSong == null)
             {
                 return null;
             }
-            var bmsonRow = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
-            ApplyBmsonChartAdapterProvider(bmsonRow);
-            if (applyResourceHealthProjection)
-            {
-                ApplyResourceHealthProjectionProvider(bmsonRow);
-            }
-            ApplyPlaylistReferenceDisplayProvider(bmsonRow);
-            return bmsonRow;
+            row = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
         }
-        var row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
+        else
+        {
+            row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
+        }
+
         ApplyBmsonChartAdapterProvider(row);
         if (applyResourceHealthProjection)
         {
@@ -11374,9 +11388,11 @@ public class MainWindowViewModel : ViewModel
         object parameter,
         out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
         out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
+        out IEnumerable<ChartFile> sourceCharts,
         out string subsetName)
     {
         sourceBmsonSongs = null;
+        sourceCharts = null;
         switch (treeMode)
         {
             case viewUpdateMode.FileMissingFilterSelected:
@@ -11406,7 +11422,8 @@ public class MainWindowViewModel : ViewModel
                 subsetName = "zero_note";
                 return true;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
-                sourceFiles = ChartInfoParseFailedChartFiles;
+                sourceFiles = null;
+                sourceCharts = ChartInfoParseFailedChartFiles;
                 subsetName = "chart_info_parse_error";
                 return true;
             case viewUpdateMode.NewlyInstalledFolderSelected:
@@ -11430,6 +11447,7 @@ public class MainWindowViewModel : ViewModel
             default:
                 sourceFiles = null;
                 sourceBmsonSongs = null;
+                sourceCharts = null;
                 subsetName = string.Empty;
                 return false;
         }

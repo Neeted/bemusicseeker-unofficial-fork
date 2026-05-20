@@ -108,11 +108,7 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        if (chart.BmsFile != null)
-        {
-            return FromBmsFile(chart.BmsFile);
-        }
-        return new LibraryChartRow(null, chart.BmsonSong, chart);
+        return new LibraryChartRow(chart.BmsFile, chart.BmsonSong, chart);
     }
 
     internal static LibraryChartRow FromPackageChartEntry(PackageChartEntry entry)

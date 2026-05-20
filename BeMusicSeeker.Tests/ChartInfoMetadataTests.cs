@@ -3073,19 +3073,28 @@ createTempDirectory);
                 BmsonSongs = [bmsonSong]
             };
 
-            List<BMSFile> rows = [.. library.ChartInfoParseFailedChartFiles];
+            List<ChartFile> rows = [.. library.ChartInfoParseFailedChartFiles];
 
             Assert.AreEqual(2, rows.Count);
             CollectionAssert.AreEqual(
                 new[] { bmsFile.path, bmsonSong.path }.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray(),
-                rows.Select(row => row.path).ToArray());
-            foreach (BMSFile row in rows)
+                rows.Select(row => row.Path).ToArray());
+            foreach (ChartFile row in rows)
             {
-                Assert.IsInstanceOfType(row, typeof(PendingChartEntry));
-                Assert.IsTrue(row.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
-                Assert.IsTrue(row.HasHighlightedWarning);
-                Assert.AreEqual("[1] メタデータ解析エラー", row.WarningDigestText);
-                StringAssert.Contains(row.WarningTooltipText, "メタデータ解析に失敗しました。");
+                Assert.IsTrue(row.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
+                Assert.IsTrue(ChartWarningProjectionFormatter.HasHighlightedWarning(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
+                Assert.AreEqual("[1] メタデータ解析エラー", ChartWarningProjectionFormatter.BuildDigestText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
+                StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(row, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), "メタデータ解析に失敗しました。");
+
+                LibraryChartRow materializedRow = LibraryChartRow.FromChartFile(row);
+                Assert.IsTrue(materializedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
+                Assert.IsTrue(materializedRow.HasHighlightedWarning);
+                Assert.AreEqual("[1] メタデータ解析エラー", materializedRow.WarningDigestText);
+
+                ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(row);
+                LibraryChartRow virtualMaterializedRow = LibraryChartRow.FromChartFile(sourceRow.Chart);
+                Assert.IsTrue(virtualMaterializedRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ChartInfoParseFailure));
+                Assert.AreEqual("[1] メタデータ解析エラー", virtualMaterializedRow.WarningDigestText);
             }
             Assert.IsFalse(bmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
             Assert.IsFalse(staleBmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));

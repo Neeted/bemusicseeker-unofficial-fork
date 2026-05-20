@@ -1111,7 +1111,7 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesZeroNote => GetBMSFilesZeroNote(BMSFiles);
 
-    public IEnumerable<BMSFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
+    internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
 
     /// <summary>
     /// インストール待ち（Pending状態）の chart package のコレクションです。UIスレッドへのディスパッチに対応しています。
@@ -7407,7 +7407,7 @@ reportProgress,
         return maintenanceService.GetZeroNoteFiles(bmsFiles);
     }
 
-    public List<BMSFile> GetChartInfoParseFailedChartFiles()
+    internal List<ChartFile> GetChartInfoParseFailedChartFiles()
     {
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures = dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout);
         if (failures.Count == 0)
@@ -7421,16 +7421,15 @@ reportProgress,
             bmsSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
             bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
         }
-        List<BMSFile> result = [];
+        List<ChartFile> result = [];
         foreach (BMSFile file in bmsSnapshot)
         {
             if (string.IsNullOrWhiteSpace(file.hash) || !failures.TryGetValue(file.hash, out LR2SongDBExtended.chart_info_parse_failure failure))
             {
                 continue;
             }
-            var entry = PendingChartEntry.CreateFromBmsFile(file);
-            ApplyChartInfoParseFailureWarning(entry, failure);
-            result.Add(entry);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
+            result.Add(ApplyChartInfoParseFailureWarning(chart, failure));
         }
         foreach (LR2SongDBExtended.bmson_song song in bmsonSnapshot)
         {
@@ -7438,22 +7437,23 @@ reportProgress,
             {
                 continue;
             }
-            var entry = PendingChartEntry.CreateFromBmsonSong(song);
-            ApplyChartInfoParseFailureWarning(entry, failure);
-            result.Add(entry);
+            ChartFile chart = ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false);
+            result.Add(ApplyChartInfoParseFailureWarning(chart, failure));
         }
         return [.. result
-            .Where(file => file != null)
-            .OrderBy(file => file.path ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
+            .Where(chart => chart != null)
+            .OrderBy(chart => chart.Path ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
     }
 
-    private static void ApplyChartInfoParseFailureWarning(BMSFile file, LR2SongDBExtended.chart_info_parse_failure failure)
+    private static ChartFile ApplyChartInfoParseFailureWarning(ChartFile chart, LR2SongDBExtended.chart_info_parse_failure failure)
     {
-        if (file == null || failure == null)
+        if (chart == null || failure == null)
         {
-            return;
+            return chart;
         }
-        file.SetWarning(ChartWarningKind.ChartInfoParseFailure, BuildChartInfoParseFailureWarningMessage(failure));
+        return ChartFileProjection.WithWarnings(
+            chart,
+            [ChartWarning.Create(ChartWarningKind.ChartInfoParseFailure, BuildChartInfoParseFailureWarningMessage(failure))]);
     }
 
     private static string BuildChartInfoParseFailureWarningMessage(LR2SongDBExtended.chart_info_parse_failure failure)
