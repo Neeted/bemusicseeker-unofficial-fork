@@ -2461,6 +2461,49 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    [TestMethod]
+    public void MovePackageFiles_DeletesParentDirectory_WhenRemainingBmsonChartIsInstalled()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+            string remainingBmsonPath = Path.Combine(setup.ParentDirectoryPath, "remain-installed.bmson");
+            File.WriteAllText(remainingBmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            string remainingHash = PendingChartEntry.GetPrimaryLookupHash(BmsonSongParser.Parse(remainingBmsonPath));
+
+            bool moved = ExecuteSingleChartParentDeleteMove(
+                setup,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { remainingHash },
+                out List<string> logs);
+
+            Assert.IsTrue(moved);
+            Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
+            Assert.IsTrue(logs.Any(message => message.IndexOf("Folder deletion success:", StringComparison.OrdinalIgnoreCase) >= 0 && message.IndexOf("remaining_files_all_installed_charts", StringComparison.OrdinalIgnoreCase) >= 0));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_SafeCleanupBmsonHashCheckDoesNotMaterializePendingAdapter()
+    {
+        string root = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryPackageInstallService.cs"));
+        int methodStart = source.IndexOf("private static bool TryGetRemainingChartLookupKey", StringComparison.Ordinal);
+        int methodEnd = source.IndexOf("private static bool IsSupportedChartFilePath", methodStart, StringComparison.Ordinal);
+        Assert.IsTrue(methodStart >= 0);
+        Assert.IsTrue(methodEnd > methodStart);
+        string method = source.Substring(methodStart, methodEnd - methodStart);
+        int bmsonBranchStart = method.IndexOf("PendingChartEntry.IsBmsonFilePath(remainingFilePath)", StringComparison.Ordinal);
+        int nonBmsonBranchStart = method.IndexOf(": PendingChartEntry.GetPrimaryLookupHash", bmsonBranchStart, StringComparison.Ordinal);
+        Assert.IsTrue(bmsonBranchStart >= 0);
+        Assert.IsTrue(nonBmsonBranchStart > bmsonBranchStart);
+        string bmsonBranch = method.Substring(bmsonBranchStart, nonBmsonBranchStart - bmsonBranchStart);
+
+        StringAssert.Contains(bmsonBranch, "BmsonSongParser.Parse(remainingFilePath)");
+        Assert.IsFalse(bmsonBranch.Contains("PendingChartEntry.CreateFromFilePath"));
+    }
+
     [DataTestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]

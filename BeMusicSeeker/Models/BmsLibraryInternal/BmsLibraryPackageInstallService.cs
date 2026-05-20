@@ -1175,21 +1175,8 @@ internal sealed class BmsLibraryPackageInstallService
                 return false;
             }
 
-            BMSFile remainingChart;
-            try
+            if (!TryGetRemainingChartLookupKey(remainingFilePath, out string remainingLookupKey, out reason))
             {
-                remainingChart = PendingChartEntry.CreateFromFilePath(remainingFilePath);
-            }
-            catch (Exception ex)
-            {
-                reason = "remaining_chart_load_failed path=" + remainingFilePath + " errorType=" + ex.GetType().FullName + " error=" + ex.Message;
-                return false;
-            }
-
-            string remainingLookupKey = PendingChartEntry.GetPrimaryLookupHash(remainingChart);
-            if (remainingChart == null || string.IsNullOrWhiteSpace(remainingLookupKey))
-            {
-                reason = "remaining_chart_hash_unavailable path=" + remainingFilePath;
                 return false;
             }
 
@@ -1201,6 +1188,30 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         reason = "safe_cleanup_allowed remaining_files_all_installed_charts count=" + remainingFiles.Count;
+        return true;
+    }
+
+    private static bool TryGetRemainingChartLookupKey(string remainingFilePath, out string lookupKey, out string reason)
+    {
+        lookupKey = null;
+        reason = null;
+        try
+        {
+            lookupKey = PendingChartEntry.IsBmsonFilePath(remainingFilePath)
+                ? PendingChartEntry.GetPrimaryLookupHash(BmsonSongParser.Parse(remainingFilePath))
+                : PendingChartEntry.GetPrimaryLookupHash(PendingChartEntry.CreateFromFilePath(remainingFilePath));
+        }
+        catch (Exception ex)
+        {
+            reason = "remaining_chart_load_failed path=" + remainingFilePath + " errorType=" + ex.GetType().FullName + " error=" + ex.Message;
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(lookupKey))
+        {
+            reason = "remaining_chart_hash_unavailable path=" + remainingFilePath;
+            return false;
+        }
         return true;
     }
 
