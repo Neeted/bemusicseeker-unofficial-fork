@@ -4558,6 +4558,7 @@ public class MainWindowViewModel : ViewModel
                         }
                         bmsTable = await ownerViewModel.tables.ResetBMSTableAsync(bmsTable, uri);
                         ownerViewModel.files.ReplaceReferenceBMSTable(sourceTable, bmsTable, oldEntriesSnapshot);
+                        ownerViewModel.InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(sourceTable, bmsTable, uri, bmsTable.last_update != last_update));
                         flag = false;
                     }
@@ -9087,11 +9088,12 @@ public class MainWindowViewModel : ViewModel
     {
         return delegate (BMSPlaylist.PlaylistTableUpdateContext updateContext)
         {
-            if (updateContext == null || !updateContext.Updated || files == null)
+            if (updateContext == null || (!updateContext.Updated && !updateContext.ReferenceEntriesChanged) || files == null)
             {
                 return;
             }
             files.ReplaceReferenceBMSTable(updateContext.OldTable, updateContext.NewTable, updateContext.OldEntriesSnapshot, updateContext.NewEntriesSnapshot);
+            InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
         };
     }
 

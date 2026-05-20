@@ -1072,6 +1072,37 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistReferenceReplace_InvalidatesIndexBackedBmsonDisplay()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string propertyDialogSave = ExtractBetween(
+            viewModelCode,
+            "internal async Task ApplyPostSaveUpdatesAsync()",
+            "protected override void Dispose(bool disposing)");
+        string replaceCallback = ExtractBetween(
+            viewModelCode,
+            "private Action<BMSPlaylist.PlaylistTableUpdateContext> CreatePlaylistReferenceReplaceUpdateCallback()",
+            "private static bool ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync");
+
+        AssertReplaceInvalidatesReferenceSortKey(propertyDialogSave);
+        StringAssert.Contains(replaceCallback, "ReferenceEntriesChanged");
+        AssertReplaceInvalidatesReferenceSortKey(replaceCallback);
+    }
+
+    private static void AssertReplaceInvalidatesReferenceSortKey(string source)
+    {
+        int replaceIndex = source.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
+        if (replaceIndex < 0)
+        {
+            replaceIndex = source.IndexOf("ownerViewModel.files.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
+        }
+        int invalidateIndex = source.IndexOf("InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason)", StringComparison.Ordinal);
+
+        Assert.IsTrue(replaceIndex >= 0);
+        Assert.IsTrue(invalidateIndex > replaceIndex);
+    }
+
+    [TestMethod]
     public void SidebarTreeViewWidthPolicy_NormalizesInvalidPersistedValues()
     {
         Assert.AreEqual(Settings.DefaultTreeViewWidth, Settings.NormalizeTreeViewWidth(double.NaN));

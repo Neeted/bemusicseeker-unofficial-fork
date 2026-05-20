@@ -97,7 +97,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
-    public void ApplyReferenceMap_PackageEntryMutatesExistingCompatibilityAdapter()
+    public void ApplyReferenceMap_PackageEntryMutatesBmsStorageOwner()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -114,7 +114,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
-    public void ApplyReferenceMap_PackageEntryDropsBmsonAdapterAndDoesNotMutateRefTables()
+    public void ApplyReferenceMap_PackageEntryBmsonDoesNotMutateBmsStorageOwner()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

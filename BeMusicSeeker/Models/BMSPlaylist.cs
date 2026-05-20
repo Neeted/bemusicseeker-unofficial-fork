@@ -113,6 +113,8 @@ public partial class BMSPlaylist : NotificationObject
 
         public bool Updated { get; internal set; }
 
+        public bool ReferenceEntriesChanged { get; internal set; }
+
         public BMSTable OldTable { get; internal set; }
 
         public IReadOnlyList<BMSTableEntry> OldEntriesSnapshot { get; internal set; }
@@ -2748,6 +2750,7 @@ public partial class BMSPlaylist : NotificationObject
                     {
                         NewTable = table,
                         Updated = false,
+                        ReferenceEntriesChanged = false,
                         OldTable = table,
                         OldEntriesSnapshot = null,
                         NewEntriesSnapshot = null
@@ -2899,6 +2902,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             NewTable = newTable,
             Updated = updated,
+            ReferenceEntriesChanged = persistenceDecision?.NeedsEntryPersistence == true,
             OldTable = table,
             OldEntriesSnapshot = oldEntriesSnapshot,
             NewEntriesSnapshot = newEntriesSnapshot

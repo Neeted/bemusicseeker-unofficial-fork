@@ -169,6 +169,7 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsFalse(results[0].Updated);
             Assert.IsNotNull(callbackContext);
             Assert.IsFalse(callbackContext!.Updated);
+            Assert.IsTrue(callbackContext.ReferenceEntriesChanged);
             Assert.AreEqual(existingLastUpdate, results[0].ResultTable.last_update);
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.header_sha256));
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.data_sha256));

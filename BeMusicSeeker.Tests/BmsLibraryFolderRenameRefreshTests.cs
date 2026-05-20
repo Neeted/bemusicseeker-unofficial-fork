@@ -575,7 +575,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void AddReferenceBMSTables_DropsBmsonAdapterAndUsesPlaylistIndexWithoutMutatingRefTables()
+    public void AddReferenceBMSTables_UsesPlaylistIndexForBmsonWithoutBmsOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
