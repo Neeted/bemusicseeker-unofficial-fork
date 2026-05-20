@@ -83,15 +83,11 @@ internal sealed class LibraryChartRef
             song);
     }
 
-    internal static LibraryChartRef FromChartFile(ChartFile chart, BMSFile compatibilityBmsFile = null)
+    internal static LibraryChartRef FromChartFile(ChartFile chart)
     {
         if (chart == null)
         {
             return null;
-        }
-        if (compatibilityBmsFile != null)
-        {
-            return FromBmsFile(compatibilityBmsFile);
         }
         if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null)
         {

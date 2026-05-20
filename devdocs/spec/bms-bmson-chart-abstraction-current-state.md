@@ -235,13 +235,13 @@ model 層では `LibraryChartRef` が BMS / bmson 共通参照として使われ
 `LibraryChartRef` は次から作れる。
 
 - `FromBmsFile(...)`: BMS storage owner。移行中の `PendingChartEntry` bmson adapter が渡された場合は、adapter を `BmsFile` として保持せず `BmsonSong` / path / hash の bmson 参照へ変換する。
-- `FromChartFile(...)`: `ChartFile` と、任意の operation 用 compatibility adapter。adapter が渡されても bmson adapter は storage owner として保持せず、未指定の場合は BMS では `ChartFile.BmsFile`、bmson では `ChartFile.BmsonSong`、最後に path / hash fallback を使う。
+- `FromChartFile(...)`: `ChartFile` の storage owner を使う。BMS では `ChartFile.BmsFile`、bmson では `ChartFile.BmsonSong`、最後に path / hash fallback を使う。
 - `LR2SongDBExtended.bmson_song`
 - path / md5 / sha256
 
 `LibraryChartRef.FromPath(...)` は path 必須の fallback 参照であり、live storage owner を必ず持つわけではない。
 
-`LibraryChartRef.BmsFile` は `Kind=Bms` の storage owner 専用である。`PendingChartEntry` の bmson compatibility adapter は `BMSFile` 継承型だが、`LibraryChartRef` では BMS owner として扱わない。
+`LibraryChartRef.BmsFile` は `Kind=Bms` の storage owner 専用である。`PendingChartEntry` の bmson compatibility adapter は `BMSFile` 継承型だが、`LibraryChartRef` では BMS owner として扱わない。`FromChartFile(...)` も compatibility adapter 引数を持たず、`ChartFile` の storage owner / path / hash だけから参照を作る。
 
 library chart 削除は `RemoveLibraryCharts(...)` が model 層入口で、BMS / bmson の両方を `LibraryChartRef` 経由で扱う。削除結果も `RemovedCharts` を正本にし、BMS / bmson の storage owner は caller 側で `Kind` に応じて分ける。旧 `RemoveBMSFiles(...)` / `RemoveChartFiles(IEnumerable<BMSFile>)` wrapper、未使用の single chart move wrapper、削除結果用の `RemovedFiles` adapter list、`LibraryChartRef.ToCompatibilityBmsFile()` は残していない。
 

@@ -207,7 +207,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     folder = sourceRootPath,
                     title = "Chart"
                 };
-                var row = PendingChartEntry.CreateFromBmsonSong(song);
                 int bmsFilesChangedCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
@@ -219,7 +218,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 SetLibraryBmsonSongsWithoutNotification(library, [song]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
-                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsonSong(song), row)], destinationParentPath);
+                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsonSong(song))], destinationParentPath);
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
                 Assert.IsTrue(song.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bmson")));

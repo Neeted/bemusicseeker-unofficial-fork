@@ -222,7 +222,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 };
                 library.BmsonSongs = [song];
 
-                library.RemoveLibraryCharts([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsonSong(song), PendingChartEntry.CreateFromBmsonSong(song))], sendToRecycleBin: false);
+                library.RemoveLibraryCharts([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsonSong(song))], sendToRecycleBin: false);
 
                 Assert.IsFalse(File.Exists(chartPath));
                 Assert.AreEqual(0, library.BmsonSongs.Count);
