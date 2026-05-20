@@ -1004,12 +1004,48 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(snapshot.HasTargets);
         Assert.AreEqual(0, adapterRequestCount);
+        Assert.IsFalse(snapshot.HasInstallDestination);
+        Assert.AreEqual(0, adapterRequestCount);
 
         snapshot.MaterializeCompatibilityFiles();
         Assert.AreEqual(1, adapterRequestCount);
 
-        Assert.IsTrue(snapshot.HasInstallDestination);
+        Assert.IsFalse(snapshot.HasInstallDestination);
         Assert.AreEqual(1, adapterRequestCount);
+    }
+
+    [TestMethod]
+    public void RepairInstalledLocationTargetSnapshot_HasInstallDestinationUsesExistingChartSnapshotWithoutCreatingAdapter()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\repair-existing.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Repair Existing Bmson",
+            artist = "Artist",
+            md5 = "69696969696969696969696969696969",
+            sha256 = new string('9', 64)
+        };
+        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
+        adapter.instl_dst = "C:\\Installed\\Bmson";
+        var row = LibraryChartRow.FromBmsonSong(bmson);
+        int adapterCreateCount = 0;
+        row.SetBmsonChartAdapterProviders(
+            song =>
+            {
+                adapterCreateCount++;
+                return PendingChartEntry.CreateFromBmsonSong(song);
+            },
+            existingProvider: _ => adapter);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        var viewModel = new MainWindowViewModel();
+        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot snapshot =
+            viewModel.CreateRepairInstalledLocationTargetSnapshot([target]);
+
+        Assert.IsTrue(snapshot.HasTargets);
+        Assert.IsTrue(snapshot.HasInstallDestination);
+        Assert.AreEqual(0, adapterCreateCount);
     }
 
     [TestMethod]

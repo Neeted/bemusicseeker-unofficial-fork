@@ -21880,7 +21880,7 @@ public class MainWindowViewModel : ViewModel
 
         internal bool HasTargets => Charts.Count > 0;
 
-        public bool HasInstallDestination => ChartFiles.Any(file => !string.IsNullOrWhiteSpace(file.instl_dst));
+        public bool HasInstallDestination => Charts.Any(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination));
 
         internal IReadOnlyList<ChartFile> Charts { get; }
 
