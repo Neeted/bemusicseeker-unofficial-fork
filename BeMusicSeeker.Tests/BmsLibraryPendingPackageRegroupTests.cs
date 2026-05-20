@@ -986,7 +986,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedFilePath)];
             SeedPendingPackages(library, songDbPath, pendingPackage);
 
-            bool succeeded = library.SetPendingInstallDestination(pendingFile, destinationDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromCompatibilityAdapter(pendingFile), destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(destinationDirectoryPath, pendingFile.instl_dst);
@@ -1047,7 +1047,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(destinationFilePath)
             ];
 
-            bool succeeded = library.SetPendingInstallDestination(sourceFile, destinationDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromCompatibilityAdapter(sourceFile), destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(destinationDirectoryPath, sourceFile.instl_dst);
@@ -1055,6 +1055,34 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Destination Artist", sourceFile.InstallDestinationArtist);
             Assert.AreEqual(0, sourceFile.InstallDestinationSuggestions.Count);
             Assert.IsFalse(sourceFile.HasLowConfidenceInstallWarning);
+        });
+    }
+
+    [TestMethod]
+    public void SetPendingInstallDestination_AllowsStandaloneLibraryBmsonForFullScanWithoutAdapter()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Library", "BmsonSource");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Library", "BmsonDestination");
+            string sourceBmsonPath = CreateBmsonFile(sourceDirectoryPath, "source.bmson", "Source Bmson", "Source Artist");
+            string destinationBmsonPath = CreateBmsonFile(destinationDirectoryPath, "destination.bmson", "Destination Bmson", "Destination Artist");
+            LR2SongDBExtended.bmson_song sourceSong = BmsonSongParser.Parse(sourceBmsonPath);
+            LR2SongDBExtended.bmson_song destinationSong = BmsonSongParser.Parse(destinationBmsonPath);
+            PackageChartEntry sourceEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(sourceSong));
+            library.BMSFiles = [];
+            library.BmsonSongs = [sourceSong, destinationSong];
+
+            bool succeeded = library.SetPendingInstallDestination(sourceEntry, destinationDirectoryPath);
+
+            Assert.IsTrue(succeeded);
+            Assert.IsNull(sourceEntry.CompatibilityAdapter);
+            Assert.AreEqual(destinationDirectoryPath, sourceEntry.Chart.InstallDestination);
+            Assert.AreEqual("Destination Bmson", sourceEntry.Chart.InstallDestinationTitle);
+            Assert.AreEqual("Destination Artist", sourceEntry.Chart.InstallDestinationArtist);
+            Assert.AreEqual(0, sourceEntry.Chart.InstallDestinationSuggestions.Count);
+            Assert.IsFalse(sourceEntry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
         });
     }
 
@@ -1075,7 +1103,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(destinationFilePath)
             ];
 
-            bool succeeded = library.SetPendingInstallDestination(sourceFile, destinationDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromCompatibilityAdapter(sourceFile), destinationDirectoryPath);
 
             Assert.IsFalse(succeeded);
             Assert.IsNull(sourceFile.instl_dst);
@@ -1111,7 +1139,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            bool succeeded = library.SetPendingInstallDestination(pendingFile, candidateBDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromCompatibilityAdapter(pendingFile), candidateBDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(candidateBDirectoryPath, pendingFile.instl_dst);
@@ -1200,7 +1228,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            bool succeeded = library.SetPendingInstallDestination(pendingFile, manualDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromCompatibilityAdapter(pendingFile), manualDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(manualDirectoryPath, pendingFile.instl_dst);

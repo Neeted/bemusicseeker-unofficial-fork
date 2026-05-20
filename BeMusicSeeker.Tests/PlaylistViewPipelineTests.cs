@@ -1187,12 +1187,14 @@ public sealed class PlaylistViewPipelineTests
         };
         ChartFile chart = ChartFileProjection.FromBmsonSong(bmson);
         int adapterRequestCount = 0;
+        BMSFile createdAdapter = null!;
         var target = new ChartOperationTarget(
             chart,
             () =>
             {
                 adapterRequestCount++;
-                return PendingChartEntry.CreateFromBmsonSong(bmson);
+                createdAdapter = PendingChartEntry.CreateFromBmsonSong(bmson);
+                return createdAdapter;
             },
             null,
             ChartOperationSourceScope.PendingPackage,
@@ -1211,6 +1213,14 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNotNull(snapshot.ChartFile);
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.ChartFile.Kind);
         Assert.AreEqual(0, adapterRequestCount);
+
+        PackageChartEntry editEntry = snapshot.GetOrCreateChartEntry();
+        editEntry.ApplyInstallDestination("C:\\Installed\\Bmson", "Installed Bmson", "Installed Artist");
+
+        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreSame(createdAdapter, editEntry.CompatibilityAdapter);
+        Assert.AreEqual("C:\\Installed\\Bmson", createdAdapter.instl_dst);
+        Assert.AreEqual("Installed Bmson", createdAdapter.InstallDestinationTitle);
     }
 
     [TestMethod]

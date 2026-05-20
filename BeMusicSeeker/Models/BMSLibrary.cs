@@ -10020,50 +10020,6 @@ reportProgress,
         }
     }
 
-    public bool SetPendingInstallDestination(BMSFile bmsFile, string destinationDirectory)
-    {
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException("bmsFile");
-        }
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                bool allowStandaloneLibraryFile;
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    allowStandaloneLibraryFile = IsKnownLibraryChartFileUnsafe(bmsFile);
-                }
-                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidateInstallDestination(bmsFile, ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory, allowStandaloneLibraryFile);
-                if (!selection.Success)
-                {
-                    dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    return false;
-                }
-                bool hasPackageTargets = selection.TargetEntries.Count > 0;
-                bool preserveAmbiguousInstallContext = !string.IsNullOrWhiteSpace(selection.ValidatedDestinationDirectory)
-                    && (selection.TargetEntries.Any(entry => entry != null
-                            && entry.HasLowConfidenceInstallEstimationWarning()
-                            && entry.HasInstallDestinationSuggestion(selection.ValidatedDestinationDirectory))
-                        || selection.TargetFiles.Any(file => file != null
-                            && file.HasLowConfidenceInstallEstimationWarning()
-                            && (file.InstallDestinationSuggestions?.Any(path => string.Equals(path, selection.ValidatedDestinationDirectory, StringComparison.OrdinalIgnoreCase)) ?? false)));
-                if (hasPackageTargets)
-                {
-                    ApplyResolvedInstallDestinationToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
-                    ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
-                }
-                else
-                {
-                    ApplyResolvedInstallDestinationToFiles(selection.TargetFiles, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
-                    ClearDeferredEstimateReasonForFilesUnsafe(selection.TargetFiles);
-                }
-                return true;
-            }
-        }
-    }
-
     internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory)
     {
         if (targetEntry == null)
@@ -10074,19 +10030,21 @@ reportProgress,
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
             {
-                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidateInstallDestination(targetEntry, ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory);
+                bool allowStandaloneLibraryChart;
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    allowStandaloneLibraryChart = IsKnownLibraryChartUnsafe(targetEntry.Chart);
+                }
+                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidateInstallDestination(targetEntry, ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory, allowStandaloneLibraryChart);
                 if (!selection.Success)
                 {
                     dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
                 bool preserveAmbiguousInstallContext = !string.IsNullOrWhiteSpace(selection.ValidatedDestinationDirectory)
-                    && (selection.TargetEntries.Any(entry => entry != null
+                    && selection.TargetEntries.Any(entry => entry != null
                             && entry.HasLowConfidenceInstallEstimationWarning()
-                            && entry.HasInstallDestinationSuggestion(selection.ValidatedDestinationDirectory))
-                        || selection.TargetFiles.Any(file => file != null
-                            && file.HasLowConfidenceInstallEstimationWarning()
-                            && (file.InstallDestinationSuggestions?.Any(path => string.Equals(path, selection.ValidatedDestinationDirectory, StringComparison.OrdinalIgnoreCase)) ?? false)));
+                            && entry.HasInstallDestinationSuggestion(selection.ValidatedDestinationDirectory));
                 ApplyResolvedInstallDestinationToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
                 ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
                 return true;
@@ -10094,14 +10052,22 @@ reportProgress,
         }
     }
 
-    private bool IsKnownLibraryChartFileUnsafe(BMSFile bmsFile)
+    private bool IsKnownLibraryChartUnsafe(ChartFile chart)
     {
-        if (bmsFile == null)
+        if (chart == null)
         {
             return false;
         }
-        return BMSFiles.Any(file => IsSameChartFile(file, bmsFile))
-            || BmsonSongs.Any(song => !string.IsNullOrWhiteSpace(song?.path) && IsSamePath(song.path, bmsFile.path));
+        if (chart.Kind == ChartFileKind.Bmson)
+        {
+            return BmsonSongs.Any(song => !string.IsNullOrWhiteSpace(song?.path) && IsSamePath(song.path, chart.Path));
+        }
+        if (chart.BmsFile != null && BMSFiles.Any(file => IsSameChartFile(file, chart.BmsFile)))
+        {
+            return true;
+        }
+        return !string.IsNullOrWhiteSpace(chart.Path)
+            && BMSFiles.Any(file => !string.IsNullOrWhiteSpace(file?.path) && IsSamePath(file.path, chart.Path));
     }
 
     private static bool IsSameChartFile(BMSFile left, BMSFile right)

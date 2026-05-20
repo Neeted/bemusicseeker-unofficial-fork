@@ -1534,15 +1534,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             pendingPackage.delete_parent = false;
 
             PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                pendingFile,
+                PackageChartEntry.FromCompatibilityAdapter(pendingFile),
                 [pendingPackage],
                 [installDirectoryPath],
-                installDirectoryPath,
-                allowStandaloneLibraryFile: false);
+                installDirectoryPath);
 
             Assert.IsTrue(result.Success);
             Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
-            CollectionAssert.AreEqual(new[] { pendingFile }, result.TargetFiles);
+            Assert.AreEqual(1, result.TargetEntries.Count);
+            Assert.AreSame(pendingFile, result.TargetEntries[0].CompatibilityAdapter);
         });
     }
 
@@ -1573,17 +1573,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsNull(entries[0].CompatibilityAdapter);
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                    targetFile,
+                    PackageChartEntry.FromCompatibilityAdapter(targetFile),
                     [pendingPackage],
                     [installDirectoryPath],
-                    installDirectoryPath,
-                    allowStandaloneLibraryFile: false);
+                    installDirectoryPath);
 
                 Assert.IsTrue(result.Success);
                 Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
                 Assert.AreEqual(1, result.TargetEntries.Count);
                 Assert.AreEqual(bmsonPath, result.TargetEntries[0].Chart.Path);
-                Assert.AreEqual(0, result.TargetFiles.Count);
                 Assert.IsNull(entries[0].CompatibilityAdapter);
             });
         });
@@ -1614,15 +1612,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsNull(entries[0].CompatibilityAdapter);
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                    targetFile,
+                    PackageChartEntry.FromCompatibilityAdapter(targetFile),
                     [pendingPackage],
                     [Path.Combine(tempRoot, "install")],
-                    Path.Combine(tempRoot, "missing"),
-                    allowStandaloneLibraryFile: false);
+                    Path.Combine(tempRoot, "missing"));
 
                 Assert.IsFalse(result.Success);
                 Assert.AreEqual(1, result.TargetEntries.Count);
-                Assert.AreEqual(0, result.TargetFiles.Count);
                 Assert.IsNull(entries[0].CompatibilityAdapter);
             });
         });

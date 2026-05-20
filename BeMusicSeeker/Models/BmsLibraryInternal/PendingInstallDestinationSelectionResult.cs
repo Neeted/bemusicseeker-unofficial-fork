@@ -10,7 +10,5 @@ internal sealed class PendingInstallDestinationSelectionResult
 
     public List<PackageChartEntry> TargetEntries { get; } = [];
 
-    public List<BMSFile> TargetFiles { get; } = [];
-
     public string WarningMessage { get; set; }
 }

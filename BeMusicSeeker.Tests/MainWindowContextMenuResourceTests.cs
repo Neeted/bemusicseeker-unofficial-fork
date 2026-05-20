@@ -1618,7 +1618,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "ProcessManualPackageEstimateBatch(packageList)");
         StringAssert.Contains(libraryCode, "if (!fixMode && looseEntries.Count == 0 && packageTargets.Count > 1)");
         StringAssert.Contains(installEstimationDoc, "手動の複数 package 推定");
-        StringAssert.Contains(installEstimationDoc, "loose file が混じる手動 file 群推定");
+        StringAssert.Contains(installEstimationDoc, "loose chart が混じる手動 chart 群推定");
     }
 
     private static string FindRepositoryRoot()

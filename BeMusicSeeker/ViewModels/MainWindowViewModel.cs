@@ -20906,12 +20906,12 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                BeMusicSeeker.Models.BMSFile bmsFile = target.ChartFile?.BmsFile;
-                if (bmsFile == null)
+                PackageChartEntry chartEntry = target.GetOrCreateChartEntry();
+                if (chartEntry == null)
                 {
                     return false;
                 }
-                changed = files.SetPendingInstallDestination(bmsFile, destinationDirectory);
+                changed = files.SetPendingInstallDestination(chartEntry, destinationDirectory);
             }
             if (changed)
             {
@@ -21808,9 +21808,12 @@ public class MainWindowViewModel : ViewModel
         }
         if (target.PackageEntry != null)
         {
-            return new PendingInstallDestinationEditTargetSnapshot(target.PackageEntry, null);
+            return new PendingInstallDestinationEditTargetSnapshot(target.PackageEntry, null, null);
         }
-        return new PendingInstallDestinationEditTargetSnapshot(null, target.Chart);
+        return new PendingInstallDestinationEditTargetSnapshot(
+            null,
+            target.Chart,
+            () => PackageChartEntry.FromCompatibilityAdapter(ResolveLegacyChartFile(target)) ?? PackageChartEntry.FromChart(target.Chart));
     }
 
     internal sealed class PendingInstallDestinationTargetSnapshot
@@ -21844,12 +21847,15 @@ public class MainWindowViewModel : ViewModel
 
     internal sealed class PendingInstallDestinationEditTargetSnapshot
     {
-        internal static PendingInstallDestinationEditTargetSnapshot Empty { get; } = new(null, null);
+        private readonly Lazy<PackageChartEntry> chartEntry;
 
-        internal PendingInstallDestinationEditTargetSnapshot(PackageChartEntry packageEntry, ChartFile chartFile)
+        internal static PendingInstallDestinationEditTargetSnapshot Empty { get; } = new(null, null, null);
+
+        internal PendingInstallDestinationEditTargetSnapshot(PackageChartEntry packageEntry, ChartFile chartFile, Func<PackageChartEntry> chartEntryFactory)
         {
             PackageEntry = packageEntry;
             ChartFile = chartFile;
+            chartEntry = new Lazy<PackageChartEntry>(() => chartEntryFactory?.Invoke());
         }
 
         internal PackageChartEntry PackageEntry { get; }
@@ -21857,6 +21863,11 @@ public class MainWindowViewModel : ViewModel
         internal ChartFile ChartFile { get; }
 
         internal bool HasTarget => PackageEntry != null || ChartFile != null;
+
+        internal PackageChartEntry GetOrCreateChartEntry()
+        {
+            return PackageEntry ?? chartEntry.Value;
+        }
     }
 
     internal ChartCompatibilityTargetSnapshot CreateChartCompatibilityTargetSnapshot(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)

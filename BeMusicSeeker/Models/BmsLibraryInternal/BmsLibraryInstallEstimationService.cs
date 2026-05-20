@@ -1148,7 +1148,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
                 || (chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
-    public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
+    public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryChart = false)
     {
         var result = new PendingInstallDestinationSelectionResult();
         if (targetEntry?.Chart == null)
@@ -1159,62 +1159,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             .FirstOrDefault(pkg => pkg != null && pkg.ChartEntries.Any(entry => IsSameChartTarget(entry, targetEntry)));
         if (package == null)
         {
-            result.WarningMessage = Properties.Resources.Warn_PendingPackageNotFound;
-            return result;
-        }
-        result.TargetEntries.AddRange(package.ChartEntries.Where(entry => entry?.Chart != null));
-        if (string.IsNullOrWhiteSpace(destinationDirectory))
-        {
-            result.Success = true;
-            AddSelectionTargetFiles(result, null, package);
-            return result;
-        }
-        string normalizedInput;
-        try
-        {
-            normalizedInput = Path.GetFullPath(destinationDirectory.Trim().Trim('"'));
-        }
-        catch (Exception ex)
-        {
-            result.WarningMessage = string.Format(Properties.Resources.Warn_InvalidInstallPath, destinationDirectory, ex.Message);
-            return result;
-        }
-        string installDirectory = File.Exists(normalizedInput)
-            ? DirectoryExt.GetDirectoryNameSimple(normalizedInput)
-            : normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        if (!Directory.Exists(installDirectory))
-        {
-            result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirNotFound, installDirectory);
-            return result;
-        }
-        var knownDirectories = new HashSet<string>((knownChartDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        if (!knownDirectories.Contains(installDirectory))
-        {
-            result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirMustContainBms, installDirectory);
-            return result;
-        }
-        result.Success = true;
-        result.ValidatedDestinationDirectory = installDirectory;
-        AddSelectionTargetFiles(result, null, package);
-        return result;
-    }
-
-    public PendingInstallDestinationSelectionResult ValidateInstallDestination(BMSFile targetFile, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryFile)
-    {
-        var result = new PendingInstallDestinationSelectionResult();
-        if (targetFile == null)
-        {
-            return result;
-        }
-        ChartPackage package = (pendingPackages ?? [])
-            .FirstOrDefault(pkg => pkg != null && pkg.ChartEntries.Any(entry => IsSameChartTarget(entry, targetFile)));
-        if (package == null)
-        {
-            if (!allowStandaloneLibraryFile)
+            if (!allowStandaloneLibraryChart)
             {
                 result.WarningMessage = Properties.Resources.Warn_PendingPackageNotFound;
                 return result;
             }
+            result.TargetEntries.Add(targetEntry);
         }
         else
         {
@@ -1223,7 +1173,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
             result.Success = true;
-            AddSelectionTargetFiles(result, targetFile, package);
             return result;
         }
         string normalizedInput;
@@ -1252,34 +1201,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         result.Success = true;
         result.ValidatedDestinationDirectory = installDirectory;
-        AddSelectionTargetFiles(result, targetFile, package);
         return result;
-    }
-
-    private static void AddSelectionTargetFiles(PendingInstallDestinationSelectionResult result, BMSFile targetFile, ChartPackage package)
-    {
-        if (result == null)
-        {
-            return;
-        }
-        if (package == null)
-        {
-            if (targetFile != null)
-            {
-                result.TargetFiles.Add(targetFile);
-            }
-            return;
-        }
-        result.TargetFiles.AddRange(result.TargetEntries.Select(GetExistingInstallDestinationWritebackTarget).Where(file => file != null));
-    }
-
-    private static BMSFile GetExistingInstallDestinationWritebackTarget(PackageChartEntry entry)
-    {
-        if (entry?.Chart == null)
-        {
-            return null;
-        }
-        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile;
     }
 
     public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string md5, string sha256 = null)
@@ -1356,21 +1278,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             && right != null
             && (ReferenceEquals(left, right)
                 || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && left.path.Equals(right.path, StringComparison.OrdinalIgnoreCase)));
-    }
-
-    private static bool IsSameChartTarget(PackageChartEntry entry, BMSFile targetFile)
-    {
-        if (entry == null || targetFile == null)
-        {
-            return false;
-        }
-        if (IsSameChartAdapter(entry.CompatibilityAdapter, targetFile))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(entry.Chart?.Path)
-            && !string.IsNullOrWhiteSpace(targetFile.path)
-            && entry.Chart.Path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsSameChartTarget(PackageChartEntry entry, PackageChartEntry targetEntry)
