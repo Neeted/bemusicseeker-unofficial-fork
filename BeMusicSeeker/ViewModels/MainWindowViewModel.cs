@@ -11620,30 +11620,6 @@ public class MainWindowViewModel : ViewModel
             .Where(file => PendingChartEntry.IsBmsChartFile(file))];
     }
 
-    /// <summary>
-    /// Creates install-destination mutation targets from package entries without forcing adapterless bmson entries into legacy adapters.
-    /// </summary>
-    /// <param name="packages">Packages whose existing mutable install-destination state should be cleared.</param>
-    /// <returns>Existing adapters and BMS storage rows that can hold install-destination state.</returns>
-    internal static List<BeMusicSeeker.Models.BMSFile> CreatePackageInstallDestinationTargetSnapshot(IEnumerable<ChartPackage> packages)
-    {
-        return [.. (packages ?? [])
-            .Where(package => package != null)
-            .SelectMany(package => package.ChartEntries)
-            .Select(GetPackageInstallDestinationTarget)
-            .Where(file => file != null)];
-    }
-
-    private static BeMusicSeeker.Models.BMSFile GetPackageInstallDestinationTarget(PackageChartEntry entry)
-    {
-        BeMusicSeeker.Models.BMSFile adapter = entry?.CompatibilityAdapter;
-        if (adapter != null)
-        {
-            return adapter;
-        }
-        return entry?.Chart?.BmsFile;
-    }
-
     private bool TryGetVirtualDuplicateSourceFiles(
         object parameter,
         out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,

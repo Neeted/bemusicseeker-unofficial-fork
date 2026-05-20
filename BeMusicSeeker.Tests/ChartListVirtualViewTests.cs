@@ -678,26 +678,6 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PackageInstallDestinationTargetSnapshot_KeepsExistingAdaptersButSkipsAdapterlessBmson()
-    {
-        var bms = new TestableBmsFile();
-        bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
-        PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(CreateBmsonSong());
-        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(CreateBmsonSong()));
-        ChartPackage package = ChartPackage.FromChartEntries(
-        [
-            PackageChartEntry.FromCompatibilityAdapter(bms),
-            PackageChartEntry.FromCompatibilityAdapter(bmsonAdapter),
-            adapterlessBmsonEntry
-        ]);
-
-        List<BMSFile> targets = MainWindowViewModel.CreatePackageInstallDestinationTargetSnapshot([package]);
-
-        CollectionAssert.AreEqual(new BMSFile[] { bms, bmsonAdapter }, targets);
-        Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
-    }
-
-    [TestMethod]
     public void ClearInstallDestinationForPendingPackages_ClearsAdapterlessBmsonEntryWithoutMaterializing()
     {
         TestResourceInitializer.EnsureJapaneseResources();
