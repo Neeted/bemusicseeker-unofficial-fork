@@ -626,11 +626,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 result.DuplicateSkippedCount++;
                 if (confirmDuplicateRemoval != null && confirmDuplicateRemoval(chart))
                 {
-                    BMSFile removableFile = chart.BmsFile;
-                    if (removableFile != null)
-                    {
-                        result.FilesToRemove.Add(removableFile);
-                    }
                     LibraryChartRef removableChart = LibraryChartRef.FromChartFile(chart);
                     if (removableChart != null)
                     {
