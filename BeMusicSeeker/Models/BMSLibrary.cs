@@ -9937,9 +9937,10 @@ reportProgress,
         {
             throw new ArgumentNullException("chartFiles");
         }
-        CreateInstallEstimationService().CorrectChartInstallationDirectory(chartFiles, delegate (BMSFile chartFile)
+        List<PackageChartEntry> chartEntries = [.. chartFiles.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
+        CreateInstallEstimationService().CorrectChartInstallationDirectory(chartEntries, delegate (PackageChartEntry chartEntry)
         {
-            SearchEstimatedInstallationDirectory(chartFile, asParallel: false, fixMode: true);
+            SearchEstimatedInstallationDirectoryForChartsCore(null, [], asParallel: false, ChartInstallationEstimateMode.ReinstallCorrection, [chartEntry]);
         });
     }
 
@@ -9953,15 +9954,8 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                CreateInstallEstimationService().ClearInstallDestinations(bmsFiles);
-                foreach (BMSFile bmsFile in bmsFiles.Where(file => file != null))
-                {
-                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-                    bmsFile.InstallDestinationTitle = string.Empty;
-                    bmsFile.InstallDestinationArtist = string.Empty;
-                    bmsFile.InstallDestinationSuggestions = [];
-                    bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-                }
+                List<PackageChartEntry> entries = [.. bmsFiles.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
+                CreateInstallEstimationService().ClearInstallDestinations(entries);
             }
         }
     }

@@ -1635,12 +1635,25 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
 
-        service.CorrectChartInstallationDirectory([file], delegate (BMSFile target)
+        service.CorrectChartInstallationDirectory([PackageChartEntry.FromCompatibilityAdapter(file)], delegate (PackageChartEntry target)
         {
-            target.instl_dst = Path.Combine("C:\\Music", "FolderA");
+            target.SetInstallDestinationPathOnly(Path.Combine("C:\\Music", "FolderA"));
         });
 
         Assert.IsNull(file.instl_dst);
+    }
+
+    [TestMethod]
+    public void ClearInstallDestinations_ClearsResolveFailedWarningOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
+        file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+
+        service.ClearInstallDestinations([PackageChartEntry.FromCompatibilityAdapter(file)]);
+
+        Assert.IsFalse(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
     [TestMethod]

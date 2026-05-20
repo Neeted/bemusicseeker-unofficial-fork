@@ -1106,36 +1106,46 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return targetEntries.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(targetEntries);
     }
 
-    public void CorrectChartInstallationDirectory(IEnumerable<BMSFile> chartFiles, Action<BMSFile> searchInstallDestination)
+    public void CorrectChartInstallationDirectory(IEnumerable<PackageChartEntry> chartEntries, Action<PackageChartEntry> searchInstallDestination)
     {
-        foreach (BMSFile chartFile in (chartFiles ?? []).Where(file => file != null))
+        foreach (PackageChartEntry chartEntry in (chartEntries ?? []).Where(entry => entry?.Chart != null))
         {
-            lock (chartFile)
+            BMSFile lockTarget = chartEntry.CompatibilityAdapter ?? chartEntry.Chart.BmsFile;
+            object syncRoot = (object)lockTarget ?? chartEntry;
+            lock (syncRoot)
             {
-                if (!string.IsNullOrWhiteSpace(chartFile.instl_dst))
+                ChartFile chart = chartEntry.Chart;
+                if (!string.IsNullOrWhiteSpace(chart.InstallDestination))
                 {
                     continue;
                 }
-                searchInstallDestination?.Invoke(chartFile);
-                if (!string.IsNullOrWhiteSpace(chartFile.instl_dst) && chartFile.instl_dst.Equals(DirectoryExt.GetDirectoryNameSimple(chartFile.path), StringComparison.OrdinalIgnoreCase))
+                searchInstallDestination?.Invoke(chartEntry);
+                chart = chartEntry.Chart;
+                if (!string.IsNullOrWhiteSpace(chart.InstallDestination) && chart.InstallDestination.Equals(DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparison.OrdinalIgnoreCase))
                 {
-                    chartFile.instl_dst = null;
+                    chartEntry.SetInstallDestinationPathOnly(null);
                 }
             }
         }
     }
 
-    public void ClearInstallDestinations(IEnumerable<BMSFile> bmsFiles)
+    public void ClearInstallDestinations(IEnumerable<PackageChartEntry> chartEntries)
     {
-        foreach (BMSFile bmsFile in (bmsFiles ?? []).Where(file => file != null && (!string.IsNullOrWhiteSpace(file.instl_dst) || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist) || (file.InstallDestinationSuggestions?.Count ?? 0) > 0 || file.HasLowConfidenceInstallEstimationWarning())))
+        foreach (PackageChartEntry chartEntry in (chartEntries ?? []).Where(entry => HasInstallDestinationState(entry)))
         {
-            bmsFile.instl_dst = null;
-            bmsFile.InstallDestinationTitle = string.Empty;
-            bmsFile.InstallDestinationArtist = string.Empty;
-            bmsFile.InstallDestinationSuggestions = [];
-            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+            chartEntry.ClearInstallDestination();
         }
+    }
+
+    private static bool HasInstallDestinationState(PackageChartEntry entry)
+    {
+        ChartFile chart = entry?.Chart;
+        return chart != null
+            && (!string.IsNullOrWhiteSpace(chart.InstallDestination)
+                || !string.IsNullOrWhiteSpace(chart.InstallDestinationTitle)
+                || !string.IsNullOrWhiteSpace(chart.InstallDestinationArtist)
+                || (chart.InstallDestinationSuggestions?.Count ?? 0) > 0
+                || (chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
     public PendingInstallDestinationSelectionResult ValidateInstallDestination(PackageChartEntry targetEntry, IEnumerable<ChartPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
