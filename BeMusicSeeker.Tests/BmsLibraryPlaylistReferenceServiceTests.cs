@@ -103,7 +103,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
         TestableBmsFile file = CreateFile(md5);
-        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(file);
+        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(file);
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
         int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
@@ -125,7 +125,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
             md5 = md5,
             sha256 = new string('a', 64)
         });
-        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
         int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);

@@ -586,7 +586,7 @@ public sealed class ChartListVirtualViewTests
     {
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
-        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
 
         LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
 
@@ -644,7 +644,7 @@ public sealed class ChartListVirtualViewTests
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromCompatibilityAdapter(bms),
+            PackageChartEntry.FromChartAdapter(bms),
             adapterlessBmsonEntry
         ]);
 
@@ -664,8 +664,8 @@ public sealed class ChartListVirtualViewTests
         PendingChartEntry bmsonAdapter = PendingChartEntry.CreateFromBmsonSong(bmson);
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromCompatibilityAdapter(bms),
-            PackageChartEntry.FromCompatibilityAdapter(bmsonAdapter)
+            PackageChartEntry.FromChartAdapter(bms),
+            PackageChartEntry.FromChartAdapter(bmsonAdapter)
         ]);
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
@@ -702,8 +702,8 @@ public sealed class ChartListVirtualViewTests
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(CreateBmsonSong()));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromCompatibilityAdapter(bms),
-            PackageChartEntry.FromCompatibilityAdapter(bmsonAdapter),
+            PackageChartEntry.FromChartAdapter(bms),
+            PackageChartEntry.FromChartAdapter(bmsonAdapter),
             adapterlessBmsonEntry
         ]);
 
@@ -909,7 +909,7 @@ public sealed class ChartListVirtualViewTests
             "Pkg",
             hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
         LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));

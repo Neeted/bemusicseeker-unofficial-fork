@@ -590,7 +590,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 title = "Pending Bmson",
                 artist = "Artist"
             });
-            PackageChartEntry matchingBmsonEntry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+            PackageChartEntry matchingBmsonEntry = PackageChartEntry.FromChartAdapter(adapter);
             library.ChartPackagesPending = CreatePackageCollection(
             [
                 ChartPackage.FromChartEntries([matchingBmsonEntry])

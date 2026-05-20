@@ -75,7 +75,7 @@ internal sealed class PackageChartEntry
         }
 
         return currentChart.Kind == ChartFileKind.Bms && currentChart.BmsFile != null
-            ? FromCompatibilityAdapter(currentChart.BmsFile)
+            ? FromChartAdapter(currentChart.BmsFile)
             : FromChart(currentChart);
     }
 
@@ -151,9 +151,9 @@ internal sealed class PackageChartEntry
         ReplaceInstallDestinationState(destinationDirectory, state.Title, state.Artist, state.Suggestions);
     }
 
-    internal static PackageChartEntry FromCompatibilityAdapter(BMSFile compatibilityAdapter)
+    internal static PackageChartEntry FromChartAdapter(BMSFile chartAdapter)
     {
-        return compatibilityAdapter == null ? null : new PackageChartEntry(compatibilityAdapter);
+        return chartAdapter == null ? null : new PackageChartEntry(chartAdapter);
     }
 
     internal static PackageChartEntry FromChart(ChartFile chart)
@@ -562,7 +562,7 @@ internal sealed class PackageChartEntry
             {
                 return FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(filePath)));
             }
-            return FromCompatibilityAdapter(PendingChartEntry.CreateFromFilePath(filePath));
+            return FromChartAdapter(PendingChartEntry.CreateFromFilePath(filePath));
         }
         catch
         {

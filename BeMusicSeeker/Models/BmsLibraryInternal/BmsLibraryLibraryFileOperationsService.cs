@@ -517,7 +517,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
         List<PackageChartEntry> sourceEntries =
         [
-            .. result.SourceBmsFiles.Select(PackageChartEntry.FromCompatibilityAdapter),
+            .. result.SourceBmsFiles.Select(PackageChartEntry.FromChartAdapter),
             .. result.SourceBmsonSongs
                 .Select(song => PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song)))
                 .Where(entry => entry != null)

@@ -383,7 +383,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             sha256 = new string('b', 64),
             title = "Bmson"
         }));
-        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(pendingFile), adapterlessBmsonEntry]);
+        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(pendingFile), adapterlessBmsonEntry]);
         pendingPackage.path = "C:\\Pending\\Pkg1";
         Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
 
@@ -416,8 +416,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }), "C:\\Installed\\Target", "Installed", "Artist", []));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromCompatibilityAdapter(bmsFile),
-            PackageChartEntry.FromCompatibilityAdapter(bmsonAdapter),
+            PackageChartEntry.FromChartAdapter(bmsFile),
+            PackageChartEntry.FromChartAdapter(bmsonAdapter),
             adapterlessBmsonEntry
         ]);
 
@@ -449,7 +449,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 wav_files = ["missing.wav"]
             };
             PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
-            PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+            PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
             bool legacyWarningCallbackCalled = false;
 
             IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(
@@ -1216,7 +1216,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 sha256 = new string('b', 64)
             }));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(chart), outsideBmsonEntry]);
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(chart), outsideBmsonEntry]);
             package.path = sourceDirectoryPath;
 
             var service = new BmsLibraryPackageInstallService();
@@ -1462,7 +1462,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 sha256 = new string('b', 64)
             }));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromCompatibilityAdapter(chart), outsideBmsonEntry]);
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChartAdapter(chart), outsideBmsonEntry]);
             package.path = sourceDirectoryPath;
 
             var service = new BmsLibraryPackageInstallService();
@@ -2517,7 +2517,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
             PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
-            result.Add(packageEntry ?? PackageChartEntry.FromCompatibilityAdapter(targetFile));
+            result.Add(packageEntry ?? PackageChartEntry.FromChartAdapter(targetFile));
         }
         return [.. result.Where(entry => entry?.Chart != null)];
     }

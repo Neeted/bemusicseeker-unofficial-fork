@@ -113,7 +113,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            [PackageChartEntry.FromCompatibilityAdapter(pendingC)],
+            [PackageChartEntry.FromChartAdapter(pendingC)],
             service.BuildInstalledHashToDirectoryMap(installedFiles));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
@@ -185,7 +185,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            [PackageChartEntry.FromCompatibilityAdapter(pendingMissing)],
+            [PackageChartEntry.FromChartAdapter(pendingMissing)],
             service.BuildInstalledHashToDirectoryMap(installedFiles));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
@@ -1133,8 +1133,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     {
         TestableBmsFile firstBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingA", "chart.bms"));
         TestableBmsFile secondBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingB", "chart.bms"));
-        PackageChartEntry firstBmsEntry = PackageChartEntry.FromCompatibilityAdapter(firstBms);
-        PackageChartEntry secondBmsEntry = PackageChartEntry.FromCompatibilityAdapter(secondBms);
+        PackageChartEntry firstBmsEntry = PackageChartEntry.FromChartAdapter(firstBms);
+        PackageChartEntry secondBmsEntry = PackageChartEntry.FromChartAdapter(secondBms);
         var firstBmson = new LR2SongDBExtended.bmson_song
         {
             path = Path.Combine("C:\\PendingA", "chart.bmson"),
@@ -1165,7 +1165,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         };
         PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
-        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+        PackageChartEntry entry = PackageChartEntry.FromChartAdapter(adapter);
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         entry.ApplyInstallDestination(destinationDirectory, "Resolved Title", "Resolved Artist");
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
@@ -1586,7 +1586,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             pendingPackage.delete_parent = false;
 
             PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                PackageChartEntry.FromCompatibilityAdapter(pendingFile),
+                PackageChartEntry.FromChartAdapter(pendingFile),
                 [pendingPackage],
                 [installDirectoryPath],
                 installDirectoryPath);
@@ -1625,7 +1625,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsNull(entries[0].CompatibilityAdapter);
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                    PackageChartEntry.FromCompatibilityAdapter(targetFile),
+                    PackageChartEntry.FromChartAdapter(targetFile),
                     [pendingPackage],
                     [installDirectoryPath],
                     installDirectoryPath);
@@ -1664,7 +1664,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsNull(entries[0].CompatibilityAdapter);
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                    PackageChartEntry.FromCompatibilityAdapter(targetFile),
+                    PackageChartEntry.FromChartAdapter(targetFile),
                     [pendingPackage],
                     [Path.Combine(tempRoot, "install")],
                     Path.Combine(tempRoot, "missing"));
@@ -1683,7 +1683,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
 
-        service.CorrectChartInstallationDirectory([PackageChartEntry.FromCompatibilityAdapter(file)], delegate (PackageChartEntry target)
+        service.CorrectChartInstallationDirectory([PackageChartEntry.FromChartAdapter(file)], delegate (PackageChartEntry target)
         {
             target.SetInstallDestinationPathOnly(Path.Combine("C:\\Music", "FolderA"));
         });
@@ -1699,7 +1699,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
         file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
 
-        service.ClearInstallDestinations([PackageChartEntry.FromCompatibilityAdapter(file)]);
+        service.ClearInstallDestinations([PackageChartEntry.FromChartAdapter(file)]);
 
         Assert.IsFalse(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
     }
@@ -2985,7 +2985,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     private static PackageInstallEstimationSnapshot? BuildLooseChartSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, ChartInstallationEstimateMode estimateMode)
     {
         List<PackageChartEntry> targetEntries = [.. (chartFiles ?? [])
-            .Select(PackageChartEntry.FromCompatibilityAdapter)
+            .Select(PackageChartEntry.FromChartAdapter)
             .Where(entry => entry?.Chart != null)];
         if (targetEntries.Count == 0 || targetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination)))
         {
@@ -3015,7 +3015,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
             PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
-            result.Add(packageEntry ?? PackageChartEntry.FromCompatibilityAdapter(targetFile));
+            result.Add(packageEntry ?? PackageChartEntry.FromChartAdapter(targetFile));
         }
         return [.. result.Where(entry => entry?.Chart != null)];
     }
