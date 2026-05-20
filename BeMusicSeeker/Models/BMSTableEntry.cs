@@ -405,6 +405,38 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
     }
 
+    internal BMSTableEntry(ChartFile chart)
+        : this()
+    {
+        if (chart == null)
+        {
+            throw new ArgumentNullException(nameof(chart));
+        }
+        if (chart.Kind == ChartFileKind.Bmson)
+        {
+            title = chart.Title;
+            artist = chart.Artist;
+            base.level = chart.Level;
+            base.folder = chart.Folder ?? string.Empty;
+            MarkAsBmsonPlaylistIdentity(chart.Sha256);
+            return;
+        }
+        if (chart.BmsFile != null)
+        {
+            md5 = chart.BmsFile.hash;
+            bmsfile = chart.BmsFile;
+            base.level = chart.BmsFile.level;
+            playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
+            return;
+        }
+        md5 = chart.Md5;
+        title = chart.Title;
+        artist = chart.Artist;
+        base.level = chart.Level;
+        base.folder = chart.Folder ?? string.Empty;
+        playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
+    }
+
     public BMSTableEntry(dynamic data_json, BMSTable _parent = null)
         : this()
     {

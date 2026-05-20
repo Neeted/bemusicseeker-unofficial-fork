@@ -1294,7 +1294,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolvePlaylistDropChartAdapter_LibraryBmsonRowCreatesSha256PlaylistEntry()
+    public void ResolvePlaylistDropChart_LibraryBmsonRowCreatesSha256PlaylistEntryWithoutAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1308,13 +1308,15 @@ public sealed class PlaylistViewPipelineTests
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
 
-        BMSFile compatibilityFile = MainWindowViewModel.ResolvePlaylistDropChartAdapter(row);
-        var entry = new BMSTableEntry(compatibilityFile);
+        ChartFile chart = MainWindowViewModel.ResolvePlaylistDropChart(row);
+        var entry = new BMSTableEntry(chart);
 
-        Assert.IsNotNull(compatibilityFile);
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(compatibilityFile));
-        Assert.AreEqual(bmson.path, compatibilityFile.path);
-        Assert.AreEqual(bmson.title, compatibilityFile.Title);
+        Assert.IsNotNull(chart);
+        Assert.AreEqual(ChartFileKind.Bmson, chart.Kind);
+        Assert.IsNull(chart.BmsFile);
+        Assert.AreSame(bmson, chart.BmsonSong);
+        Assert.AreEqual(bmson.path, chart.Path);
+        Assert.AreEqual(bmson.title, chart.Title);
         Assert.IsNull(entry.md5);
         Assert.AreEqual(bmson.sha256, entry.sha256);
         Assert.AreEqual(0, entry.Org_md5.Count);
@@ -1829,8 +1831,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsRow));
         Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsonRow));
         Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingRow));
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(MainWindowViewModel.ResolvePlaylistDropChartAdapter(ownedBmsonRow)));
-        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChartAdapter(missingRow));
+        Assert.AreEqual(ChartFileKind.Bmson, MainWindowViewModel.ResolvePlaylistDropChart(ownedBmsonRow).Kind);
+        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(missingRow));
     }
 
     [TestMethod]

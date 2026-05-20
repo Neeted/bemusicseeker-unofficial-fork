@@ -21265,26 +21265,27 @@ public class MainWindowViewModel : ViewModel
                 tables.RemoveEntriesBMSTable(list.Except(second), bmsTable, commitFlag: false);
             }
         }
-        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = [.. sourceRows.Select(ResolvePlaylistDropChartAdapter).Where(file => file != null)];
+        List<ChartFile> resolvedCharts = [.. sourceRows.Select(ResolvePlaylistDropChart).Where(chart => chart != null)];
+        List<BeMusicSeeker.Models.BMSFile> resolvedBmsFiles = [.. resolvedCharts.Select(chart => chart.BmsFile).Where(file => file != null)];
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
             List<object> playlistEntryRows = [.. sourceRows.Where(ShouldPreservePlaylistEntryForRootFolderDrop)];
-            List<BeMusicSeeker.Models.BMSFile> source = [.. sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChartAdapter).Where(file => file != null)];
+            List<ChartFile> source = [.. sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChart).Where(chart => chart != null)];
             tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where(entry => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
                 return;
             }
-            foreach (IGrouping<string, BeMusicSeeker.Models.BMSFile> item in source.GroupBy(f => DirectoryExt.GetDirectoryNameSimple(f.path), StringComparer.OrdinalIgnoreCase).ToList())
+            foreach (IGrouping<string, ChartFile> item in source.GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase).ToList())
             {
                 List<string> md5sInTheSameDir = null;
-                foreach (BeMusicSeeker.Models.BMSFile item2 in item)
+                foreach (ChartFile item2 in item)
                 {
-                    if (PendingChartEntry.IsBmsonChartFile(item2))
+                    if (item2.Kind == ChartFileKind.Bmson || item2.BmsFile == null)
                     {
                         continue;
                     }
-                    md5sInTheSameDir = files.GetMD5sOfTheSameSong(item2);
+                    md5sInTheSameDir = files.GetMD5sOfTheSameSong(item2.BmsFile);
                     if (md5sInTheSameDir != null)
                     {
                         break;
@@ -21300,12 +21301,12 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (string.IsNullOrWhiteSpace(text))
                 {
-                    text = BMSLibrary.GetLongestCommonChartInfo(item.Select(f => f.Title));
+                    text = BMSLibrary.GetLongestCommonChartInfo(item.Select(chart => chart.Title));
                     text = tables.CreateNewFolderBMSTable(bmsTable, text, commitFlag: false);
                 }
-                tables.AddPlaylistEntriesToFolderBMSTable(item.Select(f => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
+                tables.AddPlaylistEntriesToFolderBMSTable(item.Select(chart => new BMSTableEntry(chart)
                 {
-                    Org_md5 = PendingChartEntry.IsBmsonChartFile(f) ? [] : md5sInTheSameDir
+                    Org_md5 = chart.Kind == ChartFileKind.Bmson ? [] : md5sInTheSameDir
                 }), bmsTable, text, commitFlag: false);
             }
         }
@@ -21313,18 +21314,18 @@ public class MainWindowViewModel : ViewModel
         {
             ParallelQuery<BMSTableEntry> bmsEntries = from row in sourceRows.AsParallel()
                                                       let entry = GridRowResolver.GetPlaylistEntry(row)
-                                                      let file = ResolvePlaylistDropChartAdapter(row)
-                                                      where entry != null || file != null
-                                                      select (entry != null) ? entry.Duplicate() : new BMSTableEntry(file)
+                                                      let chart = ResolvePlaylistDropChart(row)
+                                                      where entry != null || chart != null
+                                                      select (entry != null) ? entry.Duplicate() : new BMSTableEntry(chart)
                                                       {
-                                                          Org_md5 = GetPlaylistDropOrgMd5(file)
+                                                          Org_md5 = GetPlaylistDropOrgMd5(chart)
                                                       };
             tables.AddPlaylistEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
         tables.ReOutputCustomFolderAndCommitToDB(bmsTable);
         RefreshChartRowsViewForPlaylist(bmsTable);
         tables.AcquireReaderLockBMSTables();
-        files.AddReferenceBMSTables(bmsTable, resolvedFiles);
+        files.AddReferenceBMSTables(bmsTable, resolvedBmsFiles);
         tables.FreeReaderLockBMSTables();
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
@@ -21336,30 +21337,26 @@ public class MainWindowViewModel : ViewModel
     internal static bool ShouldPreservePlaylistEntryForRootFolderDrop(object row)
     {
         return GridRowResolver.GetPlaylistEntry(row) != null
-            && ResolvePlaylistDropChartAdapter(row) == null;
+            && ResolvePlaylistDropChart(row) == null;
     }
 
-    internal static BeMusicSeeker.Models.BMSFile ResolvePlaylistDropChartAdapter(object row)
+    internal static ChartFile ResolvePlaylistDropChart(object row)
     {
-        BeMusicSeeker.Models.BMSFile realFile = GridRowResolver.GetRealBmsFile(row);
-        if (realFile != null)
-        {
-            return realFile;
-        }
         return GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
-            ? target.CompatibilityBmsFile
+            && !target.IsPlaylistMissing
+            ? target.Chart
             : null;
     }
 
-    private List<string> GetPlaylistDropOrgMd5(BeMusicSeeker.Models.BMSFile file)
+    private List<string> GetPlaylistDropOrgMd5(ChartFile chart)
     {
-        if (file == null)
+        if (chart == null)
         {
             return null;
         }
-        return PendingChartEntry.IsBmsonChartFile(file)
+        return chart.Kind == ChartFileKind.Bmson || chart.BmsFile == null
             ? []
-            : files.GetMD5sOfTheSameSong(file);
+            : files.GetMD5sOfTheSameSong(chart.BmsFile);
     }
 
     internal void DeleteBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable)
