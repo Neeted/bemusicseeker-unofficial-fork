@@ -822,10 +822,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
+            BMSFile chart = result.PendingPackagesToAdd[0].ChartEntries
                 .Select(entry => entry.GetCompatibilityAdapterForTest())
-                .OfType<PendingChartEntry>()
-                .Single();
+                .Single(file => file != null);
+            Assert.IsNotInstanceOfType(chart, typeof(PendingChartEntry));
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, chart.maintenanceInfo.movie_files_defined);
@@ -867,10 +867,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            PendingChartEntry chart = result.PendingPackagesToAdd[0].ChartEntries
+            BMSFile chart = result.PendingPackagesToAdd[0].ChartEntries
                 .Select(entry => entry.GetCompatibilityAdapterForTest())
-                .OfType<PendingChartEntry>()
-                .Single();
+                .Single(file => file != null);
+            Assert.IsNotInstanceOfType(chart, typeof(PendingChartEntry));
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
             Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
@@ -911,10 +911,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
-            PendingChartEntry chart = result.AutoInstallCandidates[0].ChartEntries
+            BMSFile chart = result.AutoInstallCandidates[0].ChartEntries
                 .Select(entry => entry.GetCompatibilityAdapterForTest())
-                .OfType<PendingChartEntry>()
-                .Single();
+                .Single(file => file != null);
+            Assert.IsNotInstanceOfType(chart, typeof(PendingChartEntry));
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, chart.maintenanceInfo.movie_files_existing);
             Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));

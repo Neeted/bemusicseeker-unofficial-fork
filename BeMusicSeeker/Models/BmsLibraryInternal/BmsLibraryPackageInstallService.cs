@@ -470,16 +470,16 @@ internal sealed class BmsLibraryPackageInstallService
             : directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
-    private static PendingChartEntry CreatePendingChartForDiscovery(string filePath)
+    private static BMSFile CreateBmsChartForDiscovery(string filePath)
     {
         try
         {
-            var entry = PendingChartEntry.CreateFromFilePath(filePath);
+            BMSFile entry = BMSFile.CreateBMSFileFromFile(filePath);
             if (entry == null)
             {
                 return null;
             }
-            if (entry.IsBmsChart || entry.IsBmsonChart)
+            if (ChartFileKindResolver.IsBmsChartFile(entry))
             {
                 entry.SetHealthStatus(forceUpdate: false, memClear: false);
             }
@@ -497,7 +497,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return PackageChartEntry.FromPath(filePath);
         }
-        return PackageChartEntry.FromChartAdapter(CreatePendingChartForDiscovery(filePath));
+        return PackageChartEntry.FromChartAdapter(CreateBmsChartForDiscovery(filePath));
     }
 
     private static bool HasExistingPackageChartResources(PackageChartEntry entry)

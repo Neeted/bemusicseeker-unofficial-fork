@@ -523,7 +523,7 @@ internal sealed class PackageChartEntry
             {
                 return FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(filePath)));
             }
-            return FromChartAdapter(PendingChartEntry.CreateFromFilePath(filePath));
+            return FromChartAdapter(BMSFile.CreateBMSFileFromFile(filePath));
         }
         catch
         {
