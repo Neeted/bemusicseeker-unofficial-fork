@@ -1190,7 +1190,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             lookupKey = PendingChartEntry.IsBmsonFilePath(remainingFilePath)
                 ? PendingChartEntry.GetPrimaryLookupHash(BmsonSongParser.Parse(remainingFilePath))
-                : PendingChartEntry.GetPrimaryLookupHash(PendingChartEntry.CreateFromFilePath(remainingFilePath));
+                : ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5;
         }
         catch (Exception ex)
         {

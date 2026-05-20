@@ -2486,7 +2486,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void MovePackageFiles_SafeCleanupBmsonHashCheckDoesNotMaterializePendingAdapter()
+    public void MovePackageFiles_SafeCleanupRemainingChartHashCheckDoesNotMaterializePendingAdapter()
     {
         string root = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", ".."));
         string source = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryPackageInstallService.cs"));
@@ -2496,13 +2496,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(methodEnd > methodStart);
         string method = source.Substring(methodStart, methodEnd - methodStart);
         int bmsonBranchStart = method.IndexOf("PendingChartEntry.IsBmsonFilePath(remainingFilePath)", StringComparison.Ordinal);
-        int nonBmsonBranchStart = method.IndexOf(": PendingChartEntry.GetPrimaryLookupHash", bmsonBranchStart, StringComparison.Ordinal);
+        int nonBmsonBranchStart = method.IndexOf(": ChartFileContentReader.ReadSnapshot", bmsonBranchStart, StringComparison.Ordinal);
         Assert.IsTrue(bmsonBranchStart >= 0);
         Assert.IsTrue(nonBmsonBranchStart > bmsonBranchStart);
         string bmsonBranch = method.Substring(bmsonBranchStart, nonBmsonBranchStart - bmsonBranchStart);
 
         StringAssert.Contains(bmsonBranch, "BmsonSongParser.Parse(remainingFilePath)");
-        Assert.IsFalse(bmsonBranch.Contains("PendingChartEntry.CreateFromFilePath"));
+        StringAssert.Contains(method.Substring(nonBmsonBranchStart), "ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5");
+        Assert.IsFalse(method.Contains("PendingChartEntry.CreateFromFilePath"));
     }
 
     [DataTestMethod]
