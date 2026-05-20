@@ -1079,7 +1079,7 @@ public sealed class PlaylistViewPipelineTests
         snapshot.MaterializeCompatibilityFiles();
 
         Assert.AreEqual(1, adapterRequestCount);
-        Assert.AreEqual(1, snapshot.ChartFiles.Count);
+        Assert.AreEqual(1, snapshot.CompatibilityFiles.Count);
         Assert.AreEqual(1, adapterRequestCount);
     }
 

@@ -17885,9 +17885,9 @@ public class MainWindowViewModel : ViewModel
             {
                 files.SearchEstimatedInstallationDirectory(packages);
             }
-            if (targets.ChartFiles.Count > 0)
+            if (targets.CompatibilityFiles.Count > 0)
             {
-                files.SearchEstimatedInstallationDirectoryForLooseCharts(targets.ChartFiles);
+                files.SearchEstimatedInstallationDirectoryForLooseCharts(targets.CompatibilityFiles);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -17912,9 +17912,9 @@ public class MainWindowViewModel : ViewModel
             {
                 files.SearchMergeDestinationForPendingPackage(packages[num]);
             }
-            if (targets.ChartFiles.Count > 0)
+            if (targets.CompatibilityFiles.Count > 0)
             {
-                files.SearchMergeDestinationForPendingCharts(targets.ChartFiles);
+                files.SearchMergeDestinationForPendingCharts(targets.CompatibilityFiles);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -20791,7 +20791,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        SearchCorrectInstallationDirectoryCharts(snapshot.ChartFiles);
+        SearchCorrectInstallationDirectoryCharts(snapshot.CompatibilityFiles);
     }
 
     public void ClearInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
@@ -20828,9 +20828,9 @@ public class MainWindowViewModel : ViewModel
         {
             ClearChartPackageInstallDestinations(packages[num]);
         }
-        if (targets.ChartFiles.Count > 0)
+        if (targets.CompatibilityFiles.Count > 0)
         {
-            files.RemoveInstallDestination(targets.ChartFiles);
+            files.RemoveInstallDestination(targets.CompatibilityFiles);
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
@@ -20842,7 +20842,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        ClearInstallDestinationForCharts(snapshot.ChartFiles);
+        ClearInstallDestinationForCharts(snapshot.CompatibilityFiles);
     }
 
     private void ClearInstallDestinationForCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
@@ -21554,7 +21554,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        FixInstallationDirectoryCharts(snapshot.ChartFiles);
+        FixInstallationDirectoryCharts(snapshot.CompatibilityFiles);
     }
 
     internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)
@@ -21807,30 +21807,30 @@ public class MainWindowViewModel : ViewModel
 
     internal sealed class PendingInstallDestinationTargetSnapshot
     {
-        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFiles;
+        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> compatibilityFiles;
 
         internal PendingInstallDestinationTargetSnapshot(
             IEnumerable<ChartOperationTarget> packageTargets,
             IEnumerable<ChartFile> charts,
-            Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFileFactory)
+            Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> compatibilityFileFactory)
         {
             PackageTargets = [.. (packageTargets ?? []).Where(target => target?.PackageEntry != null && target.Chart != null)];
             Charts = [.. (charts ?? []).Where(chart => chart != null)];
-            chartFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
-                () => [.. (chartFileFactory?.Invoke() ?? []).Where(file => file != null)]);
+            compatibilityFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
+                () => [.. (compatibilityFileFactory?.Invoke() ?? []).Where(file => file != null)]);
         }
 
         internal IReadOnlyList<ChartOperationTarget> PackageTargets { get; }
 
         internal IReadOnlyList<ChartFile> Charts { get; }
 
-        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles => chartFiles.Value;
+        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> CompatibilityFiles => compatibilityFiles.Value;
 
         internal bool HasTargets => PackageTargets.Count > 0 || Charts.Count > 0;
 
         internal void MaterializeCompatibilityFiles()
         {
-            _ = ChartFiles.Count;
+            _ = CompatibilityFiles.Count;
         }
     }
 
@@ -21886,13 +21886,13 @@ public class MainWindowViewModel : ViewModel
 
     private sealed class RepairInstalledLocationTargetSnapshot : IRepairInstalledLocationTargetSnapshot
     {
-        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFiles;
+        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> compatibilityFiles;
 
-        internal RepairInstalledLocationTargetSnapshot(IEnumerable<ChartFile> charts, Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFileFactory)
+        internal RepairInstalledLocationTargetSnapshot(IEnumerable<ChartFile> charts, Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> compatibilityFileFactory)
         {
             Charts = [.. (charts ?? []).Where(chart => chart != null)];
-            chartFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
-                () => [.. (chartFileFactory?.Invoke() ?? []).Where(file => file != null)]);
+            compatibilityFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
+                () => [.. (compatibilityFileFactory?.Invoke() ?? []).Where(file => file != null)]);
         }
 
         internal bool HasTargets => Charts.Count > 0;
@@ -21901,11 +21901,11 @@ public class MainWindowViewModel : ViewModel
 
         internal IReadOnlyList<ChartFile> Charts { get; }
 
-        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles => chartFiles.Value;
+        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> CompatibilityFiles => compatibilityFiles.Value;
 
         public void MaterializeCompatibilityFiles()
         {
-            _ = ChartFiles.Count;
+            _ = CompatibilityFiles.Count;
         }
 
         bool IRepairInstalledLocationTargetSnapshot.HasTargets => HasTargets;
