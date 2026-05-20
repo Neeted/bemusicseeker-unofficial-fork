@@ -250,7 +250,7 @@ internal sealed class PlaylistDetailSourceRow
         BMSFile scoreProbe = null,
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
-        Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
+        Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null,
         Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
@@ -279,12 +279,12 @@ internal sealed class PlaylistDetailSourceRow
         memo = entry.memo ?? string.Empty;
         hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, entry.md5);
         sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, entry.sha256, entryChartInfo?.sha256);
-        PlaylistReferenceDisplay playlistReferenceDisplay = realFile == null && playlistReferenceDisplayProvider != null
-            ? playlistReferenceDisplayProvider.Invoke(hash, sha256) ?? PlaylistReferenceDisplay.Empty
-            : PlaylistReferenceDisplay.Empty;
         Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson));
         path = FirstNonEmpty(realFile?.path, resolvedBmson?.path);
         Chart = CreateChartFile();
+        PlaylistReferenceDisplay playlistReferenceDisplay = realFile == null && playlistReferenceDisplayProvider != null
+            ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
+            : PlaylistReferenceDisplay.Empty;
         HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
         HasHighlightedWarning = HasProjectedWarning(Chart, snapshotSource);
         DisplayWarning = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), snapshotSource?.DisplayWarning);

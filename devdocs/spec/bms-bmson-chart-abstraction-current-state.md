@@ -621,6 +621,7 @@ Kind ごとの storage 境界は次の通り。
 - pending package discovery、install table load、pending regroup 後の warning 再初期化では、bmson の `ResourceHealth` warning は `PackageChartEntry` に直接書き戻す。BMS entry は従来どおり `BMSFile` adapter の `SetHealthStatus()` / strict check を使う。これは BMS の parser / health cache と bmson の `bmson_song` resource snapshot の owner がまだ異なるためであり、bmson を BMS adapter に寄せ戻す旧挙動は残さない。
 - BMS chart については、現時点では `BMSFile.HasValidMaintenanceInfoSnapshot` を持つ場合だけ resource health projection の入力にする。BMS の strict resource scan / encoding / zero-note はまだ BMS-only maintenance boundary へ残し、今回の chart-common 計算へ無理に混ぜない。
 - `ResourceHealthIndexSnapshot.ActiveTargets` / `IgnoredTargets` は `ChartFile` を返す。旧実装の `BMSFile` target list は UI filter へ BMS adapter を渡すための構造であり、bmson を adapterless に扱う最終形では chart row projection に直接渡す。
+- playlist reference の表示 lookup は `PlaylistReferenceIndex.Find(ChartFile)` / `Find(LibraryChartRef)` を入口にする。md5 / sha256 の文字列 pair は index 内部の lookup detail として残し、通常一覧 source row / materialized row / playlist detail row は chart identity を渡す。mutation 側の `BMSFile.RefTables` 書き戻しは次の境界で扱うため、表示用 lookup だけでは pending / package bmson adapter を materialize しない。
 
 ### 完了判定
 

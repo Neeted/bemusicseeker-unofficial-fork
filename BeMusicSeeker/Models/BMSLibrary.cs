@@ -9858,6 +9858,22 @@ reportProgress,
         }
     }
 
+    internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(ChartFile chart)
+    {
+        lock (playlistReferenceIndexLock)
+        {
+            return (playlistReferenceIndex ?? PlaylistReferenceIndex.Empty).Find(chart);
+        }
+    }
+
+    internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(LibraryChartRef chart)
+    {
+        lock (playlistReferenceIndexLock)
+        {
+            return (playlistReferenceIndex ?? PlaylistReferenceIndex.Empty).Find(chart);
+        }
+    }
+
     private void ReplacePlaylistReferenceIndexTable(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
         if (table == null)

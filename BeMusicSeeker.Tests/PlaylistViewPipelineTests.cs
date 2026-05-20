@@ -597,7 +597,7 @@ public sealed class PlaylistViewPipelineTests
             entry,
             realFile: null,
             resolvedBmson: bmson,
-            playlistReferenceDisplayProvider: (md5, sha256) => index.Find(md5, sha256));
+            playlistReferenceDisplayProvider: chart => index.Find(chart));
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
         Assert.AreEqual("BMSN", sourceRow.RefTablesSymbols);

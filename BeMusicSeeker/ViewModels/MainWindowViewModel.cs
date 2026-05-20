@@ -10202,17 +10202,17 @@ public class MainWindowViewModel : ViewModel
 
     private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForRow(LibraryChartRow row)
     {
-        return GetPlaylistReferenceDisplayForIdentity(row?.hash, row?.sha256);
+        return GetPlaylistReferenceDisplayForChart(row?.Chart);
     }
 
     private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForSourceRow(ChartListSourceRow row)
     {
-        return GetPlaylistReferenceDisplayForIdentity(row?.Hash, row?.Sha256);
+        return GetPlaylistReferenceDisplayForChart(row?.Chart);
     }
 
-    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForIdentity(string md5, string sha256)
+    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForChart(ChartFile chart)
     {
-        return files?.GetPlaylistReferenceDisplay(md5, sha256) ?? PlaylistReferenceDisplay.Empty;
+        return files?.GetPlaylistReferenceDisplay(chart) ?? PlaylistReferenceDisplay.Empty;
     }
 
     private LibraryChartRow CreateVirtualNormalLibraryRow(ChartListSourceRow sourceRow)
@@ -15579,7 +15579,7 @@ public class MainWindowViewModel : ViewModel
                 scoreProbe,
                 scoreSnapshotForRow,
                 entryChartInfo,
-                GetPlaylistReferenceDisplayForIdentity,
+                GetPlaylistReferenceDisplayForChart,
                 GetOrCreateSharedBmsonChartAdapter,
                 TryGetSharedBmsonChartAdapter,
                 TryGetSharedBmsonChartTransientState));

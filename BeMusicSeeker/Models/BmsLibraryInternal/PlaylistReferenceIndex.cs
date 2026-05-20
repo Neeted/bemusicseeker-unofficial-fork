@@ -36,6 +36,20 @@ internal sealed class PlaylistReferenceIndex
         return PlaylistReferenceDisplay.Empty;
     }
 
+    internal PlaylistReferenceDisplay Find(ChartFile chart)
+    {
+        return chart == null
+            ? PlaylistReferenceDisplay.Empty
+            : Find(chart.Md5, chart.Sha256);
+    }
+
+    internal PlaylistReferenceDisplay Find(LibraryChartRef chart)
+    {
+        return chart == null
+            ? PlaylistReferenceDisplay.Empty
+            : Find(chart.Md5, chart.Sha256);
+    }
+
     internal void ReplaceTable(BMSTable table, IEnumerable<BMSTableEntry> entries)
     {
         if (table == null)

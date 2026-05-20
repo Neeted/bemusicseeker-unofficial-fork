@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -87,6 +88,28 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
         Assert.AreEqual("BMSN", display.Symbols);
         Assert.AreEqual("Bmson Table", display.Names);
+    }
+
+    [TestMethod]
+    public void PlaylistReferenceIndex_FindsReferencesFromChartIdentity()
+    {
+        var service = new BmsLibraryPlaylistReferenceService(2);
+        string md5 = "dddddddddddddddddddddddddddddddd";
+        string sha256 = new string('d', 64);
+        BMSTable table = CreateTable(CreateEntry(md5, sha256));
+        table.symbol = "ID";
+        table.name = "Identity";
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromReferenceMaps(service.BuildReferenceMaps(table, table.entries));
+        ChartFile chart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Library\chart.bmson",
+            md5 = md5,
+            sha256 = sha256
+        });
+        LibraryChartRef chartRef = LibraryChartRef.FromChartFile(chart);
+
+        Assert.AreEqual("ID", index.Find(chart).Symbols);
+        Assert.AreEqual("Identity", index.Find(chartRef).Names);
     }
 
     [TestMethod]
