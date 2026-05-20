@@ -434,6 +434,39 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void BuildPendingResourceHealthWarnings_AdapterBackedBmsonUsesChartResourceSnapshot()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string chartPath = Path.Combine(tempDirectoryPath, "chart.bmson");
+            var song = new LR2SongDBExtended.bmson_song
+            {
+                path = chartPath,
+                folder = tempDirectoryPath,
+                title = "BMSON",
+                artist = "Artist",
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                wav_files = ["missing.wav"]
+            };
+            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
+            PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+            bool legacyWarningCallbackCalled = false;
+
+            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(
+                entry,
+                _ =>
+                {
+                    legacyWarningCallbackCalled = true;
+                    return true;
+                });
+
+            Assert.IsFalse(legacyWarningCallbackCalled);
+            Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    [TestMethod]
     public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
     {
         TestResourceInitializer.EnsureJapaneseResources();

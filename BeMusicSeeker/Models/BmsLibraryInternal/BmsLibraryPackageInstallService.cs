@@ -551,7 +551,17 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return [];
         }
-        BMSFile file = entry.CompatibilityAdapter ?? entry.Chart.BmsFile;
+
+        ChartFile chart = entry.Chart;
+        if (chart.Kind == ChartFileKind.Bmson)
+        {
+            BMSFileMaintenanceInfo bmsonMaintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(chart);
+            return bmsonMaintenanceInfo == null
+                ? []
+                : BmsLibraryMaintenanceService.BuildResourceHealthWarnings(bmsonMaintenanceInfo);
+        }
+
+        BMSFile file = chart.BmsFile ?? entry.CompatibilityAdapter;
         if (file != null)
         {
             file.SetHealthStatus(forceUpdate: false, memClear: false);
@@ -563,7 +573,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
             return BmsLibraryMaintenanceService.BuildResourceHealthWarnings(file.maintenanceInfo);
         }
-        BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(entry.Chart);
+        BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(chart);
         if (maintenanceInfo == null)
         {
             return [];
