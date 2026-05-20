@@ -10293,7 +10293,7 @@ reportProgress,
             return [.. ChartPackagesPending
                 .Where(pkg => pkg != null)
                 .SelectMany(pkg => pkg.ChartEntries)
-                .Select(entry => entry?.GetPlaylistReferenceAdapter(materialize: false))
+                .Select(entry => entry?.CompatibilityAdapter)
                 .Where(adapter => adapter != null)
                 .Distinct()];
         }
@@ -10371,7 +10371,7 @@ reportProgress,
                 list.AddRange(ChartPackagesPending
                     .Where(pkg => pkg != null)
                     .SelectMany(pkg => pkg.ChartEntries)
-                    .Select(entry => entry?.GetPlaylistReferenceAdapter(materialize: false))
+                    .Select(entry => entry?.CompatibilityAdapter)
                     .Where(file => file != null && file.HasRefTable(table)));
             }
         }

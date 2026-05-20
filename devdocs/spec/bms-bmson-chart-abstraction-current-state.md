@@ -622,6 +622,7 @@ Kind ごとの storage 境界は次の通り。
 - BMS chart については、現時点では `BMSFile.HasValidMaintenanceInfoSnapshot` を持つ場合だけ resource health projection の入力にする。BMS の strict resource scan / encoding / zero-note はまだ BMS-only maintenance boundary へ残し、今回の chart-common 計算へ無理に混ぜない。
 - `ResourceHealthIndexSnapshot.ActiveTargets` / `IgnoredTargets` は `ChartFile` を返す。旧実装の `BMSFile` target list は UI filter へ BMS adapter を渡すための構造であり、bmson を adapterless に扱う最終形では chart row projection に直接渡す。
 - playlist reference の表示 lookup は `PlaylistReferenceIndex.Find(ChartFile)` / `Find(LibraryChartRef)` を入口にする。md5 / sha256 の文字列 pair は index 内部の lookup detail として残し、通常一覧 source row / materialized row / playlist detail row は chart identity を渡す。旧実装では、pending / installed package の adapterless bmson が playlist reference に一致した場合、表示用 `RefTables` を持たせるためだけに `PendingChartEntry` adapter を materialize していた。現行実装では、BMS / 既存 adapter だけに `BMSFile.RefTables` を書き戻し、adapterless bmson の表示は index へ任せるため、この副作用は移植しない。md5 優先、sha256 fallback の一致順序は維持する。
+- `PackageChartEntry.GetPlaylistReferenceAdapter(...)` は削除済み。playlist reference 境界で必要なのは既存 materialized adapter を読むことだけであり、playlist reference のために adapter を作る入口を残さない。
 
 ### 完了判定
 
