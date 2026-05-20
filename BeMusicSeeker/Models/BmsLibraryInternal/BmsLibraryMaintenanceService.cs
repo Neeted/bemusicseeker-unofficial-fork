@@ -135,6 +135,14 @@ internal sealed class BmsLibraryMaintenanceService
 
     internal static BMSFileMaintenanceInfo BuildResourceHealthMaintenanceInfo(ChartFile chart)
     {
+        return BuildResourceHealthMaintenanceInfo(chart, null, forceUpdate: false);
+    }
+
+    internal static BMSFileMaintenanceInfo BuildResourceHealthMaintenanceInfo(
+        ChartFile chart,
+        ResourceHealthLookupContext lookupContext,
+        bool forceUpdate = false)
+    {
         if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
         {
             return null;
@@ -157,17 +165,32 @@ internal sealed class BmsLibraryMaintenanceService
         maintenanceInfo.wav_files_defined = resources.AudioReferenceCount;
         if (maintenanceInfo.wav_files_defined > 0)
         {
-            maintenanceInfo.wav_files_existing = CountExistingResourceReferences(chartDirectory, resources.AudioReferences, BMSFile.wavExtensions);
+            maintenanceInfo.wav_files_existing = CountExistingResourceReferences(
+                chartDirectory,
+                resources.AudioReferences,
+                BMSFile.wavExtensions,
+                ChartResourceKind.Audio,
+                lookupContext);
         }
         maintenanceInfo.bga_files_defined = resources.VisualReferenceCount;
         if (maintenanceInfo.bga_files_defined > 0)
         {
-            maintenanceInfo.bga_files_existing = CountExistingResourceReferences(chartDirectory, resources.VisualReferences, BMSFile.bgaImageExtensions);
+            maintenanceInfo.bga_files_existing = CountExistingResourceReferences(
+                chartDirectory,
+                resources.VisualReferences,
+                BMSFile.bgaImageExtensions,
+                ChartResourceKind.Image,
+                lookupContext);
         }
         maintenanceInfo.movie_files_defined = resources.MovieReferenceCount;
         if (maintenanceInfo.movie_files_defined > 0)
         {
-            maintenanceInfo.movie_files_existing = CountExistingResourceReferences(chartDirectory, resources.MovieReferences, BMSFile.bgaMovieExtensions);
+            maintenanceInfo.movie_files_existing = CountExistingResourceReferences(
+                chartDirectory,
+                resources.MovieReferences,
+                [],
+                ChartResourceKind.Movie,
+                lookupContext);
         }
 
         string stagefile = chart.BmsFile?.stagefile ?? chart.BmsonSong?.stagefile;
@@ -176,17 +199,21 @@ internal sealed class BmsLibraryMaintenanceService
         maintenanceInfo.is_stagefile_defined = !string.IsNullOrWhiteSpace(stagefile);
         if (maintenanceInfo.is_stagefile_defined == true)
         {
-            maintenanceInfo.is_stagefile_existing = ExistsWithCompatibleExtensions(chartDirectory, stagefile, BMSFile.bgaImageExtensions);
+            maintenanceInfo.is_stagefile_existing = ExistsOptionalImageResource(chartDirectory, stagefile, lookupContext);
         }
         maintenanceInfo.is_backbmp_defined = !string.IsNullOrWhiteSpace(backbmp);
         if (maintenanceInfo.is_backbmp_defined == true)
         {
-            maintenanceInfo.is_backbmp_existing = ExistsWithCompatibleExtensions(chartDirectory, backbmp, BMSFile.bgaImageExtensions);
+            maintenanceInfo.is_backbmp_existing = ExistsOptionalImageResource(chartDirectory, backbmp, lookupContext);
         }
         maintenanceInfo.is_banner_defined = !string.IsNullOrWhiteSpace(banner);
         if (maintenanceInfo.is_banner_defined == true)
         {
-            maintenanceInfo.is_banner_existing = ExistsWithCompatibleExtensions(chartDirectory, banner, BMSFile.bgaImageExtensions);
+            maintenanceInfo.is_banner_existing = ExistsOptionalImageResource(chartDirectory, banner, lookupContext);
+        }
+        if (forceUpdate)
+        {
+            maintenanceInfo.is_files_warning_ignored = false;
         }
 
         return maintenanceInfo;
@@ -208,9 +235,100 @@ internal sealed class BmsLibraryMaintenanceService
         return warnings;
     }
 
-    private static int CountExistingResourceReferences(string chartDirectory, IEnumerable<ChartResourceSnapshot.ResourceReference> references, IEnumerable<string> extensions)
+    private static int CountExistingResourceReferences(
+        string chartDirectory,
+        IEnumerable<ChartResourceSnapshot.ResourceReference> references,
+        IEnumerable<string> extensions,
+        ChartResourceKind resourceKind,
+        ResourceHealthLookupContext lookupContext)
     {
-        return (references ?? []).Count(reference => ExistsWithCompatibleExtensions(chartDirectory, reference.NormalizedPath, extensions));
+        string lookupDirectory = NormalizeLookupDirectory(chartDirectory);
+        DirectoryResourceLookupCache.Entry resourceEntry = lookupContext?.GetResourceEntryOrNull(lookupDirectory);
+        int existingCount = 0;
+        foreach (ChartResourceSnapshot.ResourceReference reference in references ?? [])
+        {
+            if (TryResolveResourceReferenceFromCache(resourceEntry, reference, resourceKind, out bool existsInCache))
+            {
+                lookupContext?.RecordCacheHit();
+                if (existsInCache)
+                {
+                    existingCount++;
+                }
+                continue;
+            }
+
+            lookupContext?.RecordFileExistsFallback(GetFallbackKind(resourceKind));
+            if (ExistsWithCompatibleExtensions(chartDirectory, reference.NormalizedPath, extensions))
+            {
+                existingCount++;
+            }
+        }
+        return existingCount;
+    }
+
+    private static bool ExistsOptionalImageResource(string chartDirectory, string file, ResourceHealthLookupContext lookupContext)
+    {
+        string normalizedPath = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(file);
+        if (string.IsNullOrWhiteSpace(normalizedPath))
+        {
+            return false;
+        }
+        string lookupDirectory = NormalizeLookupDirectory(chartDirectory);
+        DirectoryResourceLookupCache.Entry resourceEntry = lookupContext?.GetResourceEntryOrNull(lookupDirectory);
+        var reference = new ChartResourceSnapshot.ResourceReference(
+            normalizedPath,
+            ChartResourceKeyHash.GetLookupHash(normalizedPath),
+            ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath));
+        if (TryResolveResourceReferenceFromCache(resourceEntry, reference, ChartResourceKind.Image, out bool existsInCache))
+        {
+            lookupContext?.RecordCacheHit();
+            return existsInCache;
+        }
+
+        lookupContext?.RecordFileExistsFallback(ResourceHealthFallbackKind.OptionalImage);
+        return ExistsWithCompatibleExtensions(chartDirectory, normalizedPath, BMSFile.bgaImageExtensions);
+    }
+
+    private static string NormalizeLookupDirectory(string chartDirectory)
+    {
+        return (chartDirectory ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static bool TryResolveResourceReferenceFromCache(
+        DirectoryResourceLookupCache.Entry resourceEntry,
+        ChartResourceSnapshot.ResourceReference reference,
+        ChartResourceKind resourceKind,
+        out bool existsInCache)
+    {
+        existsInCache = false;
+        if (resourceEntry == null || reference.RelativePathHash == 0u)
+        {
+            return false;
+        }
+        ISet<uint> hashes = resourceKind switch
+        {
+            ChartResourceKind.Audio => resourceEntry.AudioRelativePathHashes,
+            ChartResourceKind.Image => resourceEntry.ImageRelativePathHashes,
+            ChartResourceKind.Movie => resourceEntry.MovieRelativePathHashes,
+            _ => null
+        };
+        if (hashes == null)
+        {
+            return false;
+        }
+        existsInCache = hashes.Contains(reference.RelativePathHash);
+        return true;
+    }
+
+    private static ResourceHealthFallbackKind GetFallbackKind(ChartResourceKind resourceKind)
+    {
+        return resourceKind switch
+        {
+            ChartResourceKind.Audio => ResourceHealthFallbackKind.Audio,
+            ChartResourceKind.Image => ResourceHealthFallbackKind.Image,
+            ChartResourceKind.Movie => ResourceHealthFallbackKind.Movie,
+            _ => ResourceHealthFallbackKind.Unknown
+        };
     }
 
     private static bool ExistsWithCompatibleExtensions(string chartDirectory, string file, IEnumerable<string> extensions)
@@ -433,16 +551,25 @@ internal sealed class BmsLibraryMaintenanceService
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        List<BMSFile> targets = [.. (bmsFiles ?? []).Where(file => file != null)];
-        foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
+        List<BMSFile> bmsTargets = [.. (bmsFiles ?? []).Where(file => file != null)];
+        List<LR2SongDBExtended.bmson_song> bmsonTargets = [.. (bmsonSongs ?? []).Where(song => song != null)];
+        if (bmsonTargets.Count == 0)
         {
-            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
-            if (adapter != null)
-            {
-                targets.Add(adapter);
-            }
+            return UpdateMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         }
-        return UpdateMaintenanceInfo(targets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+        if (bmsTargets.Count == 0)
+        {
+            return UpdateBmsonMaintenanceInfo(bmsonTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+        }
+
+        resourceLookupContext ??= new ResourceHealthLookupContext(null);
+        MaintenanceWorkflowResult bmsResult = UpdateMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+        if (bmsResult.Canceled || cancellationToken.IsCancellationRequested)
+        {
+            return bmsResult;
+        }
+        MaintenanceWorkflowResult bmsonResult = UpdateBmsonMaintenanceInfo(bmsonTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+        return CombineResults(bmsResult, bmsonResult);
     }
 
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(
@@ -746,6 +873,308 @@ internal sealed class BmsLibraryMaintenanceService
         return result;
     }
 
+    private MaintenanceWorkflowResult UpdateBmsonMaintenanceInfo(
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        bool forceUpdate,
+        BmsLibraryDbGateway dbGateway,
+        IBmsLibraryDialogService dialogService,
+        ResourceHealthLookupContext resourceLookupContext = null,
+        Action<string> progressLogger = null,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = new MaintenanceWorkflowResult();
+        if (bmsonSongs == null || dbGateway == null)
+        {
+            return result;
+        }
+        var stopwatch = Stopwatch.StartNew();
+        List<LR2SongDBExtended.bmson_song> sourceSongs = [.. bmsonSongs.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        List<LR2SongDBExtended.bmson_song> targets = [];
+        foreach (LR2SongDBExtended.bmson_song song in sourceSongs)
+        {
+            BMSFileMaintenanceInfo maintenanceInfo = GetBmsonMaintenanceInfoForWorkflow(song);
+            bool missingInfo = maintenanceInfo?.IsInformationChecked() != true;
+            bool isTarget = forceUpdate || missingInfo;
+            if (!isTarget)
+            {
+                continue;
+            }
+            targets.Add(song);
+            if (forceUpdate)
+            {
+                result.ForceTargetCount++;
+            }
+            if (missingInfo)
+            {
+                result.MissingInfoTargetCount++;
+            }
+            if (!HasFreshCurrentBmsonResourceReferences(song))
+            {
+                result.BmsonMissingFreshResourceReferenceCount++;
+            }
+        }
+        result.CheckedFileCount = targets.Count;
+        result.BmsonResourceTargetCount = targets.Count;
+        result.HealthTargetCount = targets.Count;
+        result.HealthDegree = maintenanceHealthDegree;
+        resourceLookupContext ??= new ResourceHealthLookupContext(null);
+        progressLogger?.Invoke("maintenance_target_summary total=" + targets.Count
+            + " sourceCount=" + sourceSongs.Count
+            + " force=" + result.ForceTargetCount
+            + " missingInfo=" + result.MissingInfoTargetCount
+            + " missingEncoding=0"
+            + " bmsonMissingFreshRefs=" + result.BmsonMissingFreshResourceReferenceCount
+            + " healthDegree=" + maintenanceHealthDegree);
+        if (targets.Count <= 0)
+        {
+            stopwatch.Stop();
+            ApplyLookupCounters(result, resourceLookupContext);
+            result.TotalMs = stopwatch.ElapsedMilliseconds;
+            progressLogger?.Invoke("maintenance_update no_targets sourceCount=" + sourceSongs.Count
+                + " healthDegree=" + maintenanceHealthDegree
+                + " elapsedMs=" + result.TotalMs);
+            progressReporter?.Invoke(new MaintenanceWorkflowProgress
+            {
+                TotalCount = sourceSongs.Count,
+                ProcessedCount = sourceSongs.Count,
+                IsCompleted = true
+            });
+            return result;
+        }
+
+        long healthTicks = 0L;
+        long bmsonRefreshTicks = 0L;
+        int sectionIndex = 0;
+        int processedCount = 0;
+        progressReporter?.Invoke(new MaintenanceWorkflowProgress
+        {
+            TotalCount = targets.Count,
+            ProcessedCount = 0,
+            CurrentPath = targets.FirstOrDefault()?.path ?? string.Empty
+        });
+        foreach (IEnumerable<LR2SongDBExtended.bmson_song> section in targets.Section(1000))
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                result.Canceled = true;
+                break;
+            }
+            sectionIndex++;
+            var sectionStopwatch = Stopwatch.StartNew();
+            object bmsonReparseLock = new();
+            int bmsonReparsedInSection = 0;
+            int bmsonReparseFailedInSection = 0;
+            int bmsonResourceReferencesReusedInSection = 0;
+            List<LR2SongDBExtended.bmson_song> songsInSection = [.. section.Where(song => song != null)];
+            object maintenanceInfoLock = new();
+            List<BMSFileMaintenanceInfo> updatedMaintenanceInfos = [];
+            progressReporter?.Invoke(new MaintenanceWorkflowProgress
+            {
+                TotalCount = targets.Count,
+                ProcessedCount = processedCount,
+                CurrentPath = songsInSection.FirstOrDefault()?.path ?? string.Empty
+            });
+            progressLogger?.Invoke("maintenance_update section_start section=" + sectionIndex
+                + " targetCount=" + songsInSection.Count
+                + " total=" + targets.Count
+                + " healthDegree=" + maintenanceHealthDegree);
+            try
+            {
+                Parallel.ForEach(songsInSection, new ParallelOptions { MaxDegreeOfParallelism = maintenanceHealthDegree }, delegate (LR2SongDBExtended.bmson_song song)
+                {
+                    BMSFileMaintenanceInfo beforeInfo = GetBmsonMaintenanceInfoForWorkflow(song);
+                    beforeInfo?.NormalizeForBmson(song.path, song.md5);
+                    if (forceUpdate || beforeInfo?.IsInformationChecked() != true)
+                    {
+                        long bmsonRefreshStart = Stopwatch.GetTimestamp();
+                        BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(song, forceUpdate);
+                        AddElapsedTicks(ref bmsonRefreshTicks, bmsonRefreshStart);
+                        if (refreshResult == BmsonResourceRefreshResult.Success)
+                        {
+                            lock (bmsonReparseLock)
+                            {
+                                bmsonReparsedInSection++;
+                            }
+                        }
+                        else if (refreshResult == BmsonResourceRefreshResult.Failed)
+                        {
+                            lock (bmsonReparseLock)
+                            {
+                                bmsonReparseFailedInSection++;
+                            }
+                            return;
+                        }
+                        else if (refreshResult == BmsonResourceRefreshResult.Reused)
+                        {
+                            lock (bmsonReparseLock)
+                            {
+                                bmsonResourceReferencesReusedInSection++;
+                            }
+                        }
+                        else if (refreshResult == BmsonResourceRefreshResult.NotApplicable)
+                        {
+                            return;
+                        }
+                    }
+
+                    try
+                    {
+                        long healthStart = Stopwatch.GetTimestamp();
+                        ChartFile chart = ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false);
+                        BMSFileMaintenanceInfo afterInfo = BuildResourceHealthMaintenanceInfo(chart, resourceLookupContext, forceUpdate);
+                        AddElapsedTicks(ref healthTicks, healthStart);
+                        if (afterInfo == null)
+                        {
+                            return;
+                        }
+                        if (!forceUpdate && IsCurrentBmsonMaintenanceInfo(song, beforeInfo))
+                        {
+                            afterInfo.is_files_warning_ignored = beforeInfo.is_files_warning_ignored;
+                        }
+                        afterInfo.NormalizeForBmson(song.path, song.md5);
+                        song.MaintenanceInfo = afterInfo;
+                        lock (maintenanceInfoLock)
+                        {
+                            updatedMaintenanceInfos.Add(afterInfo);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                        {
+                            dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, song.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            return;
+                        }
+                        throw;
+                    }
+                });
+                List<BMSFileMaintenanceInfo> maintenanceInfos = [.. updatedMaintenanceInfos.Where(info => info?.IsInformationChecked() == true)];
+                if (maintenanceInfos.Count > 0)
+                {
+                    dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
+                    {
+                        foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
+                        {
+                            songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
+                        }
+                    });
+                    result.HasUpdates = true;
+                    result.MaintenanceInfoUpsertCount += maintenanceInfos.Count;
+                }
+                result.BmsonReparsedCount += bmsonReparsedInSection;
+                result.BmsonReparseFailedCount += bmsonReparseFailedInSection;
+                result.BmsonResourceReferenceReusedCount += bmsonResourceReferencesReusedInSection;
+                processedCount += songsInSection.Count;
+                sectionStopwatch.Stop();
+                progressLogger?.Invoke("maintenance_update section_done section=" + sectionIndex
+                    + " targetCount=" + songsInSection.Count
+                    + " maintenanceUpserted=" + maintenanceInfos.Count
+                    + " songReloaded=0"
+                    + " bmsonReparsed=" + bmsonReparsedInSection
+                    + " bmsonReparseFailed=" + bmsonReparseFailedInSection
+                    + " bmsonResourceRefsReused=" + bmsonResourceReferencesReusedInSection
+                    + " elapsedMs=" + sectionStopwatch.ElapsedMilliseconds);
+                progressReporter?.Invoke(new MaintenanceWorkflowProgress
+                {
+                    TotalCount = targets.Count,
+                    ProcessedCount = processedCount,
+                    CurrentPath = songsInSection.LastOrDefault()?.path ?? string.Empty,
+                    IsCanceled = result.Canceled
+                });
+            }
+            catch (Exception ex)
+            {
+                sectionStopwatch.Stop();
+                progressLogger?.Invoke("maintenance_update section_failed section=" + sectionIndex
+                    + " targetCount=" + songsInSection.Count
+                    + " elapsedMs=" + sectionStopwatch.ElapsedMilliseconds
+                    + " message=" + SanitizeLogValue(ex.Message));
+                throw;
+            }
+        }
+        stopwatch.Stop();
+        result.HealthMs = TicksToMilliseconds(Interlocked.Read(ref healthTicks));
+        result.BmsonRefreshMs = TicksToMilliseconds(Interlocked.Read(ref bmsonRefreshTicks));
+        ApplyLookupCounters(result, resourceLookupContext);
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        progressReporter?.Invoke(new MaintenanceWorkflowProgress
+        {
+            TotalCount = targets.Count,
+            ProcessedCount = processedCount,
+            CurrentPath = string.Empty,
+            IsCompleted = !result.Canceled,
+            IsCanceled = result.Canceled
+        });
+        return result;
+    }
+
+    private static BMSFileMaintenanceInfo GetBmsonMaintenanceInfoForWorkflow(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null)
+        {
+            return null;
+        }
+        BMSFileMaintenanceInfo maintenanceInfo = IsCurrentBmsonMaintenanceInfo(song, song.MaintenanceInfo)
+            ? song.MaintenanceInfo
+            : BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
+        maintenanceInfo?.NormalizeForBmson(song.path, song.md5);
+        return maintenanceInfo;
+    }
+
+    private static void ApplyLookupCounters(MaintenanceWorkflowResult result, ResourceHealthLookupContext resourceLookupContext)
+    {
+        result.HealthCacheHitCount = resourceLookupContext.CacheHitCount;
+        result.HealthFileExistsFallbackCount = resourceLookupContext.FileExistsFallbackCount;
+        result.HealthAudioFileExistsFallbackCount = resourceLookupContext.AudioFileExistsFallbackCount;
+        result.HealthImageFileExistsFallbackCount = resourceLookupContext.ImageFileExistsFallbackCount;
+        result.HealthMovieFileExistsFallbackCount = resourceLookupContext.MovieFileExistsFallbackCount;
+        result.HealthOptionalImageFileExistsFallbackCount = resourceLookupContext.OptionalImageFileExistsFallbackCount;
+    }
+
+    private static MaintenanceWorkflowResult CombineResults(MaintenanceWorkflowResult first, MaintenanceWorkflowResult second)
+    {
+        if (first == null)
+        {
+            return second ?? new MaintenanceWorkflowResult();
+        }
+        if (second == null)
+        {
+            return first;
+        }
+        first.HasUpdates |= second.HasUpdates;
+        first.CheckedFileCount += second.CheckedFileCount;
+        first.BmsResourceTargetCount += second.BmsResourceTargetCount;
+        first.BmsonResourceTargetCount += second.BmsonResourceTargetCount;
+        first.HealthTargetCount += second.HealthTargetCount;
+        first.HealthDegree = Math.Max(first.HealthDegree, second.HealthDegree);
+        first.ForceTargetCount += second.ForceTargetCount;
+        first.MissingInfoTargetCount += second.MissingInfoTargetCount;
+        first.MissingEncodingTargetCount += second.MissingEncodingTargetCount;
+        first.BmsonMissingFreshResourceReferenceCount += second.BmsonMissingFreshResourceReferenceCount;
+        first.HealthMs += second.HealthMs;
+        first.EncodingMs += second.EncodingMs;
+        first.BmsonRefreshMs += second.BmsonRefreshMs;
+        first.HealthCacheHitCount = second.HealthCacheHitCount;
+        first.HealthFileExistsFallbackCount = second.HealthFileExistsFallbackCount;
+        first.HealthAudioFileExistsFallbackCount = second.HealthAudioFileExistsFallbackCount;
+        first.HealthImageFileExistsFallbackCount = second.HealthImageFileExistsFallbackCount;
+        first.HealthMovieFileExistsFallbackCount = second.HealthMovieFileExistsFallbackCount;
+        first.HealthOptionalImageFileExistsFallbackCount = second.HealthOptionalImageFileExistsFallbackCount;
+        first.BmsonReparsedCount += second.BmsonReparsedCount;
+        first.BmsonReparseFailedCount += second.BmsonReparseFailedCount;
+        first.BmsonResourceReferenceReusedCount += second.BmsonResourceReferenceReusedCount;
+        first.MaintenanceInfoUpsertCount += second.MaintenanceInfoUpsertCount;
+        first.SongUpsertCount += second.SongUpsertCount;
+        first.ReloadedSongCount += second.ReloadedSongCount;
+        first.ZeroNoteChangedCount += second.ZeroNoteChangedCount;
+        first.WarningReapplyTargets += second.WarningReapplyTargets;
+        first.WarningChangedCount += second.WarningChangedCount;
+        first.Canceled |= second.Canceled;
+        first.TotalMs += second.TotalMs;
+        return first;
+    }
+
     private static void AddElapsedTicks(ref long targetTicks, long startTimestamp)
     {
         long elapsedTicks = Stopwatch.GetTimestamp() - startTimestamp;
@@ -784,9 +1213,50 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
+    private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(LR2SongDBExtended.bmson_song song, bool forceUpdate)
+    {
+        if (song == null || string.IsNullOrWhiteSpace(song.path) || !File.Exists(song.path))
+        {
+            return BmsonResourceRefreshResult.NotApplicable;
+        }
+        if (!forceUpdate && HasFreshCurrentBmsonResourceReferences(song))
+        {
+            return BmsonResourceRefreshResult.Reused;
+        }
+        try
+        {
+            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(song.path);
+            UpdateBmsonResourceReferences(song, parsed);
+            return BmsonResourceRefreshResult.Success;
+        }
+        catch
+        {
+            return BmsonResourceRefreshResult.Failed;
+        }
+    }
+
+    private static void UpdateBmsonResourceReferences(LR2SongDBExtended.bmson_song target, LR2SongDBExtended.bmson_song parsed)
+    {
+        if (target == null || parsed == null)
+        {
+            return;
+        }
+        target.stagefile = parsed.stagefile;
+        target.banner = parsed.banner;
+        target.backbmp = parsed.backbmp;
+        target.preview_music = parsed.preview_music;
+        target.wav_files = parsed.wav_files ?? [];
+        target.bga_files = parsed.bga_files ?? [];
+        target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
+    }
+
     private static bool HasFreshCurrentBmsonResourceReferences(PendingChartEntry pending)
     {
-        LR2SongDBExtended.bmson_song song = pending?.BmsonSong;
+        return HasFreshCurrentBmsonResourceReferences(pending?.BmsonSong);
+    }
+
+    private static bool HasFreshCurrentBmsonResourceReferences(LR2SongDBExtended.bmson_song song)
+    {
         if (song == null || !song.HasFreshResourceReferences || string.IsNullOrWhiteSpace(song.path))
         {
             return false;

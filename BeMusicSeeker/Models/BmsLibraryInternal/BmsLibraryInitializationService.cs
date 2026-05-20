@@ -1175,12 +1175,14 @@ internal sealed class BmsLibraryInitializationService
         string warning = null;
         try
         {
-            var shim = PendingChartEntry.CreateFromBmsonSong(song);
-            shim.SetHealthStatusUsingLookupContext(lookupContext, forceUpdate: false, memClear: true);
-            BMSFileMaintenanceInfo maintenanceInfo = shim.maintenanceInfo ?? BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
-            maintenanceInfo.NormalizeForBmson(song.path, song.md5);
-            song.MaintenanceInfo = maintenanceInfo;
-            completed = maintenanceInfo.IsInformationChecked();
+            ChartFile chart = ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false);
+            BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(chart, lookupContext);
+            if (maintenanceInfo != null)
+            {
+                maintenanceInfo.NormalizeForBmson(song.path, song.md5);
+                song.MaintenanceInfo = maintenanceInfo;
+            }
+            completed = maintenanceInfo?.IsInformationChecked() == true;
         }
         catch (Exception ex) when (IsInlineMaintenanceRecoverable(ex))
         {
