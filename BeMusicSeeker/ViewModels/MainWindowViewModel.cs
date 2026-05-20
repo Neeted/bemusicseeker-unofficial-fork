@@ -11536,10 +11536,9 @@ public class MainWindowViewModel : ViewModel
             }
             if (chart?.Kind == ChartFileKind.Bms)
             {
-                BeMusicSeeker.Models.BMSFile bmsFile = entry?.GetExistingBmsFormatAdapter();
-                if (bmsFile != null)
+                if (chart.BmsFile != null)
                 {
-                    bmsFiles.Add(bmsFile);
+                    bmsFiles.Add(chart.BmsFile);
                 }
             }
         }
@@ -11590,7 +11589,7 @@ public class MainWindowViewModel : ViewModel
         return [.. (packages ?? [])
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
-            .Select(entry => entry?.GetExistingBmsFormatAdapter())
+            .Select(entry => entry?.Chart?.BmsFile)
             .Where(file => PendingChartEntry.IsBmsChartFile(file))];
     }
 

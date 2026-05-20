@@ -114,10 +114,9 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart, packageEntry: entry);
         }
-        BMSFile bmsFile = entry.GetExistingBmsFormatAdapter();
-        if (bmsFile != null)
+        if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null)
         {
-            return FromBmsFile(bmsFile, entry);
+            return FromBmsFile(chart.BmsFile, entry);
         }
         return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart, packageEntry: entry);
     }
