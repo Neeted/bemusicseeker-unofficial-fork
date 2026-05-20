@@ -6963,6 +6963,32 @@ reportProgress,
         return targets;
     }
 
+    private static List<BMSFile> CreateResourceMaintenanceTargets(IEnumerable<ChartFile> charts)
+    {
+        List<BMSFile> targets = [];
+        foreach (ChartFile chart in charts ?? [])
+        {
+            if (chart == null)
+            {
+                continue;
+            }
+            if (chart.BmsFile != null)
+            {
+                targets.Add(chart.BmsFile);
+                continue;
+            }
+            if (chart.BmsonSong != null)
+            {
+                PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(chart.BmsonSong);
+                if (adapter != null)
+                {
+                    targets.Add(adapter);
+                }
+            }
+        }
+        return targets;
+    }
+
     private void InvalidateResourceHealthIndex(string reason)
     {
         _ = reason;
@@ -7218,6 +7244,20 @@ reportProgress,
         return result;
     }
 
+    internal MaintenanceWorkflowResult RescanResourceHealthCharts(
+        IEnumerable<ChartFile> charts,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        List<BMSFile> targets = CreateResourceMaintenanceTargets(charts);
+        MaintenanceWorkflowResult result = setMaintenanceInfo(targets, forceUpdate: true, includeInstalledBmson: false, progressReporter, cancellationToken);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
+        RaisePropertyChanged(() => BMSFilesGarbled);
+        RaisePropertyChanged(() => BMSFilesGarbledFixed);
+        return result;
+    }
+
     /// <summary>
     /// 全所持譜面の構成ファイル health を明示的に再計算します。
     /// 後から追加した BGA などを反映するための重い手動操作です。
@@ -7241,6 +7281,29 @@ reportProgress,
             using (rwlockBMSFiles.GetReaderGuard())
             {
                 List<BMSFile> targets = CreateResourceMaintenanceTargets(chartFiles, includeInstalledBmson);
+                if (targets.Count == 0)
+                {
+                    return;
+                }
+                using (rwlockSongDBMaintenance.GetWriterGuard())
+                {
+                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetFilesWarningIgnored(targets, unset);
+                    dbGateway.UpsertMaintenanceInfos(changes);
+                }
+                RebuildResourceHealthIndexSnapshotLocked(unset ? "resource_health_unignore" : "resource_health_ignore");
+            }
+        }
+        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
+    }
+
+    internal void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
+    {
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                List<BMSFile> targets = CreateResourceMaintenanceTargets(charts);
                 if (targets.Count == 0)
                 {
                     return;

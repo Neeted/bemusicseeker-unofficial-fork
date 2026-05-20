@@ -100,6 +100,29 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void SetFilesWarningIgnored_AttachesBmsonMaintenanceInfoToSourceSong()
+    {
+        var service = new BmsLibraryMaintenanceService();
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Library\song.bmson",
+            md5 = "cccccccccccccccccccccccccccccccc",
+            sha256 = new string('d', 64)
+        };
+        PendingChartEntry entry = PendingChartEntry.CreateFromBmsonSong(song);
+
+        Assert.IsNotNull(entry);
+        Assert.IsNull(song.MaintenanceInfo);
+
+        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([entry], unset: false);
+
+        Assert.AreEqual(1, changes.Count);
+        Assert.IsTrue(changes[0].is_files_warning_ignored);
+        Assert.AreSame(entry.maintenanceInfo, song.MaintenanceInfo);
+        Assert.IsTrue(song.MaintenanceInfo.is_files_warning_ignored);
+    }
+
+    [TestMethod]
     public void SetHealthStatusUsingLookupContext_RootReferenceDoesNotMatchNestedResource()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));

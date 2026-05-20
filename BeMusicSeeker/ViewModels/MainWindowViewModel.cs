@@ -17645,9 +17645,9 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
-    private void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    private void ForceResourceHealthCheckCharts(IEnumerable<ChartFile> charts)
     {
-        files.RescanResourceHealthCharts(chartFiles, includeInstalledBmson: false);
+        files.RescanResourceHealthCharts(charts);
         RefreshResourceHealthViewsAfterMaintenanceChanged();
     }
 
@@ -17657,7 +17657,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        ForceResourceHealthCheckCharts(targets.ChartFiles);
+        ForceResourceHealthCheckCharts(targets.Charts);
     }
 
     public void StartRescanAllOwnedChartMaintenance()
@@ -17802,9 +17802,9 @@ public class MainWindowViewModel : ViewModel
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
     }
 
-    private void SetChartResourceWarningsIgnored(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool unset = false)
+    private void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
     {
-        files.SetChartResourceWarningsIgnored(chartFiles, unset);
+        files.SetChartResourceWarningsIgnored(charts, unset);
     }
 
     internal void SetChartResourceWarningsIgnored(ChartCompatibilityTargetSnapshot targets, bool unset = false)
@@ -17813,7 +17813,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        SetChartResourceWarningsIgnored(targets.ChartFiles, unset);
+        SetChartResourceWarningsIgnored(targets.Charts, unset);
     }
 
     /// <summary>
@@ -21841,30 +21841,19 @@ public class MainWindowViewModel : ViewModel
     {
         List<ChartOperationTarget> targetList = [.. (targets ?? []).Where(target => target != null && target.HasCapability(requiredCapability))];
         List<ChartFile> charts = [.. targetList.Select(target => target.Chart).Where(chart => chart != null)];
-        return new ChartCompatibilityTargetSnapshot(charts, () => [.. targetList.Select(ResolveLegacyChartFile).Where(file => file != null)]);
+        return new ChartCompatibilityTargetSnapshot(charts);
     }
 
     internal sealed class ChartCompatibilityTargetSnapshot
     {
-        private readonly Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFiles;
-
-        internal ChartCompatibilityTargetSnapshot(IEnumerable<ChartFile> charts, Func<IReadOnlyList<BeMusicSeeker.Models.BMSFile>> chartFileFactory)
+        internal ChartCompatibilityTargetSnapshot(IEnumerable<ChartFile> charts)
         {
             Charts = [.. (charts ?? []).Where(chart => chart != null)];
-            chartFiles = new Lazy<IReadOnlyList<BeMusicSeeker.Models.BMSFile>>(
-                () => [.. (chartFileFactory?.Invoke() ?? []).Where(file => file != null)]);
         }
 
         internal IReadOnlyList<ChartFile> Charts { get; }
 
-        internal IReadOnlyList<BeMusicSeeker.Models.BMSFile> ChartFiles => chartFiles.Value;
-
         internal bool HasTargets => Charts.Count > 0;
-
-        internal void MaterializeCompatibilityFiles()
-        {
-            _ = ChartFiles.Count;
-        }
     }
 
     internal interface IRepairInstalledLocationTargetSnapshot

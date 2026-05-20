@@ -940,7 +940,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartCompatibilityTargetSnapshot_AutoRenameChartsDoNotMaterializeBmsonCompatibilityAdapter()
+    public void ChartCompatibilityTargetSnapshot_UsesChartFileWithoutMaterializingBmsonCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -970,9 +970,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(snapshot.HasTargets);
         Assert.AreSame(bmson, snapshot.Charts[0].BmsonSong);
         Assert.AreEqual(0, adapterRequestCount);
-
-        Assert.AreEqual(1, snapshot.ChartFiles.Count);
-        Assert.AreEqual(1, adapterRequestCount);
     }
 
     [TestMethod]

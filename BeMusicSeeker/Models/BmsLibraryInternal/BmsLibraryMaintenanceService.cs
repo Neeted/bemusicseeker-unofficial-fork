@@ -106,6 +106,13 @@ internal sealed class BmsLibraryMaintenanceService
         {
             item.is_files_warning_ignored = !unset;
         }
+        foreach (PendingChartEntry bmsonEntry in EnumerateResourceHealthChartFiles(bmsFiles).OfType<PendingChartEntry>().Where(entry => entry.IsBmsonChart && entry.BmsonSong != null))
+        {
+            if (bmsonEntry.maintenanceInfo != null && changes.Contains(bmsonEntry.maintenanceInfo))
+            {
+                bmsonEntry.BmsonSong.MaintenanceInfo = bmsonEntry.maintenanceInfo;
+            }
+        }
         return changes;
     }
 
@@ -476,6 +483,11 @@ internal sealed class BmsLibraryMaintenanceService
                     if (encodingChanged || healthChanged)
                     {
                         file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
+                    }
+                    if (isBmson && file is PendingChartEntry { BmsonSong: { } bmsonSong } && file.maintenanceInfo?.IsInformationChecked() == true)
+                    {
+                        file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
+                        bmsonSong.MaintenanceInfo = file.maintenanceInfo;
                     }
                 });
                 List<BMSFileMaintenanceInfo> maintenanceInfos = [.. filesInSection.Where(file => file.maintenanceInfo.IsInformationChecked()).Select(file => file.maintenanceInfo)];
