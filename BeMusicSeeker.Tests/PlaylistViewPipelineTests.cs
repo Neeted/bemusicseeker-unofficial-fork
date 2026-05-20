@@ -1129,7 +1129,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PendingInstallDestinationTargetSnapshot_MaterializesLooseBmsonCompatibilityAdapterBeforeBackgroundWork()
+    public void PendingInstallDestinationTargetSnapshot_MaterializesLooseBmsonEntryBeforeBackgroundWork()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1166,10 +1166,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, snapshot.PackageTargets.Count);
         Assert.AreEqual(1, snapshot.Charts.Count);
 
-        snapshot.MaterializeCompatibilityFiles();
+        snapshot.MaterializeLooseEntries();
 
         Assert.AreEqual(1, adapterRequestCount);
-        Assert.AreEqual(1, snapshot.CompatibilityFiles.Count);
+        Assert.AreEqual(1, snapshot.LooseEntries.Count);
+        Assert.AreEqual(ChartFileKind.Bmson, snapshot.LooseEntries[0].Chart.Kind);
         Assert.AreEqual(1, adapterRequestCount);
     }
 
