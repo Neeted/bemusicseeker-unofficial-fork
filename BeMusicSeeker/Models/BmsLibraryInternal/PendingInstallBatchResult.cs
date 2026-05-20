@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -8,7 +9,9 @@ internal sealed class PendingInstallBatchResult
 
     public List<ChartPackage> DeferredInstalledPackages { get; } = [];
 
-    public List<BMSFile> DeferredMaintenanceTargets { get; } = [];
+    public List<BMSFile> DeferredBmsMaintenanceTargets { get; } = [];
+
+    public List<LR2SongDBExtended.bmson_song> DeferredBmsonMaintenanceSongs { get; } = [];
 
     public List<ChartPackage> FailedPackages { get; } = [];
 

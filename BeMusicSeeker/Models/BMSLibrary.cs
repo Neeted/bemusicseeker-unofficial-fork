@@ -8076,7 +8076,7 @@ reportProgress,
 
     }
 
-    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
+    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<BMSFile> deferredBmsMaintenanceTargets = null, List<LR2SongDBExtended.bmson_song> deferredBmsonMaintenanceSongs = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
     {
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         List<BMSFile> addedBmsFilesForChartInfo = [];
@@ -8088,9 +8088,9 @@ reportProgress,
             (files) => dbGateway.UpsertSongs(files),
             delegate (IEnumerable<BMSFile> files)
             {
-                if (deferredMaintenanceTargets != null)
+                if (deferredBmsMaintenanceTargets != null)
                 {
-                    deferredMaintenanceTargets.AddRange(files);
+                    deferredBmsMaintenanceTargets.AddRange(files);
                 }
                 else
                 {
@@ -8125,18 +8125,21 @@ reportProgress,
         if (result.AddedBmsonSongs.Count > 0)
         {
             List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [.. result.AddedBmsonSongs.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
-            List<BMSFile> addedBmsonMaintenanceTargets = [.. addedBmsonSongs
-                .Select(PendingChartEntry.CreateFromBmsonSong)
-                .Where(file => file != null)];
             addedBmsonSongsForChartInfo.AddRange(addedBmsonSongs);
-            if (deferredMaintenanceTargets != null)
+            if (deferredBmsonMaintenanceSongs != null)
             {
                 dbGateway.UpsertBmsonSongs(addedBmsonSongs);
-                deferredMaintenanceTargets.AddRange(addedBmsonMaintenanceTargets);
+                deferredBmsonMaintenanceSongs.AddRange(addedBmsonSongs);
             }
-            else if (addedBmsonMaintenanceTargets.Count > 0)
+            else
             {
-                setMaintenanceInfo(addedBmsonMaintenanceTargets, forceUpdate: true);
+                List<BMSFile> addedBmsonMaintenanceTargets = [.. addedBmsonSongs
+                    .Select(PendingChartEntry.CreateFromBmsonSong)
+                    .Where(file => file != null)];
+                if (addedBmsonMaintenanceTargets.Count > 0)
+                {
+                    setMaintenanceInfo(addedBmsonMaintenanceTargets, forceUpdate: true);
+                }
             }
             if (estimatedInstallBatchApplyContext != null)
             {
@@ -8179,7 +8182,7 @@ reportProgress,
             }
         }
         LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
-        if (deferredMaintenanceTargets == null)
+        if (deferredBmsMaintenanceTargets == null && deferredBmsonMaintenanceSongs == null)
         {
             BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedBmsFilesForChartInfo, addedBmsonSongsForChartInfo);
         }
@@ -8227,14 +8230,37 @@ reportProgress,
         return reverseLookupMutation;
     }
 
-    private static List<BMSFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<BMSFile> baseTargets)
+    private static List<BMSFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<BMSFile> bmsTargets, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         var targetsByPath = new Dictionary<string, BMSFile>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile target in (baseTargets ?? []).Where(file => file != null))
+        foreach (BMSFile target in (bmsTargets ?? []).Where(file => file != null))
         {
             if (!string.IsNullOrWhiteSpace(target.path))
             {
                 targetsByPath[target.path] = target;
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
+        {
+            BMSFile target = PendingChartEntry.CreateFromBmsonSong(song);
+            if (target != null && !string.IsNullOrWhiteSpace(target.path))
+            {
+                targetsByPath[target.path] = target;
+            }
+        }
+        return [.. targetsByPath.Values];
+    }
+
+    private static List<LR2SongDBExtended.bmson_song> BuildEstimatedInstallInlineBmsonTargets(
+        IEnumerable<LR2SongDBExtended.bmson_song> deferredBmsonSongs,
+        IEnumerable<LR2SongDBExtended.bmson_song> installedPackageBmsonSongs)
+    {
+        var targetsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song song in (deferredBmsonSongs ?? []).Concat(installedPackageBmsonSongs ?? []))
+        {
+            if (song != null && !string.IsNullOrWhiteSpace(song.path))
+            {
+                targetsByPath[song.path] = song;
             }
         }
         return [.. targetsByPath.Values];
@@ -8840,7 +8866,7 @@ reportProgress,
                             },
                             delegate (IEnumerable<ChartPackage> packagesToInstall, List<ChartPackage> deferredInstalledPackages)
                             {
-                                return installChartPackages(packagesToInstall, null, null, deferredInstalledPackages);
+                                return installChartPackages(packagesToInstall, null, null, null, deferredInstalledPackages);
                             },
                             info => NLogWrapper.FileLogger?.Info(info));
                         if (result.Requested == 0)
@@ -9026,7 +9052,7 @@ reportProgress,
                         PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
                             installPlan,
                             deletePendingPackageSourceAfterInstall,
-                            (installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installChartPackages(installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall, batchApplyContext),
+                            (installPackages, destinationDirectory, deferredBmsMaintenanceTargets, deferredBmsonMaintenanceSongs, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installChartPackages(installPackages, destinationDirectory, deferredBmsMaintenanceTargets, deferredBmsonMaintenanceSongs, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall, batchApplyContext),
                             CreateInstalledDisplayPackageForResourceOnlyMerge,
                             (cleanupOnlyPackage) =>
                             {
@@ -9068,7 +9094,7 @@ reportProgress,
                         int installedCountAfterApply = ChartPackagesInstalled.Count;
                         installedApplyStopwatch.Stop();
                         var maintenanceStopwatch = Stopwatch.StartNew();
-                        List<BMSFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceTargets);
+                        List<BMSFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredBmsMaintenanceTargets, batchResult.DeferredBmsonMaintenanceSongs);
                         if (estimatedInstallMaintenanceTargets.Count > 0)
                         {
                             setMaintenanceInfo(
@@ -9077,10 +9103,13 @@ reportProgress,
                                 resourceHealthIndexUpdateMode: canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates,
                                 resourceHealthIndexDeltaTargets: estimatedInstallMaintenanceTargets);
                         }
+                        List<LR2SongDBExtended.bmson_song> estimatedInstallInlineBmsonTargets = BuildEstimatedInstallInlineBmsonTargets(
+                            batchResult.DeferredBmsonMaintenanceSongs,
+                            ResolveAddedBmsonSongsFromInstalledPackages(batchResult.DeferredInstalledPackages));
                         BuildAndPersistInlineChartInfoForInstalledCharts(
                             "install_package_estimated_inline",
-                            batchResult.DeferredMaintenanceTargets,
-                            ResolveAddedBmsonSongsFromInstalledPackages(batchResult.DeferredInstalledPackages));
+                            batchResult.DeferredBmsMaintenanceTargets,
+                            estimatedInstallInlineBmsonTargets);
                         maintenanceStopwatch.Stop();
                         if (deletePendingPackageSourceAfterInstall && batchResult.CleanupOnlySucceeded > 0)
                         {

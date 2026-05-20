@@ -1555,7 +1555,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(libraryCode, "private sealed class EstimatedInstallBatchApplyContext");
         StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(batchApplyContext)");
-        StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceTargets)");
+        StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredBmsMaintenanceTargets, batchResult.DeferredBmsonMaintenanceSongs)");
         StringAssert.Contains(libraryCode, "canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates");
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
         StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");

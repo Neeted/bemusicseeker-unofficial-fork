@@ -313,12 +313,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
             true,
-            (installPackages, destinationDirectoryArg, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
+            (installPackages, destinationDirectoryArg, deferredBmsMaintenanceTargets, deferredBmsonMaintenanceSongs, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
             {
                 deferredInstalledPackages.AddRange(installPackages);
                 foreach (ChartPackage installPackage in installPackages)
                 {
-                    deferredMaintenanceTargets.AddRange(installPackage.MaterializeChartAdaptersForTest());
+                    deferredBmsMaintenanceTargets.AddRange(installPackage.MaterializeChartAdaptersForTest());
                 }
                 return [];
             },
@@ -339,10 +339,63 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, result.CleanupOnlySucceeded);
         Assert.AreEqual(0, result.CleanupOnlyFailed);
         Assert.AreEqual(1, result.CleanupOnlyMissingSource);
-        Assert.AreEqual(1, result.DeferredMaintenanceTargets.Count);
+        Assert.AreEqual(1, result.DeferredBmsMaintenanceTargets.Count);
+        Assert.AreEqual(0, result.DeferredBmsonMaintenanceSongs.Count);
         Assert.IsNull(alreadyInstalledInPackage.instl_dst);
         Assert.IsNull(newFile.instl_dst);
         Assert.IsNull(cleanupOnlyFile.instl_dst);
+    }
+
+    [TestMethod]
+    public void ExecuteEstimatedInstallBatchPlan_CarriesDeferredBmsonMaintenanceSongsSeparately()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        string destinationDirectory = "C:\\Installed\\Target";
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Pkg1\\chart.bmson",
+            folder = "C:\\Pending\\Pkg1",
+            title = "Bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        PackageChartEntry bmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
+        bmsonEntry.ApplyInstallDestination(destinationDirectory, "Bmson", "Artist");
+        ChartPackage bmsonPackage = ChartPackage.FromChartEntries([bmsonEntry]);
+        bmsonPackage.path = "C:\\Pending\\Pkg1";
+
+        PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+            [bmsonPackage],
+            [bmsonPackage],
+            [],
+            [],
+            deletePendingPackageSourceAfterInstall: false,
+            countComponentMoveTargets: (_, _, _) => 1);
+
+        PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+            plan,
+            false,
+            (installPackages, destinationDirectoryArg, deferredBmsMaintenanceTargets, deferredBmsonMaintenanceSongs, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
+            {
+                deferredInstalledPackages.AddRange(installPackages);
+                foreach (PackageChartEntry entry in installPackages.SelectMany(package => package.ChartEntries))
+                {
+                    if (entry?.Chart?.BmsonSong is LR2SongDBExtended.bmson_song song)
+                    {
+                        deferredBmsonMaintenanceSongs.Add(song);
+                    }
+                }
+                return [];
+            },
+            (originalPackage, destinationDirectoryArg) => null,
+            (_) => (false, CleanupSourceKind.MissingSource));
+
+        Assert.AreEqual(0, result.DeferredBmsMaintenanceTargets.Count);
+        Assert.AreEqual(1, result.DeferredBmsonMaintenanceSongs.Count);
+        Assert.AreSame(bmsonSong, result.DeferredBmsonMaintenanceSongs[0]);
+        Assert.IsNull(bmsonEntry.CompatibilityAdapter);
+        Assert.AreEqual(string.Empty, bmsonEntry.Chart.InstallDestination);
     }
 
     [TestMethod]
