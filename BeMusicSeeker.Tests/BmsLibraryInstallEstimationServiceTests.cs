@@ -1189,7 +1189,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void PackageChartEntry_BmsFormatMirrorMutatesBmsStorageOwner()
+    public void PackageChartEntry_BmsStorageOwnerMutatesBmsRow()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
         PackageChartEntry entry = PackageChartEntry.FromBmsFile(file);
