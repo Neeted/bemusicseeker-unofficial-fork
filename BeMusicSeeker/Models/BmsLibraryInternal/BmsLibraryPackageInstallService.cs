@@ -395,7 +395,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return null;
         }
-        return entry.CompatibilityAdapter ?? entry.Chart.BmsFile ?? entry.GetOrCreateBmsFormatAdapter();
+        return entry.GetExistingBmsFormatAdapter() ?? entry.GetOrCreateBmsFormatAdapter();
     }
 
     /// <summary>
@@ -515,7 +515,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return false;
         }
-        BMSFile file = entry.CompatibilityAdapter ?? entry.Chart.BmsFile;
+        BMSFile file = entry.GetExistingBmsFormatAdapter();
         if (file != null)
         {
             return file.maintenanceInfo.wav_files_existing > 0
@@ -561,7 +561,7 @@ internal sealed class BmsLibraryPackageInstallService
                 : BmsLibraryMaintenanceService.BuildResourceHealthWarnings(bmsonMaintenanceInfo);
         }
 
-        BMSFile file = chart.BmsFile ?? entry.CompatibilityAdapter;
+        BMSFile file = entry.GetExistingBmsFormatAdapter();
         if (file != null)
         {
             file.SetHealthStatus(forceUpdate: false, memClear: false);
@@ -1859,7 +1859,7 @@ internal sealed class BmsLibraryPackageInstallService
                     .Select(entry => entry?.Chart)
                     .Where(chart => chart != null));
                 result.AddedBmsFiles.AddRange(packageEntries
-                    .Select(entry => entry?.Chart?.BmsFile ?? entry?.CompatibilityAdapter)
+                    .Select(entry => entry?.GetExistingBmsFormatAdapter())
                     .Where(PendingChartEntry.IsBmsChartFile));
                 result.AddedBmsonAdapters.AddRange(packageEntries
                     .Select(entry => entry?.CompatibilityAdapter)

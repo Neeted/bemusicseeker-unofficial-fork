@@ -10645,7 +10645,7 @@ reportProgress,
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
                     List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
                     List<BMSFile> movedBmsFiles = [.. movedPackageEntries
-                        .Select(entry => entry?.Chart?.BmsFile ?? entry?.CompatibilityAdapter)
+                        .Select(entry => entry?.GetExistingBmsFormatAdapter())
                         .Where(PendingChartEntry.IsBmsChartFile)];
                     List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.BmsonSong)

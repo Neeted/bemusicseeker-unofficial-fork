@@ -1083,7 +1083,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     {
         foreach (PackageChartEntry chartEntry in (chartEntries ?? []).Where(entry => entry?.Chart != null))
         {
-            BMSFile lockTarget = chartEntry.CompatibilityAdapter ?? chartEntry.Chart.BmsFile;
+            BMSFile lockTarget = chartEntry.GetExistingBmsFormatAdapter();
             object syncRoot = (object)lockTarget ?? chartEntry;
             lock (syncRoot)
             {
