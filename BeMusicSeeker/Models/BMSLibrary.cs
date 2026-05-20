@@ -6919,7 +6919,8 @@ reportProgress,
         var songsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile file in (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsonChartFile))
         {
-            if (file is PendingChartEntry { BmsonSong: { } song } && !string.IsNullOrWhiteSpace(song.path))
+            LR2SongDBExtended.bmson_song song = ChartFileProjection.GetBmsonStorageOwner(file);
+            if (song != null && !string.IsNullOrWhiteSpace(song.path))
             {
                 songsByPath[song.path] = song;
             }

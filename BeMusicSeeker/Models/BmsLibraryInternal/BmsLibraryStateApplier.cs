@@ -411,9 +411,10 @@ internal sealed class BmsLibraryStateApplier(
             return false;
         }
 
-        if (file is PendingChartEntry pending && pending.IsBmsonChart)
+        if (ChartFileKindResolver.IsBmsonChartFile(file))
         {
-            if (pending.BmsonSong != null && removedSongs.Contains(pending.BmsonSong))
+            LR2SongDBExtended.bmson_song song = ChartFileProjection.GetBmsonStorageOwner(file);
+            if (song != null && removedSongs.Contains(song))
             {
                 return true;
             }

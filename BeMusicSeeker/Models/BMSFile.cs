@@ -2033,6 +2033,21 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    internal void ReplaceResourceReferences(
+        string stagefile,
+        string banner,
+        string backbmp,
+        IEnumerable<string> wavFiles,
+        IEnumerable<string> bgaFiles)
+    {
+        this.stagefile = stagefile;
+        this.banner = banner;
+        this.backbmp = backbmp;
+        WAVfiles = new HashSet<string>(wavFiles ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        BGAfiles = new HashSet<string>(bgaFiles ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        ClearComponentFileCache();
+    }
+
     public void SetMode()
     {
         BMSFile bMSFile = CreateBMSFileFromFile(path);

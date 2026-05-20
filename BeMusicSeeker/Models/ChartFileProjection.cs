@@ -132,6 +132,11 @@ internal static class ChartFileProjection
             file.encoding);
     }
 
+    internal static LR2SongDBExtended.bmson_song GetBmsonStorageOwner(BMSFile file)
+    {
+        return file is PendingChartEntry { IsBmsonChart: true, BmsonSong: { } song } ? song : null;
+    }
+
     internal static ChartFile FromBmsonSong(
         LR2SongDBExtended.bmson_song song,
         bool includeWarningSnapshot = true)

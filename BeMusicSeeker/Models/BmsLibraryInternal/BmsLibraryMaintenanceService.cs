@@ -614,7 +614,7 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 result.MissingEncodingTargetCount++;
             }
-            if (isBmson && !HasFreshCurrentBmsonResourceReferences(file as PendingChartEntry))
+            if (isBmson && !HasFreshCurrentBmsonResourceReferences(file))
             {
                 result.BmsonMissingFreshResourceReferenceCount++;
             }
@@ -795,7 +795,8 @@ internal sealed class BmsLibraryMaintenanceService
                     {
                         file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
                     }
-                    if (isBmson && file is PendingChartEntry { BmsonSong: { } bmsonSong } && file.maintenanceInfo?.IsInformationChecked() == true)
+                    LR2SongDBExtended.bmson_song bmsonSong = ChartFileProjection.GetBmsonStorageOwner(file);
+                    if (isBmson && bmsonSong != null && file.maintenanceInfo?.IsInformationChecked() == true)
                     {
                         file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
                         bmsonSong.MaintenanceInfo = file.maintenanceInfo;
@@ -1193,18 +1194,28 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(BMSFile file, bool forceUpdate)
     {
-        if (file is not PendingChartEntry pending || !pending.IsBmsonChart || string.IsNullOrWhiteSpace(pending.path) || !File.Exists(pending.path))
+        if (!ChartFileKindResolver.IsBmsonChartFile(file) || string.IsNullOrWhiteSpace(file.path) || !File.Exists(file.path))
         {
             return BmsonResourceRefreshResult.NotApplicable;
         }
-        if (!forceUpdate && HasFreshCurrentBmsonResourceReferences(pending))
+        if (!forceUpdate && HasFreshCurrentBmsonResourceReferences(file))
         {
             return BmsonResourceRefreshResult.Reused;
         }
         try
         {
-            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(pending.path);
-            pending.UpdateBmsonResourceReferences(parsed);
+            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(file.path);
+            LR2SongDBExtended.bmson_song owner = ChartFileProjection.GetBmsonStorageOwner(file);
+            if (owner != null)
+            {
+                owner.MaintenanceInfo ??= file.maintenanceInfo;
+                UpdateBmsonResourceReferences(owner, parsed);
+                CopyBmsonResourceReferencesToBmsFile(file, owner);
+            }
+            else
+            {
+                CopyBmsonResourceReferencesToBmsFile(file, parsed);
+            }
             return BmsonResourceRefreshResult.Success;
         }
         catch
@@ -1250,9 +1261,23 @@ internal sealed class BmsLibraryMaintenanceService
         target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
     }
 
-    private static bool HasFreshCurrentBmsonResourceReferences(PendingChartEntry pending)
+    private static void CopyBmsonResourceReferencesToBmsFile(BMSFile target, LR2SongDBExtended.bmson_song source)
     {
-        return HasFreshCurrentBmsonResourceReferences(pending?.BmsonSong);
+        if (target == null || source == null)
+        {
+            return;
+        }
+        target.ReplaceResourceReferences(
+            source.stagefile,
+            source.banner,
+            source.backbmp,
+            source.wav_files,
+            source.bga_files);
+    }
+
+    private static bool HasFreshCurrentBmsonResourceReferences(BMSFile file)
+    {
+        return HasFreshCurrentBmsonResourceReferences(ChartFileProjection.GetBmsonStorageOwner(file));
     }
 
     private static bool HasFreshCurrentBmsonResourceReferences(LR2SongDBExtended.bmson_song song)

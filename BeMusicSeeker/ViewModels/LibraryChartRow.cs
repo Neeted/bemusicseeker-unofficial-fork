@@ -32,7 +32,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
 
-    internal bool IsBmson => (BmsFile is PendingChartEntry pending && pending.IsBmsonChart) || (BmsonSong != null && BmsFile == null);
+    internal bool IsBmson => ChartFileKindResolver.IsBmsonChartFile(BmsFile) || (BmsonSong != null && BmsFile == null);
 
     internal bool IsBms => BmsFile != null && !ChartFileKindResolver.IsBmsonChartFile(BmsFile);
 
@@ -49,16 +49,16 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return chartOverride;
         }
+        if (BmsFile != null)
+        {
+            return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
+        }
         LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
         if (bmsonSong != null)
         {
-            var pending = BmsFile as PendingChartEntry;
-            bool isPendingBmson = pending?.IsBmsonChart == true;
-            return isPendingBmson
-                ? ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant)
-                : ChartFileProjection.FromBmsonSong(bmsonSong, GetBmsonTransientState(includeWarningSnapshot: true));
+            return ChartFileProjection.FromBmsonSong(bmsonSong, GetBmsonTransientState(includeWarningSnapshot: true));
         }
-        return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
+        return null;
     }
 
     private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong, ChartFile chartOverride = null, Func<ChartFile> chartProvider = null, PackageChartEntry packageEntry = null)
@@ -85,8 +85,7 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        var pending = file as PendingChartEntry;
-        return new LibraryChartRow(file, pending?.IsBmsonChart == true ? pending.BmsonSong : null, packageEntry: packageEntry);
+        return new LibraryChartRow(file, ChartFileProjection.GetBmsonStorageOwner(file), packageEntry: packageEntry);
     }
 
     internal static LibraryChartRow FromBmsonSong(LR2SongDBExtended.bmson_song song)
@@ -362,9 +361,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private LR2SongDBExtended.bmson_song GetBmsonSong()
     {
-        return BmsFile is PendingChartEntry { IsBmsonChart: true }
-            ? ((PendingChartEntry)BmsFile).BmsonSong
-            : BmsonSong;
+        return ChartFileProjection.GetBmsonStorageOwner(BmsFile) ?? BmsonSong;
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjection()

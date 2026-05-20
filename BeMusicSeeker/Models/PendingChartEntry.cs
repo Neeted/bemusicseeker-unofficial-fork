@@ -272,29 +272,6 @@ public sealed class PendingChartEntry : BMSFile
         SetDisplayValue(ref displayFolder, BmsonSongParser.ComposeDisplayFolder(song), nameof(Folder));
     }
 
-    internal void UpdateBmsonResourceReferences(LR2SongDBExtended.bmson_song parsed)
-    {
-        if (parsed == null || !IsBmsonChart)
-        {
-            return;
-        }
-        LR2SongDBExtended.bmson_song target = BmsonSong ?? parsed;
-        target.stagefile = parsed.stagefile;
-        target.banner = parsed.banner;
-        target.backbmp = parsed.backbmp;
-        target.preview_music = parsed.preview_music;
-        target.wav_files = parsed.wav_files ?? [];
-        target.bga_files = parsed.bga_files ?? [];
-        target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
-        target.MaintenanceInfo ??= maintenanceInfo;
-        stagefile = target.stagefile;
-        banner = target.banner;
-        backbmp = target.backbmp;
-        WAVfiles = new HashSet<string>(target.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        BGAfiles = new HashSet<string>(target.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        ClearComponentFileCache();
-    }
-
     internal void ReplaceBmsonSongReferenceAfterInstall(LR2SongDBExtended.bmson_song installedSong)
     {
         if (installedSong == null || !IsBmsonChart)

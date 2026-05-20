@@ -49,15 +49,16 @@ internal sealed class LibraryChartRef
         {
             return null;
         }
-        if (file is PendingChartEntry pending && pending.IsBmsonChart)
+        if (ChartFileKindResolver.IsBmsonChartFile(file))
         {
+            LR2SongDBExtended.bmson_song song = ChartFileProjection.GetBmsonStorageOwner(file);
             return new LibraryChartRef(
                 LibraryChartKind.Bmson,
-                pending.path,
-                pending.hash,
-                pending.sha256,
+                file.path,
+                file.hash,
+                file.sha256,
                 null,
-                pending.BmsonSong);
+                song);
         }
         return new LibraryChartRef(
             LibraryChartKind.Bms,
