@@ -67,8 +67,8 @@ Phase 6 では legacy warning 互換を完全撤去した。外部永続化が�
 
 ### Phase 6B: legacy warning 生成停止
 
-- `BMSLibrary.ApplyInstallEstimationResultToFiles()` は `SetWarning()` のみを使う。
-- `ApplyInstalledDestinationResolveFailedToFilesUnsafe()` も structured warning のみを設定する。
+- `PackageChartEntry.ApplyInstallEstimationResult(...)` は `SetWarning()` / `ReplaceWarningsByCategory()` 相当の structured warning のみを使う。
+- `ApplyInstalledDestinationResolveFailedToPackageUnsafe()` は対象 `PackageChartEntry` に structured warning のみを設定する。
 - `AppendWarningLine()`、duplicate 用 legacy helper、`RemoveInstallEstimationWarnings()` は削除済み。
 - 以降の新規実装では `SetWarning()` / `ClearWarning()` / `ClearWarningsByCategory()` / `ReplaceWarningsByCategory()` を使う。
 

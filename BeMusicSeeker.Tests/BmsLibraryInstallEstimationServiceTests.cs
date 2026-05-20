@@ -42,19 +42,19 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        InstallEstimationResult sequential = service.EstimateInstallationDirectory(
+        InstallEstimationResult sequential = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
-        InstallEstimationResult defaultParallel = service.EstimateInstallationDirectory(
+        InstallEstimationResult defaultParallel = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: true,
             ChartInstallationEstimateMode.Normal);
-        InstallEstimationResult explicitDegree = service.EstimateInstallationDirectory(
+        InstallEstimationResult explicitDegree = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
@@ -74,13 +74,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile(null, Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
         file.SetSha256(new string('b', 64));
 
-        InstallEstimationResult normal = service.EstimateInstallationDirectory(
+        InstallEstimationResult normal = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>([file.sha256], StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
-        InstallEstimationResult correction = service.EstimateInstallationDirectory(
+        InstallEstimationResult correction = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>([file.sha256], StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
@@ -330,7 +330,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
             lookupCache.AddDir(candidateDir, ["sound.wav"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -363,7 +363,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
             lookupCache.AddDir(candidateDir, ["other.wav"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -407,7 +407,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(weakCandidateDir, ["00.wav", "title.png"]);
             lookupCache.AddDir(strongCandidateDir, ["00.wav", "01.wav", "title.png"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -444,7 +444,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
             lookupCache.AddDir(candidateDir, ["00.wav", "title.png"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -479,7 +479,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
             lookupCache.AddDir(candidateDir, ["bg.png"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -514,7 +514,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
             lookupCache.AddDir(candidateDir, ["00.wav", "01.wav"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -658,7 +658,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(weakCandidateDir, [.. allAudio.Take(70)]);
             lookupCache.AddDir(strongCandidateDir, [.. allAudio.Take(71)]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -702,7 +702,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
             lookupCache.AddDir(candidateDir, [Path.Combine("a", "00.wav"), Path.Combine("b", "01.wav"), Path.Combine("c", "01.wav")]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -732,7 +732,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(sourceDir, ["chart.bms"]);
         lookupCache.AddDir(candidateDir, ["keysound.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -757,7 +757,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(sourceDir, ["chart.bms"]);
         lookupCache.AddDir(candidateDir, ["00.wav", "01.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -1665,7 +1665,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(sourceDir, ["chart.bms"]);
         lookupCache.AddDir(candidateDir, ["sound.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -1694,7 +1694,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(sourceDir, ["chart.bms", "sound.wav"]);
         lookupCache.AddDir(candidateDir, ["sound.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -1722,7 +1722,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(sourceDir, ["chart.bms", "sound.wav"]);
         lookupCache.AddDir(candidateDir, []);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -1752,7 +1752,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(candidateADir, ["sound.wav"]);
             lookupCache.AddDir(candidateBDir, ["sound.wav"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -1789,7 +1789,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(sourceDir, ["chart.bms"]);
             lookupCache.AddDir(candidateDir, ["installed.bms", "sound.wav"]);
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -1932,7 +1932,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(candidateDir, oggNames.Concat(["preview.ogg", "banner.png", "cover.jpg"]));
             lookupCache.AddDir(decoyDir, oggNames.Take(10));
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [pending],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -1963,7 +1963,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(candidateADir, ["sound.wav"]);
         lookupCache.AddDir(candidateBDir, ["sound.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2009,7 +2009,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     [candidateBDir] = InstallEstimationMetadataNormalizer.BuildProfile([("Target Song", "Artist", Path.Combine(candidateBDir, "b.bms"))])
                 };
 
-                InstallEstimationResult result = service.EstimateInstallationDirectory(
+                InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                     [file],
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     lookupCache,
@@ -2091,7 +2091,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 [candidateBDir] = InstallEstimationMetadataNormalizer.BuildProfile([("Target Song", "Artist", Path.Combine(candidateBDir, "b.bms"))])
             };
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -2183,7 +2183,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 lookupCache.AddDir(sourceDir, ["chart.bms"]);
                 lookupCache.AddDir(candidateDir, ["installed.bms", "sound.wav"]);
 
-                InstallEstimationResult result = service.EstimateInstallationDirectory(
+                InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                     [file],
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                     lookupCache,
@@ -2295,7 +2295,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             lookupCache.AddDir(candidateDir, candidateFiles);
             lookupCache.AddDir(otherCandidateDir, Enumerable.Range(0, 399).Select(i => i.ToString("000") + ".wav").Concat(["candidate-extra.wav"]));
 
-            InstallEstimationResult result = service.EstimateInstallationDirectory(
+            InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
                 [file],
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 lookupCache,
@@ -2323,7 +2323,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(sourceDir, ["chart.bms"]);
         lookupCache.AddDir(candidateDir, ["sound.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2362,7 +2362,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(flatCandidateDir, ["bgm1.wav"]);
         lookupCache.AddDir(nestedCandidateDir, ["sound\\bgm1.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2388,7 +2388,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
@@ -2420,7 +2420,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(flatCandidateDir, ["00_001_00.bmp"]);
         lookupCache.AddDir(nestedCandidateDir, ["clock\\00_001_00.bmp"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2449,7 +2449,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(flatCandidateDir, ["logo.bmp"]);
         lookupCache.AddDir(nestedCandidateDir, ["image\\logo.bmp"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2476,7 +2476,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(basenameOnlyCandidateDir, ["bgm1.wav", "bgm2.wav"]);
         lookupCache.AddDir(pathAwareCandidateDir, ["sound\\bgm1.wav", "bgm2.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2518,7 +2518,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             [],
             []);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2561,7 +2561,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             [],
             []);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2593,7 +2593,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(nestedCandidateDir, ["sound\\bgm1.wav"]);
         lookupCache.AddDir(flatCandidateDir, ["bgm1.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2624,7 +2624,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         var lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, ["bgm1.wav", "sound\\bgm2.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2652,7 +2652,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         var lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, ["bgm1.wav", "sound\\bgm1.wav"]);
 
-        InstallEstimationResult result = service.EstimateInstallationDirectory(
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
@@ -2734,14 +2734,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         var lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, ["bgm1.wav", "sound\\bgm2.wav"]);
 
-        InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult lookupResult = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult unavailableResult = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
@@ -2769,14 +2769,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         var lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, ["bgm1.wav"]);
 
-        InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult lookupResult = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult unavailableResult = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
@@ -2825,14 +2825,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             []);
 
 
-        InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult lookupResult = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             lookupCache,
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult unavailableResult = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             directoryLookupCache: null,
@@ -2906,6 +2906,45 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     private static BmsLibraryInstallEstimationService CreateService()
     {
         return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
+    }
+
+    private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata>? representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)
+    {
+        return service.EstimateInstallationDirectory(
+            BuildLooseChartSnapshot(chartFiles, installedHashes, estimateMode)!,
+            directoryLookupCache!,
+            asParallel,
+            estimateMode,
+            representativeMetadataResolver,
+            metadataProfileResolver);
+    }
+
+    private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata>? representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)
+    {
+        return service.EstimateInstallationDirectory(
+            BuildLooseChartSnapshot(chartFiles, installedHashes, estimateMode)!,
+            directoryLookupCache!,
+            candidateEvaluationDegree,
+            estimateMode,
+            representativeMetadataResolver,
+            metadataProfileResolver);
+    }
+
+    private static PackageInstallEstimationSnapshot? BuildLooseChartSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, ChartInstallationEstimateMode estimateMode)
+    {
+        List<PackageChartEntry> targetEntries = [.. (chartFiles ?? [])
+            .Select(PackageChartEntry.FromCompatibilityAdapter)
+            .Where(entry => entry?.Chart != null)];
+        if (targetEntries.Count == 0 || targetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination)))
+        {
+            return null;
+        }
+        bool isCorrectionLikeMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection || estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
+        if (!isCorrectionLikeMode && installedHashes != null)
+        {
+            targetEntries = [.. targetEntries.Where(entry => !installedHashes.Contains(entry.Chart.PrimaryLookupHash))];
+        }
+        return targetEntries.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(targetEntries);
     }
 
     private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<BMSFile> targetFiles)
