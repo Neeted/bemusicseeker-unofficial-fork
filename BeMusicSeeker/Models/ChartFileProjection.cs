@@ -137,10 +137,22 @@ internal static class ChartFileProjection
         BMSFile compatibilityBmsFile = null,
         bool includeWarningSnapshot = true)
     {
+        return FromBmsonSong(
+            song,
+            ChartFileTransientState.FromCompatibilityFile(compatibilityBmsFile, includeWarningSnapshot),
+            includeWarningSnapshot);
+    }
+
+    internal static ChartFile FromBmsonSong(
+        LR2SongDBExtended.bmson_song song,
+        ChartFileTransientState transientState,
+        bool includeWarningSnapshot = true)
+    {
         if (song == null)
         {
             return null;
         }
+        transientState ??= ChartFileTransientState.Empty;
 
         return new ChartFile(
             ChartFileKind.Bmson,
@@ -159,19 +171,19 @@ internal static class ChartFileProjection
             song.ChartInfo,
             null,
             song,
-            string.IsNullOrWhiteSpace(song.subtitle) ? compatibilityBmsFile?.subtitle : song.subtitle,
-            compatibilityBmsFile?.instl_dst,
-            compatibilityBmsFile?.InstallDestinationTitle,
-            compatibilityBmsFile?.InstallDestinationArtist,
-            compatibilityBmsFile?.InstallDestinationSuggestions,
-            GetWarnings(compatibilityBmsFile, includeWarningSnapshot),
-            song.MaintenanceInfo?.WAVHealth ?? compatibilityBmsFile?.WAVHealth,
-            song.MaintenanceInfo?.BGAHealth ?? compatibilityBmsFile?.BGAHealth,
-            song.MaintenanceInfo?.MovieHealth ?? compatibilityBmsFile?.MovieHealth,
-            song.MaintenanceInfo?.StagefileHealth ?? compatibilityBmsFile?.StagefileHealth,
-            song.MaintenanceInfo?.BannerHealth ?? compatibilityBmsFile?.BannerHealth,
-            song.MaintenanceInfo?.BackbmpHealth ?? compatibilityBmsFile?.BackbmpHealth,
-            song.MaintenanceInfo?.encoding ?? compatibilityBmsFile?.encoding);
+            string.IsNullOrWhiteSpace(song.subtitle) ? transientState.Subtitle : song.subtitle,
+            transientState.InstallDestination,
+            transientState.InstallDestinationTitle,
+            transientState.InstallDestinationArtist,
+            transientState.InstallDestinationSuggestions,
+            includeWarningSnapshot ? transientState.Warnings : [],
+            song.MaintenanceInfo?.WAVHealth ?? transientState.WAVHealth,
+            song.MaintenanceInfo?.BGAHealth ?? transientState.BGAHealth,
+            song.MaintenanceInfo?.MovieHealth ?? transientState.MovieHealth,
+            song.MaintenanceInfo?.StagefileHealth ?? transientState.StagefileHealth,
+            song.MaintenanceInfo?.BannerHealth ?? transientState.BannerHealth,
+            song.MaintenanceInfo?.BackbmpHealth ?? transientState.BackbmpHealth,
+            song.MaintenanceInfo?.encoding ?? transientState.EncodingName);
     }
 
     internal static ChartFile FromBmsMetadata(

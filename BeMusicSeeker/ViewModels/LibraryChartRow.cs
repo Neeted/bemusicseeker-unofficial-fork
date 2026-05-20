@@ -64,7 +64,7 @@ internal sealed class LibraryChartRow : NotificationObject
                 ? ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant)
                 : ChartFileProjection.FromBmsonSong(
                     bmsonSong,
-                    materializeBmsonChartAdapter ? GetOrCreateBmsonChartAdapter() : GetExistingBmsonChartAdapter());
+                    ChartFileTransientState.FromCompatibilityFile(materializeBmsonChartAdapter ? GetOrCreateBmsonChartAdapter() : GetExistingBmsonChartAdapter()));
         }
         return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
     }

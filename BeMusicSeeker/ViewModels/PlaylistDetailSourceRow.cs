@@ -370,7 +370,9 @@ internal sealed class PlaylistDetailSourceRow
         }
         if (ResolvedBmson != null)
         {
-            return ChartFileProjection.FromBmsonSong(ResolvedBmson, GetExistingOrProvidedBmsonChartAdapter());
+            return ChartFileProjection.FromBmsonSong(
+                ResolvedBmson,
+                ChartFileTransientState.FromCompatibilityFile(GetExistingOrProvidedBmsonChartAdapter()));
         }
         return ChartFileProjection.FromBmsMetadata(
             path,

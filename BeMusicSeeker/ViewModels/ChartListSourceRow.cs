@@ -169,7 +169,10 @@ internal sealed class ChartListSourceRow
         }
         return BmsFile != null
             ? ChartFileProjection.FromBmsFile(BmsFile, includeWarningSnapshot: includeWarningSnapshot)
-            : ChartFileProjection.FromBmsonSong(BmsonSong, GetExistingBmsonChartAdapter(), includeWarningSnapshot);
+            : ChartFileProjection.FromBmsonSong(
+                BmsonSong,
+                ChartFileTransientState.FromCompatibilityFile(GetExistingBmsonChartAdapter(), includeWarningSnapshot),
+                includeWarningSnapshot);
     }
 
     private PendingChartEntry GetExistingBmsonChartAdapter()
