@@ -41,13 +41,13 @@ internal sealed class BmsLibraryMaintenanceService
     private static IEnumerable<BMSFile> EnumerateBmsChartFiles(IEnumerable<BMSFile> bmsFiles)
     {
         return (bmsFiles ?? [])
-            .Where(file => file != null && PendingChartEntry.IsBmsChartFile(file));
+            .Where(file => file != null && ChartFileKindResolver.IsBmsChartFile(file));
     }
 
     private static IEnumerable<BMSFile> EnumerateResourceHealthChartFiles(IEnumerable<BMSFile> bmsFiles)
     {
         return (bmsFiles ?? [])
-            .Where(file => file != null && (PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)));
+            .Where(file => file != null && (ChartFileKindResolver.IsBmsChartFile(file) || ChartFileKindResolver.IsBmsonChartFile(file)));
     }
 
     public bool ApplyResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
@@ -59,7 +59,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
     {
-        if (bmsFile == null || (!PendingChartEntry.IsBmsChartFile(bmsFile) && !PendingChartEntry.IsBmsonChartFile(bmsFile)))
+        if (bmsFile == null || (!ChartFileKindResolver.IsBmsChartFile(bmsFile) && !ChartFileKindResolver.IsBmsonChartFile(bmsFile)))
         {
             return [];
         }
@@ -592,8 +592,8 @@ internal sealed class BmsLibraryMaintenanceService
         List<BMSFile> targets = [];
         foreach (BMSFile file in sourceFiles)
         {
-            bool isBms = PendingChartEntry.IsBmsChartFile(file);
-            bool isBmson = PendingChartEntry.IsBmsonChartFile(file);
+            bool isBms = ChartFileKindResolver.IsBmsChartFile(file);
+            bool isBmson = ChartFileKindResolver.IsBmsonChartFile(file);
             bool missingInfo = file?.maintenanceInfo?.IsInformationChecked() != true;
             bool missingEncoding = isBms && string.IsNullOrWhiteSpace(file?.maintenanceInfo?.encoding);
             bool isTarget = forceUpdate || missingInfo || missingEncoding;
@@ -620,8 +620,8 @@ internal sealed class BmsLibraryMaintenanceService
             }
         }
         result.CheckedFileCount = targets.Count;
-        result.BmsResourceTargetCount = targets.Count(PendingChartEntry.IsBmsChartFile);
-        result.BmsonResourceTargetCount = targets.Count(PendingChartEntry.IsBmsonChartFile);
+        result.BmsResourceTargetCount = targets.Count(ChartFileKindResolver.IsBmsChartFile);
+        result.BmsonResourceTargetCount = targets.Count(ChartFileKindResolver.IsBmsonChartFile);
         result.HealthTargetCount = targets.Count;
         result.HealthDegree = maintenanceHealthDegree;
         resourceLookupContext ??= new ResourceHealthLookupContext(null);
@@ -694,7 +694,7 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 Parallel.ForEach(filesInSection, new ParallelOptions { MaxDegreeOfParallelism = maintenanceHealthDegree }, delegate (BMSFile file)
                 {
-                    bool isBmson = PendingChartEntry.IsBmsonChartFile(file);
+                    bool isBmson = ChartFileKindResolver.IsBmsonChartFile(file);
                     string originalHash = file.hash;
                     if (isBmson)
                     {

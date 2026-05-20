@@ -216,7 +216,7 @@ internal sealed class ChartResourceSnapshot
         {
             return;
         }
-        if (PendingChartEntry.IsBmsonChartFile(file))
+        if (ChartFileKindResolver.IsBmsonChartFile(file))
         {
             return;
         }

@@ -241,7 +241,7 @@ internal sealed class ResourceHealthIndexSnapshot
             {
                 return default;
             }
-            bool isBmson = PendingChartEntry.IsBmsonChartFile(file);
+            bool isBmson = ChartFileKindResolver.IsBmsonChartFile(file);
             return new ResourceHealthChartKey(isBmson ? "bmson" : "bms", file.path, file.hash);
         }
 

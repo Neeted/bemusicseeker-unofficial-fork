@@ -2495,7 +2495,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(methodStart >= 0);
         Assert.IsTrue(methodEnd > methodStart);
         string method = source.Substring(methodStart, methodEnd - methodStart);
-        int bmsonBranchStart = method.IndexOf("PendingChartEntry.IsBmsonFilePath(remainingFilePath)", StringComparison.Ordinal);
+        int bmsonBranchStart = method.IndexOf("ChartFileKindResolver.IsBmsonFilePath(remainingFilePath)", StringComparison.Ordinal);
         int nonBmsonBranchStart = method.IndexOf(": ChartFileContentReader.ReadSnapshot", bmsonBranchStart, StringComparison.Ordinal);
         Assert.IsTrue(bmsonBranchStart >= 0);
         Assert.IsTrue(nonBmsonBranchStart > bmsonBranchStart);

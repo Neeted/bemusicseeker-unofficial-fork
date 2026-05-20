@@ -522,7 +522,7 @@ internal sealed class PackageChartEntry
     {
         try
         {
-            if (PendingChartEntry.IsBmsonFilePath(filePath))
+            if (ChartFileKindResolver.IsBmsonFilePath(filePath))
             {
                 return FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(filePath)));
             }

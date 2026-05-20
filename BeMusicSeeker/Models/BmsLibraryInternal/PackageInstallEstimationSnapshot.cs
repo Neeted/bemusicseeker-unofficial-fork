@@ -224,7 +224,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         return new PackageChartDiscoverySnapshot
         {
             SourcePath = normalizedPath,
-            ChartEntries = File.Exists(normalizedPath) && PendingChartEntry.IsSupportedChartFilePath(normalizedPath)
+            ChartEntries = File.Exists(normalizedPath) && ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath)
                 ? [.. new List<PackageChartEntry> { PackageChartEntry.FromPath(normalizedPath) }.Where(entry => entry != null)]
                 : []
         };

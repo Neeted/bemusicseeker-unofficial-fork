@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -15,8 +14,6 @@ public enum PendingChartKind
 
 public sealed class PendingChartEntry : BMSFile
 {
-    public static readonly string[] bmsonExtensions = [".bmson"];
-
     private string displayLevel = string.Empty;
 
     private string displayFolder = string.Empty;
@@ -141,7 +138,7 @@ public sealed class PendingChartEntry : BMSFile
 
     public static PendingChartEntry CreateFromFilePath(string filePath)
     {
-        if (IsBmsonFilePath(filePath))
+        if (ChartFileKindResolver.IsBmsonFilePath(filePath))
         {
             return CreateFromBmsonSong(BmsonSongParser.Parse(filePath));
         }
@@ -332,33 +329,6 @@ public sealed class PendingChartEntry : BMSFile
         WAVfiles = new HashSet<string>(installedSong.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         BGAfiles = new HashSet<string>(installedSong.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         ClearComponentFileCache();
-    }
-
-    public static bool IsBmsonFilePath(string filePath)
-    {
-        string extension = Path.GetExtension(filePath);
-        return !string.IsNullOrWhiteSpace(extension) && bmsonExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
-    }
-
-    public static bool IsSupportedChartFilePath(string filePath)
-    {
-        string extension = Path.GetExtension(filePath);
-        if (string.IsNullOrWhiteSpace(extension))
-        {
-            return false;
-        }
-        return BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
-            || bmsonExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
-    }
-
-    public static bool IsBmsonChartFile(BMSFile file)
-    {
-        return file is PendingChartEntry pending && pending.IsBmsonChart;
-    }
-
-    public static bool IsBmsChartFile(BMSFile file)
-    {
-        return file != null && !IsBmsonChartFile(file);
     }
 
     public static string GetPrimaryMd5(BMSFile file)

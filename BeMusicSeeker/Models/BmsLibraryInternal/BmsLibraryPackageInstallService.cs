@@ -365,7 +365,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         string extension = Path.GetExtension(file?.path);
         return file != null
-            && !PendingChartEntry.IsBmsonChartFile(file)
+            && !ChartFileKindResolver.IsBmsonChartFile(file)
             && !string.IsNullOrWhiteSpace(extension)
             && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
@@ -410,7 +410,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
         List<string> files = [.. fileSystemEntries.Where(File.Exists)];
         List<string> directories = [.. fileSystemEntries.Where(Directory.Exists)];
-        List<string> chartFiles = [.. files.Where(file => PendingChartEntry.IsSupportedChartFilePath(file) && File.Exists(file))];
+        List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && File.Exists(file))];
         if (chartFiles.Count > 0)
         {
             List<PackageChartEntry> parsedChartEntries = [.. chartFiles
@@ -493,7 +493,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static PackageChartEntry CreatePackageChartEntryForDiscovery(string filePath)
     {
-        if (PendingChartEntry.IsBmsonFilePath(filePath))
+        if (ChartFileKindResolver.IsBmsonFilePath(filePath))
         {
             return PackageChartEntry.FromPath(filePath);
         }
@@ -1188,7 +1188,7 @@ internal sealed class BmsLibraryPackageInstallService
         reason = null;
         try
         {
-            lookupKey = PendingChartEntry.IsBmsonFilePath(remainingFilePath)
+            lookupKey = ChartFileKindResolver.IsBmsonFilePath(remainingFilePath)
                 ? ChartLookupKey.GetPrimaryHash(BmsonSongParser.Parse(remainingFilePath))
                 : ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5;
         }
@@ -1208,7 +1208,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static bool IsSupportedChartFilePath(string filePath)
     {
-        return PendingChartEntry.IsSupportedChartFilePath(filePath);
+        return ChartFileKindResolver.IsSupportedChartFilePath(filePath);
     }
 
     private static void ClearPackageInstallDestinations(ChartPackage chartPackage)
@@ -1251,7 +1251,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
             List<string> files = [.. paths.Where(File.Exists)];
             List<string> directories = [.. paths.Where(Directory.Exists)];
-            List<string> chartFiles = [.. files.Where(file => PendingChartEntry.IsSupportedChartFilePath(file) && File.Exists(file))];
+            List<string> chartFiles = [.. files.Where(file => ChartFileKindResolver.IsSupportedChartFilePath(file) && File.Exists(file))];
             string[] topEntries = Directory.GetFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly);
             if (files.Count + directories.Count == topEntries.Length)
             {
@@ -1863,7 +1863,7 @@ internal sealed class BmsLibraryPackageInstallService
                     .Where(chart => chart != null));
                 result.AddedBmsFiles.AddRange(packageEntries
                     .Select(entry => entry?.Chart?.BmsFile)
-                    .Where(PendingChartEntry.IsBmsChartFile));
+                    .Where(ChartFileKindResolver.IsBmsChartFile));
                 result.AddedBmsonSongs.AddRange(packageEntries
                     .Select(entry => entry?.Chart?.BmsonSong)
                     .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)));

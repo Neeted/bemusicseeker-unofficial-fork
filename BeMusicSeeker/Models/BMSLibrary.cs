@@ -5127,7 +5127,7 @@ completeFileEnumerationOnce,
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        List<BMSFile> bmsTargets = [.. (bmsFiles ?? []).Where(file => file != null && PendingChartEntry.IsBmsChartFile(file))];
+        List<BMSFile> bmsTargets = [.. (bmsFiles ?? []).Where(file => file != null && ChartFileKindResolver.IsBmsChartFile(file))];
         List<LR2SongDBExtended.bmson_song> bmsonTargets = [.. (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
         var result = new ChartInfoInlineBuildResult();
         if (bmsTargets.Count == 0 && bmsonTargets.Count == 0)
@@ -6908,7 +6908,7 @@ reportProgress,
     /// </summary>
     private List<BMSFile> CreateResourceMaintenanceBmsTargets(IEnumerable<BMSFile> bmsFiles)
     {
-        return [.. (bmsFiles ?? []).Where(PendingChartEntry.IsBmsChartFile)];
+        return [.. (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     private List<LR2SongDBExtended.bmson_song> CreateResourceMaintenanceBmsonSongs(
@@ -6917,7 +6917,7 @@ reportProgress,
         bool includeInstalledBmson)
     {
         var songsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in (bmsFiles ?? []).Where(PendingChartEntry.IsBmsonChartFile))
+        foreach (BMSFile file in (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsonChartFile))
         {
             if (file is PendingChartEntry { BmsonSong: { } song } && !string.IsNullOrWhiteSpace(song.path))
             {
@@ -6941,7 +6941,7 @@ reportProgress,
     private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         List<ChartFile> charts = [.. (bmsFiles ?? [])
-            .Where(PendingChartEntry.IsBmsChartFile)
+            .Where(ChartFileKindResolver.IsBmsChartFile)
             .Select(file => ChartFileProjection.FromBmsFile(file))
             .Where(chart => chart != null)];
         charts.AddRange((bmsonSongs ?? [])
@@ -8058,7 +8058,7 @@ reportProgress,
 
         public void AddInstalledCharts(IEnumerable<BMSFile> addedBmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs, string destinationDirectory)
         {
-            List<BMSFile> addedBmsFileList = [.. (addedBmsFiles ?? []).Where(PendingChartEntry.IsBmsChartFile)];
+            List<BMSFile> addedBmsFileList = [.. (addedBmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
             List<LR2SongDBExtended.bmson_song> addedBmsonSongList = [.. (addedBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
             AddedBmsFiles.AddRange(addedBmsFileList);
             AddedBmsonSongs.AddRange(addedBmsonSongList);
@@ -8108,7 +8108,7 @@ reportProgress,
             (files) => SetBMSScore(files),
             delegate (IEnumerable<BMSFile> files)
             {
-                List<BMSFile> addedBmsFiles = [.. files.Where(PendingChartEntry.IsBmsChartFile)];
+                List<BMSFile> addedBmsFiles = [.. files.Where(ChartFileKindResolver.IsBmsChartFile)];
                 addedBmsFilesForChartInfo.AddRange(addedBmsFiles);
                 if (estimatedInstallBatchApplyContext != null)
                 {
@@ -9475,7 +9475,7 @@ reportProgress,
         return NormalizePendingPackagePath(package?.path) switch
         {
             string normalizedPath when string.IsNullOrWhiteSpace(normalizedPath) => null,
-            string normalizedPath when PendingChartEntry.IsSupportedChartFilePath(normalizedPath) => NormalizePendingPackagePath(Path.GetDirectoryName(normalizedPath)),
+            string normalizedPath when ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath) => NormalizePendingPackagePath(Path.GetDirectoryName(normalizedPath)),
             string normalizedPath => normalizedPath
         };
     }
@@ -10615,7 +10615,7 @@ reportProgress,
                     {
                         return;
                     }
-                    List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceBmsFiles.Where(PendingChartEntry.IsBmsChartFile)];
+                    List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceBmsFiles.Where(ChartFileKindResolver.IsBmsChartFile)];
                     List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceBmsonSongs.Where(song => song != null).Distinct()];
                     unregisterBMSFiles(sourceBmsFiles);
                     unregisterBmsonSongs(sourceBmsonSongs);
@@ -10639,7 +10639,7 @@ reportProgress,
                     List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
                     List<BMSFile> movedBmsFiles = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.BmsFile)
-                        .Where(PendingChartEntry.IsBmsChartFile)];
+                        .Where(ChartFileKindResolver.IsBmsChartFile)];
                     List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.BmsonSong)
                         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];

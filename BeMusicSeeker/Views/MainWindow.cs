@@ -1178,7 +1178,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return [.. GetSelectedChartTargets(isPendingSection)
             .Where(target => HasRequiredCapability(target, capability) && target.Chart.Kind == ChartFileKind.Bms)
             .Select(target => target.Chart.BmsFile)
-            .Where(PendingChartEntry.IsBmsChartFile)];
+            .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     private List<string> GetSelectedGridHashTargets()

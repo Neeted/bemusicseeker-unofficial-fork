@@ -34,7 +34,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal bool IsBmson => (BmsFile is PendingChartEntry pending && pending.IsBmsonChart) || (BmsonSong != null && BmsFile == null);
 
-    internal bool IsBms => BmsFile != null && !PendingChartEntry.IsBmsonChartFile(BmsFile);
+    internal bool IsBms => BmsFile != null && !ChartFileKindResolver.IsBmsonChartFile(BmsFile);
 
     internal ChartFile Chart => CreateChartFile();
 

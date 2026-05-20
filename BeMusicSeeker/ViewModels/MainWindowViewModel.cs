@@ -11590,7 +11590,7 @@ public class MainWindowViewModel : ViewModel
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
             .Select(entry => entry?.Chart?.BmsFile)
-            .Where(file => PendingChartEntry.IsBmsChartFile(file))];
+            .Where(file => ChartFileKindResolver.IsBmsChartFile(file))];
     }
 
     private bool TryGetVirtualDuplicateSourceCharts(
@@ -14920,7 +14920,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (PendingChartEntry.IsBmsonChartFile(bmsFile))
+        if (ChartFileKindResolver.IsBmsonChartFile(bmsFile))
         {
             return;
         }
@@ -15132,7 +15132,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !PendingChartEntry.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !ChartFileKindResolver.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
@@ -15195,7 +15195,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !PendingChartEntry.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !ChartFileKindResolver.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;

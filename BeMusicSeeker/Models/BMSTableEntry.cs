@@ -390,7 +390,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             throw new ArgumentNullException("bmsFile");
         }
-        if (PendingChartEntry.IsBmsonChartFile(bmsFile))
+        if (ChartFileKindResolver.IsBmsonChartFile(bmsFile))
         {
             title = bmsFile.Title;
             artist = bmsFile.Artist;
