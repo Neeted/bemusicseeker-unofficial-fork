@@ -161,33 +161,14 @@ internal sealed class PackageChartEntry
         return chart == null ? null : new PackageChartEntry(chart);
     }
 
-    internal BMSFile GetOrCreateCompatibilityAdapter()
-    {
-        if (compatibilityAdapter != null)
-        {
-            return compatibilityAdapter;
-        }
-        if (Chart.Kind == ChartFileKind.Bmson && Chart.BmsonSong != null)
-        {
-            compatibilityAdapter = PendingChartEntry.CreateFromBmsonSong(Chart.BmsonSong);
-            if (pendingWarnings.Count > 0)
-            {
-                compatibilityAdapter.ReplaceStructuredWarnings(pendingWarnings.Values);
-            }
-            if (hasInstallDestinationProjection)
-            {
-                compatibilityAdapter.instl_dst = string.IsNullOrWhiteSpace(installDestination) ? null : installDestination;
-                compatibilityAdapter.InstallDestinationTitle = installDestinationTitle ?? string.Empty;
-                compatibilityAdapter.InstallDestinationArtist = installDestinationArtist ?? string.Empty;
-                compatibilityAdapter.InstallDestinationSuggestions = installDestinationSuggestions ?? [];
-            }
-        }
-        return compatibilityAdapter;
-    }
-
     internal BMSFile GetOrCreateBmsFormatAdapter()
     {
-        return Chart.Kind == ChartFileKind.Bms ? GetOrCreateCompatibilityAdapter() : null;
+        ChartFile currentChart = Chart;
+        if (currentChart?.Kind != ChartFileKind.Bms)
+        {
+            return null;
+        }
+        return compatibilityAdapter ?? currentChart.BmsFile;
     }
 
     internal BMSFile GetExistingBmsFormatAdapter()
