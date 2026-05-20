@@ -59,18 +59,6 @@ internal static class GridRowResolver
         return file;
     }
 
-    internal static BMSFile GetCompatibilityBmsFile(object row)
-    {
-        return GetCompatibilityBmsFile(row, ChartOperationSourceScope.Library);
-    }
-
-    internal static BMSFile GetCompatibilityBmsFile(object row, ChartOperationSourceScope sourceScope)
-    {
-        return TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
-            ? target.CompatibilityBmsFile
-            : null;
-    }
-
     internal static bool TryGetChartFile(object row, out ChartFile chart)
     {
         return TryGetChartFile(row, materializeCompatibilityAdapter: true, out chart);

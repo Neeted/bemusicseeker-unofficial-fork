@@ -201,8 +201,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         var result = new CanonicalChartResolveResult();
         List<LibraryChartRef> currentCharts = [.. (currentLibraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         var bmsByReference = currentCharts
-            .Where(chart => chart.CompatibilityBmsFile != null)
-            .GroupBy(chart => chart.CompatibilityBmsFile)
+            .Where(chart => chart.BmsFile != null)
+            .GroupBy(chart => chart.BmsFile)
             .ToDictionary(group => group.Key, group => group.First());
         var bmsonByReference = currentCharts
             .Where(chart => chart.BmsonSong != null)
@@ -216,7 +216,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         foreach (LibraryChartRef inputChart in inputCharts ?? [])
         {
             result.InputCount++;
-            if (inputChart.CompatibilityBmsFile == null && inputChart.BmsonSong == null)
+            if (inputChart.BmsFile == null && inputChart.BmsonSong == null)
             {
                 result.PathOnlyInputCount++;
             }
@@ -245,7 +245,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return null;
         }
-        if (inputChart.CompatibilityBmsFile != null && bmsByReference.TryGetValue(inputChart.CompatibilityBmsFile, out LibraryChartRef bmsChart))
+        if (inputChart.BmsFile != null && bmsByReference.TryGetValue(inputChart.BmsFile, out LibraryChartRef bmsChart))
         {
             return bmsChart;
         }
@@ -307,7 +307,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         try
         {
             IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? [])
-                .Select(chart => chart.CompatibilityBmsFile)
+                .Select(chart => chart.BmsFile)
                 .Where(bmsInfo => bmsInfo != null);
             foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, libraryFiles, folderPath))
             {

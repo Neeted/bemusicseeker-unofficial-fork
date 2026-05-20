@@ -22,7 +22,7 @@ internal sealed class LibraryChartRef
 
     public string Sha256 { get; }
 
-    public BMSFile CompatibilityBmsFile { get; }
+    public BMSFile BmsFile { get; }
 
     public LR2SongDBExtended.bmson_song BmsonSong { get; }
 
@@ -31,7 +31,7 @@ internal sealed class LibraryChartRef
         string path,
         string md5,
         string sha256,
-        BMSFile compatibilityBmsFile,
+        BMSFile bmsFile,
         LR2SongDBExtended.bmson_song bmsonSong)
     {
         Kind = kind;
@@ -39,11 +39,11 @@ internal sealed class LibraryChartRef
         Directory = string.IsNullOrWhiteSpace(Path) ? null : System.IO.Path.GetDirectoryName(Path);
         Md5 = string.IsNullOrWhiteSpace(md5) ? null : md5.Trim();
         Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
-        CompatibilityBmsFile = compatibilityBmsFile;
+        BmsFile = bmsFile;
         BmsonSong = bmsonSong;
     }
 
-    public static LibraryChartRef FromCompatibilityBmsFile(BMSFile file)
+    public static LibraryChartRef FromBmsFile(BMSFile file)
     {
         if (file == null)
         {
@@ -56,7 +56,7 @@ internal sealed class LibraryChartRef
                 pending.path,
                 pending.hash,
                 pending.sha256,
-                pending,
+                null,
                 pending.BmsonSong);
         }
         return new LibraryChartRef(
@@ -91,11 +91,11 @@ internal sealed class LibraryChartRef
         }
         if (compatibilityBmsFile != null)
         {
-            return FromCompatibilityBmsFile(compatibilityBmsFile);
+            return FromBmsFile(compatibilityBmsFile);
         }
         if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null)
         {
-            return FromCompatibilityBmsFile(chart.BmsFile);
+            return FromBmsFile(chart.BmsFile);
         }
         if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
         {

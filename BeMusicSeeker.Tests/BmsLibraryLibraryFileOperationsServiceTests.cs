@@ -247,8 +247,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
-                [LibraryChartRef.FromCompatibilityBmsFile(libraryFile)],
-                [LibraryChartRef.FromCompatibilityBmsFile(libraryFile)],
+                [LibraryChartRef.FromBmsFile(libraryFile)],
+                [LibraryChartRef.FromBmsFile(libraryFile)],
                 [pendingPackage],
                 lookupCache,
                 false,
@@ -257,7 +257,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 null,
                 null);
 
-            Assert.AreSame(libraryFile, result.RemovedCharts[0].CompatibilityBmsFile);
+            Assert.AreSame(libraryFile, result.RemovedCharts[0].BmsFile);
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsNull(pendingFile.instl_dst);
             Assert.IsNull(libraryFile.instl_dst);
@@ -326,7 +326,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256)],
-                [LibraryChartRef.FromCompatibilityBmsFile(canonicalFile)],
+                [LibraryChartRef.FromBmsFile(canonicalFile)],
                 [],
                 lookupCache,
                 true,
@@ -336,7 +336,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 null);
 
             Assert.AreEqual(1, result.RemovedCharts.Count);
-            Assert.AreSame(canonicalFile, result.RemovedCharts[0].CompatibilityBmsFile);
+            Assert.AreSame(canonicalFile, result.RemovedCharts[0].BmsFile);
             Assert.AreEqual(0, result.Failures.Count);
             Assert.AreEqual(folderPath, fileMutationService.LastDeletedDirectoryPath);
             Assert.AreEqual(RecycleOption.SendToRecycleBin, fileMutationService.LastDirectoryRecycleOption);
@@ -362,7 +362,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, staleChartPath, null, null)],
-                [LibraryChartRef.FromCompatibilityBmsFile(catalogFile)],
+                [LibraryChartRef.FromBmsFile(catalogFile)],
                 [],
                 new DirectoryResourceLookupCache(),
                 true,
@@ -395,8 +395,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             TestableBmsFile nonCanonicalFile = CreateFile(Path.Combine(folderPath, ".", "chart.bms"));
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
-                [LibraryChartRef.FromCompatibilityBmsFile(nonCanonicalFile)],
-                [LibraryChartRef.FromCompatibilityBmsFile(canonicalFile)],
+                [LibraryChartRef.FromBmsFile(nonCanonicalFile)],
+                [LibraryChartRef.FromBmsFile(canonicalFile)],
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -406,7 +406,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 null);
 
             Assert.AreEqual(1, result.RemovedCharts.Count);
-            Assert.AreSame(canonicalFile, result.RemovedCharts[0].CompatibilityBmsFile);
+            Assert.AreSame(canonicalFile, result.RemovedCharts[0].BmsFile);
             Assert.AreEqual(0, result.Failures.Count);
         });
     }
@@ -428,7 +428,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256)],
-                [LibraryChartRef.FromCompatibilityBmsFile(catalogFile)],
+                [LibraryChartRef.FromBmsFile(catalogFile)],
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -463,8 +463,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string confirmedPath = string.Empty;
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
-                [LibraryChartRef.FromCompatibilityBmsFile(libraryFile)],
-                [LibraryChartRef.FromCompatibilityBmsFile(libraryFile)],
+                [LibraryChartRef.FromBmsFile(libraryFile)],
+                [LibraryChartRef.FromBmsFile(libraryFile)],
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -482,7 +482,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(folderPath, confirmedPath);
             Assert.AreEqual(1, result.FolderDeleteCount);
             Assert.AreEqual(1, result.RemovedCharts.Count);
-            Assert.AreSame(libraryFile, result.RemovedCharts[0].CompatibilityBmsFile);
+            Assert.AreSame(libraryFile, result.RemovedCharts[0].BmsFile);
         });
     }
 
@@ -500,7 +500,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, libraryFile.hash, libraryFile.sha256)],
-                [LibraryChartRef.FromCompatibilityBmsFile(libraryFile)]);
+                [LibraryChartRef.FromBmsFile(libraryFile)]);
 
             Assert.AreEqual(1, paths.Count);
             Assert.AreEqual(folderPath, paths[0]);
@@ -523,7 +523,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256)],
-                [LibraryChartRef.FromCompatibilityBmsFile(catalogFile)]);
+                [LibraryChartRef.FromBmsFile(catalogFile)]);
 
             Assert.AreEqual(0, paths.Count);
         });
@@ -545,8 +545,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             TestableBmsFile remainingFile = CreateFile(remainingChartPath);
 
             List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
-                [LibraryChartRef.FromCompatibilityBmsFile(selectedFile)],
-                [LibraryChartRef.FromCompatibilityBmsFile(selectedFile), LibraryChartRef.FromCompatibilityBmsFile(remainingFile)]);
+                [LibraryChartRef.FromBmsFile(selectedFile)],
+                [LibraryChartRef.FromBmsFile(selectedFile), LibraryChartRef.FromBmsFile(remainingFile)]);
 
             Assert.AreEqual(0, paths.Count);
         });

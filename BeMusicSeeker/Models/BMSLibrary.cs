@@ -10949,7 +10949,7 @@ reportProgress,
                 ApplyLibraryMutationDelta(result.MutationDelta);
                 if (result.FilesToRemove.Count > 0)
                 {
-                    RemoveLibraryCharts(result.FilesToRemove.Select(LibraryChartRef.FromCompatibilityBmsFile));
+                    RemoveLibraryCharts(result.FilesToRemove.Select(LibraryChartRef.FromBmsFile));
                 }
                 if (result.MaintenanceTargets.Count > 0)
                 {
@@ -11228,7 +11228,7 @@ reportProgress,
             {
                 return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
                     charts,
-                    (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityBmsFile)
+                    (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
                         .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)));
             }
         }
@@ -11247,7 +11247,7 @@ reportProgress,
                 {
                     LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
                         charts,
-                        (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromCompatibilityBmsFile)
+                        (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
                             .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)),
                         ChartPackagesPending,
                         directoryResourceLookupCache,
@@ -11279,8 +11279,8 @@ reportProgress,
                         }
                     }
                     List<BMSFile> removedBmsFiles = [.. result.RemovedCharts
-                        .Where(chart => chart?.Kind == LibraryChartKind.Bms && chart.CompatibilityBmsFile != null)
-                        .Select(chart => chart.CompatibilityBmsFile)];
+                        .Where(chart => chart?.Kind == LibraryChartKind.Bms && chart.BmsFile != null)
+                        .Select(chart => chart.BmsFile)];
                     List<LR2SongDBExtended.bmson_song> removedBmsonSongs = [.. result.RemovedCharts
                         .Where(chart => chart?.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null)
                         .Select(chart => chart.BmsonSong)
