@@ -647,15 +647,14 @@ public sealed class ChartListVirtualViewTests
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
         List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(
             snapshot.BmsFiles,
-            snapshot.BmsonSongs,
-            materializeBmsonAdapterOnDemand: false);
+            snapshot.BmsonSongs);
 
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, out _));
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.instl_dst), ListSortDirection.Ascending, out _));
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
 
         Assert.IsNull(adapterlessBmsonEntry.CompatibilityAdapter);
-        Assert.IsNull(rows.Single().CompatibilityBmsFile);
+        Assert.AreSame(bmson, rows.Single().Chart.BmsonSong);
     }
 
     [TestMethod]

@@ -10407,14 +10407,12 @@ public class MainWindowViewModel : ViewModel
             ? ChartListSourceRow.BuildStandardLibraryRows(
                 subsetCharts,
                 applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-                GetPlaylistReferenceDisplayForSourceRow,
-                materializeBmsonAdapterOnDemand: !IsVirtualPackageSubsetTreeMode(treeMode))
+                GetPlaylistReferenceDisplayForSourceRow)
             : ChartListSourceRow.BuildStandardLibraryRows(
                 subsetFiles,
                 subsetBmsonSongs,
                 applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-                GetPlaylistReferenceDisplayForSourceRow,
-                materializeBmsonAdapterOnDemand: !IsVirtualPackageSubsetTreeMode(treeMode));
+                GetPlaylistReferenceDisplayForSourceRow);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
         long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
@@ -10616,7 +10614,6 @@ public class MainWindowViewModel : ViewModel
             includeBmsonRows ? files?.BmsonSongs : null,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
-            GetOrCreateSharedBmsonChartAdapter,
             TryGetSharedBmsonChartAdapter);
         lock (normalLibrarySortCacheLock)
         {
@@ -11784,8 +11781,7 @@ public class MainWindowViewModel : ViewModel
             sourceFiles,
             sourceBmsonSongs,
             resourceHealthProjectionProvider: null,
-            playlistReferenceDisplayProvider: null,
-            materializeBmsonAdapterOnDemand: true);
+            playlistReferenceDisplayProvider: null);
     }
 
     private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)

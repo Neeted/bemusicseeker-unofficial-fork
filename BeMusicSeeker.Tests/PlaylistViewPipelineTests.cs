@@ -764,7 +764,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartListSourceRow_BmsonChartProjectionDoesNotCreateCompatibilityAdapter()
+    public void ChartListSourceRow_BmsonChartProjectionHasNoCompatibilityBmsFileSurface()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -774,24 +774,14 @@ public sealed class PlaylistViewPipelineTests
             md5 = "dddddddddddddddddddddddddddddddd",
             sha256 = new string('e', 64)
         };
-        int createCount = 0;
         ChartListSourceRow row = ChartListSourceRow.BuildStandardLibraryRows(
             [],
-            [bmson],
-            bmsonChartAdapterProvider: song =>
-            {
-                createCount++;
-                return PendingChartEntry.CreateFromBmsonSong(song);
-            }).Single();
+            [bmson]).Single();
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreEqual(string.Empty, row.InstallDestination);
-        Assert.AreEqual(0, createCount);
-
-        BMSFile compatibilityBmsFile = row.CompatibilityBmsFile;
-
-        Assert.AreEqual(1, createCount);
-        Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(compatibilityBmsFile));
+        Assert.IsNull(row.Chart.BmsFile);
+        Assert.IsNull(typeof(ChartListSourceRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
     }
 
     [TestMethod]
@@ -1306,22 +1296,21 @@ public sealed class PlaylistViewPipelineTests
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
             [bmson],
-            bmsonChartAdapterProvider: GetAdapter,
             existingBmsonChartAdapterProvider: GetAdapter).Single();
-        firstSourceRow.CompatibilityBmsFile.instl_dst = "C:\\Installed\\Bmson";
-        firstSourceRow.CompatibilityBmsFile.InstallDestinationTitle = "Installed Bmson";
-        firstSourceRow.CompatibilityBmsFile.InstallDestinationArtist = "Installed Artist";
-        firstSourceRow.CompatibilityBmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
+        PendingChartEntry sharedAdapter = GetAdapter(bmson);
+        sharedAdapter.instl_dst = "C:\\Installed\\Bmson";
+        sharedAdapter.InstallDestinationTitle = "Installed Bmson";
+        sharedAdapter.InstallDestinationArtist = "Installed Artist";
+        sharedAdapter.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination");
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
             [bmson],
-            bmsonChartAdapterProvider: GetAdapter,
             existingBmsonChartAdapterProvider: GetAdapter).Single();
         var rebuiltViewRow = LibraryChartRow.FromBmsonSong(rebuiltSourceRow.BmsonSong);
         rebuiltViewRow.SetBmsonChartAdapterProviders(GetAdapter, GetAdapter);
 
-        Assert.AreSame(firstSourceRow.CompatibilityBmsFile, rebuiltSourceRow.CompatibilityBmsFile);
+        Assert.AreEqual("C:\\Installed\\Bmson", firstSourceRow.InstallDestination);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.InstallDestination);
         Assert.AreEqual("C:\\Installed\\Bmson", rebuiltSourceRow.Chart.InstallDestination);
         Assert.AreEqual("Installed Bmson", rebuiltSourceRow.InstallDestinationTitle);
