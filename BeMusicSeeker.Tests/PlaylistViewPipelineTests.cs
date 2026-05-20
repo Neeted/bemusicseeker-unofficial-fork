@@ -1084,7 +1084,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PendingInstallDestinationEditTargetSnapshot_MaterializesLooseBmsonCompatibilityAdapterBeforeBackgroundWork()
+    public void PendingInstallDestinationEditTargetSnapshot_DoesNotMaterializeLooseBmsonCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1115,11 +1115,12 @@ public sealed class PlaylistViewPipelineTests
         MainWindowViewModel.PendingInstallDestinationEditTargetSnapshot snapshot =
             viewModel.CreatePendingInstallDestinationEditTargetSnapshot(target);
 
-        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(snapshot.HasTarget);
         Assert.IsNull(snapshot.PackageEntry);
         Assert.IsNotNull(snapshot.ChartFile);
-        Assert.AreEqual(1, adapterRequestCount);
+        Assert.AreEqual(ChartFileKind.Bmson, snapshot.ChartFile.Kind);
+        Assert.AreEqual(0, adapterRequestCount);
     }
 
     [TestMethod]

@@ -20891,11 +20891,12 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                if (target.ChartFile == null)
+                BeMusicSeeker.Models.BMSFile bmsFile = target.ChartFile?.BmsFile;
+                if (bmsFile == null)
                 {
                     return false;
                 }
-                changed = files.SetPendingInstallDestination(target.ChartFile, destinationDirectory);
+                changed = files.SetPendingInstallDestination(bmsFile, destinationDirectory);
             }
             if (changed)
             {
@@ -21802,7 +21803,7 @@ public class MainWindowViewModel : ViewModel
         {
             return new PendingInstallDestinationEditTargetSnapshot(target.PackageEntry, null);
         }
-        return new PendingInstallDestinationEditTargetSnapshot(null, ResolveLegacyChartFile(target));
+        return new PendingInstallDestinationEditTargetSnapshot(null, target.Chart);
     }
 
     internal sealed class PendingInstallDestinationTargetSnapshot
@@ -21838,7 +21839,7 @@ public class MainWindowViewModel : ViewModel
     {
         internal static PendingInstallDestinationEditTargetSnapshot Empty { get; } = new(null, null);
 
-        internal PendingInstallDestinationEditTargetSnapshot(PackageChartEntry packageEntry, BeMusicSeeker.Models.BMSFile chartFile)
+        internal PendingInstallDestinationEditTargetSnapshot(PackageChartEntry packageEntry, ChartFile chartFile)
         {
             PackageEntry = packageEntry;
             ChartFile = chartFile;
@@ -21846,7 +21847,7 @@ public class MainWindowViewModel : ViewModel
 
         internal PackageChartEntry PackageEntry { get; }
 
-        internal BeMusicSeeker.Models.BMSFile ChartFile { get; }
+        internal ChartFile ChartFile { get; }
 
         internal bool HasTarget => PackageEntry != null || ChartFile != null;
     }
