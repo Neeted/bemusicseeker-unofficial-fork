@@ -8053,36 +8053,30 @@ reportProgress,
 
     private sealed class EstimatedInstallBatchApplyContext
     {
-        public List<BMSFile> AddedFiles { get; } = [];
-
         public List<BMSFile> AddedBmsFiles { get; } = [];
 
-        public List<BMSFile> AddedChartFiles { get; } = [];
+        public List<BMSFile> AddedBmsonAdapters { get; } = [];
 
         public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
 
         public HashSet<string> AffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public HashSet<string> ResourceAffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        public void AddInstalledFiles(IEnumerable<BMSFile> addedFiles, IEnumerable<BMSFile> addedBmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs, string destinationDirectory)
+        public void AddInstalledCharts(IEnumerable<BMSFile> addedBmsFiles, IEnumerable<BMSFile> addedBmsonAdapters, IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs, string destinationDirectory)
         {
-            List<BMSFile> addedFileList = [.. (addedFiles ?? []).Where(file => file != null)];
-            List<BMSFile> addedBmsFileList = [.. (addedBmsFiles ?? []).Where(file => file != null)];
+            List<BMSFile> addedBmsFileList = [.. (addedBmsFiles ?? []).Where(PendingChartEntry.IsBmsChartFile)];
+            List<BMSFile> addedBmsonAdapterList = [.. (addedBmsonAdapters ?? []).Where(PendingChartEntry.IsBmsonChartFile)];
             List<LR2SongDBExtended.bmson_song> addedBmsonSongList = [.. (addedBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
-            AddedFiles.AddRange(addedFileList);
             AddedBmsFiles.AddRange(addedBmsFileList);
-            AddedChartFiles.AddRange(addedFileList.Where(file => PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)));
+            AddedBmsonAdapters.AddRange(addedBmsonAdapterList);
             AddedBmsonSongs.AddRange(addedBmsonSongList);
             AddAffectedDirectory(destinationDirectory);
-            foreach (BMSFile addedFile in addedFileList)
+            foreach (BMSFile addedFile in addedBmsFileList)
             {
-                string directoryPath = DirectoryExt.GetDirectoryNameSimple(addedFile.path);
-                AddAffectedDirectory(directoryPath);
-                if (!PendingChartEntry.IsBmsChartFile(addedFile) && !PendingChartEntry.IsBmsonChartFile(addedFile))
-                {
-                    AddResourceAffectedDirectory(directoryPath);
-                }
+                AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedFile.path));
+            }
+            foreach (BMSFile addedFile in addedBmsonAdapterList)
+            {
+                AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedFile.path));
             }
             foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedBmsonSongList)
             {
@@ -8098,13 +8092,6 @@ reportProgress,
             }
         }
 
-        private void AddResourceAffectedDirectory(string directoryPath)
-        {
-            if (!string.IsNullOrWhiteSpace(directoryPath))
-            {
-                ResourceAffectedDirectories.Add(directoryPath);
-            }
-        }
     }
 
     private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
@@ -8132,13 +8119,14 @@ reportProgress,
             (files) => SetBMSScore(files),
             delegate (IEnumerable<BMSFile> files)
             {
-                List<BMSFile> addedFiles = [.. files.Where(file => file != null)];
-                List<BMSFile> addedBmsFiles = [.. addedFiles.Where(PendingChartEntry.IsBmsChartFile)];
+                List<BMSFile> addedChartAdapters = [.. files.Where(file => PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file))];
+                List<BMSFile> addedBmsFiles = [.. addedChartAdapters.Where(PendingChartEntry.IsBmsChartFile)];
+                List<BMSFile> addedBmsonAdapters = [.. addedChartAdapters.Where(PendingChartEntry.IsBmsonChartFile)];
                 List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [];
                 addedBmsFilesForChartInfo.AddRange(addedBmsFiles);
                 if (estimatedInstallBatchApplyContext != null)
                 {
-                    estimatedInstallBatchApplyContext.AddInstalledFiles(addedFiles, addedBmsFiles, addedBmsonSongs, installationDirectory);
+                    estimatedInstallBatchApplyContext.AddInstalledCharts(addedBmsFiles, addedBmsonAdapters, addedBmsonSongs, installationDirectory);
                     return;
                 }
                 var addedBmsPathSet = new HashSet<string>(addedBmsFiles.Select(ff => ff.path), StringComparer.OrdinalIgnoreCase);
@@ -8152,7 +8140,7 @@ reportProgress,
                     }
                     BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
                 }
-                ChartScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedFiles.Select(bmsInfo => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct(StringComparer.OrdinalIgnoreCase));
+                ChartScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedChartAdapters.Select(bmsInfo => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct(StringComparer.OrdinalIgnoreCase));
                 DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                 foreach (string dir in addedDirectoryScan.ChartDirectories)
                 {
@@ -8189,7 +8177,7 @@ reportProgress,
             }
             if (estimatedInstallBatchApplyContext != null)
             {
-                estimatedInstallBatchApplyContext.AddInstalledFiles([], [], addedBmsonSongs, installationDirectory);
+                estimatedInstallBatchApplyContext.AddInstalledCharts([], [], addedBmsonSongs, installationDirectory);
             }
             else
             {
@@ -8214,7 +8202,7 @@ reportProgress,
         }
         if (estimatedInstallBatchApplyContext != null && result.FailedPackages.Count < installPackageList.Count)
         {
-            estimatedInstallBatchApplyContext.AddInstalledFiles([], [], [], installationDirectory);
+            estimatedInstallBatchApplyContext.AddInstalledCharts([], [], [], installationDirectory);
         }
         if (result.InstalledPackagesToRegister.Count > 0)
         {
@@ -8241,10 +8229,14 @@ reportProgress,
         {
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
-        if (context.AddedBmsFiles.Count > 0)
+        if (context.AddedBmsFiles.Count > 0 || context.AddedBmsonAdapters.Count > 0)
         {
-            var addedBmsPathSet = new HashSet<string>(context.AddedBmsFiles.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
-            BMSFiles = [.. BMSFiles.Where(file => file != null && !addedBmsPathSet.Contains(file.path)), .. context.AddedBmsFiles];
+            var addedChartPathSet = new HashSet<string>(
+                context.AddedBmsFiles.Concat(context.AddedBmsonAdapters)
+                    .Select(file => file.path)
+                    .Where(path => !string.IsNullOrWhiteSpace(path)),
+                StringComparer.OrdinalIgnoreCase);
+            BMSFiles = [.. BMSFiles.Where(file => file != null && !addedChartPathSet.Contains(file.path)), .. context.AddedBmsFiles];
         }
         if (context.AddedBmsonSongs.Count > 0)
         {
@@ -8272,7 +8264,7 @@ reportProgress,
         return reverseLookupMutation;
     }
 
-    private List<BMSFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<BMSFile> baseTargets, IEnumerable<string> affectedDirectories)
+    private static List<BMSFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<BMSFile> baseTargets)
     {
         var targetsByPath = new Dictionary<string, BMSFile>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile target in (baseTargets ?? []).Where(file => file != null))
@@ -8280,40 +8272,6 @@ reportProgress,
             if (!string.IsNullOrWhiteSpace(target.path))
             {
                 targetsByPath[target.path] = target;
-            }
-        }
-        var affectedDirectorySet = new HashSet<string>((affectedDirectories ?? []).Where(dir => !string.IsNullOrWhiteSpace(dir)), StringComparer.OrdinalIgnoreCase);
-        if (affectedDirectorySet.Count == 0)
-        {
-            return [.. targetsByPath.Values];
-        }
-        foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
-        {
-            if (file == null || string.IsNullOrWhiteSpace(file.path) || !PendingChartEntry.IsBmsChartFile(file))
-            {
-                continue;
-            }
-            string directoryPath = DirectoryExt.GetDirectoryNameSimple(file.path);
-            if (affectedDirectorySet.Contains(directoryPath))
-            {
-                targetsByPath[file.path] = file;
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-        {
-            if (song == null || string.IsNullOrWhiteSpace(song.path))
-            {
-                continue;
-            }
-            string directoryPath = DirectoryExt.GetDirectoryNameSimple(song.path);
-            if (!affectedDirectorySet.Contains(directoryPath))
-            {
-                continue;
-            }
-            var chartEntry = PendingChartEntry.CreateFromBmsonSong(song);
-            if (chartEntry != null && !string.IsNullOrWhiteSpace(chartEntry.path))
-            {
-                targetsByPath[chartEntry.path] = chartEntry;
             }
         }
         return [.. targetsByPath.Values];
@@ -9156,7 +9114,7 @@ reportProgress,
                         int installedCountAfterApply = ChartPackagesInstalled.Count;
                         installedApplyStopwatch.Stop();
                         var maintenanceStopwatch = Stopwatch.StartNew();
-                        List<BMSFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceTargets, batchApplyContext.ResourceAffectedDirectories);
+                        List<BMSFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceTargets);
                         if (estimatedInstallMaintenanceTargets.Count > 0)
                         {
                             setMaintenanceInfo(
