@@ -289,18 +289,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string path => BmsFile?.path ?? BmsonSong?.path ?? string.Empty;
 
-    public string instl_dst
-    {
-        get => Chart?.InstallDestination ?? string.Empty;
-        set
-        {
-            BMSFile compatibilityBmsFile = CompatibilityBmsFile;
-            if (compatibilityBmsFile != null)
-            {
-                compatibilityBmsFile.instl_dst = value;
-            }
-        }
-    }
+    public string instl_dst => Chart?.InstallDestination ?? string.Empty;
 
     public string InstallDestinationTitle => Chart?.InstallDestinationTitle ?? string.Empty;
 
