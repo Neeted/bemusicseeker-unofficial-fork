@@ -47,31 +47,6 @@ internal sealed class ChartFileTransientState
         || BackbmpHealth.HasValue
         || !string.IsNullOrWhiteSpace(EncodingName);
 
-    internal static ChartFileTransientState FromCompatibilityFile(BMSFile file, bool includeWarningSnapshot = true)
-    {
-        if (file == null)
-        {
-            return Empty;
-        }
-
-        return new ChartFileTransientState
-        {
-            Subtitle = file.subtitle,
-            InstallDestination = file.instl_dst,
-            InstallDestinationTitle = file.InstallDestinationTitle,
-            InstallDestinationArtist = file.InstallDestinationArtist,
-            InstallDestinationSuggestions = file.InstallDestinationSuggestions,
-            Warnings = includeWarningSnapshot ? file.Warnings.ToStructuredList() : [],
-            WAVHealth = file.WAVHealth,
-            BGAHealth = file.BGAHealth,
-            MovieHealth = file.MovieHealth,
-            StagefileHealth = file.StagefileHealth,
-            BannerHealth = file.BannerHealth,
-            BackbmpHealth = file.BackbmpHealth,
-            EncodingName = file.encoding
-        };
-    }
-
     internal static ChartFileTransientState FromChartFile(ChartFile chart, bool includeWarningSnapshot = true)
     {
         if (chart == null)

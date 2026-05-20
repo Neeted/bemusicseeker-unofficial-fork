@@ -189,7 +189,7 @@ internal sealed class ResourceHealthIndexSnapshot
 
     internal ResourceHealthWarningProjection GetProjection(BMSFile file)
     {
-        var key = ResourceHealthChartKey.FromCompatibilityChartFile(file);
+        var key = ResourceHealthChartKey.FromBmsFile(file);
         return GetProjection(key);
     }
 
@@ -235,7 +235,7 @@ internal sealed class ResourceHealthIndexSnapshot
                 chart.Md5);
         }
 
-        internal static ResourceHealthChartKey FromCompatibilityChartFile(BMSFile file)
+        internal static ResourceHealthChartKey FromBmsFile(BMSFile file)
         {
             if (file == null)
             {
