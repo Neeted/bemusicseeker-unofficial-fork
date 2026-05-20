@@ -10,8 +10,6 @@ internal sealed class PackageInstallExecutionResult
 
     public List<BMSFile> AddedBmsFiles { get; } = [];
 
-    public List<BMSFile> AddedBmsonAdapters { get; } = [];
-
     public List<LR2.LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
 
     public List<ChartPackage> FailedPackages { get; } = [];

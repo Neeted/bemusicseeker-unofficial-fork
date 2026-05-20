@@ -1861,9 +1861,6 @@ internal sealed class BmsLibraryPackageInstallService
                 result.AddedBmsFiles.AddRange(packageEntries
                     .Select(entry => entry?.GetExistingBmsFormatAdapter())
                     .Where(PendingChartEntry.IsBmsChartFile));
-                result.AddedBmsonAdapters.AddRange(packageEntries
-                    .Select(entry => entry?.CompatibilityAdapter)
-                    .Where(PendingChartEntry.IsBmsonChartFile));
                 result.AddedBmsonSongs.AddRange(packageEntries
                     .Select(entry => entry?.Chart?.BmsonSong)
                     .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)));
@@ -1903,7 +1900,7 @@ internal sealed class BmsLibraryPackageInstallService
         result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
 
         var maintenanceStopwatch = Stopwatch.StartNew();
-        updateMaintenance?.Invoke([.. result.AddedBmsFiles, .. result.AddedBmsonAdapters]);
+        updateMaintenance?.Invoke(result.AddedBmsFiles);
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 
@@ -1921,7 +1918,7 @@ internal sealed class BmsLibraryPackageInstallService
         result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
 
         var applyStopwatch = Stopwatch.StartNew();
-        applyState?.Invoke([.. result.AddedBmsFiles, .. result.AddedBmsonAdapters]);
+        applyState?.Invoke(result.AddedBmsFiles);
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
 

@@ -1555,7 +1555,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AddedEntries.Count);
             Assert.AreEqual(1, result.AddedCharts.Count);
             Assert.AreEqual(0, result.AddedBmsFiles.Count);
-            Assert.AreEqual(0, result.AddedBmsonAdapters.Count);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
             Assert.AreEqual(destinationBmsonPath, bmsonSong.path);
@@ -1619,7 +1618,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AddedEntries.Count);
             Assert.AreEqual(1, result.AddedCharts.Count);
             Assert.AreEqual(0, result.AddedBmsFiles.Count);
-            Assert.AreEqual(0, result.AddedBmsonAdapters.Count);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
             Assert.AreEqual(0, songUpserts.Count);
