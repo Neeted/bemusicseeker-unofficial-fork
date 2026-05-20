@@ -1763,9 +1763,15 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 List<PackageChartEntry> packageEntries = package.ChartEntries;
                 result.AddedEntries.AddRange(packageEntries);
-                result.AddedFiles.AddRange(packageEntries
+                result.AddedCharts.AddRange(packageEntries
+                    .Select(entry => entry?.Chart)
+                    .Where(chart => chart != null));
+                result.AddedBmsFiles.AddRange(packageEntries
                     .Select(entry => entry?.Chart?.BmsFile ?? entry?.CompatibilityAdapter)
-                    .Where(file => file != null));
+                    .Where(PendingChartEntry.IsBmsChartFile));
+                result.AddedBmsonAdapters.AddRange(packageEntries
+                    .Select(entry => entry?.CompatibilityAdapter)
+                    .Where(PendingChartEntry.IsBmsonChartFile));
                 result.AddedBmsonSongs.AddRange(packageEntries
                     .Select(entry => entry?.Chart?.BmsonSong)
                     .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)));
@@ -1794,42 +1800,36 @@ internal sealed class BmsLibraryPackageInstallService
         moveStopwatch.Stop();
         result.MoveMs = moveStopwatch.ElapsedMilliseconds;
 
-        List<BMSFile> addedBmsFiles = [.. result.AddedEntries
-            .Select(entry => entry?.Chart?.BmsFile ?? entry?.CompatibilityAdapter)
-            .Where(PendingChartEntry.IsBmsChartFile)];
-        List<BMSFile> addedBmsonAdapters = [.. result.AddedEntries
-            .Select(entry => entry?.CompatibilityAdapter)
-            .Where(PendingChartEntry.IsBmsonChartFile)];
         foreach (PackageChartEntry addedEntry in result.AddedEntries.Where(entry => entry?.Chart != null))
         {
             addedEntry.ClearPostInstallState();
         }
 
         var songDbStopwatch = Stopwatch.StartNew();
-        upsertSongs?.Invoke(addedBmsFiles);
+        upsertSongs?.Invoke(result.AddedBmsFiles);
         songDbStopwatch.Stop();
         result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
 
         var maintenanceStopwatch = Stopwatch.StartNew();
-        updateMaintenance?.Invoke([.. addedBmsFiles, .. addedBmsonAdapters]);
+        updateMaintenance?.Invoke([.. result.AddedBmsFiles, .. result.AddedBmsonAdapters]);
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 
         if (updateZeroNote != null)
         {
             var zeroNoteStopwatch = Stopwatch.StartNew();
-            updateZeroNote(addedBmsFiles);
+            updateZeroNote(result.AddedBmsFiles);
             zeroNoteStopwatch.Stop();
             result.ZeroNoteMs = zeroNoteStopwatch.ElapsedMilliseconds;
         }
 
         var scoreStopwatch = Stopwatch.StartNew();
-        applyScores?.Invoke(addedBmsFiles);
+        applyScores?.Invoke(result.AddedBmsFiles);
         scoreStopwatch.Stop();
         result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
 
         var applyStopwatch = Stopwatch.StartNew();
-        applyState?.Invoke([.. addedBmsFiles, .. addedBmsonAdapters]);
+        applyState?.Invoke([.. result.AddedBmsFiles, .. result.AddedBmsonAdapters]);
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
 

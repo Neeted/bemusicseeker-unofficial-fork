@@ -8168,7 +8168,7 @@ reportProgress,
         {
             List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [.. result.AddedBmsonSongs.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
             var adapterBackedBmsonPaths = new HashSet<string>(
-                result.AddedFiles
+                result.AddedBmsonAdapters
                     .Where(PendingChartEntry.IsBmsonChartFile)
                     .Select(file => file.path)
                     .Where(path => !string.IsNullOrWhiteSpace(path)),
