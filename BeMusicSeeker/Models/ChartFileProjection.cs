@@ -134,12 +134,11 @@ internal static class ChartFileProjection
 
     internal static ChartFile FromBmsonSong(
         LR2SongDBExtended.bmson_song song,
-        BMSFile compatibilityBmsFile = null,
         bool includeWarningSnapshot = true)
     {
         return FromBmsonSong(
             song,
-            ChartFileTransientState.FromCompatibilityFile(compatibilityBmsFile, includeWarningSnapshot),
+            ChartFileTransientState.Empty,
             includeWarningSnapshot);
     }
 

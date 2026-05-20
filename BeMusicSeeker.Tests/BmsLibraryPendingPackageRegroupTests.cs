@@ -125,7 +125,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             [
                 PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(
                     pendingSong,
-                    compatibilityBmsFile: null,
                     includeWarningSnapshot: false))
             ]);
             adapterlessPackage.path = pendingBmsonPath;
