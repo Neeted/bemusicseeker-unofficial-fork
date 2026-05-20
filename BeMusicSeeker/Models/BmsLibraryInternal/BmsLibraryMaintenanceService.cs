@@ -249,26 +249,6 @@ internal sealed class BmsLibraryMaintenanceService
         return [.. EnumerateBmsChartFiles(bmsFiles).Where(file => file.ChartInfo?.notes == 0)];
     }
 
-    public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<BMSFile> bmsFiles, bool unset)
-    {
-        List<BMSFileMaintenanceInfo> changes = [.. (from f in EnumerateResourceHealthChartFiles(bmsFiles)
-                                                let m = f?.maintenanceInfo
-                                                where m != null && m.is_files_warning_ignored == unset
-                                                select m)];
-        foreach (BMSFileMaintenanceInfo item in changes)
-        {
-            item.is_files_warning_ignored = !unset;
-        }
-        foreach (PendingChartEntry bmsonEntry in EnumerateResourceHealthChartFiles(bmsFiles).OfType<PendingChartEntry>().Where(entry => entry.IsBmsonChart && entry.BmsonSong != null))
-        {
-            if (bmsonEntry.maintenanceInfo != null && changes.Contains(bmsonEntry.maintenanceInfo))
-            {
-                bmsonEntry.BmsonSong.MaintenanceInfo = bmsonEntry.maintenanceInfo;
-            }
-        }
-        return changes;
-    }
-
     public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<ChartFile> charts, bool unset)
     {
         List<BMSFileMaintenanceInfo> changes = [];

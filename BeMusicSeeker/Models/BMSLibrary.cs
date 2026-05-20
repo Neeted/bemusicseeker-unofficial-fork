@@ -6906,24 +6906,6 @@ reportProgress,
     /// <summary>
     /// BMS ファイル群の保守情報（ファイル存在チェック、エンコーディング検出等）を設定し、必要に応じて DB に永続化します。
     /// </summary>
-    private List<BMSFile> CreateResourceMaintenanceTargets(IEnumerable<BMSFile> bmsFiles, bool includeInstalledBmson)
-    {
-        List<BMSFile> targets = [.. (bmsFiles ?? []).Where(file => file != null)];
-        if (!includeInstalledBmson)
-        {
-            return targets;
-        }
-        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-        {
-            var row = PendingChartEntry.CreateFromBmsonSong(song);
-            if (row != null)
-            {
-                targets.Add(row);
-            }
-        }
-        return targets;
-    }
-
     private List<BMSFile> CreateResourceMaintenanceBmsTargets(IEnumerable<BMSFile> bmsFiles)
     {
         return [.. (bmsFiles ?? []).Where(PendingChartEntry.IsBmsChartFile)];
@@ -7306,31 +7288,6 @@ reportProgress,
         CancellationToken cancellationToken = default)
     {
         return RescanResourceHealthCharts(BMSFiles, includeInstalledBmson: true, progressReporter, cancellationToken);
-    }
-
-    public void SetChartResourceWarningsIgnored(IEnumerable<BMSFile> chartFiles, bool unset = false)
-    {
-        bool includeInstalledBmson = chartFiles == null;
-        chartFiles ??= BMSFiles;
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                List<BMSFile> targets = CreateResourceMaintenanceTargets(chartFiles, includeInstalledBmson);
-                if (targets.Count == 0)
-                {
-                    return;
-                }
-                using (rwlockSongDBMaintenance.GetWriterGuard())
-                {
-                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetFilesWarningIgnored(targets, unset);
-                    dbGateway.UpsertMaintenanceInfos(changes);
-                }
-                RebuildResourceHealthIndexSnapshotLocked(unset ? "resource_health_unignore" : "resource_health_ignore");
-            }
-        }
-        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
     }
 
     internal void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)

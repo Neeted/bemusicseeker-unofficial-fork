@@ -101,7 +101,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetFilesWarningIgnored_AttachesBmsonMaintenanceInfoToSourceSong()
+    public void SetFilesWarningIgnored_ChartBmsonPlaceholderAttachesMaintenanceInfoToSourceSong()
     {
         var service = new BmsLibraryMaintenanceService();
         var song = new LR2SongDBExtended.bmson_song
@@ -110,16 +110,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('d', 64)
         };
-        PendingChartEntry entry = PendingChartEntry.CreateFromBmsonSong(song);
-
-        Assert.IsNotNull(entry);
         Assert.IsNull(song.MaintenanceInfo);
 
-        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([entry], unset: false);
+        ChartFile chart = ChartFileProjection.FromBmsonSong(song);
+        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([chart], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(changes[0].is_files_warning_ignored);
-        Assert.AreSame(entry.maintenanceInfo, song.MaintenanceInfo);
+        Assert.AreSame(changes[0], song.MaintenanceInfo);
         Assert.IsTrue(song.MaintenanceInfo.is_files_warning_ignored);
     }
 
@@ -587,7 +585,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(service.ApplyResourceHealthWarnings(bmsonRow));
         Assert.AreEqual(0, service.GetGarbledFiles([bmsonRow], isInFixedList: false).Count);
         Assert.AreEqual(0, service.GetZeroNoteFiles([bmsonRow]).Count);
-        Assert.AreEqual(1, service.SetFilesWarningIgnored([bmsonRow], unset: false).Count);
+        Assert.AreEqual(1, service.SetFilesWarningIgnored([ChartFileProjection.FromBmsonSong(bmsonRow.BmsonSong)], unset: false).Count);
 
         MaintenanceEncodingUpdateResult encodingResult = service.ApplyEncoding([bmsonRow], "shift_jis");
 
@@ -597,7 +595,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(originalArtist, bmsonRow.Artist);
         Assert.AreEqual("gb2312", bmsonRow.maintenanceInfo.encoding);
         Assert.IsFalse(bmsonRow.maintenanceInfo.is_encoding_fixed);
-        Assert.IsTrue(bmsonRow.maintenanceInfo.is_files_warning_ignored);
+        Assert.IsFalse(bmsonRow.maintenanceInfo.is_files_warning_ignored);
+        Assert.IsTrue(bmsonRow.BmsonSong.MaintenanceInfo.is_files_warning_ignored);
     }
 
     [TestMethod]
@@ -613,7 +612,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([file], unset: false);
+        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored([ChartFileProjection.FromBmsFile(file)], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(info.is_files_warning_ignored);
