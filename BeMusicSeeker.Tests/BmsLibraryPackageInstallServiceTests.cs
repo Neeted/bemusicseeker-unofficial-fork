@@ -478,7 +478,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void BuildPendingResourceHealthWarnings_AdapterBackedBmsonUsesChartResourceSnapshot()
+    public void BuildPendingResourceHealthWarnings_BmsonUsesChartResourceSnapshot()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -493,17 +493,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 wav_files = ["missing.wav"]
             };
             PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
-            bool legacyWarningCallbackCalled = false;
 
-            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(
-                entry,
-                _ =>
-                {
-                    legacyWarningCallbackCalled = true;
-                    return true;
-                });
+            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
 
-            Assert.IsFalse(legacyWarningCallbackCalled);
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.IsNull(entry.GetBmsOwnerForTest());
         });
@@ -694,8 +686,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                _ => false);
+                0.6);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(bmsonFilePath, result.DiscoveredPackages[0].path);
@@ -715,7 +706,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string bmsonFilePath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonFilePath, CreateBmsonJsonWithSound("missing.wav"));
-            var maintenanceService = new BmsLibraryMaintenanceService();
             var service = new BmsLibraryPackageInstallService();
 
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -723,8 +713,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
+                0.6);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
@@ -758,8 +747,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase),
-                0.6,
-                _ => false);
+                0.6);
 
             PackageChartEntry installedEntry = result.DiscoveredPackages
                 .SelectMany(package => package.ChartEntries)
@@ -791,7 +779,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 + "#BMP01 chart.mpg\r\n"
                 + "#00111:AA\r\n"
                 + "#00104:01\r\n");
-            var maintenanceService = new BmsLibraryMaintenanceService();
             var service = new BmsLibraryPackageInstallService();
 
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -799,8 +786,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
+                0.6);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
@@ -837,7 +823,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 + "#00111:AA\r\n"
                 + "#00104:01\r\n");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.png"), "image");
-            var maintenanceService = new BmsLibraryMaintenanceService();
             var service = new BmsLibraryPackageInstallService();
 
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -845,8 +830,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
+                0.6);
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
@@ -881,7 +865,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 + "#00104:01\r\n");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.wav"), "audio");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.mpg"), "movie");
-            var maintenanceService = new BmsLibraryMaintenanceService();
             var service = new BmsLibraryPackageInstallService();
 
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -889,8 +872,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
+                0.6);
 
             Assert.AreEqual(1, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
@@ -917,7 +899,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(Path.Combine(packageDirectoryPath, "root.bms"), "#PLAYER 1\r\n#TITLE Root\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "dummy");
             File.WriteAllText(Path.Combine(nestedDirectoryPath, "another.bms"), "#PLAYER 1\r\n#TITLE Nested\r\n#WAVAA missing.wav\r\n#00111:AA\r\n");
-            var maintenanceService = new BmsLibraryMaintenanceService();
             var service = new BmsLibraryPackageInstallService();
 
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -925,8 +906,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
+                0.6);
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
@@ -950,7 +930,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string bmsonFilePath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonFilePath, CreateBmsonJsonWithSound("sound.wav"));
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "dummy");
-            var maintenanceService = new BmsLibraryMaintenanceService();
             var service = new BmsLibraryPackageInstallService();
 
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -958,8 +937,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
+                0.6);
 
             Assert.AreEqual(1, result.DiscoveredPackages.Count);
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.DiscoveredPackages[0].path, StringComparison.OrdinalIgnoreCase));
@@ -983,11 +961,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string directoryPackagePath = Path.Combine(tempDirectoryPath, "DirPkg");
             Directory.CreateDirectory(directoryPackagePath);
             File.WriteAllText(Path.Combine(directoryPackagePath, "chart_dir.bms"), "#PLAYER 1\r\n#TITLE Dir\r\n#WAVAA sound_dir.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(Path.Combine(directoryPackagePath, "sound_dir.wav"), "audio");
 
             string filePackageDirectoryPath = Path.Combine(tempDirectoryPath, "SinglePkg");
             Directory.CreateDirectory(filePackageDirectoryPath);
             string singleFilePath = Path.Combine(filePackageDirectoryPath, "chart_single.bms");
             File.WriteAllText(singleFilePath, "#PLAYER 1\r\n#TITLE Single\r\n#WAVAA sound_single.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(Path.Combine(filePackageDirectoryPath, "sound_single.wav"), "audio");
 
             var service = new BmsLibraryPackageInstallService();
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -995,8 +975,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                _ => false);
+                0.6);
 
             Assert.AreEqual(2, result.DiscoveredPackages.Count);
             Assert.AreEqual(2, result.AutoInstallCandidates.Count);
@@ -1023,11 +1002,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 string directoryPackagePath = Path.Combine(tempDirectoryPath, "DirPkg");
                 Directory.CreateDirectory(directoryPackagePath);
                 File.WriteAllText(Path.Combine(directoryPackagePath, "chart_dir.bms"), "#PLAYER 1\r\n#TITLE Dir\r\n#WAVAA sound_dir.wav\r\n#00111:AA\r\n");
+                File.WriteAllText(Path.Combine(directoryPackagePath, "sound_dir.wav"), "audio");
 
                 string filePackageDirectoryPath = Path.Combine(tempDirectoryPath, "SinglePkg");
                 Directory.CreateDirectory(filePackageDirectoryPath);
                 string singleFilePath = Path.Combine(filePackageDirectoryPath, "chart_single.bms");
                 File.WriteAllText(singleFilePath, "#PLAYER 1\r\n#TITLE Single\r\n#WAVAA sound_single.wav\r\n#00111:AA\r\n");
+                File.WriteAllText(Path.Combine(filePackageDirectoryPath, "sound_single.wav"), "audio");
 
                 var service = new BmsLibraryPackageInstallService();
                 AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
@@ -1035,8 +1016,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     [],
                     [],
                     _ => false,
-                    0.6,
-                    _ => false);
+                    0.6);
 
                 Assert.AreEqual(2, result.DiscoveredPackages.Count);
                 foreach (ChartPackage package in result.DiscoveredPackages)
@@ -1086,8 +1066,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 [],
                 [],
                 _ => false,
-                0.6,
-                _ => false);
+                0.6);
 
             Assert.AreEqual(2, result.DiscoveredPackages.Count);
             Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);

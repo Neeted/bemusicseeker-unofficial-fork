@@ -4252,8 +4252,7 @@ public class BMSLibrary : NotificationObject
                     ChartPackagesInstalled.Clear();
                     InstallTableLoadResult installTableLoadResult = initializationService.LoadInstallTable(
                         dbGateway,
-                        ContainsInstalledChartUnsafe,
-                        (bmsFile) => ApplyChartResourceHealthWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true));
+                        ContainsInstalledChartUnsafe);
                     if (installTableLoadResult.StaleInstallPaths.Count > 0)
                     {
                         dbGateway.DeleteInstallRows(installTableLoadResult.StaleInstallPaths);
@@ -7178,11 +7177,6 @@ reportProgress,
         }
     }
 
-    private bool ApplyChartResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo mtInfo = null, bool strictCheck = false)
-    {
-        return maintenanceService.ApplyResourceHealthWarnings(bmsFile, mtInfo, strictCheck);
-    }
-
     internal List<ChartFile> GetChartsNeedResourceFix(IEnumerable<BMSFile> chartFiles, bool forceUpdate = false, bool isInIgnoredList = false)
     {
         bool includeInstalledBmson = chartFiles == null;
@@ -7827,7 +7821,6 @@ reportProgress,
                             CreateKnownChartDirectorySnapshotUnsafe(),
                             ContainsInstalledChartUnsafe,
                             dupRateThreshInOnePkg,
-                            (bmsFile) => ApplyChartResourceHealthWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true),
                             token);
                         List<ChartPackage> discoveredPackages = [.. workflow.DiscoveredPackages];
                         LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
@@ -9393,11 +9386,6 @@ reportProgress,
             }
 
             bool isBmson = chart.Kind == ChartFileKind.Bmson;
-            if (!isBmson)
-            {
-                BMSFile bmsFile = chart.BmsFile;
-                bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
-            }
             entry.ClearStructuredWarnings();
 
             string key = chart.PrimaryLookupHash;
@@ -9413,19 +9401,8 @@ reportProgress,
             }
             else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
             {
-                if (isBmson)
-                {
-                    IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry, null);
-                    entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
-                }
-                else
-                {
-                    BMSFile bmsFile = chart.BmsFile;
-                    if (bmsFile != null)
-                    {
-                        ApplyChartResourceHealthWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
-                    }
-                }
+                IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
+                entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
             }
         }
         BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);

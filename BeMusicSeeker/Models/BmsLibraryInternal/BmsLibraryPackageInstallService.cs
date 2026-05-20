@@ -535,7 +535,7 @@ internal sealed class BmsLibraryPackageInstallService
             .Concat(resources.MovieRelativePaths);
     }
 
-    internal static IReadOnlyList<ChartWarning> BuildPendingResourceHealthWarnings(PackageChartEntry entry, Func<BMSFile, bool> requiresPendingWarning)
+    internal static IReadOnlyList<ChartWarning> BuildPendingResourceHealthWarnings(PackageChartEntry entry)
     {
         if (entry?.Chart == null || entry.ResourceSnapshot.TotalReferenceCount <= 0)
         {
@@ -543,24 +543,10 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         ChartFile chart = entry.Chart;
-        if (chart.Kind == ChartFileKind.Bmson)
-        {
-            BMSFileMaintenanceInfo bmsonMaintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(chart);
-            return bmsonMaintenanceInfo == null
-                ? []
-                : BmsLibraryMaintenanceService.BuildResourceHealthWarnings(bmsonMaintenanceInfo);
-        }
-
         BMSFile file = chart.BmsFile;
         if (file != null)
         {
             file.SetHealthStatus(forceUpdate: false, memClear: false);
-            if (requiresPendingWarning != null)
-            {
-                return requiresPendingWarning(file)
-                    ? [.. file.Warnings.ToStructuredList().Where(warning => warning?.Category == ChartWarningCategory.ResourceHealth)]
-                    : [];
-            }
             return BmsLibraryMaintenanceService.BuildResourceHealthWarnings(file.maintenanceInfo);
         }
         BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(chart);
@@ -1224,7 +1210,6 @@ internal sealed class BmsLibraryPackageInstallService
         IEnumerable<string> knownChartDirectories,
         Func<ChartFile, bool> isInstalledChart,
         double dupRateThreshInOnePkg,
-        Func<BMSFile, bool> requiresPendingWarning,
         CancellationToken token = default)
     {
         var result = new AutoInstallWorkflowResult();
@@ -1370,7 +1355,7 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     continue;
                 }
-                IReadOnlyList<ChartWarning> resourceWarnings = BuildPendingResourceHealthWarnings(entry, requiresPendingWarning);
+                IReadOnlyList<ChartWarning> resourceWarnings = BuildPendingResourceHealthWarnings(entry);
                 if (resourceWarnings.Count > 0)
                 {
                     entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);

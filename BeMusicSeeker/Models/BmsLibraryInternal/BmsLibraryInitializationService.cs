@@ -2295,8 +2295,7 @@ internal sealed class BmsLibraryInitializationService
 
     public InstallTableLoadResult LoadInstallTable(
         BmsLibraryDbGateway dbGateway,
-        Func<ChartFile, bool> isInstalledChart = null,
-        Func<BMSFile, bool> applyStrictWarning = null)
+        Func<ChartFile, bool> isInstalledChart = null)
     {
         var result = new InstallTableLoadResult();
         if (dbGateway == null)
@@ -2332,11 +2331,6 @@ internal sealed class BmsLibraryInitializationService
                     continue;
                 }
                 bool isBmson = chart.Kind == ChartFileKind.Bmson;
-                if (!isBmson)
-                {
-                    BMSFile bmsFile = chart.BmsFile;
-                    bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
-                }
                 if (isInstalledChart != null && isInstalledChart(chart))
                 {
                     entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
@@ -2349,24 +2343,10 @@ internal sealed class BmsLibraryInitializationService
                     entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     result.SingleFileWarningCount++;
                 }
-                else if (applyStrictWarning != null && entry.ResourceSnapshot.TotalReferenceCount > 0)
+                else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
                 {
-                    IReadOnlyList<ChartWarning> resourceWarnings = isBmson
-                        ? BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry, applyStrictWarning)
-                        : [];
-                    if (isBmson)
-                    {
-                        entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
-                    }
-                    else
-                    {
-                        BMSFile bmsFile = chart.BmsFile;
-                        if (bmsFile != null && applyStrictWarning(bmsFile))
-                        {
-                            result.StrictWarningCount++;
-                        }
-                        continue;
-                    }
+                    IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
+                    entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
                     if (resourceWarnings.Count > 0)
                     {
                         result.StrictWarningCount++;

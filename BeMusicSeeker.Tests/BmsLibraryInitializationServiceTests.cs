@@ -2624,12 +2624,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
-                chart => string.Equals(chart?.Md5, installedHash, StringComparison.OrdinalIgnoreCase),
-                file =>
-                {
-                    file.SetWarning(ChartWarningKind.ResourceWavMissing, "strict");
-                    return true;
-                });
+                chart => string.Equals(chart?.Md5, installedHash, StringComparison.OrdinalIgnoreCase));
 
             Assert.AreEqual(2, result.PendingPackages.Count);
             Assert.AreEqual(1, result.StaleInstallPaths.Count);
@@ -2672,12 +2667,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
-                chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase),
-                file =>
-                {
-                    Assert.AreNotEqual(unmatchedBmsonPath, file?.path);
-                    return false;
-                });
+                chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
 
             ChartPackage pendingPackage = result.PendingPackages.Single();
             PackageChartEntry installedEntry = pendingPackage.ChartEntries.Single(entry => string.Equals(entry.Chart.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
@@ -2714,8 +2704,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
-                _ => false,
-                _ => throw new AssertFailedException("bmson resource warning should not require a compatibility adapter."));
+                _ => false);
 
             ChartPackage pendingPackage = result.PendingPackages.Single();
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
@@ -2748,12 +2737,10 @@ public sealed class BmsLibraryInitializationServiceTests
                 }, typeof(LR2SongDBExtended.install));
             }
 
-            var maintenanceService = new BmsLibraryMaintenanceService();
             var service = new BmsLibraryInitializationService();
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
-                file => false,
-                file => maintenanceService.ApplyResourceHealthWarnings(file, file.maintenanceInfo, strictCheck: true));
+                file => false);
 
             Assert.AreEqual(1, result.PendingPackages.Count);
             Assert.AreEqual(2, result.PendingPackages[0].GetBmsOwnersForTest().Count);
@@ -2839,12 +2826,7 @@ public sealed class BmsLibraryInitializationServiceTests
             var service = new BmsLibraryInitializationService();
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
-                file => false,
-                file =>
-                {
-                    file.SetWarning(ChartWarningKind.ResourceWavMissing, "strict");
-                    return true;
-                });
+                file => false);
 
             Assert.AreEqual(1, result.PendingPackages.Count);
             Assert.AreEqual(1, result.SingleFileWarningCount);

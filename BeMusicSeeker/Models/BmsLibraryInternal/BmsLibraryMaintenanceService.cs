@@ -44,41 +44,31 @@ internal sealed class BmsLibraryMaintenanceService
             .Where(file => file != null && ChartFileKindResolver.IsBmsChartFile(file));
     }
 
-    public bool ApplyResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
-    {
-        IReadOnlyList<ChartWarning> warnings = BuildResourceHealthWarnings(bmsFile, maintenanceInfo, strictCheck);
-        bmsFile?.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, warnings);
-        return warnings.Count > 0;
-    }
-
-    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
+    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null)
     {
         if (bmsFile == null)
         {
             return [];
         }
-        _ = strictCheck;
         maintenanceInfo ??= bmsFile.HasValidMaintenanceInfoSnapshot ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null;
         return BuildResourceHealthWarnings(maintenanceInfo);
     }
 
-    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart, bool strictCheck = false)
+    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart)
     {
         if (chart == null || (chart.Kind != ChartFileKind.Bms && chart.Kind != ChartFileKind.Bmson))
         {
             return [];
         }
-        _ = strictCheck;
         return BuildResourceHealthWarnings(GetResourceHealthMaintenanceInfo(chart));
     }
 
-    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart, BMSFileMaintenanceInfo maintenanceInfo, bool strictCheck = false)
+    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart, BMSFileMaintenanceInfo maintenanceInfo)
     {
         if (chart == null || (chart.Kind != ChartFileKind.Bms && chart.Kind != ChartFileKind.Bmson))
         {
             return [];
         }
-        _ = strictCheck;
         return BuildResourceHealthWarnings(maintenanceInfo ?? GetResourceHealthMaintenanceInfo(chart));
     }
 

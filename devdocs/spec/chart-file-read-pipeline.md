@@ -91,12 +91,12 @@ BMS の一覧用 metadata は軽量 parser がまず Shift_JIS 系の既定挙�
 ## Package Install
 
 package install は、保留で読んだ bytes を長期保持しない。pending discovery では path-based な `BMSFile.CreateBMSFileFromFile(...)` / `BmsonSongParser.Parse(path)` 由来の model を使う。インストール後は最終配置 path を対象に inline `chart_info` を作り、maintenance は batch 末尾の affected chart 更新で再計算する。
-保留中に付いた `ResourceHealth` warning は導入前配置の一時評価なので、導入成功時に source `BMSFile.Warnings` から消す。導入後の `ResourceHealth` warning 表示は、通常ライブラリと同じく `maintenanceInfo` / resource health index の projection に任せる。
+保留中に付いた `ResourceHealth` warning は導入前配置の一時評価なので、導入成功時に package entry の pending warning state から消す。導入後の `ResourceHealth` warning 表示は、通常ライブラリと同じく `maintenanceInfo` / resource health index の projection に任せる。
 
 ```text
 package install / move
   -> song / bmson_song registration
-  -> clear pending ResourceHealth source warnings
+  -> clear pending ResourceHealth package-entry warnings
   -> final path chart_info read / parse
   -> affected chart maintenance update
   -> DB apply + session chart_info index apply
