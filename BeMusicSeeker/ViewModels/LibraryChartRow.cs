@@ -122,13 +122,10 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart, packageEntry: entry);
         }
-        if (chart.BmsFile != null)
+        BMSFile bmsFile = entry.GetExistingBmsFormatAdapter();
+        if (bmsFile != null)
         {
-            return FromBmsFile(chart.BmsFile, entry);
-        }
-        if (entry.CompatibilityAdapter != null)
-        {
-            return FromBmsFile(entry.CompatibilityAdapter, entry);
+            return FromBmsFile(bmsFile, entry);
         }
         return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart, packageEntry: entry);
     }
