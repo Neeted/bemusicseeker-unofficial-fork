@@ -91,4 +91,11 @@ internal sealed class ChartOperationTarget
         return LibraryChartRef.FromChartFile(Chart);
     }
 
+    internal PackageChartEntry ToPackageChartEntry()
+    {
+        return PackageEntry
+            ?? PackageChartEntry.FromCompatibilityAdapter(Chart?.BmsFile ?? CompatibilityBmsFile)
+            ?? PackageChartEntry.FromChart(Chart);
+    }
+
 }

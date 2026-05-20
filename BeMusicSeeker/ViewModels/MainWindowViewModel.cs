@@ -20900,11 +20900,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private static BeMusicSeeker.Models.BMSFile ResolveLegacyChartFile(ChartOperationTarget target)
-    {
-        return target?.Chart?.BmsFile ?? target?.CompatibilityBmsFile;
-    }
-
     public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
     {
         installDir = null;
@@ -21769,7 +21764,7 @@ public class MainWindowViewModel : ViewModel
         return new RepairInstalledLocationTargetSnapshot(
             charts,
             () => [.. targetList
-                .Select(target => PackageChartEntry.FromCompatibilityAdapter(ResolveLegacyChartFile(target)) ?? PackageChartEntry.FromChart(target.Chart))
+                .Select(target => target.ToPackageChartEntry())
                 .Where(entry => entry?.Chart != null)]);
     }
 
@@ -21784,7 +21779,7 @@ public class MainWindowViewModel : ViewModel
             packageTargets,
             charts,
             () => [.. remainingTargets
-                .Select(target => PackageChartEntry.FromCompatibilityAdapter(ResolveLegacyChartFile(target)) ?? PackageChartEntry.FromChart(target.Chart))
+                .Select(target => target.ToPackageChartEntry())
                 .Where(entry => entry?.Chart != null)]);
     }
 
@@ -21801,7 +21796,7 @@ public class MainWindowViewModel : ViewModel
         return new PendingInstallDestinationEditTargetSnapshot(
             null,
             target.Chart,
-            () => PackageChartEntry.FromCompatibilityAdapter(ResolveLegacyChartFile(target)) ?? PackageChartEntry.FromChart(target.Chart));
+            target.ToPackageChartEntry);
     }
 
     internal sealed class PendingInstallDestinationTargetSnapshot
