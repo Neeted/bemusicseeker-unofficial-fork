@@ -159,11 +159,6 @@ internal sealed class PackageChartEntry
         return chart == null ? null : new PackageChartEntry(chart);
     }
 
-    internal BMSFile GetOrCreateBmsFormatAdapter()
-    {
-        return GetBmsFormatMirror();
-    }
-
     internal BMSFile GetExistingBmsFormatAdapter()
     {
         return GetBmsFormatMirror();

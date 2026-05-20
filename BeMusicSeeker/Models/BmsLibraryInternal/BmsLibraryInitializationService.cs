@@ -2334,7 +2334,7 @@ internal sealed class BmsLibraryInitializationService
                 bool isBmson = chart.Kind == ChartFileKind.Bmson;
                 if (!isBmson)
                 {
-                    BMSFile bmsFile = entry.GetOrCreateBmsFormatAdapter();
+                    BMSFile bmsFile = entry.GetExistingBmsFormatAdapter();
                     bmsFile?.SetHealthStatus(forceUpdate: false, memClear: false);
                 }
                 if (isInstalledChart != null && isInstalledChart(chart))
@@ -2360,7 +2360,7 @@ internal sealed class BmsLibraryInitializationService
                     }
                     else
                     {
-                        BMSFile bmsFile = entry.GetOrCreateBmsFormatAdapter();
+                        BMSFile bmsFile = entry.GetExistingBmsFormatAdapter();
                         if (bmsFile != null && applyStrictWarning(bmsFile))
                         {
                             result.StrictWarningCount++;

@@ -50,7 +50,7 @@ internal static class ChartPackageTestExtensions
             return existingAdapter;
         }
 
-        BMSFile bmsAdapter = entry.GetOrCreateBmsFormatAdapter();
+        BMSFile bmsAdapter = entry.GetExistingBmsFormatAdapter();
         if (bmsAdapter != null)
         {
             compatibilityAdapterField?.SetValue(entry, bmsAdapter);

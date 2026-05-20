@@ -395,7 +395,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return null;
         }
-        return entry.GetExistingBmsFormatAdapter() ?? entry.GetOrCreateBmsFormatAdapter();
+        return entry.GetExistingBmsFormatAdapter();
     }
 
     /// <summary>
