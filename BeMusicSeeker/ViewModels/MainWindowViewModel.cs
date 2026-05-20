@@ -10133,6 +10133,11 @@ public class MainWindowViewModel : ViewModel
         return entry;
     }
 
+    private ChartFileTransientState TryGetSharedBmsonChartTransientState(LR2SongDBExtended.bmson_song song, bool includeWarningSnapshot)
+    {
+        return ChartFileTransientState.FromCompatibilityFile(TryGetSharedBmsonChartAdapter(song), includeWarningSnapshot);
+    }
+
     private void PruneSharedBmsonChartAdapterCache(IReadOnlyCollection<LR2SongDBExtended.bmson_song> currentSongs)
     {
         var currentKeys = new HashSet<string>(
@@ -10614,7 +10619,7 @@ public class MainWindowViewModel : ViewModel
             includeBmsonRows ? files?.BmsonSongs : null,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
-            TryGetSharedBmsonChartAdapter);
+            TryGetSharedBmsonChartTransientState);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup

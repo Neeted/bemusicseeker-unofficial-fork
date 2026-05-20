@@ -1389,7 +1389,7 @@ public sealed class PlaylistViewPipelineTests
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
             [bmson],
-            existingBmsonChartAdapterProvider: GetAdapter).Single();
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromCompatibilityFile(GetAdapter(song), includeWarningSnapshot)).Single();
         PendingChartEntry sharedAdapter = GetAdapter(bmson);
         sharedAdapter.instl_dst = "C:\\Installed\\Bmson";
         sharedAdapter.InstallDestinationTitle = "Installed Bmson";
@@ -1399,7 +1399,7 @@ public sealed class PlaylistViewPipelineTests
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [],
             [bmson],
-            existingBmsonChartAdapterProvider: GetAdapter).Single();
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromCompatibilityFile(GetAdapter(song), includeWarningSnapshot)).Single();
         var rebuiltViewRow = LibraryChartRow.FromBmsonSong(rebuiltSourceRow.BmsonSong);
         rebuiltViewRow.SetBmsonChartAdapterProviders(GetAdapter, GetAdapter);
 
