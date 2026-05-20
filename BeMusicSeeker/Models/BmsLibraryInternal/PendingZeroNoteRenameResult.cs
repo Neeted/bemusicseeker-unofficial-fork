@@ -20,7 +20,7 @@ internal sealed class PendingZeroNoteRenameResult
 
     public bool Canceled { get; set; }
 
-    public List<BMSFile> FilesToRemove { get; } = [];
+    public List<string> ChartPathsToRemove { get; } = [];
 
     public List<PendingZeroNoteRenameFailure> Failures { get; } = [];
 }

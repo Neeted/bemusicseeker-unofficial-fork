@@ -4,7 +4,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PendingExtensionRenameResult
 {
-    public List<BMSFile> FilesToRemove { get; } = [];
+    public List<string> ChartPathsToRemove { get; } = [];
 
     public List<PendingExtensionRenameFailure> Failures { get; } = [];
 

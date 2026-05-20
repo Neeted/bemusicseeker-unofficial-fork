@@ -1373,7 +1373,7 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<ChartPackage> pendingPackages, IEnumerable<ChartPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, IEnumerable<string> chartPathsToRemove = null, bool clearAll = false)
+    public PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<ChartPackage> pendingPackages, IEnumerable<ChartPackage> packagesToRemove = null, IEnumerable<string> chartPathsToRemove = null, bool clearAll = false)
     {
         List<ChartPackage> currentPending = [.. (pendingPackages ?? []).Where(pkg => pkg != null)];
         var delta = new PendingPackageMutationDelta();
@@ -1385,11 +1385,8 @@ internal sealed class BmsLibraryPackageInstallService
         }
         var removedPackages = new HashSet<ChartPackage>((packagesToRemove ?? []).Where(pkg => pkg != null));
         var removedPackagePaths = new HashSet<string>((packagesToRemove ?? []).Where(pkg => pkg != null && !string.IsNullOrWhiteSpace(pkg.path)).Select(pkg => pkg.path), StringComparer.OrdinalIgnoreCase);
-        List<BMSFile> removedFileList = [.. (filesToRemove ?? []).Where(file => file != null)];
-        var removedPaths = new HashSet<string>(removedFileList.Where(file => !string.IsNullOrWhiteSpace(file.path)).Select(file => file.path), StringComparer.OrdinalIgnoreCase);
-        removedPaths.UnionWith((chartPathsToRemove ?? []).Where(path => !string.IsNullOrWhiteSpace(path)));
-        var removedFileRefs = new HashSet<BMSFile>(removedFileList);
-        bool removeFiles = removedFileList.Count > 0 || removedPaths.Count > 0;
+        var removedPaths = new HashSet<string>((chartPathsToRemove ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        bool removeFiles = removedPaths.Count > 0;
         var installPathsToDelete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage package in currentPending)
         {
@@ -1413,7 +1410,7 @@ internal sealed class BmsLibraryPackageInstallService
                 delta.RemainingPackages.Add(package);
                 continue;
             }
-            List<PackageChartEntry> remainingEntries = [.. packageEntries.Where(entry => !IsMatchedRemovedEntry(entry, removedPaths, removedFileRefs))];
+            List<PackageChartEntry> remainingEntries = [.. packageEntries.Where(entry => !IsMatchedRemovedEntry(entry, removedPaths))];
             if (remainingEntries.Count == packageEntries.Count)
             {
                 delta.RemainingPackages.Add(package);
@@ -2073,11 +2070,11 @@ internal sealed class BmsLibraryPackageInstallService
             switch (renameResult.Action)
             {
                 case RenameInvalidExtensionAction.Renamed:
-                    result.FilesToRemove.Add(file);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
                     result.Renamed++;
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
-                    result.FilesToRemove.Add(file);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
                     result.DuplicateDeleted++;
                     break;
                 default:
@@ -2113,11 +2110,11 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 case RenameInvalidExtensionAction.Renamed:
                     result.Renamed++;
-                    result.FilesToRemove.Add(file);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
                     result.DuplicateDeleted++;
-                    result.FilesToRemove.Add(file);
+                    AddChartPathToRemove(result.ChartPathsToRemove, file?.path);
                     break;
                 default:
                     result.Skipped++;
@@ -2378,17 +2375,21 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
-    private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
+    private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths)
     {
         if (entry == null)
         {
             return false;
         }
-        if (entry.CompatibilityAdapter != null && removedFiles != null && removedFiles.Contains(entry.CompatibilityAdapter))
-        {
-            return true;
-        }
         return !string.IsNullOrWhiteSpace(entry.Chart?.Path) && removedPaths.Contains(entry.Chart.Path);
+    }
+
+    private static void AddChartPathToRemove(List<string> paths, string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            paths?.Add(path);
+        }
     }
 
     private static bool IsBmsHashAvailable(string hash)

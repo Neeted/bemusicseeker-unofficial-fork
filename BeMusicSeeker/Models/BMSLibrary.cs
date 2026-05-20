@@ -9199,9 +9199,9 @@ reportProgress,
         }
     }
 
-    private PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<ChartPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, IEnumerable<string> chartPathsToRemove = null, bool clearAll = false)
+    private PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<ChartPackage> packagesToRemove = null, IEnumerable<string> chartPathsToRemove = null, bool clearAll = false)
     {
-        return packageInstallService.BuildPendingPackageMutationDelta(ChartPackagesPending, packagesToRemove, filesToRemove, chartPathsToRemove, clearAll);
+        return packageInstallService.BuildPendingPackageMutationDelta(ChartPackagesPending, packagesToRemove, chartPathsToRemove, clearAll);
     }
 
     private void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
@@ -9702,7 +9702,7 @@ reportProgress,
                             dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
+                    RemovePendingChartsFromPendingPackagesAndInstallRows(result.ChartPathsToRemove);
                     NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename summary total=" + result.Total + " processed=" + result.Processed + " zeroNote=" + result.ZeroNote + " renamed=" + result.Renamed + " duplicateDeleted=" + result.DuplicateDeleted + " skipped=" + result.Skipped + " failed=" + result.Failed + " canceled=" + result.Canceled);
                 }
             }
@@ -11025,7 +11025,7 @@ reportProgress,
                             dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
+                    RemovePendingChartsFromPendingPackagesAndInstallRows(result.ChartPathsToRemove);
                     NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=pending total=" + result.Total + " renamed=" + result.Renamed + " deleted=" + result.DuplicateDeleted + " skipped=" + result.Skipped + " failed=" + result.Failed + " totalMs=" + result.TotalMs);
                 }
             }
@@ -11162,17 +11162,6 @@ reportProgress,
             return;
         }
         stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(chartPathsToRemove: paths));
-    }
-
-    private void RemovePendingFilesFromPendingPackagesAndInstallRows(IEnumerable<BMSFile> bmsFiles, IEnumerable<string> chartPaths = null)
-    {
-        List<BMSFile> list = [.. bmsFiles.Where(f => f != null)];
-        List<string> paths = [.. (chartPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (list.Count == 0 && paths.Count == 0)
-        {
-            return;
-        }
-        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list, chartPathsToRemove: paths));
     }
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
