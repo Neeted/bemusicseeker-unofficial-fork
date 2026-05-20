@@ -68,12 +68,13 @@ internal static class ChartPackageTestExtensions
         {
             return null!;
         }
+        // bmson adapters are intentionally not written back to PackageChartEntry.
+        // Production keeps bmson package state on ChartFile / PackageChartEntry.
         bmsonAdapter.ReplaceStructuredWarnings(chart.Warnings ?? []);
         bmsonAdapter.instl_dst = string.IsNullOrWhiteSpace(chart.InstallDestination) ? null : chart.InstallDestination;
         bmsonAdapter.InstallDestinationTitle = chart.InstallDestinationTitle ?? string.Empty;
         bmsonAdapter.InstallDestinationArtist = chart.InstallDestinationArtist ?? string.Empty;
         bmsonAdapter.InstallDestinationSuggestions = chart.InstallDestinationSuggestions ?? [];
-        compatibilityAdapterField?.SetValue(entry, bmsonAdapter);
         return bmsonAdapter;
     }
 

@@ -141,11 +141,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
             ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            PendingChartEntry regroupedBmson = regroupedPackage.ChartEntries
-                .Select(entry => entry.GetCompatibilityAdapterForTest())
-                .OfType<PendingChartEntry>()
-                .Single();
-            Assert.AreEqual(pendingBmsonPath, regroupedBmson.path);
+            PackageChartEntry regroupedBmson = regroupedPackage.ChartEntries
+                .Single(entry => entry.Chart.Kind == ChartFileKind.Bmson);
+            Assert.AreEqual(pendingBmsonPath, regroupedBmson.Chart.Path);
+            Assert.IsNull(regroupedBmson.GetCompatibilityAdapterForTest());
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
         });
     }
@@ -232,7 +231,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             InvokeReinitializePendingWarningsForPackage(library, package, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
-            Assert.AreSame(adapter, entry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(entry.GetCompatibilityAdapterForTest());
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
             Assert.IsFalse(adapter.Warnings.Contains(ChartWarningKind.ResourceWavMissing));

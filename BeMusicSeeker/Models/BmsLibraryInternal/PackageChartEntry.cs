@@ -28,7 +28,7 @@ internal sealed class PackageChartEntry
     internal PackageChartEntry(ChartFile chart, BMSFile compatibilityAdapter = null)
     {
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
-        this.compatibilityAdapter = compatibilityAdapter;
+        this.compatibilityAdapter = ChartFileKindResolver.IsBmsChartFile(compatibilityAdapter) ? compatibilityAdapter : null;
         if (GetBmsFormatMirror() == null)
         {
             ReplacePendingWarnings(chart.Warnings);
@@ -510,12 +510,9 @@ internal sealed class PackageChartEntry
 
     private BMSFile GetBmsFormatMirror()
     {
-        if (compatibilityAdapter != null)
-        {
-            return compatibilityAdapter is PendingChartEntry { IsBmsonChart: true } ? null : compatibilityAdapter;
-        }
-
-        return chart?.Kind == ChartFileKind.Bms ? chart.BmsFile : null;
+        return ChartFileKindResolver.IsBmsChartFile(compatibilityAdapter)
+            ? compatibilityAdapter
+            : chart?.Kind == ChartFileKind.Bms ? chart.BmsFile : null;
     }
 
     internal static PackageChartEntry FromPath(string filePath)

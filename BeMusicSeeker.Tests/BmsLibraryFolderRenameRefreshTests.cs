@@ -575,7 +575,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void AddReferenceBMSTables_UsesPlaylistIndexForAdapterBackedBmsonWithoutMutatingRefTables()
+    public void AddReferenceBMSTables_DropsBmsonAdapterAndUsesPlaylistIndexWithoutMutatingRefTables()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -599,7 +599,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTables(table);
 
-            Assert.AreSame(adapter, matchingBmsonEntry.GetCompatibilityAdapterForTest());
+            Assert.IsNull(matchingBmsonEntry.GetCompatibilityAdapterForTest());
             Assert.AreEqual(0, adapter.RefTables.Count);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);

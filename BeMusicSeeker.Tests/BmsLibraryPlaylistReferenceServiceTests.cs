@@ -114,7 +114,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
-    public void ApplyReferenceMap_PackageEntryDoesNotMutateExistingBmsonCompatibilityAdapter()
+    public void ApplyReferenceMap_PackageEntryDropsBmsonAdapterAndDoesNotMutateRefTables()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -133,7 +133,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(0, addedRefs);
         Assert.IsFalse(adapter.RefTables.Contains(table));
-        Assert.AreSame(adapter, entry.GetCompatibilityAdapterForTest());
+        Assert.IsNull(entry.GetCompatibilityAdapterForTest());
     }
 
     [TestMethod]

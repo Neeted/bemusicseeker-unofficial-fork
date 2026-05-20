@@ -949,13 +949,16 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 PackageInstallEstimationSnapshot firstSnapshot = BuildPackageSnapshot(package, firstFiles);
                 PackageInstallEstimationSnapshot secondSnapshot = BuildPackageSnapshot(package, firstFiles);
 
-                CollectionAssert.AreEqual(firstFiles, secondFiles);
+                CollectionAssert.AreEqual(
+                    firstFiles.Select(file => file.path).ToList(),
+                    secondFiles.Select(file => file.path).ToList());
                 Assert.AreEqual(3, firstFiles.Count);
                 Assert.AreEqual(3, firstEntries.Count);
                 Assert.AreEqual(3, secondEntries.Count);
-                Assert.IsTrue(firstEntries.All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
-                Assert.IsTrue(secondEntries.All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
+                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
+                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
+                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bmson).All(entry => entry.GetCompatibilityAdapterForTest() == null));
                 Assert.AreEqual(1, firstFiles.OfType<PendingChartEntry>().Count(file => file.IsBmsonChart));
                 Assert.AreEqual(3, firstSnapshot.ChartCount);
                 Assert.AreEqual(sourceDir, firstSnapshot.SourceDirectory);
@@ -998,9 +1001,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(2, secondEntries.Count);
                 Assert.AreEqual(updatedPath, secondEntries[0].Chart.Path);
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
-                Assert.IsTrue(firstEntries.All(entry => entry.GetCompatibilityAdapterForTest() != null));
-                Assert.IsTrue(secondEntries.All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
-                CollectionAssert.AreEqual(firstFiles, package.MaterializeChartAdaptersForTest());
+                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.GetCompatibilityAdapterForTest() != null));
+                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => firstFiles.Contains(entry.GetCompatibilityAdapterForTest())));
+                CollectionAssert.AreEqual(
+                    firstFiles.Select(file => file.path).ToList(),
+                    package.MaterializeChartAdaptersForTest().Select(file => file.path).ToList());
             });
         });
     }
@@ -1299,7 +1304,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(ChartFileKind.Bmson, entries[0].Chart.Kind);
                 Assert.IsNull(entries[0].GetCompatibilityAdapterForTest());
                 Assert.AreEqual(1, package.MaterializeChartAdaptersForTest().Count);
-                Assert.IsNotNull(entries[0].GetCompatibilityAdapterForTest());
+                Assert.IsNull(entries[0].GetCompatibilityAdapterForTest());
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
             });
