@@ -30,6 +30,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
 
+    private Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider;
+
     private Func<LibraryChartRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
     private Func<LibraryChartRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider;
@@ -38,7 +40,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal bool IsBms => BmsFile != null && !PendingChartEntry.IsBmsonChartFile(BmsFile);
 
-    internal ChartFile Chart => CreateChartFile(materializeBmsonChartAdapter: true);
+    internal ChartFile Chart => CreateChartFile(materializeBmsonChartAdapter: false);
 
     internal BMSFile CompatibilityBmsFile => BmsFile ?? GetOrCreateBmsonChartAdapter();
 
@@ -169,12 +171,28 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private PendingChartEntry GetExistingBmsonChartAdapter()
     {
-        if (BmsonSong == null || bmsonChartAdapter == null)
+        if (BmsonSong == null)
         {
+            return null;
+        }
+        if (bmsonChartAdapter == null)
+        {
+            PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(BmsonSong);
+            if (provided != null)
+            {
+                SetBmsonChartAdapter(provided);
+                return bmsonChartAdapter;
+            }
             return null;
         }
         if (!ReferenceEquals(bmsonChartAdapter.BmsonSong, BmsonSong))
         {
+            PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(BmsonSong);
+            if (provided != null)
+            {
+                SetBmsonChartAdapter(provided);
+                return bmsonChartAdapter;
+            }
             return null;
         }
         if (!string.Equals(bmsonChartAdapter.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
@@ -184,9 +202,12 @@ internal sealed class LibraryChartRow : NotificationObject
         return bmsonChartAdapter;
     }
 
-    internal void SetBmsonChartAdapterProvider(Func<LR2SongDBExtended.bmson_song, PendingChartEntry> provider)
+    internal void SetBmsonChartAdapterProviders(
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> createProvider,
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingProvider)
     {
-        bmsonChartAdapterProvider = provider;
+        bmsonChartAdapterProvider = createProvider;
+        existingBmsonChartAdapterProvider = existingProvider;
     }
 
     private void SetBmsonChartAdapter(PendingChartEntry entry)

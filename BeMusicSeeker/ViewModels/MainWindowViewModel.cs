@@ -10071,7 +10071,7 @@ public class MainWindowViewModel : ViewModel
 
     private void ApplyBmsonChartAdapterProvider(LibraryChartRow row)
     {
-        row?.SetBmsonChartAdapterProvider(GetOrCreateSharedBmsonChartAdapter);
+        row?.SetBmsonChartAdapterProviders(GetOrCreateSharedBmsonChartAdapter, TryGetSharedBmsonChartAdapter);
     }
 
     private PendingChartEntry GetOrCreateSharedBmsonChartAdapter(LR2SongDBExtended.bmson_song song)
@@ -10590,7 +10590,8 @@ public class MainWindowViewModel : ViewModel
             includeBmsonRows ? files?.BmsonSongs : null,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
-            GetOrCreateSharedBmsonChartAdapter);
+            GetOrCreateSharedBmsonChartAdapter,
+            TryGetSharedBmsonChartAdapter);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup

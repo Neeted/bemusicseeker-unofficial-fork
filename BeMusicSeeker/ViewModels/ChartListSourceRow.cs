@@ -17,6 +17,8 @@ internal sealed class ChartListSourceRow
 
     private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider;
 
+    private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider;
+
     private readonly bool materializeBmsonAdapterOnDemand;
 
     private PendingChartEntry bmsonChartAdapter;
@@ -29,6 +31,7 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider,
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider,
         bool materializeBmsonAdapterOnDemand)
     {
         BmsFile = bmsFile;
@@ -36,6 +39,7 @@ internal sealed class ChartListSourceRow
         this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.bmsonChartAdapterProvider = bmsonChartAdapterProvider;
+        this.existingBmsonChartAdapterProvider = existingBmsonChartAdapterProvider;
         this.materializeBmsonAdapterOnDemand = materializeBmsonAdapterOnDemand;
         bmsonFolder = BmsonSongParser.ComposeDisplayFolder(bmsonSong);
         identityChart = bmsFile != null
@@ -164,7 +168,40 @@ internal sealed class ChartListSourceRow
     {
         return BmsFile != null
             ? ChartFileProjection.FromBmsFile(BmsFile, includeWarningSnapshot: includeWarningSnapshot)
-            : ChartFileProjection.FromBmsonSong(BmsonSong, CompatibilityBmsFile, includeWarningSnapshot);
+            : ChartFileProjection.FromBmsonSong(BmsonSong, GetExistingBmsonChartAdapter(), includeWarningSnapshot);
+    }
+
+    private PendingChartEntry GetExistingBmsonChartAdapter()
+    {
+        if (BmsonSong == null)
+        {
+            return null;
+        }
+        if (bmsonChartAdapter == null)
+        {
+            PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(BmsonSong);
+            if (provided != null)
+            {
+                bmsonChartAdapter = provided;
+                return bmsonChartAdapter;
+            }
+            return null;
+        }
+        if (!ReferenceEquals(bmsonChartAdapter.BmsonSong, BmsonSong))
+        {
+            PendingChartEntry provided = existingBmsonChartAdapterProvider?.Invoke(BmsonSong);
+            if (provided != null)
+            {
+                bmsonChartAdapter = provided;
+                return bmsonChartAdapter;
+            }
+            return null;
+        }
+        if (!string.Equals(bmsonChartAdapter.path, BmsonSong.path, StringComparison.OrdinalIgnoreCase))
+        {
+            bmsonChartAdapter.UpdateFromBmsonSong(BmsonSong);
+        }
+        return bmsonChartAdapter;
     }
 
     private PendingChartEntry GetBmsonChartAdapter()
@@ -199,9 +236,10 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null,
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null,
         bool materializeBmsonAdapterOnDemand = true)
     {
-        return file == null ? null : new ChartListSourceRow(file, null, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, materializeBmsonAdapterOnDemand);
+        return file == null ? null : new ChartListSourceRow(file, null, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, existingBmsonChartAdapterProvider, materializeBmsonAdapterOnDemand);
     }
 
     internal static ChartListSourceRow FromBmsonSong(
@@ -209,9 +247,10 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null,
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null,
         bool materializeBmsonAdapterOnDemand = true)
     {
-        return song == null ? null : new ChartListSourceRow(null, song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, materializeBmsonAdapterOnDemand);
+        return song == null ? null : new ChartListSourceRow(null, song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, existingBmsonChartAdapterProvider, materializeBmsonAdapterOnDemand);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(
@@ -220,17 +259,18 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null,
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null,
         bool materializeBmsonAdapterOnDemand = true)
     {
         List<ChartListSourceRow> rows =
         [
             .. (bmsFiles ?? [])
-                .Select(file => FromBmsFile(file, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, materializeBmsonAdapterOnDemand))
+                .Select(file => FromBmsFile(file, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, existingBmsonChartAdapterProvider, materializeBmsonAdapterOnDemand))
                 .Where(row => row != null),
             .. (bmsonSongs ?? [])
                 .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
                 .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-                .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, materializeBmsonAdapterOnDemand))
+                .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonChartAdapterProvider, existingBmsonChartAdapterProvider, materializeBmsonAdapterOnDemand))
                 .Where(row => row != null),
         ];
         return rows;
