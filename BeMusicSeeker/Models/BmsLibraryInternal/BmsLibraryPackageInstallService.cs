@@ -422,21 +422,20 @@ internal sealed class BmsLibraryPackageInstallService
         List<string> chartFiles = [.. files.Where(file => PendingChartEntry.IsSupportedChartFilePath(file) && File.Exists(file))];
         if (chartFiles.Count > 0)
         {
-            List<PendingChartEntry> parsedCharts = [.. chartFiles
-                .Select(CreatePendingChartForDiscovery)
+            List<PackageChartEntry> parsedChartEntries = [.. chartFiles
+                .Select(CreatePackageChartEntryForDiscovery)
                 .Where(entry => entry != null)];
-            bool hasCompleteChartList = parsedCharts.Count == chartFiles.Count;
-            bool anyChartHasExistingResources = parsedCharts.Any(entry => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
-            List<PackageChartEntry> parsedChartEntries = CreatePackageChartEntries(parsedCharts);
+            bool hasCompleteChartList = parsedChartEntries.Count == chartFiles.Count;
+            bool anyChartHasExistingResources = parsedChartEntries.Any(HasExistingPackageChartResources);
             if (chartFiles.Count == 1 || anyChartHasExistingResources)
             {
                 result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedChartEntries : null));
             }
             else
             {
-                List<IEnumerable<string>> resourcesByChart = [.. parsedCharts
-                    .Select(bmsInfo => (bmsInfo.WAVfiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
-                        .Concat(bmsInfo.BGAfiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                List<IEnumerable<string>> resourcesByChart = [.. parsedChartEntries
+                    .Select(EnumeratePackageGroupingResourcePaths)
+                    .Select(paths => paths
                         .Select(path => Path.GetFileNameWithoutExtension(path).ToUpperInvariant())
                         .Distinct()
                         .ToList()
@@ -501,11 +500,73 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
-    private static List<PackageChartEntry> CreatePackageChartEntries(IEnumerable<BMSFile> knownCharts)
+    private static PackageChartEntry CreatePackageChartEntryForDiscovery(string filePath)
     {
-        return [.. (knownCharts ?? [])
-            .Select(PackageChartEntry.FromCompatibilityAdapter)
-            .Where(entry => entry?.Chart != null)];
+        if (PendingChartEntry.IsBmsonFilePath(filePath))
+        {
+            return PackageChartEntry.FromPath(filePath);
+        }
+        return PackageChartEntry.FromCompatibilityAdapter(CreatePendingChartForDiscovery(filePath));
+    }
+
+    private static bool HasExistingPackageChartResources(PackageChartEntry entry)
+    {
+        if (entry?.Chart == null)
+        {
+            return false;
+        }
+        BMSFile file = entry.CompatibilityAdapter ?? entry.Chart.BmsFile;
+        if (file != null)
+        {
+            return file.maintenanceInfo.wav_files_existing > 0
+                || file.maintenanceInfo.bga_files_existing > 0
+                || file.maintenanceInfo.movie_files_existing > 0;
+        }
+        string chartDirectory = DirectoryExt.GetDirectoryNameSimple(entry.Chart.Path);
+        if (string.IsNullOrWhiteSpace(chartDirectory))
+        {
+            return false;
+        }
+        ChartResourceSnapshot resources = entry.ResourceSnapshot;
+        return HasExistingResourceFile(chartDirectory, resources.AudioReferences, BMSFile.wavExtensions)
+            || HasExistingResourceFile(chartDirectory, resources.VisualReferences, BMSFile.bgaImageExtensions)
+            || HasExistingResourceFile(chartDirectory, resources.MovieReferences, BMSFile.bgaMovieExtensions);
+    }
+
+    private static IEnumerable<string> EnumeratePackageGroupingResourcePaths(PackageChartEntry entry)
+    {
+        ChartResourceSnapshot resources = entry?.ResourceSnapshot;
+        if (resources == null)
+        {
+            return [];
+        }
+        return resources.AudioRelativePaths
+            .Concat(resources.VisualRelativePaths)
+            .Concat(resources.MovieRelativePaths);
+    }
+
+    private static bool HasExistingResourceFile(string chartDirectory, IEnumerable<ChartResourceSnapshot.ResourceReference> references, IEnumerable<string> extensions)
+    {
+        foreach (ChartResourceSnapshot.ResourceReference reference in references ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(reference.NormalizedPath))
+            {
+                continue;
+            }
+            if (File.Exists(Path.Combine(chartDirectory, reference.NormalizedPath)))
+            {
+                return true;
+            }
+            foreach (string extension in extensions ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(extension)
+                    && File.Exists(Path.Combine(chartDirectory, Path.ChangeExtension(reference.NormalizedPath, extension))))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<PackageChartEntry> knownChartEntries)
@@ -1161,11 +1222,10 @@ internal sealed class BmsLibraryPackageInstallService
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
             }
-            List<PendingChartEntry> parsedCharts = [.. chartFiles
-                .Select(CreatePendingChartForDiscovery)
+            List<PackageChartEntry> parsedChartEntries = [.. chartFiles
+                .Select(CreatePackageChartEntryForDiscovery)
                 .Where(entry => entry != null)];
-            List<PackageChartEntry> parsedChartEntries = CreatePackageChartEntries(parsedCharts);
-            bool anyChartHasExistingResources = parsedCharts.Any(entry => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
+            bool anyChartHasExistingResources = parsedChartEntries.Any(HasExistingPackageChartResources);
             if (chartFiles.Count > 0 && anyChartHasExistingResources)
             {
                 ChartPackageDiscoveryResult discoveryResult = SearchChartPackagesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);

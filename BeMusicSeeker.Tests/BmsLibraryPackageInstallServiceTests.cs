@@ -530,7 +530,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonPkg");
             Directory.CreateDirectory(packageDirectoryPath);
-            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bmson"), "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"}}");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bmson"), "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "dummy");
 
             var service = new BmsLibraryPackageInstallService();
@@ -539,6 +539,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.Packages.Count);
             Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
             Assert.AreEqual(1, result.Packages[0].ChartEntries.Count(entry => entry?.Chart?.Kind == ChartFileKind.Bmson));
+            Assert.IsTrue(result.Packages[0].ChartEntries.All(entry => entry.CompatibilityAdapter == null));
         });
     }
 
