@@ -1354,7 +1354,8 @@ public sealed class PlaylistViewPipelineTests
             realFile: null,
             resolvedBmson: bmson,
             bmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry,
-            existingBmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry);
+            existingBmsonChartAdapterProvider: song => firstPlaylistTarget.CompatibilityBmsFile as PendingChartEntry,
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromCompatibilityFile(firstPlaylistTarget.CompatibilityBmsFile, includeWarningSnapshot));
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.Chart.InstallDestination);
         Assert.AreEqual("Installed Playlist Bmson", rebuiltPlaylistSourceRow.InstallDestinationTitle);

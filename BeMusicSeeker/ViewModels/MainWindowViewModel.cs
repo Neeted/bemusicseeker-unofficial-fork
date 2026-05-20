@@ -15595,7 +15595,8 @@ public class MainWindowViewModel : ViewModel
                 entryChartInfo,
                 GetPlaylistReferenceDisplayForIdentity,
                 GetOrCreateSharedBmsonChartAdapter,
-                TryGetSharedBmsonChartAdapter));
+                TryGetSharedBmsonChartAdapter,
+                TryGetSharedBmsonChartTransientState));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;

@@ -37,6 +37,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider;
 
+    private readonly Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
+
     internal BMSFile CompatibilityBmsFile => RealFile ?? GetOrCreateBmsonChartAdapter();
 
     /// <summary>
@@ -250,7 +252,8 @@ internal sealed class PlaylistDetailSourceRow
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<string, string, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonChartAdapterProvider = null,
-        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null)
+        Func<LR2SongDBExtended.bmson_song, PendingChartEntry> existingBmsonChartAdapterProvider = null,
+        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
@@ -258,6 +261,7 @@ internal sealed class PlaylistDetailSourceRow
         EntryChartInfo = entryChartInfo;
         this.bmsonChartAdapterProvider = bmsonChartAdapterProvider;
         this.existingBmsonChartAdapterProvider = existingBmsonChartAdapterProvider;
+        this.bmsonTransientStateProvider = bmsonTransientStateProvider;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
         BMSFile compatibilityBmsFile = GetExistingOrProvidedBmsonChartAdapter();
@@ -372,7 +376,7 @@ internal sealed class PlaylistDetailSourceRow
         {
             return ChartFileProjection.FromBmsonSong(
                 ResolvedBmson,
-                ChartFileTransientState.FromCompatibilityFile(GetExistingOrProvidedBmsonChartAdapter()));
+                GetBmsonTransientState(includeWarningSnapshot: true));
         }
         return ChartFileProjection.FromBmsMetadata(
             path,
@@ -386,6 +390,16 @@ internal sealed class PlaylistDetailSourceRow
             Entry?.level,
             mode,
             ChartInfo);
+    }
+
+    private ChartFileTransientState GetBmsonTransientState(bool includeWarningSnapshot)
+    {
+        if (ResolvedBmson == null)
+        {
+            return ChartFileTransientState.Empty;
+        }
+        return bmsonTransientStateProvider?.Invoke(ResolvedBmson, includeWarningSnapshot)
+            ?? ChartFileTransientState.FromCompatibilityFile(GetExistingOrProvidedBmsonChartAdapter(), includeWarningSnapshot);
     }
 
     private static bool HasProjectedWarning(ChartFile chart, BMSFile fallback)
