@@ -17893,10 +17893,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (targets.CompatibilityFiles.Count > 0)
             {
-                files.SearchEstimatedInstallationDirectoryForLooseCharts(
-                    targets.CompatibilityFiles
-                        .Select(PackageChartEntry.FromCompatibilityAdapter)
-                        .Where(entry => entry?.Chart != null));
+                files.SearchEstimatedInstallationDirectoryForLooseCharts(CreatePackageChartEntries(targets.CompatibilityFiles));
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -17923,7 +17920,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (targets.CompatibilityFiles.Count > 0)
             {
-                files.SearchMergeDestinationForPendingCharts(targets.CompatibilityFiles);
+                files.SearchMergeDestinationForPendingCharts(CreatePackageChartEntries(targets.CompatibilityFiles));
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -20780,15 +20777,15 @@ public class MainWindowViewModel : ViewModel
         RemoveInstalledPackageRecords(chartPackages);
     }
 
-    private void SearchCorrectInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    private void SearchCorrectInstallationDirectoryCharts(IEnumerable<PackageChartEntry> chartEntries)
     {
         if (files != null)
         {
-            if (chartFiles == null)
+            if (chartEntries == null)
             {
-                throw new ArgumentNullException("chartFiles");
+                throw new ArgumentNullException(nameof(chartEntries));
             }
-            files.SearchCorrectInstallationDirectoryCharts(chartFiles);
+            files.SearchCorrectInstallationDirectoryCharts(chartEntries);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }
@@ -20800,7 +20797,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        SearchCorrectInstallationDirectoryCharts(snapshot.CompatibilityFiles);
+        SearchCorrectInstallationDirectoryCharts(CreatePackageChartEntries(snapshot.CompatibilityFiles));
     }
 
     public void ClearInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
@@ -20839,7 +20836,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (targets.CompatibilityFiles.Count > 0)
         {
-            files.RemoveInstallDestination(targets.CompatibilityFiles);
+            files.RemoveInstallDestination(CreatePackageChartEntries(targets.CompatibilityFiles));
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
@@ -20851,26 +20848,35 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        ClearInstallDestinationForCharts(snapshot.CompatibilityFiles);
+        ClearInstallDestinationForCharts(CreatePackageChartEntries(snapshot.CompatibilityFiles));
     }
 
-    private void ClearInstallDestinationForCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    private void ClearInstallDestinationForCharts(IEnumerable<PackageChartEntry> chartEntries)
     {
         if (files != null)
         {
-            if (chartFiles == null)
+            if (chartEntries == null)
             {
-                throw new ArgumentNullException("chartFiles");
+                throw new ArgumentNullException(nameof(chartEntries));
             }
-            List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. chartFiles.Where(f => f != null)];
+            List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
+            List<BeMusicSeeker.Models.BMSFile> chartFiles2 = [.. entries.Select(entry => entry.CompatibilityAdapter).Where(f => f != null)];
             List<ChartPackage> chartPackages = ExtractChartPackagesFromChartFiles(ref chartFiles2);
             for (int num = 0; num < chartPackages.Count; num++)
             {
                 ClearChartPackageInstallDestinations(chartPackages[num]);
             }
-            files.RemoveInstallDestination(chartFiles2);
+            List<PackageChartEntry> remainingEntries = [.. chartFiles2.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
+            files.RemoveInstallDestination(remainingEntries);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
+    }
+
+    private static List<PackageChartEntry> CreatePackageChartEntries(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    {
+        return [.. (chartFiles ?? [])
+            .Select(PackageChartEntry.FromCompatibilityAdapter)
+            .Where(entry => entry?.Chart != null)];
     }
 
     private static void ClearChartPackageInstallDestinations(ChartPackage chartPackage)

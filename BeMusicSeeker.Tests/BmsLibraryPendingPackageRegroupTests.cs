@@ -811,7 +811,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BmsonSongs = [sourceSong];
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, destinationDirectoryPath));
 
-            library.SearchCorrectInstallationDirectoryCharts([repairTarget]);
+            library.SearchCorrectInstallationDirectoryCharts([PackageChartEntry.FromCompatibilityAdapter(repairTarget)]);
 
             Assert.AreEqual(destinationDirectoryPath, repairTarget.instl_dst);
         });
@@ -959,7 +959,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage);
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
-            library.SearchMergeDestinationForPendingCharts([pendingFile]);
+            library.SearchMergeDestinationForPendingCharts([PackageChartEntry.FromCompatibilityAdapter(pendingFile)]);
 
             Assert.AreEqual(candidateDirectoryPath, pendingFile.instl_dst);
             Assert.AreEqual("Installed Title", pendingFile.InstallDestinationTitle);
@@ -1243,7 +1243,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
 
-            library.RemoveInstallDestination([pendingFile]);
+            library.RemoveInstallDestination([PackageChartEntry.FromCompatibilityAdapter(pendingFile)]);
 
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.instl_dst));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.InstallDestinationTitle));
@@ -1281,7 +1281,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch));
 
-            library.RemoveInstallDestination([pendingFile]);
+            library.RemoveInstallDestination([PackageChartEntry.FromCompatibilityAdapter(pendingFile)]);
 
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.instl_dst));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.InstallDestinationTitle));

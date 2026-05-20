@@ -9067,19 +9067,18 @@ reportProgress,
         LogInstallPerformance("estimated_merge_done package=" + package.path + " resolved=" + num + " targets=" + targetCount + " dst=" + resolvedDestination + " metadataResolved=" + metadataResolved);
     }
 
-    public void SearchMergeDestinationForPendingCharts(IEnumerable<BMSFile> chartFiles)
+    internal void SearchMergeDestinationForPendingCharts(IEnumerable<PackageChartEntry> chartEntries)
     {
-        if (chartFiles == null)
+        if (chartEntries == null)
         {
-            throw new ArgumentNullException("chartFiles");
+            throw new ArgumentNullException(nameof(chartEntries));
         }
-        List<BMSFile> list = [.. chartFiles.Where(x => x != null)];
-        if (list.Count == 0)
+        List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
+        if (entries.Count == 0)
         {
             LogInstallPerformance("estimated_merge_skip reason=no_target");
             return;
         }
-        List<PackageChartEntry> entries = [.. list.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -9098,10 +9097,10 @@ reportProgress,
         int num = entries.Count(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination));
         if (num == 0)
         {
-            LogInstallPerformance("estimated_merge_skip reason=unresolved targets=" + list.Count);
+            LogInstallPerformance("estimated_merge_skip reason=unresolved targets=" + entries.Count);
             return;
         }
-        LogInstallPerformance("estimated_merge_done resolved=" + num + " targets=" + list.Count);
+        LogInstallPerformance("estimated_merge_done resolved=" + num + " targets=" + entries.Count);
     }
 
     /// <summary>
@@ -9974,30 +9973,30 @@ reportProgress,
     /// <summary>
     /// 指定された chart file 群について、インストール先ディレクトリを再探索し、正しいパスを設定します。
     /// </summary>
-    public void SearchCorrectInstallationDirectoryCharts(IEnumerable<BMSFile> chartFiles)
+    internal void SearchCorrectInstallationDirectoryCharts(IEnumerable<PackageChartEntry> chartEntries)
     {
-        if (chartFiles == null)
+        if (chartEntries == null)
         {
-            throw new ArgumentNullException("chartFiles");
+            throw new ArgumentNullException(nameof(chartEntries));
         }
-        List<PackageChartEntry> chartEntries = [.. chartFiles.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
-        CreateInstallEstimationService().CorrectChartInstallationDirectory(chartEntries, delegate (PackageChartEntry chartEntry)
+        List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
+        CreateInstallEstimationService().CorrectChartInstallationDirectory(entries, delegate (PackageChartEntry chartEntry)
         {
             SearchEstimatedInstallationDirectoryForChartsCore(null, [], asParallel: false, ChartInstallationEstimateMode.ReinstallCorrection, [chartEntry]);
         });
     }
 
-    public void RemoveInstallDestination(IEnumerable<BMSFile> bmsFiles)
+    internal void RemoveInstallDestination(IEnumerable<PackageChartEntry> chartEntries)
     {
-        if (bmsFiles == null)
+        if (chartEntries == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException(nameof(chartEntries));
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<PackageChartEntry> entries = [.. bmsFiles.Select(PackageChartEntry.FromCompatibilityAdapter).Where(entry => entry?.Chart != null)];
+                List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
                 CreateInstallEstimationService().ClearInstallDestinations(entries);
             }
         }
