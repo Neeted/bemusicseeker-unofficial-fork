@@ -582,6 +582,23 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PackageChartEntryDisplayRow_TreatsAdapterBackedBmsonAsBmsonRow()
+    {
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(bmson);
+        PackageChartEntry entry = PackageChartEntry.FromCompatibilityAdapter(adapter);
+
+        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+
+        Assert.IsNotNull(row);
+        Assert.IsNull(row.BmsFile);
+        Assert.AreSame(bmson, row.BmsonSong);
+        Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
+        Assert.AreSame(entry, row.PackageEntry);
+        Assert.AreEqual(bmson.path, row.path);
+    }
+
+    [TestMethod]
     public void PackageChartEntryDisplayRow_ReflectsUpdatedAdapterlessBmsonEntryState()
     {
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
