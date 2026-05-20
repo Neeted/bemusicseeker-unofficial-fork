@@ -444,6 +444,29 @@ internal sealed class BmsLibraryMaintenanceService
 
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(
         IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        bool forceUpdate,
+        BmsLibraryDbGateway dbGateway,
+        IBmsLibraryDialogService dialogService,
+        ResourceHealthLookupContext resourceLookupContext = null,
+        Action<string> progressLogger = null,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        List<BMSFile> targets = [.. (bmsFiles ?? []).Where(file => file != null)];
+        foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
+        {
+            PendingChartEntry adapter = PendingChartEntry.CreateFromBmsonSong(song);
+            if (adapter != null)
+            {
+                targets.Add(adapter);
+            }
+        }
+        return UpdateMaintenanceInfo(targets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+    }
+
+    public MaintenanceWorkflowResult UpdateMaintenanceInfo(
+        IEnumerable<BMSFile> bmsFiles,
         bool forceUpdate,
         BmsLibraryDbGateway dbGateway,
         IBmsLibraryDialogService dialogService,

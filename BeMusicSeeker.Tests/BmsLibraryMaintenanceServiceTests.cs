@@ -1066,6 +1066,53 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void UpdateMaintenanceInfo_BmsonSongInputUpdatesSourceMaintenanceInfo()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsonFilePath,
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            new UTF8Encoding(false));
+        try
+        {
+            LR2SongDBExtended.bmson_song song = BmsonSongParser.Parse(bmsonFilePath);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                Array.Empty<BMSFile>(),
+                [song],
+                forceUpdate: true,
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(0, result.BmsResourceTargetCount);
+            Assert.AreEqual(1, result.BmsonResourceTargetCount);
+            Assert.IsNotNull(song.MaintenanceInfo);
+            Assert.AreEqual(song.path, song.MaintenanceInfo.path);
+            Assert.AreEqual(song.md5, song.MaintenanceInfo.hash);
+            Assert.AreEqual(1, song.MaintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, song.MaintenanceInfo.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void UpdateMaintenanceInfo_BmsonUsesFreshResourceReferencesWithoutReparse()
     {
         TestResourceInitializer.EnsureJapaneseResources();
