@@ -3153,18 +3153,9 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        foreach (BMSFile file in request.MissingEntries
-            .Select(entry => entry?.CompatibilityAdapter ?? entry?.Chart?.BmsFile)
-            .Where(file => file != null))
+        foreach (PackageChartEntry entry in request.MissingEntries ?? [])
         {
-            if (isSearching)
-            {
-                file.status |= BMSFile.BMSFileStatus.SEARCHING;
-            }
-            else
-            {
-                file.status &= ~BMSFile.BMSFileStatus.SEARCHING;
-            }
+            entry?.SetSearchingStatus(isSearching);
         }
     }
 
@@ -8342,18 +8333,9 @@ reportProgress,
                     {
                         return;
                     }
-                    List<BMSFile> statusTargets = [];
                     foreach (PackageChartEntry entry in targetEntryList)
                     {
-                        BMSFile statusTarget = entry.CompatibilityAdapter ?? entry.Chart.BmsFile;
-                        if (statusTarget != null && !statusTargets.Contains(statusTarget))
-                        {
-                            statusTargets.Add(statusTarget);
-                        }
-                    }
-                    foreach (BMSFile targetChartFile in statusTargets)
-                    {
-                        targetChartFile.status |= BMSFile.BMSFileStatus.SEARCHING;
+                        entry.SetSearchingStatus(isSearching: true);
                     }
                     InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(
                         package,
@@ -8365,9 +8347,9 @@ reportProgress,
                 }
                 finally
                 {
-                    foreach (BMSFile targetChartFile in (targetEntryList ?? []).Select(entry => entry?.CompatibilityAdapter ?? entry?.Chart?.BmsFile).Where(file => file != null))
+                    foreach (PackageChartEntry entry in targetEntryList ?? [])
                     {
-                        targetChartFile.status &= ~BMSFile.BMSFileStatus.SEARCHING;
+                        entry?.SetSearchingStatus(isSearching: false);
                     }
                 }
             }

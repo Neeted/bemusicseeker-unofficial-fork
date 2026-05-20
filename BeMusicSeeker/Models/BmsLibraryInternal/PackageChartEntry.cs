@@ -136,6 +136,23 @@ internal sealed class PackageChartEntry
         return (Chart.Warnings ?? []).Any(warning => warning != null && warning.Category == ChartWarningCategory.InstallEstimation && warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed);
     }
 
+    internal void SetSearchingStatus(bool isSearching)
+    {
+        BMSFile statusFile = compatibilityAdapter ?? chart.BmsFile;
+        if (statusFile == null)
+        {
+            return;
+        }
+        if (isSearching)
+        {
+            statusFile.status |= BMSFile.BMSFileStatus.SEARCHING;
+        }
+        else
+        {
+            statusFile.status &= ~BMSFile.BMSFileStatus.SEARCHING;
+        }
+    }
+
     internal void ApplyInstalledPath(string installedPath)
     {
         if (string.IsNullOrWhiteSpace(installedPath))
