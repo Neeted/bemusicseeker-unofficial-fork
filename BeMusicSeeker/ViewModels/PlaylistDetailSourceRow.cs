@@ -216,7 +216,6 @@ internal sealed class PlaylistDetailSourceRow
         BMSTableEntry entry,
         BMSFile realFile,
         LR2SongDBExtended.bmson_song resolvedBmson = null,
-        BMSFile scoreProbe = null,
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
@@ -229,12 +228,12 @@ internal sealed class PlaylistDetailSourceRow
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
-        BMSFile snapshotSource = realFile ?? scoreProbe;
-        BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore ?? scoreProbe?.bmsScore;
+        BMSFile snapshotSource = realFile;
+        BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore;
         Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), entry.title);
         Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, entry.artist);
         genre = FirstNonEmpty(realFile?.genre, resolvedBmson?.genre);
-        mode = realFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint) ?? scoreProbe?.mode;
+        mode = realFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint);
         tag = realFile?.tag ?? string.Empty;
         Url = entry.EffectiveUrl;
         Url_diff = entry.EffectiveUrlDiff;
@@ -263,17 +262,17 @@ internal sealed class PlaylistDetailSourceRow
         encoding = FirstNonEmpty(Chart?.EncodingName, snapshotSource?.encoding);
         RefTablesSymbols = realFile?.RefTablesSymbols ?? playlistReferenceDisplay.Symbols;
         RefTablesNames = realFile?.RefTablesNames ?? playlistReferenceDisplay.Names;
-        clear = ResolveClear(isBmsOwned, isBmsonOwned, scoreProbe, effectiveScore);
-        rank = ResolveRank(isBmsOwned, isBmsonOwned, scoreProbe, effectiveScore);
-        rate = effectiveScore?.rate ?? scoreProbe?.rate;
-        score = effectiveScore?.score ?? scoreProbe?.score;
-        totalnotes = effectiveScore?.totalnotes ?? scoreProbe?.totalnotes;
-        maxcombo = effectiveScore?.maxcombo ?? scoreProbe?.maxcombo;
-        minbp = ResolveMinBp(scoreProbe, effectiveScore);
-        rankingString = BuildRankingString(effectiveScore) ?? scoreProbe?.rankingString ?? string.Empty;
-        rankingLastupdate = effectiveScore?.rankingLastupdate ?? scoreProbe?.rankingLastupdate;
-        stddevVal = effectiveScore?.stddevVal ?? scoreProbe?.stddevVal;
-        scoreDifficulty = effectiveScore?.scoreDifficulty ?? scoreProbe?.scoreDifficulty;
+        clear = ResolveClear(isBmsOwned, isBmsonOwned, effectiveScore);
+        rank = ResolveRank(isBmsOwned, isBmsonOwned, effectiveScore);
+        rate = effectiveScore?.rate;
+        score = effectiveScore?.score;
+        totalnotes = effectiveScore?.totalnotes;
+        maxcombo = effectiveScore?.maxcombo;
+        minbp = ResolveMinBp(effectiveScore);
+        rankingString = BuildRankingString(effectiveScore) ?? string.Empty;
+        rankingLastupdate = effectiveScore?.rankingLastupdate;
+        stddevVal = effectiveScore?.stddevVal;
+        scoreDifficulty = effectiveScore?.scoreDifficulty;
         status = snapshotSource?.status ?? BMSFile.BMSFileStatus.NONE;
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
@@ -423,7 +422,7 @@ internal sealed class PlaylistDetailSourceRow
         return string.Empty;
     }
 
-    private static ClearType ResolveClear(bool isBmsOwned, bool isBmsonOwned, BMSFile scoreProbe, BMSScore effectiveScore)
+    private static ClearType ResolveClear(bool isBmsOwned, bool isBmsonOwned, BMSScore effectiveScore)
     {
         if (isBmsOwned)
         {
@@ -433,10 +432,10 @@ internal sealed class PlaylistDetailSourceRow
         {
             return ClearType.NO_PLAY;
         }
-        return scoreProbe?.clear ?? ClearType.NO_SONG;
+        return effectiveScore?.clear ?? ClearType.NO_SONG;
     }
 
-    private static RankType ResolveRank(bool isBmsOwned, bool isBmsonOwned, BMSFile scoreProbe, BMSScore effectiveScore)
+    private static RankType ResolveRank(bool isBmsOwned, bool isBmsonOwned, BMSScore effectiveScore)
     {
         if (isBmsOwned)
         {
@@ -450,16 +449,16 @@ internal sealed class PlaylistDetailSourceRow
         {
             return RankType.INVALID;
         }
-        return scoreProbe?.rank ?? RankType.INVALID;
+        return effectiveScore?.rank ?? RankType.INVALID;
     }
 
-    private static int? ResolveMinBp(BMSFile scoreProbe, BMSScore effectiveScore)
+    private static int? ResolveMinBp(BMSScore effectiveScore)
     {
         if (effectiveScore != null)
         {
             return (effectiveScore.minbp == -1) ? effectiveScore.totalnotes : effectiveScore.minbp;
         }
-        return scoreProbe?.minbp;
+        return null;
     }
 
     private static string BuildRankingString(BMSScore effectiveScore)
@@ -490,28 +489,5 @@ internal sealed class PlaylistDetailSourceRow
         builder.Append('@');
         builder.Append(comment);
         return builder.ToString().ToUpperInvariant();
-    }
-}
-
-/// <summary>
-/// playlist 未所持行の score snapshot 取得に使う最小の BMSFile 実装です。
-/// UI 表示へは公開せず、source build 中だけ利用します。
-/// </summary>
-internal sealed class PlaylistScoreProbeBmsFile : BMSFile
-{
-    /// <summary>
-    /// エントリ情報から score lookup 用の最小 snapshot を適用します。
-    /// </summary>
-    /// <param name="entry">対象エントリ。</param>
-    internal void ApplyEntrySnapshot(BMSTableEntry entry, int? resolvedMode = null, string chartInfoSha256 = null)
-    {
-        if (entry == null)
-        {
-            throw new ArgumentNullException(nameof(entry));
-        }
-        hash = entry.md5;
-        sha256 = string.IsNullOrWhiteSpace(entry.sha256) ? chartInfoSha256 : entry.sha256;
-        path = string.Empty;
-        mode = resolvedMode;
     }
 }

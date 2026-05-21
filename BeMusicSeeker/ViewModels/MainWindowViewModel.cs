@@ -5282,19 +5282,7 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private sealed class PlaylistScoreProbeMetrics
     {
-        internal int ChunkCount;
-
         internal int TargetCount;
-
-        internal long WaitInitializedMinMs;
-
-        internal long WaitBmsFilesReadMs;
-
-        internal long WaitScoresWriteMs;
-
-        internal long WaitScoreSnapshotReadMs;
-
-        internal long ApplyKnownScoresMs;
 
         internal int MatchedScoreCount;
 
@@ -5778,8 +5766,6 @@ public class MainWindowViewModel : ViewModel
     private const long PlaylistOpenSlowLogThresholdMs = 1000L;
 
     private const long PlaylistScoreProbeSlowLogThresholdMs = 500L;
-
-    private const long PlaylistScoreProbeChunkSlowLogThresholdMs = 250L;
 
     private static long mainViewBuildRequestIdSeed;
 
@@ -6847,7 +6833,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Lr2)
         {
-            string hash = FirstNonEmpty(entry.md5, realFile?.hash);
+            string hash = FirstNonEmpty(realFile?.hash, entry.md5);
             if (scoresByHash != null && scoresByHash.TryGetValue(hash, out BeMusicSeeker.Models.BMSScore lr2Score))
             {
                 return lr2Score;
@@ -6856,10 +6842,10 @@ public class MainWindowViewModel : ViewModel
         }
         if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Beatoraja && scoresBySha256 != null)
         {
-            string sha256 = FirstNonEmpty(entry.sha256, realFile?.sha256, entryChartInfo?.sha256);
+            string sha256 = FirstNonEmpty(realFile?.sha256, entry.sha256, entryChartInfo?.sha256);
             if (scoresBySha256.TryGetValue(sha256, out BeMusicSeeker.Models.BMSScore beatorajaScore))
             {
-                string hash = FirstNonEmpty(entry.md5, realFile?.hash);
+                string hash = FirstNonEmpty(realFile?.hash, entry.md5);
                 return string.IsNullOrWhiteSpace(hash)
                     ? beatorajaScore
                     : BmsLibraryIrService.CloneScoreForFileHash(beatorajaScore, hash);
@@ -6893,22 +6879,6 @@ public class MainWindowViewModel : ViewModel
             }
         }
         return string.Empty;
-    }
-
-    internal static bool ShouldCreatePlaylistScoreProbeForTest(bool hasRealFile, bool hasResolvedBmson)
-    {
-        return ShouldCreatePlaylistScoreProbe(
-            hasRealFile ? new PlaylistScoreProbeBmsFile() { path = "owned.bms" } : null,
-            hasResolvedBmson ? new LR2SongDBExtended.bmson_song { path = "owned.bmson" } : null);
-    }
-
-    private static bool ShouldCreatePlaylistScoreProbe(BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)
-    {
-        if (realFile != null && !string.IsNullOrWhiteSpace(realFile.path))
-        {
-            return false;
-        }
-        return resolvedBmson == null || string.IsNullOrWhiteSpace(resolvedBmson.path);
     }
 
     private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, long targetVersion)
@@ -15428,7 +15398,7 @@ public class MainWindowViewModel : ViewModel
             resolvedEntries.Add((entry, realFile, resolvedBmson, null));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshot)> preparedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, LR2SongDBExtended.chart_info, PlaylistScoreProbeBmsFile, BeMusicSeeker.Models.BMSScore)>(resolvedEntries.Count);
+        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo)> preparedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, LR2SongDBExtended.chart_info)>(resolvedEntries.Count);
         var chartInfoLookupStopwatch = Stopwatch.StartNew();
         int missingChartInfoResolveTargets = 0;
         int chartInfoResolvedCount = 0;
@@ -15446,41 +15416,40 @@ public class MainWindowViewModel : ViewModel
                     chartInfoResolvedCount++;
                 }
             }
-            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, realFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
-            PlaylistScoreProbeBmsFile scoreProbe = null;
-            if (ShouldCreatePlaylistScoreProbe(realFile, resolvedBmson))
-            {
-                scoreProbe = new PlaylistScoreProbeBmsFile();
-                scoreProbe.ApplyEntrySnapshot(entry, BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint), entryChartInfo?.sha256);
-                scoreUpdateTargetCount++;
-            }
-            preparedEntries.Add((entry, realFile, resolvedBmson, entryChartInfo, scoreProbe, scoreSnapshotForRow));
+            preparedEntries.Add((entry, realFile, resolvedBmson, entryChartInfo));
         }
         chartInfoLookupStopwatch.Stop();
         LogPlaylistWorker("playlist_chart_info_index_resolve entries=" + resolvedEntries.Count + " targets=" + missingChartInfoResolveTargets + " found=" + chartInfoResolvedCount + " version=" + chartInfoIndexVersion + " elapsedMs=" + chartInfoLookupStopwatch.ElapsedMilliseconds);
         entryResolveMs = stopwatch.ElapsedMilliseconds;
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (scoreUpdateTargetCount > 0)
+        cancellationStage = "score_probe";
+        var scoreProbeStopwatch = Stopwatch.StartNew();
+        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
+        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
         {
-            cancellationStage = "score_probe_prepare";
             cancellationToken.ThrowIfCancellationRequested();
-            List<(BMSTableEntry, PlaylistScoreProbeBmsFile)> scoreProbeRows = [.. preparedEntries.Where((row) => row.scoreProbe != null).Select((row) => (row.entry, row.scoreProbe))];
-            cancellationToken.ThrowIfCancellationRequested();
-            cancellationStage = "score_probe";
-            scoreProbeMetrics = SetPlaylistScoreProbeSnapshots(scoreProbeRows, requestVersion, cancellationToken);
+            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, realFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
+            scoreUpdateTargetCount++;
+            if (scoreSnapshotForRow != null)
+            {
+                scoreProbeMetrics.MatchedScoreCount++;
+            }
+            scoredEntries.Add((entry, realFile, resolvedBmson, entryChartInfo, scoreSnapshotForRow));
         }
-        scoreProbeMs = stopwatch.ElapsedMilliseconds - entryResolveMs;
-        var playlistRows = new List<PlaylistDetailSourceRow>(preparedEntries.Count);
+        scoreProbeStopwatch.Stop();
+        scoreProbeMetrics.TargetCount = scoreUpdateTargetCount;
+        scoreProbeMetrics.TotalMs = scoreProbeStopwatch.ElapsedMilliseconds;
+        scoreProbeMs = scoreProbeStopwatch.ElapsedMilliseconds;
+        var playlistRows = new List<PlaylistDetailSourceRow>(scoredEntries.Count);
         cancellationStage = "source_row_materialize";
-        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in preparedEntries)
+        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in scoredEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             playlistRows.Add(new PlaylistDetailSourceRow(
                 entry,
                 realFile,
                 resolvedBmson,
-                scoreProbe,
                 scoreSnapshotForRow,
                 entryChartInfo,
                 GetPlaylistReferenceDisplayForChart,
@@ -15488,60 +15457,6 @@ public class MainWindowViewModel : ViewModel
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
-    }
-
-    /// <summary>
-    /// playlist 未所持行の score probe へ score snapshot を chunk 単位で適用します。
-    /// </summary>
-    /// <param name="scoreProbeRows">score snapshot を付与する対象行。</param>
-    /// <param name="cancellationToken">キャンセルトークン。</param>
-    private PlaylistScoreProbeMetrics SetPlaylistScoreProbeSnapshots(IReadOnlyList<(BMSTableEntry entry, PlaylistScoreProbeBmsFile probe)> scoreProbeRows, int requestVersion, CancellationToken cancellationToken)
-    {
-        var summary = new PlaylistScoreProbeMetrics
-        {
-            TargetCount = scoreProbeRows?.Count ?? 0
-        };
-        if (scoreProbeRows == null || scoreProbeRows.Count == 0)
-        {
-            return summary;
-        }
-        if (files == null)
-        {
-            return summary;
-        }
-        const int chunkSize = 1024;
-        for (int offset = 0; offset < scoreProbeRows.Count; offset += chunkSize)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            int count = Math.Min(chunkSize, scoreProbeRows.Count - offset);
-            var chunk = new List<BeMusicSeeker.Models.BMSFile>(count);
-            for (int index = 0; index < count; index++)
-            {
-                chunk.Add(scoreProbeRows[offset + index].probe);
-            }
-            try
-            {
-                BeMusicSeeker.Models.BMSLibrary.BmsScoreApplyMetrics chunkMetrics = files.SetBMSScoreWithMetrics(chunk);
-                summary.ChunkCount++;
-                summary.WaitInitializedMinMs += chunkMetrics.WaitInitializedMinMs;
-                summary.WaitBmsFilesReadMs += chunkMetrics.WaitBmsFilesReadMs;
-                summary.WaitScoresWriteMs += chunkMetrics.WaitScoresWriteMs;
-                summary.WaitScoreSnapshotReadMs += chunkMetrics.WaitScoreSnapshotReadMs;
-                summary.ApplyKnownScoresMs += chunkMetrics.ApplyKnownScoresMs;
-                summary.MatchedScoreCount += chunkMetrics.MatchedScoreCount;
-                summary.TotalMs += chunkMetrics.TotalMs;
-                if (chunkMetrics.TotalMs >= PlaylistScoreProbeChunkSlowLogThresholdMs)
-                {
-                    LogPlaylistWorker("playlist_score_probe_chunk requestVersion=" + requestVersion + " offset=" + offset + " count=" + count + " total=" + scoreProbeRows.Count + " waitInitializedMinMs=" + chunkMetrics.WaitInitializedMinMs + " waitBmsFilesReadMs=" + chunkMetrics.WaitBmsFilesReadMs + " waitScoresWriteMs=" + chunkMetrics.WaitScoresWriteMs + " waitScoreSnapshotReadMs=" + chunkMetrics.WaitScoreSnapshotReadMs + " applyKnownScoresMs=" + chunkMetrics.ApplyKnownScoresMs + " matchedScoreCount=" + chunkMetrics.MatchedScoreCount + " totalMs=" + chunkMetrics.TotalMs + " thresholdMs=" + PlaylistScoreProbeChunkSlowLogThresholdMs);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                LogPlaylistWorker("playlist_score_probe_chunk_cancelled requestVersion=" + requestVersion + " offset=" + offset + " count=" + count + " total=" + scoreProbeRows.Count);
-                throw;
-            }
-        }
-        return summary;
     }
 
     /// <summary>
@@ -15821,11 +15736,10 @@ public class MainWindowViewModel : ViewModel
             long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
             int folderCount = sourceRows.Count;
             sourceCount = folderCount;
-            LogPlaylistWorker("playlist_score_probe_summary requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " chunkCount=" + scoreProbeMetrics.ChunkCount + " waitInitializedMinMs=" + scoreProbeMetrics.WaitInitializedMinMs + " waitBmsFilesReadMs=" + scoreProbeMetrics.WaitBmsFilesReadMs + " waitScoresWriteMs=" + scoreProbeMetrics.WaitScoresWriteMs + " waitScoreSnapshotReadMs=" + scoreProbeMetrics.WaitScoreSnapshotReadMs + " applyKnownScoresMs=" + scoreProbeMetrics.ApplyKnownScoresMs + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs);
+            LogPlaylistWorker("playlist_score_probe_summary requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs);
             if (scoreProbeMetrics.TotalMs >= PlaylistScoreProbeSlowLogThresholdMs)
             {
-                long totalWaitMs = scoreProbeMetrics.WaitInitializedMinMs + scoreProbeMetrics.WaitBmsFilesReadMs + scoreProbeMetrics.WaitScoresWriteMs + scoreProbeMetrics.WaitScoreSnapshotReadMs;
-                LogPlaylistWorker("playlist_lock_wait_detail requestVersion=" + requestVersion + " waitInitializedMinMs=" + scoreProbeMetrics.WaitInitializedMinMs + " waitBmsFilesReadMs=" + scoreProbeMetrics.WaitBmsFilesReadMs + " waitScoresWriteMs=" + scoreProbeMetrics.WaitScoresWriteMs + " waitScoreSnapshotReadMs=" + scoreProbeMetrics.WaitScoreSnapshotReadMs + " totalWaitMs=" + totalWaitMs + " applyKnownScoresMs=" + scoreProbeMetrics.ApplyKnownScoresMs + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs + " thresholdMs=" + PlaylistScoreProbeSlowLogThresholdMs);
+                LogPlaylistWorker("playlist_score_probe_detail requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs + " thresholdMs=" + PlaylistScoreProbeSlowLogThresholdMs);
             }
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
@@ -15859,7 +15773,7 @@ public class MainWindowViewModel : ViewModel
             int disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
             previousSourceRows = null;
             FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, folderStageMs, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
-            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + scoreUpdateTargetCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown") + " libraryIndexMs=" + libraryIndexMs + " libraryIndexAccess=" + libraryIndexAccess + " libraryIndexBuildMs=" + libraryIndexBuildMs + " entryResolveMs=" + entryResolveMs + " scoreProbeMs=" + scoreProbeMs + " scoreProbeChunkCount=" + scoreProbeMetrics.ChunkCount + " scoreProbeWaitInitializedMinMs=" + scoreProbeMetrics.WaitInitializedMinMs + " scoreProbeWaitBmsFilesReadMs=" + scoreProbeMetrics.WaitBmsFilesReadMs + " scoreProbeWaitScoresWriteMs=" + scoreProbeMetrics.WaitScoresWriteMs + " scoreProbeWaitScoreSnapshotReadMs=" + scoreProbeMetrics.WaitScoreSnapshotReadMs + " scoreProbeApplyKnownScoresMs=" + scoreProbeMetrics.ApplyKnownScoresMs + " scoreProbeMatchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " sourceMaterializeMs=" + sourceMaterializeMs + " viewMaterializeMs=" + viewMaterializeMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
+            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + scoreUpdateTargetCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown") + " libraryIndexMs=" + libraryIndexMs + " libraryIndexAccess=" + libraryIndexAccess + " libraryIndexBuildMs=" + libraryIndexBuildMs + " entryResolveMs=" + entryResolveMs + " scoreProbeMs=" + scoreProbeMs + " scoreProbeMatchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " sourceMaterializeMs=" + sourceMaterializeMs + " viewMaterializeMs=" + viewMaterializeMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
         catch (OperationCanceledException)

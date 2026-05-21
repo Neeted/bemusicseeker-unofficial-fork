@@ -2151,14 +2151,6 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ShouldCreatePlaylistScoreProbeForTest_SkipsBmsonOwnedRows()
-    {
-        Assert.IsTrue(MainWindowViewModel.ShouldCreatePlaylistScoreProbeForTest(hasRealFile: false, hasResolvedBmson: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldCreatePlaylistScoreProbeForTest(hasRealFile: false, hasResolvedBmson: true));
-        Assert.IsFalse(MainWindowViewModel.ShouldCreatePlaylistScoreProbeForTest(hasRealFile: true, hasResolvedBmson: false));
-    }
-
-    [TestMethod]
     public void ResolveBmsonForPlaylistEntry_PrefersMd5AndRepresentativePathOrder()
     {
         var entry = new TestablePlaylistEntry();
@@ -2256,6 +2248,51 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(file.hash, resolved.hash);
         Assert.AreEqual(ClearType.HARD, resolved.clear);
         Assert.AreEqual(1700, resolved.score);
+    }
+
+    [TestMethod]
+    public void ResolvePlaylistEntryScoreSnapshot_Lr2PrefersRealFileHashWhenEntryHashIsStale()
+    {
+        var file = new TestableBmsFile();
+        file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5("dddddddddddddddddddddddddddddddd");
+        var fileScore = new BMSScore
+        {
+            hash = file.hash,
+            clear = ClearType.HARD,
+            perfect = 800,
+            great = 100,
+            totalnotes = 1000
+        };
+        var staleEntryScore = new BMSScore
+        {
+            hash = entry.md5,
+            clear = ClearType.EASY,
+            perfect = 100,
+            great = 50,
+            totalnotes = 1000
+        };
+        var snapshot = new BMSLibrary.ScoreSnapshot
+        {
+            ActiveScoreSource = ActiveScoreSource.Lr2,
+            ScoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [file.hash] = fileScore,
+                [entry.md5] = staleEntryScore
+            }
+        };
+
+        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+            entry,
+            file,
+            entryChartInfo: null,
+            snapshot,
+            scoresByHash: snapshot.ScoresByHash,
+            scoresBySha256: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase));
+
+        Assert.AreSame(fileScore, resolved);
+        Assert.AreEqual(ClearType.HARD, resolved.clear);
     }
 
     [TestMethod]
