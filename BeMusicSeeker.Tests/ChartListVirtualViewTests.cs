@@ -1449,7 +1449,10 @@ public sealed class ChartListVirtualViewTests
     {
         var file = new TestableBmsFile();
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
-        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows([file]);
+        PlaylistReferenceIndex playlistReferenceIndex = PlaylistReferenceIndex.Empty;
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
+            [file],
+            playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart));
 
         file.Apply(
             @"folder-a\new.bms",
@@ -1464,7 +1467,13 @@ public sealed class ChartListVirtualViewTests
         file.instl_dst = "Destination";
         file.InstallDestinationTitle = "Destination Title";
         file.InstallDestinationArtist = "Destination Artist";
-        file.AddRefTable(new BMSTable { symbol = "REF", name = "Reference Table" });
+        var referenceTable = new BMSTable
+        {
+            symbol = "REF",
+            name = "Reference Table",
+            entries = [new BMSTableEntry(file)]
+        };
+        playlistReferenceIndex.ReplaceTable(referenceTable, referenceTable.entries);
 
         Assert.AreEqual("Old", sourceRows[0].Title);
         Assert.AreEqual(string.Empty, sourceRows[0].Artist);
@@ -1531,7 +1540,14 @@ public sealed class ChartListVirtualViewTests
         file.instl_dst = "Installed";
         file.InstallDestinationTitle = "Installed Title";
         file.InstallDestinationArtist = "Installed Artist";
-        file.AddRefTable(new BMSTable { symbol = "BMS", name = "BMS Table" });
+        var bmsTable = new BMSTable
+        {
+            symbol = "BMS",
+            name = "BMS Table",
+            entries = [new BMSTableEntry(file)]
+        };
+        PlaylistReferenceIndex playlistReferenceIndex = PlaylistReferenceIndex.Empty;
+        playlistReferenceIndex.ReplaceTable(bmsTable, bmsTable.entries);
         var bmson = new LR2SongDBExtended.bmson_song
         {
             path = @"folder-b\bmson.bmson",
@@ -1547,10 +1563,17 @@ public sealed class ChartListVirtualViewTests
             ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0),
             MaintenanceInfo = CreateMaintenanceInfo(@"folder-b\bmson.bmson", "22222222222222222222222222222222", 4)
         };
-        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows([file], [bmson]);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
+            [file],
+            [bmson],
+            playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart));
+        LibraryChartRow bmsRow = LibraryChartRow.FromBmsFile(file);
+        bmsRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
+        LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(bmson);
+        bmsonRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
 
-        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsStorageOwner() != null), LibraryChartRow.FromBmsFile(file));
-        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsonStorageOwner() != null), LibraryChartRow.FromBmsonSong(bmson));
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsStorageOwner() != null), bmsRow);
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsonStorageOwner() != null), bmsonRow);
     }
 
     [TestMethod]

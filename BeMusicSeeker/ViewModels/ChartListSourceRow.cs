@@ -85,9 +85,9 @@ internal sealed class ChartListSourceRow
 
     internal string InstallDestinationArtist => CreateChartFile(includeWarningSnapshot: false)?.InstallDestinationArtist ?? string.Empty;
 
-    internal string RefTablesSymbols => bmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
+    internal string RefTablesSymbols => GetPlaylistReferenceDisplay().Symbols;
 
-    internal string RefTablesNames => bmsFile?.RefTablesNames ?? GetPlaylistReferenceDisplay().Names;
+    internal string RefTablesNames => GetPlaylistReferenceDisplay().Names;
 
     internal int? WAVHealth => Chart?.WAVHealth;
 

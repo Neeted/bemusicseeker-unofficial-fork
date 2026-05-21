@@ -279,9 +279,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string encoding => Chart?.EncodingName ?? string.Empty;
 
-    public string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
+    public string RefTablesSymbols => GetPlaylistReferenceDisplay().Symbols;
 
-    public string RefTablesNames => BmsFile?.RefTablesNames ?? GetPlaylistReferenceDisplay().Names;
+    public string RefTablesNames => GetPlaylistReferenceDisplay().Names;
 
     public ClearType clear => BmsFile?.clear ?? (string.IsNullOrWhiteSpace(path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
 

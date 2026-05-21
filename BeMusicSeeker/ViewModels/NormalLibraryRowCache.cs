@@ -25,6 +25,11 @@ internal sealed class NormalLibraryRowCache
 
     internal int Count => rowsByFile.Count;
 
+    internal List<LibraryChartRow> SnapshotRows()
+    {
+        return [.. rowsByFile.Values.Where(row => row != null)];
+    }
+
     internal LibraryChartRow GetOrCreate(ChartFile chart, LibraryRowCacheBuildStats stats)
     {
         BMSFile file = chart?.GetBmsStorageOwner();

@@ -10002,6 +10002,10 @@ public class MainWindowViewModel : ViewModel
             {
                 RaiseBmsonPlaylistReferenceDisplayChanged(row);
             }
+            foreach (LibraryChartRow row in regularBmsLibraryRowCache?.SnapshotRows() ?? [])
+            {
+                RaiseBmsonPlaylistReferenceDisplayChanged(row);
+            }
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
@@ -10015,10 +10019,7 @@ public class MainWindowViewModel : ViewModel
 
     private static void RaiseBmsonPlaylistReferenceDisplayChanged(LibraryChartRow row)
     {
-        if (row != null && !row.HasBmsStorageOwner())
-        {
-            row.RaisePlaylistReferenceDisplayChanged();
-        }
+        row?.RaisePlaylistReferenceDisplayChanged();
     }
 
     private int GetNormalLibraryCacheCountLocked()
@@ -10107,6 +10108,14 @@ public class MainWindowViewModel : ViewModel
         row?.SetBmsonTransientStateProvider(TryGetSharedBmsonChartTransientState);
         ApplyResourceHealthProjectionProvider(row);
         ApplyPlaylistReferenceDisplayProvider(row);
+    }
+
+    private void ApplyLibraryChartRowProviders(IEnumerable<LibraryChartRow> rows)
+    {
+        foreach (LibraryChartRow row in rows ?? [])
+        {
+            ApplyLibraryChartRowProviders(row);
+        }
     }
 
     private ChartFileTransientState TryGetSharedBmsonChartTransientState(LR2SongDBExtended.bmson_song song, bool includeWarningSnapshot)
@@ -16522,12 +16531,12 @@ public class MainWindowViewModel : ViewModel
         }
 
         var materializeStopwatch = Stopwatch.StartNew();
-        List<LibraryChartRow> regularLibraryRows = ToLibraryChartRows(regularCharts, rowFactory ?? LibraryChartRow.FromChartFile);
+        List<LibraryChartRow> regularLibraryRows = MaterializeLibraryChartRows(regularCharts, rowFactory ?? LibraryChartRow.FromChartFile);
         materializeStopwatch.Stop();
         regularRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
         materializeStopwatch.Restart();
-        List<LibraryChartRow> bmsonLibraryRows = ToLibraryChartRows(bmsonCharts, rowFactory ?? LibraryChartRow.FromChartFile);
+        List<LibraryChartRow> bmsonLibraryRows = MaterializeLibraryChartRows(bmsonCharts, rowFactory ?? LibraryChartRow.FromChartFile);
         materializeStopwatch.Stop();
         bmsonRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
@@ -16718,35 +16727,48 @@ public class MainWindowViewModel : ViewModel
             sortCacheHit: cacheHit);
     }
 
-    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts)
+    private List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts)
     {
-        return [.. (charts ?? [])
+        List<LibraryChartRow> rows = [.. (charts ?? [])
             .Select(LibraryChartRow.FromChartFile)
             .Where(row => row != null)];
+        ApplyLibraryChartRowProviders(rows);
+        return rows;
     }
 
-    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts, Func<ChartFile, LibraryChartRow> rowFactory)
+    private List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts, Func<ChartFile, LibraryChartRow> rowFactory)
+    {
+        List<LibraryChartRow> rows = MaterializeLibraryChartRows(charts, rowFactory);
+        ApplyLibraryChartRowProviders(rows);
+        return rows;
+    }
+
+    private static List<LibraryChartRow> MaterializeLibraryChartRows(IEnumerable<ChartFile> charts, Func<ChartFile, LibraryChartRow> rowFactory)
     {
         return [.. (charts ?? [])
             .Select(rowFactory ?? LibraryChartRow.FromChartFile)
             .Where(row => row != null)];
     }
 
-    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries)
+    private List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries)
     {
         return ToLibraryChartRows(entries, LibraryChartRow.FromPackageChartEntry);
     }
 
-    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries, Func<PackageChartEntry, LibraryChartRow> rowFactory)
+    private List<LibraryChartRow> ToLibraryChartRows(IEnumerable<PackageChartEntry> entries, Func<PackageChartEntry, LibraryChartRow> rowFactory)
     {
-        return [.. (entries ?? [])
+        List<LibraryChartRow> rows = [.. (entries ?? [])
             .Select(rowFactory ?? LibraryChartRow.FromPackageChartEntry)
             .Where(row => row != null)];
+        ApplyLibraryChartRowProviders(rows);
+        return rows;
     }
 
-    private static LibraryChartRow CreateBmsLibraryChartRowFromChart(ChartFile chart)
+    private LibraryChartRow CreateBmsLibraryChartRowFromChart(ChartFile chart)
     {
-        return LibraryChartRow.FromOwnerBackedChart(chart);
+        LibraryChartRow row = LibraryChartRow.FromOwnerBackedChart(chart);
+        ApplyLibraryChartRowProviders(row);
+        return row;
     }
 
     private LibraryChartRow CreateLibraryChartRowFromPackageEntry(PackageChartEntry entry)

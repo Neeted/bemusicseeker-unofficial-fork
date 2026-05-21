@@ -239,7 +239,7 @@ internal sealed class PlaylistDetailSourceRow
         sha256 = FirstNonEmpty(chart?.Sha256, entry.sha256, entryChartInfo?.sha256);
         Folder = FirstNonEmpty(entry.folder, chart?.Folder);
         path = FirstNonEmpty(chart?.Path);
-        PlaylistReferenceDisplay playlistReferenceDisplay = bmsOwner == null && playlistReferenceDisplayProvider != null
+        PlaylistReferenceDisplay playlistReferenceDisplay = playlistReferenceDisplayProvider != null
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
         HasZeroNoteMismatchWarning = bmsOwner?.HasZeroNoteMismatchWarning ?? false;
@@ -254,8 +254,8 @@ internal sealed class PlaylistDetailSourceRow
         BGAHealth = Chart?.BGAHealth ?? bmsOwner?.BGAHealth;
         MovieHealth = Chart?.MovieHealth ?? bmsOwner?.MovieHealth;
         encoding = FirstNonEmpty(Chart?.EncodingName, bmsOwner?.encoding);
-        RefTablesSymbols = bmsOwner?.RefTablesSymbols ?? playlistReferenceDisplay.Symbols;
-        RefTablesNames = bmsOwner?.RefTablesNames ?? playlistReferenceDisplay.Names;
+        RefTablesSymbols = playlistReferenceDisplay.Symbols;
+        RefTablesNames = playlistReferenceDisplay.Names;
         clear = ResolveClear(isBmsOwned || isBmsonOwned, effectiveScore);
         rank = ResolveRank(effectiveScore);
         rate = effectiveScore?.rate;
