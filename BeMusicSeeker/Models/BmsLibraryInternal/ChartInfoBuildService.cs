@@ -106,9 +106,10 @@ internal sealed class ChartInfoBuildService
             throw new ArgumentException("Exactly one chart model must be specified.");
         }
 
-        ChartInfoBuildTarget target = bmsFile != null
-            ? ChartInfoBuildTarget.FromBmsFile(bmsFile)
-            : ChartInfoBuildTarget.FromBmsonSong(bmsonSong);
+        ChartInfoBuildTarget target = ChartInfoBuildTarget.FromChart(
+            bmsFile != null
+                ? ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)
+                : ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false));
         string md5 = string.IsNullOrWhiteSpace(snapshot.Md5) ? target.Md5 : snapshot.Md5;
         string sha256 = string.IsNullOrWhiteSpace(snapshot.Sha256) ? target.Sha256 : snapshot.Sha256;
         TimeSpan parseTimeout = ResolveParseTimeout();
@@ -670,12 +671,12 @@ internal sealed class ChartInfoBuildService
             string key = BuildBmsTargetKey(file.sha256, file.hash, file.path);
             if (!targets.TryGetValue(key, out ChartInfoBuildTarget target))
             {
-                target = ChartInfoBuildTarget.FromBmsFile(file);
+                target = ChartInfoBuildTarget.FromChart(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
                 targets[key] = target;
             }
             else
             {
-                target.AddBmsFile(file);
+                target.AddChart(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
             }
             if (string.IsNullOrWhiteSpace(file.sha256))
             {
@@ -702,12 +703,12 @@ internal sealed class ChartInfoBuildService
             string key = BuildTargetKey(song.sha256, song.md5, song.path);
             if (!targets.TryGetValue(key, out ChartInfoBuildTarget target))
             {
-                target = ChartInfoBuildTarget.FromBmsonSong(song);
+                target = ChartInfoBuildTarget.FromChart(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
                 targets[key] = target;
             }
             else
             {
-                target.AddBmsonSong(song);
+                target.AddChart(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
             }
         }
         return [.. targets.Values];
@@ -1319,9 +1320,7 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
 
     private sealed class ChartInfoBuildTarget
     {
-        private readonly List<BMSFile> bmsFiles = [];
-
-        private readonly List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+        private readonly List<ChartFile> charts = [];
 
         private ChartInfoBuildTarget(string path, string md5, string sha256)
         {
@@ -1336,45 +1335,35 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
 
         public string Sha256 { get; }
 
-        public bool NeedsDigest => bmsFiles.Any(file => file != null && string.IsNullOrWhiteSpace(file.sha256));
+        public bool NeedsDigest => charts.Any(chart =>
+            chart?.GetBmsStorageOwner() is BMSFile file
+            && string.IsNullOrWhiteSpace(file.sha256));
 
-        public int MissingDigestOwnerCount => bmsFiles.Count(file => file != null && string.IsNullOrWhiteSpace(file.sha256));
+        public int MissingDigestOwnerCount => charts.Count(chart =>
+            chart?.GetBmsStorageOwner() is BMSFile file
+            && string.IsNullOrWhiteSpace(file.sha256));
 
-        public int OwnerCount => bmsFiles.Count + bmsonSongs.Count;
+        public int OwnerCount => charts.Count;
 
-        public static ChartInfoBuildTarget FromBmsFile(BMSFile file)
+        public static ChartInfoBuildTarget FromChart(ChartFile chart)
         {
-            var target = new ChartInfoBuildTarget(
-                file.path,
-                file.hash,
-                file.sha256);
-            target.AddBmsFile(file);
-            return target;
-        }
-
-        public static ChartInfoBuildTarget FromBmsonSong(LR2SongDBExtended.bmson_song song)
-        {
-            var target = new ChartInfoBuildTarget(
-                song.path,
-                song.md5,
-                song.sha256);
-            target.AddBmsonSong(song);
-            return target;
-        }
-
-        public void AddBmsFile(BMSFile file)
-        {
-            if (file != null)
+            if (chart == null)
             {
-                bmsFiles.Add(file);
+                return null;
             }
+            var target = new ChartInfoBuildTarget(
+                chart.Path,
+                chart.Md5,
+                chart.Sha256);
+            target.AddChart(chart);
+            return target;
         }
 
-        public void AddBmsonSong(LR2SongDBExtended.bmson_song song)
+        public void AddChart(ChartFile chart)
         {
-            if (song != null)
+            if (chart != null)
             {
-                bmsonSongs.Add(song);
+                charts.Add(chart);
             }
         }
 
@@ -1385,8 +1374,9 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
                 return 0;
             }
             int applied = 0;
-            foreach (BMSFile file in bmsFiles)
+            foreach (ChartFile chart in charts)
             {
+                BMSFile file = chart?.GetBmsStorageOwner();
                 if (file == null || !string.IsNullOrWhiteSpace(file.sha256))
                 {
                     continue;
@@ -1404,12 +1394,11 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
             {
                 return;
             }
-            foreach (BMSFile file in bmsFiles)
+            foreach (ChartFile chart in charts)
             {
+                BMSFile file = chart?.GetBmsStorageOwner();
                 file?.SetChartInfo(row);
-            }
-            foreach (LR2SongDBExtended.bmson_song song in bmsonSongs)
-            {
+                LR2SongDBExtended.bmson_song song = chart?.GetBmsonStorageOwner();
                 if (song != null)
                 {
                     song.ChartInfo = row;

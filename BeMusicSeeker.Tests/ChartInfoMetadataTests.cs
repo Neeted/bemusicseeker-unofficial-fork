@@ -2694,6 +2694,45 @@ createTempDirectory);
     }
 
     [TestMethod]
+    public void BackfillChartInfos_AppliesChartInfoToBmsonStorageOwner()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "backfill-target.bmson");
+            File.WriteAllText(
+                chartPath,
+                "{"
+                    + "\"version\":\"1.0.0\","
+                    + "\"info\":{\"title\":\"backfill target\",\"level\":6,\"mode_hint\":\"beat-7k\",\"init_bpm\":150,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
+                    + "\"lines\":[{\"y\":0}],"
+                    + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]"
+                    + "}",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            LR2SongDBExtended.bmson_song song = BmsonSongParser.Parse(chartPath);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+            var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                [],
+                [song]);
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(0, result.DigestTargetCount);
+            Assert.AreEqual(0, result.DigestBackfilledCount);
+            Assert.IsNotNull(song.ChartInfo);
+            Assert.AreEqual(song.md5, song.ChartInfo.md5);
+            Assert.AreEqual(song.sha256, song.ChartInfo.sha256);
+            Assert.AreEqual(6, song.ChartInfo.level);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", song.sha256));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+        });
+    }
+
+    [TestMethod]
     public void ChartInfoInlineBuildService_ParsesOnlyProvidedSnapshots()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
