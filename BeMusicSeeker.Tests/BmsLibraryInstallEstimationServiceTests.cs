@@ -820,7 +820,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(primary.path, snapshot.RepresentativeChart.Path);
             Assert.AreSame(primary, snapshot.RepresentativeChart.BmsFile);
             Assert.AreEqual(2, snapshot.ChartCount);
-            var expectedDefinedResources = ChartResourceSnapshot.CreateAggregate([primary, secondary]);
+            var expectedDefinedResources = ChartResourceSnapshot.CreateAggregate(package.ChartEntries.Select(entry => entry.Chart));
             CollectionAssert.AreEquivalent(expectedDefinedResources.AudioRelativePathHashes.ToArray(), snapshot.DefinedResources.AudioRelativePathHashes.ToArray());
             CollectionAssert.AreEquivalent(expectedDefinedResources.VisualRelativePathHashes.ToArray(), snapshot.DefinedResources.VisualRelativePathHashes.ToArray());
             CollectionAssert.AreEquivalent(expectedDefinedResources.MovieRelativePathHashes.ToArray(), snapshot.DefinedResources.MovieRelativePathHashes.ToArray());

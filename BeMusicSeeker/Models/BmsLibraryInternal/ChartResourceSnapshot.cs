@@ -102,7 +102,7 @@ internal sealed class ChartResourceSnapshot
             .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
-    public static ChartResourceSnapshot Create(BMSFile file)
+    private static ChartResourceSnapshot Create(BMSFile file)
     {
         if (file == null)
         {
@@ -171,17 +171,6 @@ internal sealed class ChartResourceSnapshot
         snapshot.AddOptionalImage(song.stagefile);
         snapshot.PathSegmentReferenceCount = snapshot.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
         return snapshot;
-    }
-
-    public static ChartResourceSnapshot CreateAggregate(IEnumerable<BMSFile> files)
-    {
-        var aggregate = new ChartResourceSnapshot();
-        foreach (BMSFile file in (files ?? []).Where(item => item != null))
-        {
-            aggregate.Merge(Create(file));
-        }
-        aggregate.PathSegmentReferenceCount = aggregate.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
-        return aggregate;
     }
 
     public static ChartResourceSnapshot CreateAggregate(IEnumerable<ChartFile> charts)
