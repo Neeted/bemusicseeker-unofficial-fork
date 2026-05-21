@@ -21,24 +21,18 @@ internal sealed class PlaylistDetailSourceRow
     /// </summary>
     internal BMSTableEntry Entry { get; }
 
-    /// <summary>
-    /// ライブラリ上の実体譜面です。未所持行では null です。
-    /// </summary>
-    internal BMSFile RealFile { get; }
-
-    /// <summary>
-    /// ライブラリ上の対応 bmson 実体です。未所持または BMS 優先解決時は null です。
-    /// </summary>
-    internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
-
     private readonly ChartFile resolvedChartSnapshot;
+
+    private readonly BMSFile realFile;
+
+    private readonly LR2SongDBExtended.bmson_song resolvedBmson;
 
     private readonly Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
-    internal bool IsOwned => (RealFile != null && !string.IsNullOrWhiteSpace(RealFile.path)) || (ResolvedBmson != null && !string.IsNullOrWhiteSpace(ResolvedBmson.path));
+    internal bool IsOwned => (realFile != null && !string.IsNullOrWhiteSpace(realFile.path)) || (resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path));
 
     internal string Title { get; }
 
@@ -136,9 +130,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal LR2SongDBExtended.chart_info EntryChartInfo { get; private set; }
 
-    internal LR2SongDBExtended.chart_info ChartInfo => RealFile?.ChartInfo ?? ResolvedBmson?.ChartInfo ?? EntryChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => realFile?.ChartInfo ?? resolvedBmson?.ChartInfo ?? EntryChartInfo;
 
-    internal bool HasEntryChartInfoDependency => RealFile == null && ResolvedBmson == null;
+    internal bool HasEntryChartInfoDependency => realFile == null && resolvedBmson == null;
 
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
@@ -224,12 +218,10 @@ internal sealed class PlaylistDetailSourceRow
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
-        RealFile = resolvedChart?.BmsFile;
-        ResolvedBmson = resolvedChart?.BmsonSong;
+        realFile = resolvedChart?.BmsFile;
+        resolvedBmson = resolvedChart?.BmsonSong;
         EntryChartInfo = entryChartInfo;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
-        BMSFile realFile = RealFile;
-        LR2SongDBExtended.bmson_song resolvedBmson = ResolvedBmson;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
         BMSFile snapshotSource = realFile;
@@ -249,7 +241,7 @@ internal sealed class PlaylistDetailSourceRow
         Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson), resolvedChart?.Folder);
         path = FirstNonEmpty(realFile?.path, resolvedBmson?.path, resolvedChart?.Path);
         Chart = CreateChartFile();
-        PlaylistReferenceDisplay playlistReferenceDisplay = RealFile == null && playlistReferenceDisplayProvider != null
+        PlaylistReferenceDisplay playlistReferenceDisplay = realFile == null && playlistReferenceDisplayProvider != null
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
         HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
@@ -335,18 +327,18 @@ internal sealed class PlaylistDetailSourceRow
 
     private ChartFile CreateChartFile()
     {
-        if (RealFile != null)
+        if (realFile != null)
         {
-            return ChartFileProjection.FromBmsFile(RealFile);
+            return ChartFileProjection.FromBmsFile(realFile);
         }
-        if (ResolvedBmson != null)
+        if (resolvedBmson != null)
         {
             if (bmsonTransientStateProvider == null && resolvedChartSnapshot != null)
             {
                 return resolvedChartSnapshot;
             }
             return ChartFileProjection.FromBmsonSong(
-                ResolvedBmson,
+                resolvedBmson,
                 GetBmsonTransientState(includeWarningSnapshot: true));
         }
         if (resolvedChartSnapshot != null && EntryChartInfo == null)
@@ -369,11 +361,11 @@ internal sealed class PlaylistDetailSourceRow
 
     private ChartFileTransientState GetBmsonTransientState(bool includeWarningSnapshot)
     {
-        if (ResolvedBmson == null)
+        if (resolvedBmson == null)
         {
             return ChartFileTransientState.Empty;
         }
-        return bmsonTransientStateProvider?.Invoke(ResolvedBmson, includeWarningSnapshot)
+        return bmsonTransientStateProvider?.Invoke(resolvedBmson, includeWarningSnapshot)
             ?? ChartFileTransientState.Empty;
     }
 

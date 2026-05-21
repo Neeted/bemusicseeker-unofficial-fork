@@ -561,8 +561,8 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
         Assert.IsTrue(sourceRow.IsOwned);
-        Assert.IsNull(row.RealFile);
-        Assert.AreSame(bmson, row.ResolvedBmson);
+        Assert.IsNull(row.Chart.BmsFile);
+        Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.AreSame(sourceRow.Chart, row.Chart);
         Assert.IsTrue(GridRowResolver.TryGetChartFile(sourceRow, out ChartFile sourceChart));
         Assert.AreSame(sourceRow.Chart, sourceChart);

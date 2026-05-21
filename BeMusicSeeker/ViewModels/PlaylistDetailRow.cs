@@ -32,13 +32,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
     internal BMSTableEntry Entry { get; }
 
     /// <summary>
-    /// 対応する実体譜面です。未所持行では null です。
-    /// </summary>
-    internal BMSFile RealFile { get; }
-
-    internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
-
-    /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
     internal bool IsOwned { get; }
@@ -232,8 +225,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
             throw new ArgumentNullException(nameof(source));
         }
         Entry = source.Entry;
-        RealFile = source.RealFile;
-        ResolvedBmson = source.ResolvedBmson;
         IsOwned = source.IsOwned;
         Chart = source.Chart;
         EntryLevelSortKey = source.EntryLevelSortKey;

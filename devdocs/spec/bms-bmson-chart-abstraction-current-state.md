@@ -103,7 +103,7 @@ parent folder cache は UI / settings の語彙としては BMS root / BMS direc
 - warning 表示
 - playlist reference (`RefTablesSymbols` / `RefTablesNames`)
 
-playlist reference 表示は、BMS では従来どおり `BMSFile.RefTables` を読む。所持 bmson row は `BmsFile == null` / `RealFile == null` なので、playlist entry の md5 / sha256 から作る読み取り専用の `PlaylistReferenceIndex` を通常一覧 row / virtual source row / playlist detail source row に注入し、chart identity から参照 table 表示を解決する。lookup は既存の参照適用と同じく md5 優先、sha256 fallback とする。
+playlist reference 表示は、BMS では従来どおり `ChartFile.BmsFile.RefTables` を読む。所持 bmson row は `ChartFile.BmsFile == null` なので、playlist entry の md5 / sha256 から作る読み取り専用の `PlaylistReferenceIndex` を通常一覧 row / virtual source row / playlist detail source row に注入し、chart identity から参照 table 表示を解決する。lookup は既存の参照適用と同じく md5 優先、sha256 fallback とする。
 
 一方、次の列は BMSFile 由来に依存するため、所持 bmson では空または既定値になりやすい。
 
@@ -164,7 +164,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 `ChartFileProjection` は path / hash / title / artist / level / mode / chart_info に加えて、表示に必要な subtitle / warning snapshot / install destination 表示値も集約する。UI row / operation target からは compatibility adapter surface を削除済みであり、表示 getter は adapter API ではなく `ChartFile` / `ChartFileTransientState` を読む。
 
-playlist row では `RealFile` があれば BMS として扱い、`ResolvedBmson` があれば bmson として扱う。どちらもない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。
+playlist row では `ChartFile.BmsFile` があれば BMS として扱い、`ChartFile.BmsonSong` があれば bmson として扱う。どちらもない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。
 
 `GridRowResolver.TryGetBmsPlayerFile(...)` は、既存 View / preview 経路の BMS player 用 API として残っている。これは BMS player が現在 BMS storage row だけを再生対象にするための BMS-only 境界であり、bmson adapter は返さない。chart 種別を判断する正本ではない。operation 判定は `TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` と capability を優先する。chart-common mutation は `ChartFile` / `LibraryChartRef` / `PackageChartEntry` を使い、BMS player / BMS-only handler だけが `ChartFile.BmsFile` や `TryGetBmsPlayerFile(...)` を見る。旧 `GridRowResolver.GetRealBmsFile(...)` / `GetCompatibilityBmsFile(...)` は production 参照がなく、BMSFile 互換 helper を戻す口になっていたため削除済みである。`FOLDER` セル編集は `TryGetFolderEditChartOperationTarget(...)` で `MoveInLibrary` capability を確認し、UI thread 上で `RenameChartFolderTargetSnapshot` を作ってから `RenameChartFolder(...)` へ渡すため、owned bmson row も BMS row と同じ folder rename 経路に入るが、background task 側で bmson compatibility adapter を materialize しない。`ChartFile.BmsFile` は BMS storage owner だけを表し、bmson adapter には使わない。
 
@@ -353,10 +353,8 @@ playlist detail は `PlaylistDetailSourceRow` / `PlaylistDetailRow` で表示さ
 
 主な状態:
 
-- `RealFile`: 所持 BMS へ解決できた場合の `BMSFile`
-- `ResolvedBmson`: 所持 bmson へ解決できた場合の `bmson_song`
-- `IsOwned`: `RealFile` または `ResolvedBmson` が path を持つ場合 true
-- `Chart`: playlist detail row の chart read model
+- `Chart`: playlist detail row の chart read model。所持 BMS は `ChartFile.BmsFile`、所持 bmson は `ChartFile.BmsonSong` を storage owner として持つ。
+- `IsOwned`: `ChartFile.BmsFile` または `ChartFile.BmsonSong` が path を持つ場合 true
 
 `PlaylistDetailSourceRow` は source snapshot 構築時に解決済み `ChartFile` を受け取る。BMS / bmson の storage owner は `ChartFile.BmsFile` / `ChartFile.BmsonSong` から派生し、playlist missing row は `resolvedChart == null` と playlist entry / `entryChartInfo` から metadata chart を作る。`BuildPlaylistSourceRows(...)` も `BMSFile + bmson_song` の tuple を source row 入口にせず、entry resolve の結果を `ChartFile` として保持する。`PlaylistDetailRow` は source row の `Chart` を引き継ぎ、missing row の手動 level 編集や source row の entry chart_info patch 時には `Chart` を作り直す。これにより、view row からも source row と同じ chart_info / identity snapshot を `GridRowResolver` に渡せる。
 
@@ -364,7 +362,7 @@ playlist detail は `PlaylistDetailSourceRow` / `PlaylistDetailRow` で表示さ
 
 playlist detail row は view row materialization だけでは bmson compatibility adapter を作らない。`PlaylistDetailSourceRow` / `PlaylistDetailRow` は表示用 `ChartFile` を bmson storage row と `ChartFileTransientState` だけから作り、`CompatibilityBmsFile` surface を持たない。ViewModel が渡す transient state provider は repair / warning 表示 state を `ChartFileTransientState` として返し、存在しない adapterless bmson row は表示するだけでは `PendingChartEntry` へ変換しない。
 
-playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `RealFile.RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
+playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `ChartFile.BmsFile.RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
 
 playlist detail 表示時の `ChartRowsView` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncChartRowsViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
 
@@ -651,6 +649,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - `ChartListSourceRow` は `ChartFile` projection を constructor の正本にする。BMS / bmson の storage owner は `ChartFile.BmsFile` / `ChartFile.BmsonSong` から private field として取り出し、owner-backed row では `Chart` getter が現在 owner と transient state から再 projection する。旧実装では `BMSFile` / `bmson_song` を constructor 引数として持ち、必要に応じて内部で `ChartFile` を組み立てていたが、virtual source row の責務は chart identity / sort / filter read model なので、入力境界と外部 surface を `ChartFile` に寄せる。ただし `HasSourceChartProjection` は「caller supplied `ChartFile` projection を materialization 時にも尊重する」契約であり、storage owner が無いことを意味しない。通常 library の owner-backed source row はこの flag を立てず、`LibraryChartRow.FromChartFile(...)` へ誤って materialize しない。bmson owner-backed projection で provider transient state と source projection warning が両方ある場合は、provider の install destination state を優先しつつ、provider が warning を持たないときだけ source projection warning を fallback として重ねる。
 - virtual source rows signature は storage owner の有無ではなく `ChartFile.Kind` を使う。旧実装では ownerless BMS metadata row が `BMSFile == null` のため bmson / metadata-only 側と同じ区分になったが、現行では BMS metadata chart として区別する。signature には path / md5 / sha256 も含まれるため cache identity の安定性は維持する。
 - `GridRowResolver.TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` は raw `BMSFile` を chart-common row として受けない。旧実装では直接 `BMSFile` を渡すと `ChartFileProjection.FromBmsFile(...)` で chart operation target に変換できたが、production ではこの入口は BMS player / BMS-only helper 以外から使われておらず、test-only compatibility surface になっていた。現行実装では raw `BMSFile` は `TryGetBmsPlayerFile(...)` と display / hash helper の BMS-only fallback にだけ残し、chart operation が必要な場合は caller が `LibraryChartRow` や `ChartFile` projection を明示的に作る。
+- `PlaylistDetailSourceRow` / `PlaylistDetailRow` は `RealFile` / `ResolvedBmson` property を公開しない。旧実装では playlist detail row の外部 consumer が BMS / bmson owner を個別 property で見ていたが、現行実装では `ChartFile.BmsFile` / `ChartFile.BmsonSong` を読む。`CommitPlaylistRow(...)` の bmson identity repair や `TryGetBmsPlayerFile(...)` も `row.Chart` から owner を取り出す。source row 内部は score / chart_info / playlist reference snapshot 構築のために private field として owner を保持するが、row API surface には戻さない。
 - table context menu の playlist missing 判定は `ChartOperationTarget.IsPlaylistMissing` だけを見る。旧 fallback の `GridRowResolver.IsPlaylistRow(row) && BMS player 対象が無い` 判定は、owned bmson playlist row も BMS player 対象ではないため missing と誤認し得る BMS-only 判定だったので移植しない。`TryGetChartOperationTarget(...)` が失敗する row は chart operation target として表現できないので、通常 menu を選ぶ。
 - `ChartOperationTarget.ToPackageChartEntry()` は、`PackageEntry` がない loose target では `ChartFile` から `PackageChartEntry` を作る。BMS storage owner を持つ chart だけ `PackageChartEntry.FromBmsFile(...)` へ落とし、bmson では compatibility provider を呼ばない。旧実装では repair / install destination 用 snapshot の lazy entry materialization 時に provider から bmson adapter を作り、adapter の `instl_dst` / warning を overlay し得た。現行実装では、operation target 作成時点の `ChartFile` snapshot に含まれる state だけを使い、後段処理のためだけに loose bmson adapter を materialize する副作用は移植しない。
 - installed location repair の maintenance target は `ChartFile` に統一する。旧実装由来で BMS は `List<BMSFile>`、bmson は `List<ChartFile>` に分かれていたが、fix mutation の入口は `RepairCharts` であり、修復後の resource maintenance も chart-common operation なので、BMS だけ BMSFile-only result list へ戻す中間表現は残さない。

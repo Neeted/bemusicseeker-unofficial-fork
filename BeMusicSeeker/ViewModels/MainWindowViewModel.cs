@@ -17718,9 +17718,10 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(playlistRow));
         }
-        if (playlistRow.ResolvedBmson != null && playlistRow.RealFile == null)
+        ChartFile chart = playlistRow.Chart;
+        if (chart?.BmsonSong != null && chart.BmsFile == null)
         {
-            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? playlistRow.ResolvedBmson.sha256);
+            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? chart.BmsonSong.sha256);
         }
         tables.CommitBMSTableEntry(playlistRow.Entry);
     }
