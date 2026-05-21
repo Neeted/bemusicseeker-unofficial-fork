@@ -53,10 +53,10 @@ internal sealed class NormalLibraryRowCache
         return row;
     }
 
-    internal int Prune(IEnumerable<BMSFile> currentFiles)
+    internal int Prune(IEnumerable<ChartFile> currentCharts)
     {
         var current = new HashSet<BMSFile>(
-            (currentFiles ?? []).Where(file => file != null),
+            GetBmsStorageOwners(currentCharts),
             BmsFileReferenceComparer.Instance);
         List<BMSFile> removed = [.. rowsByFile.Keys.Where(file => !current.Contains(file))];
         foreach (BMSFile file in removed)
@@ -69,6 +69,13 @@ internal sealed class NormalLibraryRowCache
     internal void Clear()
     {
         rowsByFile.Clear();
+    }
+
+    private static IEnumerable<BMSFile> GetBmsStorageOwners(IEnumerable<ChartFile> charts)
+    {
+        return (charts ?? [])
+            .Select(chart => chart?.GetBmsStorageOwner())
+            .Where(file => file != null);
     }
 
     private sealed class BmsFileReferenceComparer : IEqualityComparer<BMSFile>

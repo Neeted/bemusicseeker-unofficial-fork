@@ -2807,7 +2807,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, firstStats.MissCount);
         Assert.AreEqual(1, secondStats.HitCount);
         Assert.AreEqual(0, secondStats.MissCount);
-        Assert.AreEqual(1, cache.Prune([fileA]));
+        Assert.AreEqual(1, cache.Prune([ChartFileProjection.FromBmsStorageOwnerIdentity(fileA)]));
         Assert.AreEqual(1, cache.Count);
         fileB.SetTitle("B2");
         fileA.SetTitle("A2");

@@ -267,6 +267,40 @@ internal static class ChartFileProjection
             .Where(chart => chart != null)];
     }
 
+    internal static ChartFile FromBmsStorageOwnerIdentity(BMSFile file)
+    {
+        if (file == null)
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            ChartFileKind.Bms,
+            file.path,
+            file.hash,
+            file.sha256,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            file,
+            null);
+    }
+
+    internal static List<ChartFile> FromBmsStorageOwnerIdentities(IEnumerable<BMSFile> files)
+    {
+        return [.. (files ?? [])
+            .Where(file => file != null)
+            .Select(FromBmsStorageOwnerIdentity)
+            .Where(chart => chart != null)];
+    }
+
     internal static List<ChartFile> FromBmsonSongs(
         IEnumerable<LR2SongDBExtended.bmson_song> songs,
         bool includeWarningSnapshot = false,

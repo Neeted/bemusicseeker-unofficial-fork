@@ -10047,13 +10047,13 @@ public class MainWindowViewModel : ViewModel
             + " sortKeyGeneration=" + normalLibrarySortKeyGeneration);
     }
 
-    private int PruneRegularBmsLibraryRowCache(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
+    private int PruneRegularBmsLibraryRowCache(IEnumerable<ChartFile> currentCharts)
     {
         if (regularBmsLibraryRowCache == null)
         {
             return 0;
         }
-        int pruned = regularBmsLibraryRowCache.Prune(currentFiles);
+        int pruned = regularBmsLibraryRowCache.Prune(currentCharts);
         pendingRegularBmsRowCachePrunedCount += pruned;
         return pruned;
     }
@@ -14151,7 +14151,7 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
             InvalidatePlaylistLibraryIndexSnapshot("library_charts_changed");
-            PruneRegularBmsLibraryRowCache(files?.BMSFiles);
+            PruneRegularBmsLibraryRowCache(ChartFileProjection.FromBmsStorageOwnerIdentities(files?.BMSFiles));
             IncrementNormalLibrarySourceGeneration("library_charts_changed");
             ResetRegularDerivedViewCaches();
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
