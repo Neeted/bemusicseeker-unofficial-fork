@@ -55,15 +55,16 @@ internal sealed class BmsLibraryMaintenanceService
 
     internal static BMSFileMaintenanceInfo GetResourceHealthMaintenanceInfo(ChartFile chart)
     {
-        if (chart?.BmsFile != null)
+        BMSFile bmsFile = chart?.GetBmsStorageOwner();
+        if (bmsFile != null)
         {
-            return chart.BmsFile.HasValidMaintenanceInfoSnapshot
-                ? chart.BmsFile.TryGetMaintenanceInfoWithoutCreating()
+            return bmsFile.HasValidMaintenanceInfoSnapshot
+                ? bmsFile.TryGetMaintenanceInfoWithoutCreating()
                 : null;
         }
-        if (chart?.BmsonSong != null)
+        LR2SongDBExtended.bmson_song song = chart?.GetBmsonStorageOwner();
+        if (song != null)
         {
-            LR2SongDBExtended.bmson_song song = chart.BmsonSong;
             BMSFileMaintenanceInfo maintenanceInfo = song.MaintenanceInfo;
             if (IsCurrentBmsonMaintenanceInfo(song, maintenanceInfo) && HasResourceHealthSnapshot(maintenanceInfo))
             {
@@ -354,9 +355,10 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static void AttachResourceHealthMaintenanceInfo(ChartFile chart, BMSFileMaintenanceInfo maintenanceInfo)
     {
-        if (chart?.BmsonSong != null && maintenanceInfo != null && !ReferenceEquals(chart.BmsonSong.MaintenanceInfo, maintenanceInfo))
+        LR2SongDBExtended.bmson_song song = chart?.GetBmsonStorageOwner();
+        if (song != null && maintenanceInfo != null && !ReferenceEquals(song.MaintenanceInfo, maintenanceInfo))
         {
-            chart.BmsonSong.MaintenanceInfo = maintenanceInfo;
+            song.MaintenanceInfo = maintenanceInfo;
         }
     }
 

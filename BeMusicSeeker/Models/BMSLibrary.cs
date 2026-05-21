@@ -6894,14 +6894,16 @@ reportProgress,
             {
                 continue;
             }
-            if (ChartFileKindResolver.IsBmsChartFile(chart.BmsFile))
+            BMSFile bmsFile = chart.GetBmsStorageOwner();
+            if (ChartFileKindResolver.IsBmsChartFile(bmsFile))
             {
-                bmsTargets.Add(chart.BmsFile);
+                bmsTargets.Add(bmsFile);
                 continue;
             }
-            if (chart.BmsonSong != null && !string.IsNullOrWhiteSpace(chart.BmsonSong.path))
+            LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+            if (bmsonSong != null && !string.IsNullOrWhiteSpace(bmsonSong.path))
             {
-                bmsonSongsByPath[chart.BmsonSong.path] = chart.BmsonSong;
+                bmsonSongsByPath[bmsonSong.path] = bmsonSong;
             }
         }
         bmsonSongs = [.. bmsonSongsByPath.Values];
@@ -9661,7 +9663,8 @@ reportProgress,
         {
             return BmsonSongs.Any(song => !string.IsNullOrWhiteSpace(song?.path) && IsSamePath(song.path, chart.Path));
         }
-        if (chart.BmsFile != null && BMSFiles.Any(file => IsSameChartFile(file, chart.BmsFile)))
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null && BMSFiles.Any(file => IsSameChartFile(file, bmsFile)))
         {
             return true;
         }
@@ -10132,7 +10135,7 @@ reportProgress,
             return 0;
         }
         int addedRefs = 0;
-        foreach (BMSFile file in charts.Select(chart => chart?.BmsFile).Where(file => file != null).Distinct())
+        foreach (BMSFile file in charts.Select(chart => chart?.GetBmsStorageOwner()).Where(file => file != null).Distinct())
         {
             addedRefs += file.AddRefTables([table]);
         }
@@ -10171,7 +10174,7 @@ reportProgress,
     private static List<BMSFile> GetBmsStorageOwnersFromPackageEntries(IEnumerable<PackageChartEntry> entries)
     {
         return [.. (entries ?? [])
-            .Select(entry => entry?.Chart?.BmsFile)
+            .Select(entry => entry?.Chart?.GetBmsStorageOwner())
             .Where(file => file != null)
             .Distinct()];
     }
@@ -10335,7 +10338,7 @@ reportProgress,
         {
             return;
         }
-        foreach (BMSFile file in charts.Select(chart => chart?.BmsFile).Where(file => file != null).Distinct())
+        foreach (BMSFile file in charts.Select(chart => chart?.GetBmsStorageOwner()).Where(file => file != null).Distinct())
         {
             file.RemoveRefTable(table);
         }
@@ -10538,10 +10541,10 @@ reportProgress,
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
                     List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
                     List<BMSFile> movedBmsFiles = [.. movedPackageEntries
-                        .Select(entry => entry?.Chart?.BmsFile)
+                        .Select(entry => entry?.Chart?.GetBmsStorageOwner())
                         .Where(ChartFileKindResolver.IsBmsChartFile)];
                     List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
-                        .Select(entry => entry?.Chart?.BmsonSong)
+                        .Select(entry => entry?.Chart?.GetBmsonStorageOwner())
                         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
                     dbGateway.UpsertSongs(movedBmsFiles);
                     if (movedBmsonSongs.Count > 0)
@@ -10900,7 +10903,7 @@ reportProgress,
     {
         return [.. (charts ?? [])
             .Where(ChartFileKindResolver.IsBmsChartFile)
-            .Select(chart => chart.BmsFile)
+            .Select(chart => chart.GetBmsStorageOwner())
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 

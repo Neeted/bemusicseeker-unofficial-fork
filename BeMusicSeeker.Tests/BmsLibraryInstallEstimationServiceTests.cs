@@ -818,7 +818,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(ChartFileKind.Bms, snapshot.RepresentativeChart.Kind);
             Assert.AreEqual(primary.path, snapshot.RepresentativeChart.Path);
-            Assert.AreSame(primary, snapshot.RepresentativeChart.BmsFile);
+            Assert.AreSame(primary, snapshot.RepresentativeChart.GetBmsStorageOwner());
             Assert.AreEqual(2, snapshot.ChartCount);
             var expectedDefinedResources = ChartResourceSnapshot.CreateAggregate(package.ChartEntries.Select(entry => entry.Chart));
             CollectionAssert.AreEquivalent(expectedDefinedResources.AudioRelativePathHashes.ToArray(), snapshot.DefinedResources.AudioRelativePathHashes.ToArray());
@@ -961,8 +961,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     secondEntries.Select(entry => entry.Chart.Path).ToList());
                 Assert.AreEqual(3, firstEntries.Count);
                 Assert.AreEqual(3, secondEntries.Count);
-                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
-                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
+                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.GetBmsStorageOwner() != null));
+                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.GetBmsStorageOwner() != null));
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
                 Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bmson).All(entry => entry.GetBmsOwnerForTest() == null));
                 Assert.AreEqual(1, firstEntries.Count(entry => entry.Chart.Kind == ChartFileKind.Bmson));
@@ -998,15 +998,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 List<PackageChartEntry> firstEntries = package.ChartEntries;
                 string updatedPath = Path.Combine(sourceDir, "updated.bms");
-                firstEntries.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.BmsFile.path = updatedPath;
+                firstEntries.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.GetBmsStorageOwner().path = updatedPath;
                 List<PackageChartEntry> secondEntries = package.ChartEntries;
 
                 Assert.AreEqual(2, firstEntries.Count);
                 Assert.AreEqual(2, secondEntries.Count);
                 Assert.IsTrue(secondEntries.Any(entry => string.Equals(entry.Chart.Path, updatedPath, StringComparison.OrdinalIgnoreCase)));
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
-                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
-                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.BmsFile != null));
+                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.GetBmsStorageOwner() != null));
+                Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.GetBmsStorageOwner() != null));
                 CollectionAssert.AreEqual(
                     secondEntries.Select(entry => entry.Chart.Path).OrderBy(path => path).ToList(),
                     package.ChartEntries.Select(entry => entry.Chart.Path).OrderBy(path => path).ToList());
@@ -1183,7 +1183,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsNotNull(snapshot);
         Assert.IsNull(snapshot.GetBmsOwnerForTest());
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.Chart.Kind);
-        Assert.AreSame(song, snapshot.Chart.BmsonSong);
+        Assert.AreSame(song, snapshot.Chart.GetBmsonStorageOwner());
         Assert.AreEqual(destinationDirectory, snapshot.Chart.InstallDestination);
         Assert.IsTrue(snapshot.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
     }
@@ -1239,7 +1239,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
-                Assert.IsNotNull(snapshot.RepresentativeChart.BmsonSong);
+                Assert.IsNotNull(snapshot.RepresentativeChart.GetBmsonStorageOwner());
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
             });
         });
@@ -1420,7 +1420,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
-                Assert.IsNotNull(snapshot.RepresentativeChart.BmsonSong);
+                Assert.IsNotNull(snapshot.RepresentativeChart.GetBmsonStorageOwner());
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
                 Assert.IsTrue(snapshot.SourceSurfaceBatchHit);
             });
@@ -1942,8 +1942,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
             Assert.AreEqual(pendingSong.path, snapshot.RepresentativeChart.Path);
-            Assert.AreSame(pendingSong, snapshot.RepresentativeChart.BmsonSong);
-            Assert.IsNull(snapshot.RepresentativeChart.BmsFile);
+            Assert.AreSame(pendingSong, snapshot.RepresentativeChart.GetBmsonStorageOwner());
+            Assert.IsNull(snapshot.RepresentativeChart.GetBmsStorageOwner());
             CollectionAssert.Contains(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "keysound");
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(

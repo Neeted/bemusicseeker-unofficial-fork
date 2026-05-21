@@ -79,13 +79,15 @@ internal sealed class LibraryChartRef
         {
             return null;
         }
-        if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null)
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null)
         {
-            return FromBmsFile(chart.BmsFile);
+            return FromBmsFile(bmsFile);
         }
-        if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        if (bmsonSong != null)
         {
-            return FromBmsonSong(chart.BmsonSong);
+            return FromBmsonSong(bmsonSong);
         }
         return FromPath(
             chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,

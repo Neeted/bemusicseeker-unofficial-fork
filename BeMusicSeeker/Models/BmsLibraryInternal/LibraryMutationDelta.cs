@@ -46,9 +46,9 @@ internal sealed class LibraryChartPathChange
 
     public bool CalcFolderParent { get; set; } = true;
 
-    public BMSFile BmsFile => Chart?.BmsFile;
+    public BMSFile BmsFile => Chart?.GetBmsStorageOwner();
 
-    public LR2SongDBExtended.bmson_song BmsonSong => Chart?.BmsonSong;
+    public LR2SongDBExtended.bmson_song BmsonSong => Chart?.GetBmsonStorageOwner();
 }
 
 internal sealed class LibraryFolderPathChange

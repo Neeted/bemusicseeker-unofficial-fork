@@ -36,6 +36,6 @@ internal static class ChartPackageTestExtensions
 
     internal static BMSFile GetBmsOwnerForTest(this PackageChartEntry entry)
     {
-        return entry?.Chart?.BmsFile!;
+        return entry?.Chart?.GetBmsStorageOwner()!;
     }
 }

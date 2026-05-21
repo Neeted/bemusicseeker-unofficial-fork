@@ -653,30 +653,32 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
 
             ChartFile movedChart = entry.Chart;
-            if (movedChart?.BmsFile != null)
+            BMSFile movedBmsFile = movedChart?.GetBmsStorageOwner();
+            if (movedBmsFile != null)
             {
-                movedChart.BmsFile.instl_dst = null;
+                movedBmsFile.instl_dst = null;
                 result.MutationDelta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = movedChart,
-                    NewPath = movedChart.BmsFile.path,
-                    OldPath = oldPath
-                });
-                result.MaintenanceCharts.Add(movedChart);
-            }
-            else if (movedChart?.BmsonSong != null)
-            {
-                result.MutationDelta.ChartPathChanges.Add(new LibraryChartPathChange
-                {
-                    Chart = movedChart,
-                    NewPath = movedChart.BmsonSong.path,
+                    NewPath = movedBmsFile.path,
                     OldPath = oldPath
                 });
                 result.MaintenanceCharts.Add(movedChart);
             }
             else
             {
-                continue;
+                LR2SongDBExtended.bmson_song movedBmsonSong = movedChart?.GetBmsonStorageOwner();
+                if (movedBmsonSong == null)
+                {
+                    continue;
+                }
+                result.MutationDelta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = movedChart,
+                    NewPath = movedBmsonSong.path,
+                    OldPath = oldPath
+                });
+                result.MaintenanceCharts.Add(movedChart);
             }
             result.MutationDelta.RaiseLibraryChartsChanged = true;
             result.MutationDelta.InvalidateInstalledDirectoryIndex = true;

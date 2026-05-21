@@ -627,8 +627,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTables(table);
 
-            Assert.IsNull(chart.BmsFile);
-            Assert.AreSame(song, chart.BmsonSong);
+            Assert.IsNull(chart.GetBmsStorageOwner());
+            Assert.AreSame(song, chart.GetBmsonStorageOwner());
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });
@@ -678,8 +678,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTablesToCharts(table, [chart]);
 
-            Assert.IsNull(chart.BmsFile);
-            Assert.AreSame(song, chart.BmsonSong);
+            Assert.IsNull(chart.GetBmsStorageOwner());
+            Assert.AreSame(song, chart.GetBmsonStorageOwner());
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });

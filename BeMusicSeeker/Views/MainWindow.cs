@@ -1184,7 +1184,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         return [.. (charts ?? [])
             .Where(ChartFileKindResolver.IsBmsChartFile)
-            .Select(chart => chart.BmsFile)
+            .Select(chart => chart.GetBmsStorageOwner())
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 

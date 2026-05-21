@@ -376,7 +376,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(0, result.CleanupOnlyFailed);
         Assert.AreEqual(1, result.CleanupOnlyMissingSource);
         Assert.AreEqual(1, result.DeferredMaintenanceCharts.Count);
-        Assert.AreSame(newFile, result.DeferredMaintenanceCharts[0].BmsFile);
+        Assert.AreSame(newFile, result.DeferredMaintenanceCharts[0].GetBmsStorageOwner());
         Assert.IsNull(alreadyInstalledInPackage.instl_dst);
         Assert.IsNull(newFile.instl_dst);
         Assert.IsNull(cleanupOnlyFile.instl_dst);
@@ -424,7 +424,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             (_) => (false, CleanupSourceKind.MissingSource));
 
         Assert.AreEqual(1, result.DeferredMaintenanceCharts.Count);
-        Assert.AreSame(bmsonSong, result.DeferredMaintenanceCharts[0].BmsonSong);
+        Assert.AreSame(bmsonSong, result.DeferredMaintenanceCharts[0].GetBmsonStorageOwner());
         Assert.IsNull(bmsonEntry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, bmsonEntry.Chart.InstallDestination);
     }
@@ -824,7 +824,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
-            BMSFile chart = chartEntry.Chart.BmsFile;
+            BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
@@ -867,7 +867,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
-            BMSFile chart = chartEntry.Chart.BmsFile;
+            BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
             Assert.IsNotNull(chart);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
@@ -909,7 +909,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
             PackageChartEntry chartEntry = result.AutoInstallCandidates[0].ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
-            BMSFile chart = chartEntry.Chart.BmsFile;
+            BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, chart.maintenanceInfo.movie_files_existing);
@@ -1526,7 +1526,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 {
                     List<ChartFile> receivedFiles = [.. files];
                     Assert.AreEqual(1, receivedFiles.Count);
-                    Assert.AreSame(chart, receivedFiles[0].BmsFile);
+                    Assert.AreSame(chart, receivedFiles[0].GetBmsStorageOwner());
                     return Path.Combine(tempDirectoryPath, "InstalledAuto");
                 },
                 ex => ex.Message,
@@ -2094,7 +2094,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
 
-            CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.BmsFile).ToArray());
+            CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.GetBmsStorageOwner()).ToArray());
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });
     }
@@ -2109,7 +2109,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
 
-        CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.BmsFile).ToArray());
+        CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.GetBmsStorageOwner()).ToArray());
         Assert.AreSame(bmsFile, bmsEntry.GetBmsOwnerForTest());
     }
 

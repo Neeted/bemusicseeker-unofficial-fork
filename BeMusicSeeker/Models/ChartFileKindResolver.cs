@@ -32,6 +32,6 @@ internal static class ChartFileKindResolver
 
     internal static bool IsBmsChartFile(ChartFile chart)
     {
-        return chart?.Kind == ChartFileKind.Bms && IsBmsChartFile(chart.BmsFile);
+        return IsBmsChartFile(chart?.GetBmsStorageOwner());
     }
 }

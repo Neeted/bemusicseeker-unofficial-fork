@@ -21,7 +21,7 @@ internal sealed class DuplicateChartRow
 
     public ChartFile Chart { get; set; }
 
-    public BMSFile BmsFile => Chart?.BmsFile;
+    public BMSFile BmsFile => Chart?.GetBmsStorageOwner();
 
     public static DuplicateChartRow CreateFromChart(ChartFile chart)
     {

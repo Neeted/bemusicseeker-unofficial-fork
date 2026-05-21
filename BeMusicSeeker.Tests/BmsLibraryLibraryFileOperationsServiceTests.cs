@@ -881,9 +881,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CollectionAssert.AreEqual(new[] { bmsFile }, result.SourceCharts.Select(chart => chart.BmsFile).Where(file => file != null).ToArray());
             CollectionAssert.AreEqual(new[] { bmsonSong }, result.SourceCharts.Select(chart => chart.BmsonSong).Where(song => song != null).ToArray());
             Assert.AreEqual(2, result.Repackage.ChartEntries.Count);
-            Assert.IsTrue(result.Repackage.ChartEntries.Any(entry => ReferenceEquals(entry.Chart.BmsFile, bmsFile)));
+            Assert.IsTrue(result.Repackage.ChartEntries.Any(entry => ReferenceEquals(entry.Chart.GetBmsStorageOwner(), bmsFile)));
             PackageChartEntry bmsonEntry = result.Repackage.ChartEntries.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson);
-            Assert.AreSame(bmsonSong, bmsonEntry.Chart.BmsonSong);
+            Assert.AreSame(bmsonSong, bmsonEntry.Chart.GetBmsonStorageOwner());
             Assert.IsNull(bmsonEntry.GetBmsOwnerForTest());
             CollectionAssert.AreEquivalent(new[] { bmsFile.hash, bmsonSong.md5 }, excludedHashes.ToArray());
         });
@@ -940,8 +940,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: true);
 
         Assert.AreEqual(2, delta.ChartsToUnregister.Count);
-        Assert.AreSame(bmsFile, delta.ChartsToUnregister.Single(chart => chart.BmsFile == bmsFile).BmsFile);
-        Assert.AreSame(bmsonSong, delta.ChartsToUnregister.Single(chart => chart.BmsonSong == bmsonSong).BmsonSong);
+        Assert.AreSame(bmsFile, delta.ChartsToUnregister.Single(chart => chart.GetBmsStorageOwner() == bmsFile).GetBmsStorageOwner());
+        Assert.AreSame(bmsonSong, delta.ChartsToUnregister.Single(chart => chart.GetBmsonStorageOwner() == bmsonSong).GetBmsonStorageOwner());
         Assert.AreEqual(0, delta.ChartPathChanges.Count);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(delta.InvalidateParentFolderCache);
@@ -972,7 +972,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             delegate (ChartPackage package, string destinationDirectory)
             {
-                if (package.ChartEntries[0].Chart.BmsFile == duplicateFile)
+                if (package.ChartEntries[0].Chart.GetBmsStorageOwner() == duplicateFile)
                 {
                     package.ReplaceChartEntries([]);
                     return true;
@@ -980,7 +980,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 package.ChartEntries[0].ApplyInstalledPath(Path.Combine(destinationDirectory, "move.bms"));
                 return true;
             },
-            chart => chart.BmsFile == duplicateFile);
+            chart => chart.GetBmsStorageOwner() == duplicateFile);
 
         Assert.AreEqual(2, result.RequestedCount);
         Assert.AreEqual(1, result.MovedCount);
@@ -991,7 +991,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(1, result.ChartsToRemove.Count);
         Assert.AreSame(duplicateFile, result.ChartsToRemove[0].BmsFile);
         Assert.AreEqual(1, result.MaintenanceCharts.Count);
-        Assert.AreSame(movedFile, result.MaintenanceCharts[0].BmsFile);
+        Assert.AreSame(movedFile, result.MaintenanceCharts[0].GetBmsStorageOwner());
     }
 
     [TestMethod]
@@ -1030,7 +1030,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual("C:\\Broken\\move.bmson", result.MutationDelta.ChartPathChanges[0].OldPath);
         Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bmson"), result.MutationDelta.ChartPathChanges[0].NewPath);
         Assert.AreEqual(1, result.MaintenanceCharts.Count);
-        Assert.AreSame(song, result.MaintenanceCharts[0].BmsonSong);
+        Assert.AreSame(song, result.MaintenanceCharts[0].GetBmsonStorageOwner());
     }
 
     [TestMethod]
@@ -1064,7 +1064,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             confirmedChart =>
             {
                 confirmCount++;
-                Assert.AreSame(song, confirmedChart.BmsonSong);
+                Assert.AreSame(song, confirmedChart.GetBmsonStorageOwner());
                 return true;
             });
 
@@ -1106,7 +1106,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(1, delta.ChartsToUnregister.Count);
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "rename_me.bme"), delta.ChartPathChanges[0].NewPath);
             Assert.AreSame(renameFile, delta.ChartPathChanges[0].BmsFile);
-            Assert.AreSame(duplicateFile, delta.ChartsToUnregister[0].BmsFile);
+            Assert.AreSame(duplicateFile, delta.ChartsToUnregister[0].GetBmsStorageOwner());
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectoryPath, "rename_me.bme")));
             Assert.IsFalse(File.Exists(renameSourcePath));
             Assert.IsFalse(File.Exists(duplicateSourcePath));

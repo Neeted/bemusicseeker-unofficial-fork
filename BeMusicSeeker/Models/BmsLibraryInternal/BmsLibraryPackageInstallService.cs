@@ -375,7 +375,7 @@ internal sealed class BmsLibraryPackageInstallService
                     continue;
                 }
             }
-            else if (!references.Add(chart.BmsFile))
+            else if (!references.Add(chart.GetBmsStorageOwner()))
             {
                 continue;
             }
@@ -387,7 +387,7 @@ internal sealed class BmsLibraryPackageInstallService
     private static List<BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
     {
         return [.. DeduplicateBmsFormatChartsByPathOrBmsReference(charts)
-            .Select(chart => chart.BmsFile)
+            .Select(chart => chart.GetBmsStorageOwner())
             .Where(IsBmsFormatChartFile)];
     }
 
@@ -517,7 +517,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return false;
         }
-        BMSFile file = entry.Chart.BmsFile;
+        BMSFile file = entry.Chart.GetBmsStorageOwner();
         if (file != null)
         {
             return file.maintenanceInfo.wav_files_existing > 0
@@ -555,7 +555,7 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         ChartFile chart = entry.Chart;
-        BMSFile file = chart.BmsFile;
+        BMSFile file = chart.GetBmsStorageOwner();
         if (file != null)
         {
             file.SetHealthStatus(forceUpdate: false, memClear: false);
@@ -1849,10 +1849,10 @@ internal sealed class BmsLibraryPackageInstallService
                     .Select(entry => entry?.Chart)
                     .Where(chart => chart != null));
                 result.AddedBmsFiles.AddRange(packageEntries
-                    .Select(entry => entry?.Chart?.BmsFile)
+                    .Select(entry => entry?.Chart?.GetBmsStorageOwner())
                     .Where(ChartFileKindResolver.IsBmsChartFile));
                 result.AddedBmsonSongs.AddRange(packageEntries
-                    .Select(entry => entry?.Chart?.BmsonSong)
+                    .Select(entry => entry?.Chart?.GetBmsonStorageOwner())
                     .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)));
                 if (existingHashes != null)
                 {

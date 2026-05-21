@@ -112,8 +112,8 @@ public sealed class ChartListVirtualViewTests
 
         LibraryChartRow row = LibraryChartRow.FromChartFile(chart);
 
-        Assert.IsNull(row.Chart.BmsFile);
-        Assert.IsNull(row.Chart.BmsonSong);
+        Assert.IsNull(row.Chart.GetBmsStorageOwner());
+        Assert.IsNull(row.Chart.GetBmsonStorageOwner());
         Assert.AreSame(chart, row.Chart);
         Assert.AreEqual("Alpha", row.Title);
         Assert.AreEqual("Artist", row.Artist);
@@ -254,8 +254,8 @@ public sealed class ChartListVirtualViewTests
 
         ChartListSourceRow row = ChartListSourceRow.BuildStandardLibraryRows([chart]).Single();
 
-        Assert.IsNull(row.Chart.BmsFile);
-        Assert.IsNull(row.Chart.BmsonSong);
+        Assert.IsNull(row.Chart.GetBmsStorageOwner());
+        Assert.IsNull(row.Chart.GetBmsonStorageOwner());
         Assert.AreSame(chart, row.Chart);
         Assert.AreEqual(12, row.ChartLevelSortKey);
         Assert.AreEqual(4, row.ChartDifficultySortKey);
@@ -759,8 +759,8 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
 
         Assert.IsNotNull(row);
-        Assert.IsNull(row.Chart.BmsFile);
-        Assert.AreSame(bmson, row.Chart.BmsonSong);
+        Assert.IsNull(row.Chart.GetBmsStorageOwner());
+        Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreSame(entry, row.PackageEntry);
         Assert.AreEqual(bmson.path, row.path);
@@ -818,8 +818,8 @@ public sealed class ChartListVirtualViewTests
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).BmsFile);
-        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).BmsonSong);
+        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).GetBmsStorageOwner());
+        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).GetBmsonStorageOwner());
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
@@ -837,8 +837,8 @@ public sealed class ChartListVirtualViewTests
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).BmsFile);
-        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).BmsonSong);
+        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).GetBmsStorageOwner());
+        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).GetBmsonStorageOwner());
     }
 
     [TestMethod]
@@ -855,7 +855,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
 
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
-        Assert.AreSame(bmson, rows.Single().Chart.BmsonSong);
+        Assert.AreSame(bmson, rows.Single().Chart.GetBmsonStorageOwner());
     }
 
     [TestMethod]
@@ -873,8 +873,8 @@ public sealed class ChartListVirtualViewTests
 
         List<ChartFile> targets = MainWindowViewModel.CreatePackagePlaybackTargetSnapshot([package]);
 
-        Assert.AreSame(bms, targets.Single(chart => chart.Kind == ChartFileKind.Bms).BmsFile);
-        Assert.AreSame(bmson, targets.Single(chart => chart.Kind == ChartFileKind.Bmson).BmsonSong);
+        Assert.AreSame(bms, targets.Single(chart => chart.Kind == ChartFileKind.Bms).GetBmsStorageOwner());
+        Assert.AreSame(bmson, targets.Single(chart => chart.Kind == ChartFileKind.Bmson).GetBmsonStorageOwner());
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
@@ -1334,10 +1334,10 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> rows = MainWindowViewModel.CreateDuplicateVirtualSourceRowsForTest([duplicateGroup], duplicateGroup);
 
         Assert.AreEqual(2, rows.Count);
-        Assert.AreSame(bmsFile, rows.Single(row => row.Chart.BmsFile != null).Chart.BmsFile);
-        ChartListSourceRow bmsonRow = rows.Single(row => row.Chart.BmsonSong != null);
-        Assert.AreSame(bmsonSong, bmsonRow.Chart.BmsonSong);
-        Assert.IsNull(bmsonRow.Chart.BmsFile);
+        Assert.AreSame(bmsFile, rows.Single(row => row.Chart.GetBmsStorageOwner() != null).Chart.GetBmsStorageOwner());
+        ChartListSourceRow bmsonRow = rows.Single(row => row.Chart.GetBmsonStorageOwner() != null);
+        Assert.AreSame(bmsonSong, bmsonRow.Chart.GetBmsonStorageOwner());
+        Assert.IsNull(bmsonRow.Chart.GetBmsStorageOwner());
         StringAssert.Contains(bmsonRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_DuplicateChart);
     }
 
@@ -1549,8 +1549,8 @@ public sealed class ChartListVirtualViewTests
         };
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows([file], [bmson]);
 
-        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.BmsFile != null), LibraryChartRow.FromBmsFile(file));
-        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.BmsonSong != null), LibraryChartRow.FromBmsonSong(bmson));
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsStorageOwner() != null), LibraryChartRow.FromBmsFile(file));
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsonStorageOwner() != null), LibraryChartRow.FromBmsonSong(bmson));
     }
 
     [TestMethod]
@@ -1642,13 +1642,13 @@ public sealed class ChartListVirtualViewTests
     private static LibraryChartRow MaterializeSourceRow(ChartListSourceRow row)
     {
         var chart = row?.Chart;
-        if (chart?.BmsFile != null)
+        if (chart?.GetBmsStorageOwner() != null)
         {
-            return LibraryChartRow.FromBmsFile(chart.BmsFile);
+            return LibraryChartRow.FromBmsFile(chart.GetBmsStorageOwner());
         }
-        if (chart?.BmsonSong != null)
+        if (chart?.GetBmsonStorageOwner() != null)
         {
-            return LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+            return LibraryChartRow.FromBmsonSong(chart.GetBmsonStorageOwner());
         }
         return LibraryChartRow.FromChartFile(chart);
     }

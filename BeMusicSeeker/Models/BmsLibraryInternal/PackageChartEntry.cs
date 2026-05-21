@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -103,17 +104,19 @@ internal sealed class PackageChartEntry
         {
             return true;
         }
-        if (chart.Kind == ChartFileKind.Bms
-            && chart.BmsFile != null
-            && targetChart.BmsFile != null
-            && ReferenceEquals(chart.BmsFile, targetChart.BmsFile))
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        BMSFile targetBmsFile = targetChart.GetBmsStorageOwner();
+        if (bmsFile != null
+            && targetBmsFile != null
+            && ReferenceEquals(bmsFile, targetBmsFile))
         {
             return true;
         }
-        if (chart.Kind == ChartFileKind.Bmson
-            && chart.BmsonSong != null
-            && targetChart.BmsonSong != null
-            && ReferenceEquals(chart.BmsonSong, targetChart.BmsonSong))
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        LR2SongDBExtended.bmson_song targetBmsonSong = targetChart.GetBmsonStorageOwner();
+        if (bmsonSong != null
+            && targetBmsonSong != null
+            && ReferenceEquals(bmsonSong, targetBmsonSong))
         {
             return true;
         }
@@ -201,12 +204,13 @@ internal sealed class PackageChartEntry
             return;
         }
 
-        if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        if (bmsonSong != null)
         {
-            chart.BmsonSong.path = installedPath;
-            chart.BmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
-            chart.BmsonSong.MaintenanceInfo?.NormalizeForBmson(chart.BmsonSong.path, chart.BmsonSong.md5);
-            chart = ChartFileProjection.FromBmsonSong(chart.BmsonSong);
+            bmsonSong.path = installedPath;
+            bmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
+            bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
+            chart = ChartFileProjection.FromBmsonSong(bmsonSong);
         }
     }
 

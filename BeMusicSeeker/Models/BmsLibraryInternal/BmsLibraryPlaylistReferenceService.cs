@@ -66,7 +66,7 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
             if (TryGetReferenceTables(chart, referenceMaps, out BMSTable[] value))
             {
                 matchedCharts++;
-                BMSFile file = chart?.BmsFile;
+                BMSFile file = chart?.GetBmsStorageOwner();
                 if (file != null && value != null)
                 {
                     addCalls += file.AddRefTables(value, suppressFilePropertyChanged);
@@ -115,7 +115,7 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
             if (TryGetReferenceTables(entry?.Chart, referenceMaps, out BMSTable[] value))
             {
                 matchedCharts++;
-                BMSFile file = entry?.Chart?.BmsFile;
+                BMSFile file = entry?.Chart?.GetBmsStorageOwner();
                 if (file != null && value != null)
                 {
                     addCalls += file.AddRefTables(value, suppressFilePropertyChanged);

@@ -129,7 +129,7 @@ internal sealed class BmsLibraryStateApplier(
         if (delta.ChartsToUnregister.Count > 0)
         {
             List<BMSFile> bmsFilesToUnregister = [.. delta.ChartsToUnregister
-                .Select(chart => chart?.BmsFile)
+                .Select(chart => chart?.GetBmsStorageOwner())
                 .Where(file => file != null)
                 .Distinct()];
             if (bmsFilesToUnregister.Count > 0)
@@ -138,7 +138,7 @@ internal sealed class BmsLibraryStateApplier(
             }
 
             List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. delta.ChartsToUnregister
-                .Select(chart => chart?.BmsonSong)
+                .Select(chart => chart?.GetBmsonStorageOwner())
                 .Where(song => song != null)
                 .Distinct()];
             if (bmsonSongsToUnregister.Count > 0)
@@ -409,7 +409,8 @@ internal sealed class BmsLibraryStateApplier(
             return false;
         }
 
-        if (entry.Chart.BmsFile != null && removedFiles.Contains(entry.Chart.BmsFile))
+        BMSFile bmsFile = entry.Chart.GetBmsStorageOwner();
+        if (bmsFile != null && removedFiles.Contains(bmsFile))
         {
             return true;
         }
@@ -424,7 +425,8 @@ internal sealed class BmsLibraryStateApplier(
             return false;
         }
 
-        if (entry.Chart.BmsonSong != null && removedSongs.Contains(entry.Chart.BmsonSong))
+        LR2SongDBExtended.bmson_song bmsonSong = entry.Chart.GetBmsonStorageOwner();
+        if (bmsonSong != null && removedSongs.Contains(bmsonSong))
         {
             return true;
         }

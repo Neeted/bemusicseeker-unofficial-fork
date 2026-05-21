@@ -91,9 +91,9 @@ internal sealed class ChartFile
 
     internal ChartFileStatus Status { get; }
 
-    internal BMSFile BmsFile { get; }
+    private BMSFile BmsFile { get; }
 
-    internal LR2SongDBExtended.bmson_song BmsonSong { get; }
+    private LR2SongDBExtended.bmson_song BmsonSong { get; }
 
     internal BMSFile GetBmsStorageOwner()
     {
