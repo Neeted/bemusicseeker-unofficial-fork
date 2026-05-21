@@ -8860,7 +8860,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private void RunPendingInstallMutation(Action action, IEnumerable<BeMusicSeeker.Models.BMSFile> playbackTargets = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    private void RunPendingInstallMutation(Action action, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
     {
         if (action == null)
         {
@@ -8873,9 +8873,9 @@ public class MainWindowViewModel : ViewModel
         UiRefreshChannel mask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask;
         lock (lockCopyFile)
         {
-            if (playbackTargets != null)
+            if (playbackTargetCharts != null)
             {
-                stopPlayingBMSFile(playbackTargets);
+                stopPlayingChartFiles(playbackTargetCharts);
             }
             BeginUiUpdateSuppression(mask);
             try
@@ -8889,7 +8889,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private T RunPendingInstallMutation<T>(Func<T> func, IEnumerable<BeMusicSeeker.Models.BMSFile> playbackTargets = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    private T RunPendingInstallMutation<T>(Func<T> func, IEnumerable<ChartFile> playbackTargetCharts = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
     {
         if (func == null)
         {
@@ -8902,9 +8902,9 @@ public class MainWindowViewModel : ViewModel
         UiRefreshChannel mask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask;
         lock (lockCopyFile)
         {
-            if (playbackTargets != null)
+            if (playbackTargetCharts != null)
             {
-                stopPlayingBMSFile(playbackTargets);
+                stopPlayingChartFiles(playbackTargetCharts);
             }
             BeginUiUpdateSuppression(mask);
             try
@@ -11621,17 +11621,17 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// Creates BMS playback targets from package entries without materializing bmson compatibility adapters.
+    /// Creates chart playback-stop targets from package entries without materializing bmson compatibility adapters.
     /// </summary>
-    /// <param name="packages">Packages whose entries may contain currently playable BMS files.</param>
-    /// <returns>BMS files that should be stopped before package mutation.</returns>
-    internal static List<BeMusicSeeker.Models.BMSFile> CreatePackagePlaybackTargetSnapshot(IEnumerable<ChartPackage> packages)
+    /// <param name="packages">Packages whose entries may overlap the currently playing chart directory.</param>
+    /// <returns>Charts that should be considered before package mutation.</returns>
+    internal static List<ChartFile> CreatePackagePlaybackTargetSnapshot(IEnumerable<ChartPackage> packages)
     {
         return [.. (packages ?? [])
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
-            .Select(entry => entry?.Chart?.BmsFile)
-            .Where(file => ChartFileKindResolver.IsBmsChartFile(file))];
+            .Select(entry => entry?.Chart)
+            .Where(chart => chart != null)];
     }
 
     private bool TryGetVirtualDuplicateSourceCharts(
@@ -15253,18 +15253,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private void stopPlayingBMSFile(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
-        {
-            string playingDirectory = Path.GetDirectoryName(NowPlayingBMS.path);
-            if ((bmsFiles ?? []).Any(file => IsChartDirectorySameOrUnder(playingDirectory, file?.path)))
-            {
-                PlayEndBMSFile(closeProcess: true);
-            }
-        }
-    }
-
     private void stopPlayingChartFiles(IEnumerable<ChartFile> charts)
     {
         if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
@@ -15275,6 +15263,37 @@ public class MainWindowViewModel : ViewModel
                 PlayEndBMSFile(closeProcess: true);
             }
         }
+    }
+
+    private void stopPlayingLibraryCharts(IEnumerable<LibraryChartRef> charts)
+    {
+        if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
+        {
+            string playingDirectory = Path.GetDirectoryName(NowPlayingBMS.path);
+            if ((charts ?? []).Any(chart => IsChartDirectoryUnder(playingDirectory, chart?.Path)))
+            {
+                PlayEndBMSFile(closeProcess: true);
+            }
+        }
+    }
+
+    private void stopPlayingChartDirectories(IEnumerable<string> directories)
+    {
+        if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path)
+            && (directories ?? []).Any(directory => IsChartDirectorySameOrUnder(directory, NowPlayingBMS.path)))
+        {
+            PlayEndBMSFile(closeProcess: true);
+        }
+    }
+
+    private static List<ChartFile> GetBmsFormatCharts(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
+    }
+
+    private static List<LibraryChartRef> GetBmsLibraryChartRefs(IEnumerable<LibraryChartRef> charts)
+    {
+        return [.. (charts ?? []).Where(chart => chart?.Kind == LibraryChartKind.Bms)];
     }
 
     private static bool IsChartDirectoryUnder(string parentDirectory, string chartPath)
@@ -20545,12 +20564,11 @@ public class MainWindowViewModel : ViewModel
 
     internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<ChartFile> targetCharts, CancellationToken token = default, Action onEachProcessed = null)
     {
-        List<ChartFile> list = ((targetCharts != null) ? [.. targetCharts.Where(chart => chart != null)] : GetPendingBmsFormatChartFilesSnapshot());
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles = GetBmsFormatChartFiles(list);
+        List<ChartFile> list = GetBmsFormatCharts((targetCharts != null) ? [.. targetCharts.Where(chart => chart != null)] : GetPendingBmsFormatChartFilesSnapshot());
         RunPendingInstallMutation(delegate
         {
             files.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(list, token, onEachProcessed);
-        }, bmsFiles);
+        }, list);
     }
 
     public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
@@ -20560,8 +20578,8 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException("packages");
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
-        List<BeMusicSeeker.Models.BMSFile> list2 = CreatePackagePlaybackTargetSnapshot(list);
-        return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), list2);
+        List<ChartFile> playbackTargetCharts = CreatePackagePlaybackTargetSnapshot(list);
+        return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), playbackTargetCharts);
     }
 
     public void RemoveInstalledPackageRecordsAll()
@@ -21362,7 +21380,7 @@ public class MainWindowViewModel : ViewModel
         lock (lockCopyFile)
         {
             IReadOnlyList<ChartFile> repairCharts = snapshot.RepairCharts;
-            stopPlayingBMSFile(repairCharts.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
+            stopPlayingChartFiles(GetBmsFormatCharts(repairCharts));
             files.FixInstallationDirectoryCharts(repairCharts);
         }
     }
@@ -21389,7 +21407,8 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where(chart => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
+            stopPlayingLibraryCharts(GetBmsLibraryChartRefs(charts));
+            stopPlayingChartDirectories(approvedWholeFolderDeletePaths);
             files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
     }
@@ -21406,7 +21425,8 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingChartFiles(chartSnapshot);
+            stopPlayingChartFiles(GetBmsFormatCharts(chartSnapshot));
+            stopPlayingChartDirectories(approvedWholeFolderDeletePaths);
             files.RemoveLibraryCharts(chartRefs, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
     }
@@ -21420,7 +21440,7 @@ public class MainWindowViewModel : ViewModel
         RunPendingInstallMutation(delegate
         {
             files.RemovePendingCharts(charts, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
-        }, charts.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
+        }, deleteContainingPackageFoldersWhenNoBms ? charts : GetBmsFormatCharts(charts));
     }
 
     public void RecheckZeroNoteWarnings()
@@ -21437,29 +21457,21 @@ public class MainWindowViewModel : ViewModel
 
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
+        List<ChartFile> chartList = GetBmsFormatCharts(charts);
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(bmsFiles);
-            files.RenameBMSFilesExtensions(charts, newExt, true);
+            stopPlayingChartFiles(chartList);
+            files.RenameBMSFilesExtensions(chartList, newExt, true);
         }
     }
 
     internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
-        List<BeMusicSeeker.Models.BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
+        List<ChartFile> chartList = GetBmsFormatCharts(charts);
         RunPendingInstallMutation(delegate
         {
-            files.RenamePendingBmsFormatChartFileExtensions(charts, newExt);
-        }, bmsFiles);
-    }
-
-    private static List<BeMusicSeeker.Models.BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
-    {
-        return [.. (charts ?? [])
-            .Where(ChartFileKindResolver.IsBmsChartFile)
-            .Select(chart => chart.BmsFile)
-            .Where(ChartFileKindResolver.IsBmsChartFile)];
+            files.RenamePendingBmsFormatChartFileExtensions(chartList, newExt);
+        }, chartList);
     }
 
     internal RenameChartFolderTargetSnapshot CreateRenameChartFolderTargetSnapshot(ChartOperationTarget target)
@@ -21470,7 +21482,7 @@ public class MainWindowViewModel : ViewModel
         {
             return RenameChartFolderTargetSnapshot.Empty;
         }
-        return new RenameChartFolderTargetSnapshot(target.Chart, target.Chart.BmsFile);
+        return new RenameChartFolderTargetSnapshot(target.Chart);
     }
 
     internal void RenameChartFolder(RenameChartFolderTargetSnapshot target, string newFolder)
@@ -21484,10 +21496,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            if (target.PlaybackBmsFile != null)
-            {
-                stopPlayingBMSFile([target.PlaybackBmsFile]);
-            }
+            stopPlayingChartFiles([target.Chart]);
             string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
             {
@@ -21499,17 +21508,14 @@ public class MainWindowViewModel : ViewModel
 
     internal sealed class RenameChartFolderTargetSnapshot
     {
-        internal static RenameChartFolderTargetSnapshot Empty { get; } = new(null, null);
+        internal static RenameChartFolderTargetSnapshot Empty { get; } = new(null);
 
-        internal RenameChartFolderTargetSnapshot(ChartFile chart, BeMusicSeeker.Models.BMSFile playbackBmsFile)
+        internal RenameChartFolderTargetSnapshot(ChartFile chart)
         {
             Chart = chart;
-            PlaybackBmsFile = playbackBmsFile;
         }
 
         internal ChartFile Chart { get; }
-
-        internal BeMusicSeeker.Models.BMSFile PlaybackBmsFile { get; }
 
         internal bool HasTarget => Chart != null;
     }
@@ -21557,7 +21563,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where(chart => chart.Kind == ChartFileKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
+            stopPlayingChartFiles(charts);
             files.AutoRenameChartFolders(charts);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
@@ -21581,7 +21587,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where(chart => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select(chart => chart.BmsFile));
+            stopPlayingLibraryCharts(charts);
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }

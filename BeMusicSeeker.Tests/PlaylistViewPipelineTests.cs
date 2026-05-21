@@ -1309,7 +1309,6 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(snapshot.HasTarget);
         Assert.AreSame(bmson, snapshot.Chart.BmsonSong);
-        Assert.IsNull(snapshot.PlaybackBmsFile);
     }
 
     [TestMethod]

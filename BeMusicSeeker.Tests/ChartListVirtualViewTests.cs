@@ -820,20 +820,22 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PackagePlaybackTargetSnapshot_UsesOnlyExistingBmsAdapters()
+    public void PackagePlaybackTargetSnapshot_UsesChartEntriesWithoutMaterializingBmsonAdapters()
     {
         var bms = new TestableBmsFile();
         bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
-        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(CreateBmsonSong()));
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
             PackageChartEntry.FromBmsFile(bms),
             adapterlessBmsonEntry
         ]);
 
-        List<BMSFile> targets = MainWindowViewModel.CreatePackagePlaybackTargetSnapshot([package]);
+        List<ChartFile> targets = MainWindowViewModel.CreatePackagePlaybackTargetSnapshot([package]);
 
-        Assert.AreSame(bms, targets.Single());
+        Assert.AreSame(bms, targets.Single(chart => chart.Kind == ChartFileKind.Bms).BmsFile);
+        Assert.AreSame(bmson, targets.Single(chart => chart.Kind == ChartFileKind.Bmson).BmsonSong);
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
