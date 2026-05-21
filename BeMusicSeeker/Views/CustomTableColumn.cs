@@ -443,42 +443,42 @@ internal static class CustomTableColumnFactory
         return string.Equals(text, "download", StringComparison.Ordinal) ? DownloadIconGlyphText : text;
     }
 
-    internal static string ConvertStatusToIconText(BMSFile.BMSFileStatus status)
+    internal static string ConvertStatusToIconText(ChartFileStatus status)
     {
         return ConvertStatusToIconKind(status).ToString();
     }
 
-    internal static CustomTableStatusIconKind ConvertStatusToIconKind(BMSFile.BMSFileStatus status)
+    internal static CustomTableStatusIconKind ConvertStatusToIconKind(ChartFileStatus status)
     {
-        if (status == BMSFile.BMSFileStatus.NONE)
+        if (status == ChartFileStatus.NONE)
         {
             return CustomTableStatusIconKind.None;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.FORWARD))
+        if (status.HasFlag(ChartFileStatus.FORWARD))
         {
             return CustomTableStatusIconKind.Forward;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.BACKWARD))
+        if (status.HasFlag(ChartFileStatus.BACKWARD))
         {
             return CustomTableStatusIconKind.Backward;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.PLAY))
+        if (status.HasFlag(ChartFileStatus.PLAY))
         {
             return CustomTableStatusIconKind.Play;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.LOADING))
+        if (status.HasFlag(ChartFileStatus.LOADING))
         {
             return CustomTableStatusIconKind.Loading;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.PAUSE))
+        if (status.HasFlag(ChartFileStatus.PAUSE))
         {
             return CustomTableStatusIconKind.Pause;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.SEARCHING))
+        if (status.HasFlag(ChartFileStatus.SEARCHING))
         {
             return CustomTableStatusIconKind.Searching;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.SCORE_UNSENT))
+        if (status.HasFlag(ChartFileStatus.SCORE_UNSENT))
         {
             return CustomTableStatusIconKind.ScoreUnsent;
         }
@@ -492,36 +492,36 @@ internal static class CustomTableColumnFactory
 
     private static string GetStatusTooltip(object row)
     {
-        BMSFile.BMSFileStatus status = GetStatus(row);
-        if (status == BMSFile.BMSFileStatus.NONE)
+        ChartFileStatus status = GetStatus(row);
+        if (status == ChartFileStatus.NONE)
         {
             return null;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.PLAY))
+        if (status.HasFlag(ChartFileStatus.PLAY))
         {
             return Resources.Tooltip_play;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.LOADING))
+        if (status.HasFlag(ChartFileStatus.LOADING))
         {
             return Resources.Tooltip_loading;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.PAUSE))
+        if (status.HasFlag(ChartFileStatus.PAUSE))
         {
             return Resources.Tooltip_pause;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.FORWARD))
+        if (status.HasFlag(ChartFileStatus.FORWARD))
         {
             return Resources.Tooltip_fast_forward;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.BACKWARD))
+        if (status.HasFlag(ChartFileStatus.BACKWARD))
         {
             return Resources.Tooltip_rewind;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.SEARCHING))
+        if (status.HasFlag(ChartFileStatus.SEARCHING))
         {
             return Resources.Tooltip_searching;
         }
-        if (status.HasFlag(BMSFile.BMSFileStatus.SCORE_UNSENT))
+        if (status.HasFlag(ChartFileStatus.SCORE_UNSENT))
         {
             return Resources.Tooltip_score_unsent;
         }
@@ -675,7 +675,7 @@ internal static class CustomTableColumnFactory
         return value is bool flag ? flag : null;
     }
 
-    private static BMSFile.BMSFileStatus GetStatus(object row)
+    private static ChartFileStatus GetStatus(object row)
     {
         if (row is LibraryChartRow libraryRow)
         {
@@ -686,7 +686,7 @@ internal static class CustomTableColumnFactory
             return playlistRow.status;
         }
         object value = GetValue(row, "status");
-        return value is BMSFile.BMSFileStatus status ? status : BMSFile.BMSFileStatus.NONE;
+        return value is ChartFileStatus chartStatus ? chartStatus : ChartFileStatus.NONE;
     }
 
     private static Brush GetClearBrush(object row)

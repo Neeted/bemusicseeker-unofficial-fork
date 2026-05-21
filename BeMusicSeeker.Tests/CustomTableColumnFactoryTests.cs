@@ -654,7 +654,7 @@ public sealed class CustomTableColumnFactoryTests
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
         var row = new
         {
-            status = BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY | BeMusicSeeker.Models.BMSFile.BMSFileStatus.SCORE_UNSENT,
+            status = BeMusicSeeker.Models.ChartFileStatus.PLAY | BeMusicSeeker.Models.ChartFileStatus.SCORE_UNSENT,
             mode = 7,
             rateDouble = 0.912345,
             WAVHealth = 100,

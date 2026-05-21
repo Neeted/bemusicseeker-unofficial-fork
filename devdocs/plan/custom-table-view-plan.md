@@ -319,7 +319,7 @@ Phase 3 完了判断:
 - `INSTL DST` など編集予定列も、Phase 3.5 では通常テキスト表示だけに留める。
 - `Status` は初期値 `Visible` / `DisplayIndex=0` / `Width=18` に補正し、表示順の左端固定、幅変更不可、sort 不可にする。
 - `Status` は freeze column ではないため、横スクロール時は通常列と同じく画面外へ流れる。
-- `Status` の表示は LigatureSymbols 依存ではなく、`BMSFileStatus` を軽量なベクターアイコンへ変換して描画する。
+- `Status` の表示は LigatureSymbols 依存ではなく、一覧 row の `ChartFileStatus` を軽量なベクターアイコンへ変換して描画する。
 - 横スクロール時の描画を一般的な挙動へ修正する。
   - 列の本来位置は `columnX - HorizontalOffset` のまま負の X も許す。
   - viewport で clip し、左端列の幅が縮んだように見える描画にはしない。

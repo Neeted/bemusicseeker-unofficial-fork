@@ -31,8 +31,6 @@
       <v:cleartypeToStringConvberter x:Key="cleartypeToStringConvberter" />
       <v:ranktypeToStringConvberter x:Key="ranktypeToStringConvberter" />
       <v:dateTimeToDateStringConverter x:Key="dateTimeToDateStringConverter" />
-      <v:statusToStringConverterForLigatureSymbols x:Key="statusToStringConverterForLigatureSymbols" />
-      <v:statusToTooltipStringConverter x:Key="statusToTooltipStringConverter" />
       <v:panelStateToStringConverter x:Key="panelStateToStringConverter" />
       <v:panelStateToStringConverter2 x:Key="panelStateToStringConverter2" />
       <v:panelStateToTooltipConverter x:Key="panelStateToTooltipConverter" />

@@ -114,7 +114,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public double? scoreDifficulty { get; }
 
-    public BMSFile.BMSFileStatus status { get; }
+    public ChartFileStatus status { get; }
 
     public string lr2_bmsid { get; }
 

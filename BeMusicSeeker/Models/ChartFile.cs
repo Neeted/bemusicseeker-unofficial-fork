@@ -89,6 +89,8 @@ internal sealed class ChartFile
 
     internal string EncodingName { get; }
 
+    internal ChartFileStatus Status { get; }
+
     internal BMSFile BmsFile { get; }
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; }
@@ -127,7 +129,8 @@ internal sealed class ChartFile
         bool? stagefileHealth = null,
         bool? bannerHealth = null,
         bool? backbmpHealth = null,
-        string encodingName = null)
+        string encodingName = null,
+        ChartFileStatus status = ChartFileStatus.NONE)
     {
         Kind = kind;
         Path = string.IsNullOrWhiteSpace(path) ? null : path;
@@ -162,6 +165,7 @@ internal sealed class ChartFile
         BannerHealth = bannerHealth;
         BackbmpHealth = backbmpHealth;
         EncodingName = encodingName ?? string.Empty;
+        Status = status;
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
     }

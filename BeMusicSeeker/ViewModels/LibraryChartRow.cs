@@ -260,7 +260,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public double? scoreDifficulty => BmsFile?.scoreDifficulty;
 
-    public BMSFile.BMSFileStatus status => BmsFile?.status ?? BMSFile.BMSFileStatus.NONE;
+    public ChartFileStatus status => BmsFile != null
+        ? ChartFileStatusMapper.FromBmsFileStatus(BmsFile.status)
+        : Chart?.Status ?? ChartFileStatus.NONE;
 
     public string lr2_bmsid => string.Empty;
 

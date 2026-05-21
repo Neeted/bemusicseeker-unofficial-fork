@@ -88,7 +88,8 @@ internal static class ChartFileProjection
             source.StagefileHealth,
             source.BannerHealth,
             source.BackbmpHealth,
-            source.EncodingName);
+            source.EncodingName,
+            source.Status);
     }
 
     internal static ChartFile FromBmsFile(
@@ -135,7 +136,8 @@ internal static class ChartFileProjection
             file.StagefileHealth,
             file.BannerHealth,
             file.BackbmpHealth,
-            file.encoding);
+            file.encoding,
+            ChartFileStatusMapper.FromBmsFileStatus(file.status));
     }
 
     internal static ChartFile FromBmsonSong(

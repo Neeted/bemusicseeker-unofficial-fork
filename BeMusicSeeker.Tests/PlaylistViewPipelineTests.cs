@@ -581,7 +581,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ClearType.NO_PLAY, row.clear);
         Assert.AreEqual(RankType.INVALID, row.rank);
         Assert.IsNull(row.score);
-        Assert.AreEqual(BMSFile.BMSFileStatus.NONE, row.status);
+        Assert.AreEqual(ChartFileStatus.NONE, row.status);
         Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
     }
 

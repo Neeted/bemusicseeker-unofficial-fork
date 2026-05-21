@@ -118,7 +118,7 @@ internal sealed class PlaylistDetailSourceRow
 
     internal double? scoreDifficulty { get; }
 
-    internal BMSFile.BMSFileStatus status { get; }
+    internal ChartFileStatus status { get; }
 
     internal string lr2_bmsid { get; }
 
@@ -269,7 +269,9 @@ internal sealed class PlaylistDetailSourceRow
         rankingLastupdate = effectiveScore?.rankingLastupdate;
         stddevVal = effectiveScore?.stddevVal;
         scoreDifficulty = effectiveScore?.scoreDifficulty;
-        status = snapshotSource?.status ?? BMSFile.BMSFileStatus.NONE;
+        status = snapshotSource == null
+            ? Chart?.Status ?? ChartFileStatus.NONE
+            : ChartFileStatusMapper.FromBmsFileStatus(snapshotSource.status);
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
         Level = BuildLevelText(entry, realFile, resolvedBmson);
