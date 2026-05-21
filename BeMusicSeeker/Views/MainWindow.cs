@@ -1211,6 +1211,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 .Any(target => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
     }
 
+    internal static bool ShouldUsePlaylistMissingContextMenu(object row, ChartOperationSourceScope sourceScope)
+    {
+        return GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
+            && target.IsPlaylistMissing;
+    }
+
     private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
     {
         return [.. GetSelectedGridRowsSnapshot().Select(TryCreateScoreViewerTarget).Where(target => target != null)];
@@ -1306,9 +1312,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             usePlaylistMissingContextMenu = false;
             return false;
         }
-        usePlaylistMissingContextMenu = GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
-            ? target.IsPlaylistMissing
-            : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetRealBmsFile(row) == null;
+        usePlaylistMissingContextMenu = ShouldUsePlaylistMissingContextMenu(row, GetCurrentChartOperationSourceScope());
         string resourceKey = usePlaylistMissingContextMenu ? "tableContextMenuPlaylistMissing" : "tableContextMenu";
         if (TryFindResource(resourceKey) is not ContextMenu foundContextMenu)
         {

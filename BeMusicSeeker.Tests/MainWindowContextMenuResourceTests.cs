@@ -829,6 +829,10 @@ public sealed class MainWindowContextMenuResourceTests
     public void ChartContextMenu_BmsOnlyAndChartCommonHandlersUseExpectedSelectionHelpers()
     {
         string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string contextMenuResource = ExtractBetween(
+            mainWindowCode,
+            "private bool TryGetTableContextMenuResource",
+            "private void _renewBMSPlayerControlInfo");
         string renameInvalidExtensionClick = ExtractBetween(
             mainWindowCode,
             "private void tableContextMenuItemRenameBMSFileClick",
@@ -854,6 +858,8 @@ public sealed class MainWindowContextMenuResourceTests
             "private void notIgnoredFileScanCheckSelectedCharts",
             "private async void forceInstallSelectedPendingCharts");
 
+        StringAssert.Contains(contextMenuResource, "ShouldUsePlaylistMissingContextMenu(row, GetCurrentChartOperationSourceScope())");
+        Assert.IsFalse(contextMenuResource.Contains("GetRealBmsFile"));
         StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension)");
         Assert.IsFalse(renameInvalidExtensionClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RenameInvalidExtension)"));
         StringAssert.Contains(encodingFixClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.RunBmsEncodingFix)");

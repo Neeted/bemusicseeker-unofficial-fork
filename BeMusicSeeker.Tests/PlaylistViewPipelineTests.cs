@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -651,6 +652,33 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+    }
+
+    [TestMethod]
+    public void PlaylistMissingContextMenuPolicy_UsesChartOperationTargetOwnership()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Owned Bmson",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64)
+        };
+        var ownedBmsonEntry = new TestablePlaylistEntry();
+        ownedBmsonEntry.SetMd5(bmson.md5);
+        ownedBmsonEntry.SetSha256(bmson.sha256);
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(ownedBmsonEntry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+
+        var missingEntry = new TestablePlaylistEntry();
+        missingEntry.SetTitle("Missing");
+        missingEntry.SetMd5("abababababababababababababababab");
+        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null).CreateViewRow();
+
+        Assert.IsNull(GridRowResolver.GetRealBmsFile(ownedBmsonRow));
+        Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(ownedBmsonRow, ChartOperationSourceScope.PlaylistOwned));
+        Assert.IsTrue(MainWindow.ShouldUsePlaylistMissingContextMenu(missingRow, ChartOperationSourceScope.PlaylistOwned));
+        Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(new object(), ChartOperationSourceScope.PlaylistOwned));
     }
 
     [TestMethod]
