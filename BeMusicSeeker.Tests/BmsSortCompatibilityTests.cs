@@ -379,7 +379,7 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.score)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.maxcombo)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.minbp)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.ChartLevelSortKey)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.WarningDigestText)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.WAVHealth)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.BGAHealth)));

@@ -127,39 +127,41 @@ internal sealed class ChartListSourceRow
 
     internal LR2SongDBExtended.chart_info ChartInfo => bmsFile?.ChartInfo ?? bmsonSong?.ChartInfo ?? sourceChart?.ChartInfo;
 
-    internal double? ChartLevelSortKey => ChartInfo?.level ?? 0;
+    private ChartInfoDisplaySnapshot ChartInfoDisplay => ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
 
-    internal int? ChartDifficultySortKey => ChartInfo?.difficulty;
+    internal double? ChartLevelSortKey => ChartInfoDisplay.ChartLevelSortKey;
 
-    internal double? ChartMainBpmSortKey => ChartInfo?.mainbpm;
+    internal int? ChartDifficultySortKey => ChartInfoDisplay.ChartDifficultySortKey;
 
-    internal double? ChartMaxBpmSortKey => ChartInfo?.maxbpm;
+    internal double? ChartMainBpmSortKey => ChartInfoDisplay.ChartMainBpmSortKey;
 
-    internal double? ChartMinBpmSortKey => ChartInfo?.minbpm;
+    internal double? ChartMaxBpmSortKey => ChartInfoDisplay.ChartMaxBpmSortKey;
 
-    internal int? ChartDurationSortKey => ChartInfo?.length;
+    internal double? ChartMinBpmSortKey => ChartInfoDisplay.ChartMinBpmSortKey;
 
-    internal int? ChartJudgeSortKey => ChartInfo?.judge;
+    internal int? ChartDurationSortKey => ChartInfoDisplay.ChartDurationSortKey;
 
-    internal int? ChartFeatureSortKey => ChartInfo?.feature;
+    internal int? ChartJudgeSortKey => ChartInfoDisplay.ChartJudgeSortKey;
 
-    internal int? ChartNotes => ChartInfo?.notes;
+    internal int? ChartFeatureSortKey => ChartInfoDisplay.ChartFeatureSortKey;
 
-    internal int? ChartLongNotes => ChartInfo?.ln;
+    internal int? ChartNotes => ChartInfoDisplay.ChartNotes;
 
-    internal int? ChartScratchNotes => ChartInfoDisplayFormatter.GetScratchNotes(ChartInfo);
+    internal int? ChartLongNotes => ChartInfoDisplay.ChartLongNotes;
 
-    internal double? ChartTotalSortKey => ChartInfo?.total;
+    internal int? ChartScratchNotes => ChartInfoDisplay.ChartScratchNotes;
 
-    internal double? ChartTotalPerNoteSortKey => ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo);
+    internal double? ChartTotalSortKey => ChartInfoDisplay.ChartTotalSortKey;
 
-    internal double? ChartDensitySortKey => ChartInfo?.density;
+    internal double? ChartTotalPerNoteSortKey => ChartInfoDisplay.ChartTotalPerNoteSortKey;
 
-    internal double? ChartPeakDensitySortKey => ChartInfo?.peakdensity;
+    internal double? ChartDensitySortKey => ChartInfoDisplay.ChartDensitySortKey;
 
-    internal double? ChartEndDensitySortKey => ChartInfo?.enddensity;
+    internal double? ChartPeakDensitySortKey => ChartInfoDisplay.ChartPeakDensitySortKey;
 
-    internal int? ChartSoflanCount => ChartInfo?.speedchange_count;
+    internal double? ChartEndDensitySortKey => ChartInfoDisplay.ChartEndDensitySortKey;
+
+    internal int? ChartSoflanCount => ChartInfoDisplay.ChartSoflanCount;
 
     private ChartFile CreateChartFile(bool includeWarningSnapshot = true)
     {

@@ -321,86 +321,132 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal LR2SongDBExtended.chart_info ChartInfo => Chart?.ChartInfo;
 
-    public string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
+    private ChartInfoDisplaySnapshot ChartInfoDisplay => Chart?.ChartInfoDisplay ?? ChartInfoDisplaySnapshot.Empty;
 
-    public double? ChartLevelSortKey => ChartInfo?.level ?? 0;
+    public string ChartLevelText => ChartInfoDisplay.ChartLevelText;
 
-    public bool ChartLevelUndefined => ChartInfo == null || !ChartInfo.level.HasValue;
+    public double? ChartLevelSortKey => ChartInfoDisplay.ChartLevelSortKey;
 
-    public string ChartDifficultyText => ChartInfoDisplayFormatter.FormatDifficulty(ChartInfo?.difficulty);
+    public bool ChartLevelUndefined => ChartInfoDisplay.ChartLevelUndefined;
 
-    public int? ChartDifficultySortKey => ChartInfo?.difficulty;
+    public string ChartDifficultyText => ChartInfoDisplay.ChartDifficultyText;
 
-    public string ChartDifficultyColorKey => ChartInfoDisplayFormatter.GetDifficultyColorKey(ChartInfo?.difficulty);
+    public int? ChartDifficultySortKey => ChartInfoDisplay.ChartDifficultySortKey;
 
-    public bool ChartDifficultyUndefined => ChartInfo == null || !ChartInfo.difficulty_defined;
+    public string ChartDifficultyColorKey => ChartInfoDisplay.ChartDifficultyColorKey;
 
-    public string ChartMainBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.mainbpm);
+    public bool ChartDifficultyUndefined => ChartInfoDisplay.ChartDifficultyUndefined;
 
-    public double? ChartMainBpmSortKey => ChartInfo?.mainbpm;
+    public string ChartMainBpmText => ChartInfoDisplay.ChartMainBpmText;
 
-    public string ChartMaxBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.maxbpm);
+    public double? ChartMainBpmSortKey => ChartInfoDisplay.ChartMainBpmSortKey;
 
-    public double? ChartMaxBpmSortKey => ChartInfo?.maxbpm;
+    public string ChartMaxBpmText => ChartInfoDisplay.ChartMaxBpmText;
 
-    public string ChartMinBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.minbpm);
+    public double? ChartMaxBpmSortKey => ChartInfoDisplay.ChartMaxBpmSortKey;
 
-    public double? ChartMinBpmSortKey => ChartInfo?.minbpm;
+    public string ChartMinBpmText => ChartInfoDisplay.ChartMinBpmText;
 
-    public string ChartDurationText => ChartInfoDisplayFormatter.FormatDuration(ChartInfo?.length);
+    public double? ChartMinBpmSortKey => ChartInfoDisplay.ChartMinBpmSortKey;
 
-    public int? ChartDurationSortKey => ChartInfo?.length;
+    public string ChartDurationText => ChartInfoDisplay.ChartDurationText;
 
-    public string ChartJudgeText => ChartInfoDisplayFormatter.FormatJudge(ChartInfo?.judge);
+    public int? ChartDurationSortKey => ChartInfoDisplay.ChartDurationSortKey;
 
-    public int? ChartJudgeSortKey => ChartInfo?.judge;
+    public string ChartJudgeText => ChartInfoDisplay.ChartJudgeText;
 
-    public string ChartJudgeColorKey => ChartInfoDisplayFormatter.GetJudgeColorKey(ChartInfo?.judge);
+    public int? ChartJudgeSortKey => ChartInfoDisplay.ChartJudgeSortKey;
 
-    public string ChartJudgePercentText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.judge);
+    public string ChartJudgeColorKey => ChartInfoDisplay.ChartJudgeColorKey;
 
-    public string ChartFeatureText => ChartInfo == null ? string.Empty : ChartInfoDisplayFormatter.FormatFeature(ChartInfo.feature);
+    public string ChartJudgePercentText => ChartInfoDisplay.ChartJudgePercentText;
 
-    public int? ChartFeatureSortKey => ChartInfo?.feature;
+    public string ChartFeatureText => ChartInfoDisplay.ChartFeatureText;
 
-    public int? ChartNotes => ChartInfo?.notes;
+    public int? ChartFeatureSortKey => ChartInfoDisplay.ChartFeatureSortKey;
 
-    public int? ChartLongNotes => ChartInfo?.ln;
+    public int? ChartNotes => ChartInfoDisplay.ChartNotes;
 
-    public int? ChartScratchNotes => ChartInfoDisplayFormatter.GetScratchNotes(ChartInfo);
+    public int? ChartLongNotes => ChartInfoDisplay.ChartLongNotes;
 
-    public string ChartTotalText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.total);
+    public int? ChartScratchNotes => ChartInfoDisplay.ChartScratchNotes;
 
-    public double? ChartTotalSortKey => ChartInfo?.total;
+    public string ChartTotalText => ChartInfoDisplay.ChartTotalText;
 
-    public bool ChartTotalUndefined => ChartInfo == null || !ChartInfo.total_defined;
+    public double? ChartTotalSortKey => ChartInfoDisplay.ChartTotalSortKey;
 
-    public string ChartTotalPerNoteText => ChartInfoDisplayFormatter.FormatFixedTwo(ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo));
+    public bool ChartTotalUndefined => ChartInfoDisplay.ChartTotalUndefined;
 
-    public double? ChartTotalPerNoteSortKey => ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo);
+    public string ChartTotalPerNoteText => ChartInfoDisplay.ChartTotalPerNoteText;
 
-    public string ChartDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.density);
+    public double? ChartTotalPerNoteSortKey => ChartInfoDisplay.ChartTotalPerNoteSortKey;
 
-    public double? ChartDensitySortKey => ChartInfo?.density;
+    public string ChartDensityText => ChartInfoDisplay.ChartDensityText;
 
-    public string ChartPeakDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.peakdensity);
+    public double? ChartDensitySortKey => ChartInfoDisplay.ChartDensitySortKey;
 
-    public double? ChartPeakDensitySortKey => ChartInfo?.peakdensity;
+    public string ChartPeakDensityText => ChartInfoDisplay.ChartPeakDensityText;
 
-    public string ChartEndDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.enddensity);
+    public double? ChartPeakDensitySortKey => ChartInfoDisplay.ChartPeakDensitySortKey;
 
-    public double? ChartEndDensitySortKey => ChartInfo?.enddensity;
+    public string ChartEndDensityText => ChartInfoDisplay.ChartEndDensityText;
 
-    public int? ChartSoflanCount => ChartInfo?.speedchange_count;
+    public double? ChartEndDensitySortKey => ChartInfoDisplay.ChartEndDensitySortKey;
+
+    public int? ChartSoflanCount => ChartInfoDisplay.ChartSoflanCount;
 
     private void OnSourcePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         RaisePropertyChanged(e.PropertyName);
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.ChartInfo))
+        {
+            RaiseChartInfoDisplayPropertiesChanged();
+        }
         if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.clear) || e.PropertyName == nameof(BMSFile.rank) || e.PropertyName == nameof(BMSFile.bmsScore))
         {
             RaisePropertyChanged(nameof(ClearDisplayText));
             RaisePropertyChanged(nameof(RankDisplayText));
         }
+    }
+
+    private void RaiseChartInfoDisplayPropertiesChanged()
+    {
+        RaisePropertyChanged(nameof(ChartLevelText));
+        RaisePropertyChanged(nameof(ChartLevelSortKey));
+        RaisePropertyChanged(nameof(ChartLevelUndefined));
+        RaisePropertyChanged(nameof(ChartDifficultyText));
+        RaisePropertyChanged(nameof(ChartDifficultySortKey));
+        RaisePropertyChanged(nameof(ChartDifficultyColorKey));
+        RaisePropertyChanged(nameof(ChartDifficultyUndefined));
+        RaisePropertyChanged(nameof(ChartMainBpmText));
+        RaisePropertyChanged(nameof(ChartMainBpmSortKey));
+        RaisePropertyChanged(nameof(ChartMaxBpmText));
+        RaisePropertyChanged(nameof(ChartMaxBpmSortKey));
+        RaisePropertyChanged(nameof(ChartMinBpmText));
+        RaisePropertyChanged(nameof(ChartMinBpmSortKey));
+        RaisePropertyChanged(nameof(ChartDurationText));
+        RaisePropertyChanged(nameof(ChartDurationSortKey));
+        RaisePropertyChanged(nameof(ChartJudgeText));
+        RaisePropertyChanged(nameof(ChartJudgeSortKey));
+        RaisePropertyChanged(nameof(ChartJudgeColorKey));
+        RaisePropertyChanged(nameof(ChartJudgePercentText));
+        RaisePropertyChanged(nameof(ChartFeatureText));
+        RaisePropertyChanged(nameof(ChartFeatureSortKey));
+        RaisePropertyChanged(nameof(ChartNotes));
+        RaisePropertyChanged(nameof(ChartLongNotes));
+        RaisePropertyChanged(nameof(ChartScratchNotes));
+        RaisePropertyChanged(nameof(ChartTotalText));
+        RaisePropertyChanged(nameof(ChartTotalSortKey));
+        RaisePropertyChanged(nameof(ChartTotalUndefined));
+        RaisePropertyChanged(nameof(ChartTotalPerNoteText));
+        RaisePropertyChanged(nameof(ChartTotalPerNoteSortKey));
+        RaisePropertyChanged(nameof(ChartDensityText));
+        RaisePropertyChanged(nameof(ChartDensitySortKey));
+        RaisePropertyChanged(nameof(ChartPeakDensityText));
+        RaisePropertyChanged(nameof(ChartPeakDensitySortKey));
+        RaisePropertyChanged(nameof(ChartEndDensityText));
+        RaisePropertyChanged(nameof(ChartEndDensitySortKey));
+        RaisePropertyChanged(nameof(ChartSoflanCount));
     }
 
     private LR2SongDBExtended.bmson_song GetBmsonSong()

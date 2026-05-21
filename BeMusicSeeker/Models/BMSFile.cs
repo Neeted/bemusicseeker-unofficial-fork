@@ -333,7 +333,6 @@ public class BMSFile : LR2SongDB.song
             {
                 _chartInfo = value;
                 RaisePropertyChanged(() => ChartInfo);
-                RaiseChartInfoDisplayPropertiesChanged();
             }
         }
     }
@@ -362,118 +361,6 @@ public class BMSFile : LR2SongDB.song
         _chartInfo = chartInfo;
         return true;
     }
-
-    private void RaiseChartInfoDisplayPropertiesChanged()
-    {
-        RaisePropertyChanged(() => ChartLevelText);
-        RaisePropertyChanged(() => ChartLevelSortKey);
-        RaisePropertyChanged(() => ChartLevelUndefined);
-        RaisePropertyChanged(() => ChartDifficultyText);
-        RaisePropertyChanged(() => ChartDifficultySortKey);
-        RaisePropertyChanged(() => ChartDifficultyColorKey);
-        RaisePropertyChanged(() => ChartDifficultyUndefined);
-        RaisePropertyChanged(() => ChartMainBpmText);
-        RaisePropertyChanged(() => ChartMainBpmSortKey);
-        RaisePropertyChanged(() => ChartMaxBpmText);
-        RaisePropertyChanged(() => ChartMaxBpmSortKey);
-        RaisePropertyChanged(() => ChartMinBpmText);
-        RaisePropertyChanged(() => ChartMinBpmSortKey);
-        RaisePropertyChanged(() => ChartDurationText);
-        RaisePropertyChanged(() => ChartDurationSortKey);
-        RaisePropertyChanged(() => ChartJudgeText);
-        RaisePropertyChanged(() => ChartJudgeSortKey);
-        RaisePropertyChanged(() => ChartJudgeColorKey);
-        RaisePropertyChanged(() => ChartJudgePercentText);
-        RaisePropertyChanged(() => ChartFeatureText);
-        RaisePropertyChanged(() => ChartFeatureSortKey);
-        RaisePropertyChanged(() => ChartNotes);
-        RaisePropertyChanged(() => ChartLongNotes);
-        RaisePropertyChanged(() => ChartScratchNotes);
-        RaisePropertyChanged(() => ChartTotalText);
-        RaisePropertyChanged(() => ChartTotalSortKey);
-        RaisePropertyChanged(() => ChartTotalUndefined);
-        RaisePropertyChanged(() => ChartTotalPerNoteText);
-        RaisePropertyChanged(() => ChartTotalPerNoteSortKey);
-        RaisePropertyChanged(() => ChartDensityText);
-        RaisePropertyChanged(() => ChartDensitySortKey);
-        RaisePropertyChanged(() => ChartPeakDensityText);
-        RaisePropertyChanged(() => ChartPeakDensitySortKey);
-        RaisePropertyChanged(() => ChartEndDensityText);
-        RaisePropertyChanged(() => ChartEndDensitySortKey);
-        RaisePropertyChanged(() => ChartSoflanCount);
-    }
-
-    public virtual string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
-
-    public virtual double? ChartLevelSortKey => ChartInfo?.level ?? 0;
-
-    public virtual bool ChartLevelUndefined => ChartInfo == null || !ChartInfo.level.HasValue;
-
-    public virtual string ChartDifficultyText => ChartInfoDisplayFormatter.FormatDifficulty(ChartInfo?.difficulty);
-
-    public virtual int? ChartDifficultySortKey => ChartInfo?.difficulty;
-
-    public virtual string ChartDifficultyColorKey => ChartInfoDisplayFormatter.GetDifficultyColorKey(ChartInfo?.difficulty);
-
-    public virtual bool ChartDifficultyUndefined => ChartInfo == null || !ChartInfo.difficulty_defined;
-
-    public virtual string ChartMainBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.mainbpm);
-
-    public virtual double? ChartMainBpmSortKey => ChartInfo?.mainbpm;
-
-    public virtual string ChartMaxBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.maxbpm);
-
-    public virtual double? ChartMaxBpmSortKey => ChartInfo?.maxbpm;
-
-    public virtual string ChartMinBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.minbpm);
-
-    public virtual double? ChartMinBpmSortKey => ChartInfo?.minbpm;
-
-    public virtual string ChartDurationText => ChartInfoDisplayFormatter.FormatDuration(ChartInfo?.length);
-
-    public virtual int? ChartDurationSortKey => ChartInfo?.length;
-
-    public virtual string ChartJudgeText => ChartInfoDisplayFormatter.FormatJudge(ChartInfo?.judge);
-
-    public virtual int? ChartJudgeSortKey => ChartInfo?.judge;
-
-    public virtual string ChartJudgeColorKey => ChartInfoDisplayFormatter.GetJudgeColorKey(ChartInfo?.judge);
-
-    public virtual string ChartJudgePercentText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.judge);
-
-    public virtual string ChartFeatureText => ChartInfo == null ? string.Empty : ChartInfoDisplayFormatter.FormatFeature(ChartInfo.feature);
-
-    public virtual int? ChartFeatureSortKey => ChartInfo?.feature;
-
-    public virtual int? ChartNotes => ChartInfo?.notes;
-
-    public virtual int? ChartLongNotes => ChartInfo?.ln;
-
-    public virtual int? ChartScratchNotes => ChartInfoDisplayFormatter.GetScratchNotes(ChartInfo);
-
-    public virtual string ChartTotalText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.total);
-
-    public virtual double? ChartTotalSortKey => ChartInfo?.total;
-
-    public virtual bool ChartTotalUndefined => ChartInfo == null || !ChartInfo.total_defined;
-
-    public virtual string ChartTotalPerNoteText => ChartInfoDisplayFormatter.FormatFixedTwo(ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo));
-
-    public virtual double? ChartTotalPerNoteSortKey => ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo);
-
-    public virtual string ChartDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.density);
-
-    public virtual double? ChartDensitySortKey => ChartInfo?.density;
-
-    public virtual string ChartPeakDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.peakdensity);
-
-    public virtual double? ChartPeakDensitySortKey => ChartInfo?.peakdensity;
-
-    public virtual string ChartEndDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.enddensity);
-
-    public virtual double? ChartEndDensitySortKey => ChartInfo?.enddensity;
-
-    public virtual int? ChartSoflanCount => ChartInfo?.speedchange_count;
 
     public virtual string Title
     {

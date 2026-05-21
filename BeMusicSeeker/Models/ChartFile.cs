@@ -53,6 +53,8 @@ internal sealed class ChartFile
 
     internal LR2SongDBExtended.chart_info ChartInfo { get; }
 
+    internal ChartInfoDisplaySnapshot ChartInfoDisplay { get; }
+
     internal string Subtitle { get; }
 
     internal IReadOnlyList<string> AudioResourcePaths { get; }
@@ -160,6 +162,7 @@ internal sealed class ChartFile
         Level = level;
         Mode = mode;
         ChartInfo = chartInfo;
+        ChartInfoDisplay = ChartInfoDisplaySnapshot.FromChartInfo(chartInfo);
         Subtitle = subtitle ?? string.Empty;
         AudioResourcePaths = audioResourcePaths ?? [];
         VisualResourcePaths = visualResourcePaths ?? [];

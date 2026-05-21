@@ -132,77 +132,79 @@ internal sealed class PlaylistDetailSourceRow
 
     internal bool HasEntryChartInfoDependency => resolvedChartSnapshot?.GetBmsStorageOwner() == null && resolvedBmson == null;
 
-    internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
+    private ChartInfoDisplaySnapshot ChartInfoDisplay => ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
 
-    internal double? ChartLevelSortKey => ChartInfo?.level ?? 0;
+    internal string ChartLevelText => ChartInfoDisplay.ChartLevelText;
 
-    internal bool ChartLevelUndefined => ChartInfo == null || !ChartInfo.level.HasValue;
+    internal double? ChartLevelSortKey => ChartInfoDisplay.ChartLevelSortKey;
 
-    internal string ChartDifficultyText => ChartInfoDisplayFormatter.FormatDifficulty(ChartInfo?.difficulty);
+    internal bool ChartLevelUndefined => ChartInfoDisplay.ChartLevelUndefined;
 
-    internal int? ChartDifficultySortKey => ChartInfo?.difficulty;
+    internal string ChartDifficultyText => ChartInfoDisplay.ChartDifficultyText;
 
-    internal string ChartDifficultyColorKey => ChartInfoDisplayFormatter.GetDifficultyColorKey(ChartInfo?.difficulty);
+    internal int? ChartDifficultySortKey => ChartInfoDisplay.ChartDifficultySortKey;
 
-    internal bool ChartDifficultyUndefined => ChartInfo == null || !ChartInfo.difficulty_defined;
+    internal string ChartDifficultyColorKey => ChartInfoDisplay.ChartDifficultyColorKey;
 
-    internal string ChartMainBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.mainbpm);
+    internal bool ChartDifficultyUndefined => ChartInfoDisplay.ChartDifficultyUndefined;
 
-    internal double? ChartMainBpmSortKey => ChartInfo?.mainbpm;
+    internal string ChartMainBpmText => ChartInfoDisplay.ChartMainBpmText;
 
-    internal string ChartMaxBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.maxbpm);
+    internal double? ChartMainBpmSortKey => ChartInfoDisplay.ChartMainBpmSortKey;
 
-    internal double? ChartMaxBpmSortKey => ChartInfo?.maxbpm;
+    internal string ChartMaxBpmText => ChartInfoDisplay.ChartMaxBpmText;
 
-    internal string ChartMinBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.minbpm);
+    internal double? ChartMaxBpmSortKey => ChartInfoDisplay.ChartMaxBpmSortKey;
 
-    internal double? ChartMinBpmSortKey => ChartInfo?.minbpm;
+    internal string ChartMinBpmText => ChartInfoDisplay.ChartMinBpmText;
 
-    internal string ChartDurationText => ChartInfoDisplayFormatter.FormatDuration(ChartInfo?.length);
+    internal double? ChartMinBpmSortKey => ChartInfoDisplay.ChartMinBpmSortKey;
 
-    internal int? ChartDurationSortKey => ChartInfo?.length;
+    internal string ChartDurationText => ChartInfoDisplay.ChartDurationText;
 
-    internal string ChartJudgeText => ChartInfoDisplayFormatter.FormatJudge(ChartInfo?.judge);
+    internal int? ChartDurationSortKey => ChartInfoDisplay.ChartDurationSortKey;
 
-    internal int? ChartJudgeSortKey => ChartInfo?.judge;
+    internal string ChartJudgeText => ChartInfoDisplay.ChartJudgeText;
 
-    internal string ChartJudgeColorKey => ChartInfoDisplayFormatter.GetJudgeColorKey(ChartInfo?.judge);
+    internal int? ChartJudgeSortKey => ChartInfoDisplay.ChartJudgeSortKey;
 
-    internal string ChartJudgePercentText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.judge);
+    internal string ChartJudgeColorKey => ChartInfoDisplay.ChartJudgeColorKey;
 
-    internal string ChartFeatureText => ChartInfo == null ? string.Empty : ChartInfoDisplayFormatter.FormatFeature(ChartInfo.feature);
+    internal string ChartJudgePercentText => ChartInfoDisplay.ChartJudgePercentText;
 
-    internal int? ChartFeatureSortKey => ChartInfo?.feature;
+    internal string ChartFeatureText => ChartInfoDisplay.ChartFeatureText;
 
-    internal int? ChartNotes => ChartInfo?.notes;
+    internal int? ChartFeatureSortKey => ChartInfoDisplay.ChartFeatureSortKey;
 
-    internal int? ChartLongNotes => ChartInfo?.ln;
+    internal int? ChartNotes => ChartInfoDisplay.ChartNotes;
 
-    internal int? ChartScratchNotes => ChartInfoDisplayFormatter.GetScratchNotes(ChartInfo);
+    internal int? ChartLongNotes => ChartInfoDisplay.ChartLongNotes;
 
-    internal string ChartTotalText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.total);
+    internal int? ChartScratchNotes => ChartInfoDisplay.ChartScratchNotes;
 
-    internal double? ChartTotalSortKey => ChartInfo?.total;
+    internal string ChartTotalText => ChartInfoDisplay.ChartTotalText;
 
-    internal bool ChartTotalUndefined => ChartInfo == null || !ChartInfo.total_defined;
+    internal double? ChartTotalSortKey => ChartInfoDisplay.ChartTotalSortKey;
 
-    internal string ChartTotalPerNoteText => ChartInfoDisplayFormatter.FormatFixedTwo(ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo));
+    internal bool ChartTotalUndefined => ChartInfoDisplay.ChartTotalUndefined;
 
-    internal double? ChartTotalPerNoteSortKey => ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo);
+    internal string ChartTotalPerNoteText => ChartInfoDisplay.ChartTotalPerNoteText;
 
-    internal string ChartDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.density);
+    internal double? ChartTotalPerNoteSortKey => ChartInfoDisplay.ChartTotalPerNoteSortKey;
 
-    internal double? ChartDensitySortKey => ChartInfo?.density;
+    internal string ChartDensityText => ChartInfoDisplay.ChartDensityText;
 
-    internal string ChartPeakDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.peakdensity);
+    internal double? ChartDensitySortKey => ChartInfoDisplay.ChartDensitySortKey;
 
-    internal double? ChartPeakDensitySortKey => ChartInfo?.peakdensity;
+    internal string ChartPeakDensityText => ChartInfoDisplay.ChartPeakDensityText;
 
-    internal string ChartEndDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.enddensity);
+    internal double? ChartPeakDensitySortKey => ChartInfoDisplay.ChartPeakDensitySortKey;
 
-    internal double? ChartEndDensitySortKey => ChartInfo?.enddensity;
+    internal string ChartEndDensityText => ChartInfoDisplay.ChartEndDensityText;
 
-    internal int? ChartSoflanCount => ChartInfo?.speedchange_count;
+    internal double? ChartEndDensitySortKey => ChartInfoDisplay.ChartEndDensitySortKey;
+
+    internal int? ChartSoflanCount => ChartInfoDisplay.ChartSoflanCount;
 
     internal string SearchText { get; private set; }
 
