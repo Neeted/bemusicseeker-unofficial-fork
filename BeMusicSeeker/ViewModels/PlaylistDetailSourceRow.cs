@@ -245,17 +245,17 @@ internal sealed class PlaylistDetailSourceRow
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
         HasZeroNoteMismatchWarning = bmsOwner?.HasZeroNoteMismatchWarning ?? false;
-        HasHighlightedWarning = HasProjectedWarning(Chart, bmsOwner);
-        DisplayWarning = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), bmsOwner?.DisplayWarning);
-        WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), bmsOwner?.WarningDigestText, DisplayWarning);
-        WarningTooltipText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), bmsOwner?.WarningTooltipText, DisplayWarning);
-        instl_dst = FirstNonEmpty(Chart?.InstallDestination, bmsOwner?.instl_dst);
-        InstallDestinationTitle = FirstNonEmpty(Chart?.InstallDestinationTitle, bmsOwner?.InstallDestinationTitle);
-        InstallDestinationArtist = FirstNonEmpty(Chart?.InstallDestinationArtist, bmsOwner?.InstallDestinationArtist);
-        WAVHealth = Chart?.WAVHealth ?? bmsOwner?.WAVHealth;
-        BGAHealth = Chart?.BGAHealth ?? bmsOwner?.BGAHealth;
-        MovieHealth = Chart?.MovieHealth ?? bmsOwner?.MovieHealth;
-        encoding = FirstNonEmpty(Chart?.EncodingName, bmsOwner?.encoding);
+        HasHighlightedWarning = HasProjectedWarning(Chart);
+        DisplayWarning = ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
+        WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), DisplayWarning);
+        WarningTooltipText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), DisplayWarning);
+        instl_dst = Chart?.InstallDestination ?? string.Empty;
+        InstallDestinationTitle = Chart?.InstallDestinationTitle ?? string.Empty;
+        InstallDestinationArtist = Chart?.InstallDestinationArtist ?? string.Empty;
+        WAVHealth = Chart?.WAVHealth;
+        BGAHealth = Chart?.BGAHealth;
+        MovieHealth = Chart?.MovieHealth;
+        encoding = Chart?.EncodingName ?? string.Empty;
         RefTablesSymbols = playlistReferenceDisplay.Symbols;
         RefTablesNames = playlistReferenceDisplay.Names;
         clear = ResolveClear(isBmsOwned || isBmsonOwned, effectiveScore);
@@ -370,10 +370,9 @@ internal sealed class PlaylistDetailSourceRow
             ?? ChartFileTransientState.Empty;
     }
 
-    private static bool HasProjectedWarning(ChartFile chart, BMSFile fallback)
+    private static bool HasProjectedWarning(ChartFile chart)
     {
-        return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false)
-            || (chart?.Warnings.Count == 0 && (fallback?.HasHighlightedWarning ?? false));
+        return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
     }
 
     private static bool HasOwnedChart(ChartFile chart)
