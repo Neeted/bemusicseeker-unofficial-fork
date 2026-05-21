@@ -89,6 +89,8 @@ internal sealed class ChartFile
 
     internal string EncodingName { get; }
 
+    internal ChartScoreSnapshot Score { get; }
+
     internal ChartFileStatus Status { get; }
 
     private BMSFile BmsFile { get; }
@@ -140,6 +142,7 @@ internal sealed class ChartFile
         bool? bannerHealth = null,
         bool? backbmpHealth = null,
         string encodingName = null,
+        ChartScoreSnapshot score = null,
         ChartFileStatus status = ChartFileStatus.NONE)
     {
         Kind = kind;
@@ -175,6 +178,7 @@ internal sealed class ChartFile
         BannerHealth = bannerHealth;
         BackbmpHealth = backbmpHealth;
         EncodingName = encodingName ?? string.Empty;
+        Score = score ?? ChartScoreSnapshot.NoScore(Path);
         Status = status;
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;

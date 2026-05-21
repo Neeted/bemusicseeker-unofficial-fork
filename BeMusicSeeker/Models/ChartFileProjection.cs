@@ -89,6 +89,7 @@ internal static class ChartFileProjection
             source.BannerHealth,
             source.BackbmpHealth,
             source.EncodingName,
+            source.Score,
             source.Status);
     }
 
@@ -138,6 +139,7 @@ internal static class ChartFileProjection
             SelectNullableOverride(current.BannerHealth, overrideChart.BannerHealth, baseline.BannerHealth),
             SelectNullableOverride(current.BackbmpHealth, overrideChart.BackbmpHealth, baseline.BackbmpHealth),
             SelectStringOverride(current.EncodingName, overrideChart.EncodingName, baseline.EncodingName),
+            current.Score,
             current.Status);
     }
 
@@ -186,6 +188,7 @@ internal static class ChartFileProjection
             file.BannerHealth,
             file.BackbmpHealth,
             file.encoding,
+            ChartScoreSnapshot.FromBmsFile(file),
             ChartFileStatusMapper.FromBmsFileStatus(file.status));
     }
 

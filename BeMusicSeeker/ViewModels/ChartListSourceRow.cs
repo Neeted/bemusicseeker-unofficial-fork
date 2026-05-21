@@ -97,33 +97,33 @@ internal sealed class ChartListSourceRow
 
     internal string EncodingName => Chart?.EncodingName ?? string.Empty;
 
-    internal ClearType Clear => bmsFile?.clear ?? (string.IsNullOrWhiteSpace(Path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
+    internal ClearType Clear => Chart?.Score?.Clear ?? ChartScoreSnapshot.MissingChart.Clear;
 
-    internal RankType Rank => bmsFile?.rank ?? RankType.INVALID;
+    internal RankType Rank => Chart?.Score?.Rank ?? RankType.INVALID;
 
-    internal double? RateDouble => bmsFile?.rateDouble;
+    internal double? RateDouble => Chart?.Score?.RateDouble;
 
-    internal int? Rate => bmsFile?.rate;
+    internal int? Rate => Chart?.Score?.Rate;
 
-    internal int? Score => bmsFile?.score;
+    internal int? Score => Chart?.Score?.Score;
 
-    internal int? TotalNotes => bmsFile?.totalnotes;
+    internal int? TotalNotes => Chart?.Score?.TotalNotes;
 
-    internal int? MaxCombo => bmsFile?.maxcombo;
+    internal int? MaxCombo => Chart?.Score?.MaxCombo;
 
-    internal int? MinBp => bmsFile?.minbp;
+    internal int? MinBp => Chart?.Score?.MinBp;
 
-    internal int? Ranking => bmsFile?.ranking;
+    internal int? Ranking => Chart?.Score?.Ranking;
 
-    internal int? RankingNum => bmsFile?.rankingNum;
+    internal int? RankingNum => Chart?.Score?.RankingNum;
 
-    internal string RankingString => bmsFile?.rankingString ?? string.Empty;
+    internal string RankingString => Chart?.Score?.RankingString ?? string.Empty;
 
-    internal DateTime? RankingLastUpdate => bmsFile?.rankingLastupdate;
+    internal DateTime? RankingLastUpdate => Chart?.Score?.RankingLastUpdate;
 
-    internal double? StdDevVal => bmsFile?.stddevVal;
+    internal double? StdDevVal => Chart?.Score?.StdDevVal;
 
-    internal double? ScoreDifficulty => bmsFile?.scoreDifficulty;
+    internal double? ScoreDifficulty => Chart?.Score?.ScoreDifficulty;
 
     internal LR2SongDBExtended.chart_info ChartInfo => bmsFile?.ChartInfo ?? bmsonSong?.ChartInfo ?? sourceChart?.ChartInfo;
 

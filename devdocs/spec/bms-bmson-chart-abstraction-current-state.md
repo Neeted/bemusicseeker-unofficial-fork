@@ -45,7 +45,7 @@ BMS の所持譜面の正本は `BMSLibrary.BMSFiles` であり、要素は `BMS
 - `folder`
 - `parent`
 - title / artist / level / mode
-- LR2 score / ranking / IR 関連の表示値
+- LR2 score / ranking / IR 関連の storage state
 - BMS parser 由来の resource references
 - runtime `ChartInfo`
 - `maintenanceInfo`
@@ -105,9 +105,10 @@ parent folder cache は UI / settings の語彙としては BMS root / BMS direc
 
 playlist reference 表示は、BMS / bmson を分けず `ChartFile` identity から解決する。playlist entry の md5 / sha256 から作る `PlaylistReferenceIndex` を通常一覧 row / virtual source row / playlist detail source row に注入し、lookup は md5 優先、見つからない場合だけ sha256 fallback とする。`BMSLibrary` の playlist reference 更新も BMS storage row の `RefTables` cache へは書き戻さず、UI 更新は `PlaylistReferenceIndex` の version / table 更新通知と chart row の playlist reference projection invalidation で行う。BMS storage row の playlist reference cache / mutation API は削除済みであり、表示 / sort / keyword search / `BMSLibrary` mutation の正本は `PlaylistReferenceIndex` である。
 
-一方、次の列は BMSFile 由来に依存するため、所持 bmson では空または既定値になりやすい。
+score / ranking 系の表示値は `ChartScoreSnapshot` として `ChartFile` に投影され、`LibraryChartRow` / `ChartListSourceRow` は `BMSFile` の score 表示 getter を直接読まない。BMS の通常一覧では `BMSFile.bmsScore` から snapshot を作る。通常 library の所持 bmson は現時点で LR2 score storage を持たないため、path がある chart は `NO_PLAY`、path が無い chart は `NO_SONG` の既定 snapshot になる。これは「score 表示 API の入口は Chart だが、score の storage producer は BMS/LR2 境界に残る」という整理である。
 
-- LR2 score / ranking 系
+一方、次の列は BMS / LR2 storage 由来に依存するため、所持 bmson では空または既定値になりやすい。
+
 - LR2 BMSID / diff name
 
 ### `ChartListSourceRow`
@@ -622,12 +623,17 @@ production に残る `Compatibility` 名は playlist summary column settings の
    - 残存 hit は settings 互換、LR2 compatibility warning、XAML `markup-compatibility`、履歴説明、negative assertion のいずれかへ分類する。
    - test-only production helper が見つかった場合は削除し、test 側を `ChartFile` / `PackageChartEntry` / storage owner helper に寄せる。
 
-2. **chart-common API に残る BMSFile list / overload の audit**
+2. **BMSFile member surface の chart-common 責務 audit**
+   - `BMSFile` の property / helper が BMS-only storage state なのか、Chart 共通の表示・操作 concept なのかを分類する。
+   - `ChartInfo` / install destination / warning / maintenance / resource health / score display など、bmson にも適用される concept は `ChartFile` / `ChartFileTransientState` / 専用 snapshot へ移し、`BMSFile` には BMS / LR2 storage owner と parser / score producer として必要な state だけを残す。
+   - 最初の分離として、一覧 row の score / ranking 表示 getter は `ChartScoreSnapshot` を読む。BMS の producer は `BMSFile.bmsScore` のままだが、row / sort / keyword search 側は `BMSFile` の score 表示 API に依存しない。
+
+3. **chart-common API に残る BMSFile list / overload の audit**
    - package / playlist / resource health / duplicate / install destination / library mutation の production 入口に `IEnumerable<BMSFile>` が戻っていないか確認する。
    - BMS-only callback（zero-note、score、IR、encoding、BMS parser）以外の BMSFile list 入口は `ChartFile` / `LibraryChartRef` / `PackageChartEntry` に統一する。
    - 既に未使用になった old-name facade は互換用に残さず削除する。
 
-3. **docs / tests / logs の terminology cleanup**
+4. **docs / tests / logs の terminology cleanup**
    - active spec は現行実装を正本として保ち、古い計画書には進捗を追記しない。
    - テスト名や assertion が旧 adapter の存在を前提に読める場合は、adapter 非生成または chart-native behavior を直接表す名前へ寄せる。
    - 内部ログ文言は互換契約ではないため、実装の chart-common semantics と明らかにずれているものだけ直す。ユーザー向け UI 文言と settings 名は変更しない。
@@ -711,7 +717,7 @@ playlist reference 統合と `BMSFile.RefTables*` legacy API cleanup が終わ�
 - context menu の BMS-format 専用選択 helper は `GetSelectedBmsFormatCharts(...)` として `ChartFile` を返す。旧 `GetSelectedBmsChartFiles(...)` は selection 時点で `BMSFile` に潰していたため、invalid extension rename のような chart operation shaped command でも View / ViewModel 境界が `BMSFile` list になっていた。現行実装では View / ViewModel / BMSLibrary の入口は `ChartFile` とし、encoding fix / audio convert / 実ファイル rename のような BMS-only mutation 直前だけ `ChartFile.GetBmsStorageOwner()` を読む。これにより bmson を adapter 化する余地を作らず、BMS-format capability は `ChartFile.Kind` の predicate として扱う。
 - pending zero-note / invalid-extension rename の snapshot も `ChartFile` を返す。旧実装では pending package の BMS-format chart を `BMSFile` snapshot として取り出してから rename pipeline に渡していたが、現行実装では pending package membership は `PackageChartEntry.Chart` を正本にし、path / BMS owner reference の dedupe を維持した上で `ChartFile` snapshot を渡す。zero-note 判定と rename 実行は BMS parser / filesystem mutation 境界なので `BMSFile` へ降りるが、その変換は `BmsLibraryPackageInstallService` 内部に閉じる。
 - installed library の invalid-extension rename も `ChartFile` list を入口にする。処理対象は BMS-format chart だけなので、実際の filesystem rename / duplicate delete callback の直前で `ChartFile.GetBmsStorageOwner()` へ降りる。bmson は対象外であり、BMSFile list を service surface に戻して mixed chart selection を二本立てにしない。
-- `ChartListSourceRow` の production 入口は `ChartFile` である。旧 `BuildStandardLibraryRows(IEnumerable<BMSFile>, IEnumerable<bmson_song>, ...)` / `FromBmsFile(...)` / `FromBmsonSong(...)` は削除する。通常 library snapshot は `ChartFileProjection.FromBmsFile(...)` / `FromBmsonSong(...)` で `ChartFile` 化してから `ChartListSourceProjectionMode.OwnerBacked` として source row を作るため、title/path などの identity snapshot は作成時点で固定しつつ、score / chart_info / transient bmson state は storage owner または provider から追従する。package / duplicate / metadata-only など caller-supplied projection を正本にする経路は `PreserveSourceProjection` のままにし、warning / install destination snapshot を落とさない。
+- `ChartListSourceRow` の production 入口は `ChartFile` である。旧 `BuildStandardLibraryRows(IEnumerable<BMSFile>, IEnumerable<bmson_song>, ...)` / `FromBmsFile(...)` / `FromBmsonSong(...)` は削除する。通常 library snapshot は `ChartFileProjection.FromBmsFile(...)` / `FromBmsonSong(...)` で `ChartFile` 化してから `ChartListSourceProjectionMode.OwnerBacked` として source row を作るため、title/path などの identity snapshot は作成時点で固定しつつ、score は `ChartScoreSnapshot`、chart_info / transient bmson state は storage owner または provider から追従する。package / duplicate / metadata-only など caller-supplied projection を正本にする経路は `PreserveSourceProjection` のままにし、warning / install destination snapshot を落とさない。
 - `ChartFile.GetBmsStorageOwner()` / `GetBmsonStorageOwner()` は、domain `ChartFile` から永続化 owner へ降りる明示的な境界である。row cache / BMS player / package entry materialization など BMS-only または owner-backed な処理はこの helper を読む。storage owner property 自体は private にし、ViewModel 側で `chart.Kind` と raw owner property を直接組み合わせる分岐は増やさない。
 - `GridRowResolver.TryGetChartFile(...)` / `TryGetChartOperationTarget(...)` は raw `BMSFile` を chart-common row として受けない。旧実装では直接 `BMSFile` を渡すと `ChartFileProjection.FromBmsFile(...)` で chart operation target に変換できたが、production ではこの入口は BMS player / BMS-only helper 以外から使われておらず、test-only compatibility surface になっていた。現行実装では raw `BMSFile` は `TryGetBmsPlayerFile(...)` と display / hash helper の BMS-only fallback にだけ残し、chart operation が必要な場合は caller が `LibraryChartRow` や `ChartFile` projection を明示的に作る。
 - `PlaylistDetailSourceRow` / `PlaylistDetailRow` は `RealFile` / `ResolvedBmson` property を公開しない。旧実装では playlist detail row の外部 consumer が BMS / bmson owner を個別 property で見ていたが、現行実装では `ChartFile` を正本にし、storage owner が必要な箇所だけ `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` を読む。`CommitPlaylistRow(...)` の bmson identity repair や `TryGetBmsPlayerFile(...)` も `row.Chart` から owner を取り出す。source row 内部は解決済み `ChartFile` snapshot を保持し、score は row 構築前に `ChartFile` identity で解決する。chart_info / playlist reference snapshot 構築で storage owner が必要な場合も `ChartFile` から読むだけで、row API surface には個別 owner property を戻さない。

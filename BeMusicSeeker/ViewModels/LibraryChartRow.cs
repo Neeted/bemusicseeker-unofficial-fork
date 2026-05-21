@@ -273,37 +273,37 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string RefTablesNames => GetPlaylistReferenceDisplay().Names;
 
-    public ClearType clear => BmsFile?.clear ?? (string.IsNullOrWhiteSpace(path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
+    public ClearType clear => Chart?.Score?.Clear ?? ChartScoreSnapshot.MissingChart.Clear;
 
-    public RankType rank => BmsFile?.rank ?? RankType.INVALID;
+    public RankType rank => Chart?.Score?.Rank ?? RankType.INVALID;
 
     public string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
 
     public string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
 
-    public int? score => BmsFile?.score;
+    public int? score => Chart?.Score?.Score;
 
-    public int? rate => BmsFile?.rate;
+    public int? rate => Chart?.Score?.Rate;
 
-    public double? rateDouble => BmsFile?.rateDouble;
+    public double? rateDouble => Chart?.Score?.RateDouble;
 
-    public int? totalnotes => BmsFile?.totalnotes;
+    public int? totalnotes => Chart?.Score?.TotalNotes;
 
-    public int? minbp => BmsFile?.minbp;
+    public int? minbp => Chart?.Score?.MinBp;
 
-    public int? maxcombo => BmsFile?.maxcombo;
+    public int? maxcombo => Chart?.Score?.MaxCombo;
 
-    public int? ranking => BmsFile?.ranking;
+    public int? ranking => Chart?.Score?.Ranking;
 
-    public int? rankingNum => BmsFile?.rankingNum;
+    public int? rankingNum => Chart?.Score?.RankingNum;
 
-    public string rankingString => BmsFile?.rankingString ?? string.Empty;
+    public string rankingString => Chart?.Score?.RankingString ?? string.Empty;
 
-    public DateTime? rankingLastupdate => BmsFile?.rankingLastupdate;
+    public DateTime? rankingLastupdate => Chart?.Score?.RankingLastUpdate;
 
-    public double? stddevVal => BmsFile?.stddevVal;
+    public double? stddevVal => Chart?.Score?.StdDevVal;
 
-    public double? scoreDifficulty => BmsFile?.scoreDifficulty;
+    public double? scoreDifficulty => Chart?.Score?.ScoreDifficulty;
 
     public ChartFileStatus status => Chart?.Status ?? ChartFileStatus.NONE;
 
