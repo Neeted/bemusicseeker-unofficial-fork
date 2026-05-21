@@ -513,6 +513,19 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void GridRowResolver_DisplayHelpers_KeepRawBmsFileFallbackForBmsPlayer()
+    {
+        var file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "PlayerTitle", 7);
+        file.SetSubtitle("[PlayerSubtitle]");
+        file.SetArtist("PlayerArtist");
+
+        Assert.AreEqual("PlayerTitle [PlayerSubtitle]", GridRowResolver.GetDisplayTitle(file));
+        Assert.AreEqual("[PlayerSubtitle]", GridRowResolver.GetDisplaySubtitle(file));
+        Assert.AreEqual("PlayerArtist", GridRowResolver.GetDisplayArtist(file));
+    }
+
+    [TestMethod]
     public void GridRowResolver_GetRepositorySha256_ReturnsNullWhenMissing()
     {
         PlaylistDetailSourceRow sourceRow = CreateSourceRow("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "NoSha", 7);
@@ -1687,7 +1700,9 @@ public sealed class PlaylistViewPipelineTests
         file.ApplySnapshot("abababababababababababababababab", "Bms", 7);
         file.SetSha256(new string('a', 64));
 
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
+        var row = LibraryChartRow.FromBmsFile(file);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
@@ -1726,7 +1741,9 @@ public sealed class PlaylistViewPipelineTests
             sha256 = new string('c', 64)
         })));
 
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bms, out ChartOperationTarget bmsTarget));
+        var bmsRow = LibraryChartRow.FromBmsFile(bms);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bmsRow, out ChartOperationTarget bmsTarget));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bmson, out ChartOperationTarget bmsonTarget));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(pendingBmson, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingBmsonTarget));
 
@@ -1814,7 +1831,9 @@ public sealed class PlaylistViewPipelineTests
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
 
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
+        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromBmsFile(file));
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
 
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
@@ -1824,19 +1843,19 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ChartOperationTarget_ChartNamedApis_ReturnRealBmsAndTargetChartFile()
+    public void ChartOperationTarget_ChartNamedApis_TreatRawBmsAsBmsPlayerOnlyBoundary()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "Bms", 7);
 
-        Assert.IsTrue(GridRowResolver.TryGetChartFile(file, out ChartFile chart));
-        Assert.AreEqual(ChartFileKind.Bms, chart.Kind);
-        Assert.AreSame(file, chart.BmsFile);
-
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
-        Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
+        Assert.IsFalse(GridRowResolver.TryGetChartFile(file, out _));
+        Assert.IsFalse(GridRowResolver.TryGetChartOperationTarget(file, out _));
         Assert.IsTrue(GridRowResolver.TryGetBmsPlayerFile(file, out BMSFile playerFile));
         Assert.AreSame(file, playerFile);
+
+        var row = LibraryChartRow.FromBmsFile(file);
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
         Assert.AreSame(file, target.Chart.BmsFile);
     }
 
@@ -2044,7 +2063,9 @@ public sealed class PlaylistViewPipelineTests
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "NoSha", 7);
 
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
+        var row = LibraryChartRow.FromBmsFile(file);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
     }
 
@@ -2720,6 +2741,11 @@ public sealed class PlaylistViewPipelineTests
         public void SetTitle(string value)
         {
             Title = value;
+        }
+
+        public void SetArtist(string value)
+        {
+            Artist = value;
         }
 
         public void SetSubtitle(string value)

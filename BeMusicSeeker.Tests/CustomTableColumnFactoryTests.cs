@@ -496,7 +496,7 @@ public sealed class CustomTableColumnFactoryTests
         };
         CollectionAssert.AreEqual(
             new[] { "C:\\BMS\\A", "C:\\BMS\\B" },
-            columns["InstallDst"].GetEditSuggestions(bmsFile).ToArray());
+            columns["InstallDst"].GetEditSuggestions(LibraryChartRow.FromBmsFile(bmsFile)).ToArray());
 
         var adapterlessBmsonRow = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
             ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song

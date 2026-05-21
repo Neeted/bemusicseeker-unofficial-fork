@@ -77,9 +77,6 @@ internal static class GridRowResolver
             case LibraryChartRow libraryChartRow:
                 chart = libraryChartRow.Chart;
                 return chart != null;
-            case BMSFile bmsFile:
-                chart = CreateChartFile(bmsFile);
-                return chart != null;
             default:
                 return false;
         }
@@ -242,11 +239,6 @@ internal static class GridRowResolver
         return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
     }
 
-    private static ChartFile CreateChartFile(BMSFile file)
-    {
-        return ChartFileProjection.FromBmsFile(file);
-    }
-
     private static PackageChartEntry ResolvePackageEntry(object row)
     {
         return row is LibraryChartRow libraryChartRow ? libraryChartRow.PackageEntry : null;
@@ -363,7 +355,11 @@ internal static class GridRowResolver
         {
             return chart.Subtitle ?? string.Empty;
         }
-        return string.Empty;
+        return row switch
+        {
+            BMSFile bmsFile => bmsFile.subtitle ?? string.Empty,
+            _ => string.Empty
+        };
     }
 
     /// <summary>
