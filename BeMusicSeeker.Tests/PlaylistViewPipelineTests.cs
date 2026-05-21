@@ -2460,6 +2460,8 @@ public sealed class PlaylistViewPipelineTests
             [keepBms, skipBms],
             [keepBmson, skipBmson],
             MainWindowViewModel.NormalLibraryTreeFilter.Create(MainWindowViewModel.FolderFilterType.DirectoryFilter, "C:\\Keep"),
+            LibraryChartRow.FromBmsFile,
+            null,
             out LibraryRowsBuildMetrics metrics);
 
         Assert.AreEqual(2, rows.Count);

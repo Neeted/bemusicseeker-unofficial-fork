@@ -16399,23 +16399,6 @@ public class MainWindowViewModel : ViewModel
     internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
         IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
         IEnumerable<LibraryChartRow> bmsonRows,
-        NormalLibraryTreeFilter folderFilter)
-    {
-        return BuildStandardLibraryRowsForView(bmsFiles, bmsonRows, folderFilter, out _);
-    }
-
-    internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
-        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        IEnumerable<LibraryChartRow> bmsonRows,
-        NormalLibraryTreeFilter folderFilter,
-        out LibraryRowsBuildMetrics metrics)
-    {
-        return BuildStandardLibraryRowsForView(bmsFiles, bmsonRows, folderFilter, LibraryChartRow.FromBmsFile, null, out metrics);
-    }
-
-    internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
-        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        IEnumerable<LibraryChartRow> bmsonRows,
         NormalLibraryTreeFilter folderFilter,
         Func<BeMusicSeeker.Models.BMSFile, LibraryChartRow> bmsRowFactory,
         LibraryRowCacheBuildStats rowCacheStats,
