@@ -29,4 +29,9 @@ internal static class ChartFileKindResolver
     {
         return file != null;
     }
+
+    internal static bool IsBmsFormatChartFile(ChartFile chart)
+    {
+        return chart?.Kind == ChartFileKind.Bms && IsBmsChartFile(chart.BmsFile);
+    }
 }

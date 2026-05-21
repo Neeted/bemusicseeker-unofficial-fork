@@ -879,11 +879,12 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(contextMenuResource, "ShouldUsePlaylistMissingContextMenu(row, GetCurrentChartOperationSourceScope())");
         Assert.IsFalse(contextMenuResource.Contains("GetRealBmsFile"));
-        StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension)");
+        StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension)");
+        StringAssert.Contains(renameInvalidExtensionClick, "viewModel.RenameBMSFilesExtensions(list, \".bmx\")");
         Assert.IsFalse(renameInvalidExtensionClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RenameInvalidExtension)"));
-        StringAssert.Contains(encodingFixClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.RunBmsEncodingFix)");
+        StringAssert.Contains(encodingFixClick, "ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.RunBmsEncodingFix))");
         Assert.IsFalse(encodingFixClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunBmsEncodingFix)"));
-        StringAssert.Contains(audioConvertClick, "GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio)");
+        StringAssert.Contains(audioConvertClick, "ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.ConvertToAudio))");
         Assert.IsFalse(audioConvertClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.ConvertToAudio)"));
         StringAssert.Contains(resourceHealthClick, "GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck)");
         StringAssert.Contains(resourceHealthClick, "CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck)");
@@ -900,6 +901,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(resourceHealthIgnoreClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthUnignoreClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.RunResourceHealthCheck)"));
         Assert.IsFalse(resourceHealthUnignoreClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunResourceHealthCheck)"));
+        Assert.IsFalse(mainWindowCode.Contains("GetSelectedBmsChartFiles("));
         Assert.IsFalse(mainWindowCode.Contains("GetSelectedChartCompatibilityAdapters("));
         Assert.IsFalse(mainWindowCode.Contains("GetChartCompatibilityAdapterFromTarget"));
     }

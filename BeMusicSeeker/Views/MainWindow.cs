@@ -1173,11 +1173,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return target != null && (capability == ChartOperationCapabilities.None || target.HasCapability(capability));
     }
 
-    private List<BMSFile> GetSelectedBmsChartFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
+    private List<ChartFile> GetSelectedBmsFormatCharts(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
-        return [.. GetSelectedChartTargets(isPendingSection)
-            .Where(target => HasRequiredCapability(target, capability) && target.Chart.Kind == ChartFileKind.Bms)
-            .Select(target => target.Chart.BmsFile)
+        return [.. GetSelectedChartTargets(capability, isPendingSection)
+            .Select(target => target.Chart)
+            .Where(ChartFileKindResolver.IsBmsFormatChartFile)];
+    }
+
+    private static List<BMSFile> ToBmsFiles(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? [])
+            .Where(ChartFileKindResolver.IsBmsFormatChartFile)
+            .Select(chart => chart.BmsFile)
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
@@ -6438,17 +6445,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension);
+        List<ChartFile> charts = GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension);
         var viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
-        if (bmsFiles.Count <= 0 || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (charts.Count <= 0 || DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
         Task.Run(delegate
         {
-            List<BMSFile> list = [.. bmsFiles.Where(f => Path.GetExtension(f.path).StartsWith(".b", StringComparison.OrdinalIgnoreCase))];
-            List<BMSFile> list2 = [.. bmsFiles.Where(f => Path.GetExtension(f.path).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
+            List<ChartFile> list = [.. charts.Where(chart => (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".b", StringComparison.OrdinalIgnoreCase))];
+            List<ChartFile> list2 = [.. charts.Where(chart => (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
             if (list.Count > 0)
             {
                 if (isPendingSelected)
@@ -6582,7 +6589,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && TryGetContextMenuRow(e.Source, out _))
         {
-            List<BMSFile> list = GetSelectedBmsChartFiles(ChartOperationCapabilities.RunBmsEncodingFix);
+            List<BMSFile> list = ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.RunBmsEncodingFix));
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).FixEncodingBMSFiles(list, menuItem.Tag.ToString());
@@ -6808,7 +6815,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = [.. GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio).Where(f => File.Exists(f.path))];
+        BMSFile[] bmsFiles = [.. ToBmsFiles(GetSelectedBmsFormatCharts(ChartOperationCapabilities.ConvertToAudio)).Where(f => File.Exists(f.path))];
         if (bmsFiles.Length == 0)
         {
             return;

@@ -10821,8 +10821,9 @@ reportProgress,
         return libraryFileOperationsService.TryComputeFileMd5ForPath(filePath, logCategory, info => NLogWrapper.FileLogger?.Info(info));
     }
 
-    public void RenameBMSFilesExtensions(IEnumerable<BMSFile> bmsFiles, string newExt, bool? unregister = false)
+    internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, bool? unregister = false)
     {
+        List<BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
@@ -10851,12 +10852,13 @@ reportProgress,
         }
     }
 
-    public void RenamePendingBmsFormatChartFileExtensions(IEnumerable<BMSFile> bmsFiles, string newExt)
+    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
-        if (bmsFiles == null)
+        if (charts == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException("charts");
         }
+        List<BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -10887,6 +10889,14 @@ reportProgress,
                 }
             }
         }
+    }
+
+    private static List<BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? [])
+            .Where(ChartFileKindResolver.IsBmsFormatChartFile)
+            .Select(chart => chart.BmsFile)
+            .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     /// <summary>

@@ -21358,21 +21358,31 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void RenameBMSFilesExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
+    internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
         lock (lockCopyFile)
         {
             stopPlayingBMSFile(bmsFiles);
-            files.RenameBMSFilesExtensions(bmsFiles, newExt, true);
+            files.RenameBMSFilesExtensions(charts, newExt, true);
         }
     }
 
-    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
+    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
         RunPendingInstallMutation(delegate
         {
-            files.RenamePendingBmsFormatChartFileExtensions(bmsFiles, newExt);
+            files.RenamePendingBmsFormatChartFileExtensions(charts, newExt);
         }, bmsFiles);
+    }
+
+    private static List<BeMusicSeeker.Models.BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? [])
+            .Where(ChartFileKindResolver.IsBmsFormatChartFile)
+            .Select(chart => chart.BmsFile)
+            .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     internal RenameChartFolderTargetSnapshot CreateRenameChartFolderTargetSnapshot(ChartOperationTarget target)
