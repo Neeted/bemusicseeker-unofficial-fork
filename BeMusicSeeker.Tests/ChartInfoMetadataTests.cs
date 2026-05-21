@@ -2514,7 +2514,7 @@ createTempDirectory);
             var service = new ChartInfoBuildService();
             List<Tuple<int, int, string>> progress = [];
 
-            ChartInfoBackfillResult first = service.BackfillChartInfos(
+            ChartInfoBackfillResult first = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -2533,7 +2533,7 @@ createTempDirectory);
             Assert.AreEqual(1, progress.Last().Item1);
             Assert.AreEqual(1, progress.Last().Item2);
 
-            ChartInfoBackfillResult second = service.BackfillChartInfos(
+            ChartInfoBackfillResult second = BackfillChartInfos(service,
                 gateway,
                 [file],
                 []);
@@ -2545,7 +2545,7 @@ createTempDirectory);
             Assert.AreEqual(0L, second.FileReadBytes);
 
             gateway.UpsertChartInfos([CreateChartInfoRow(file.sha256, file.hash, parserVersion: 0)]);
-            ChartInfoBackfillResult third = service.BackfillChartInfos(
+            ChartInfoBackfillResult third = BackfillChartInfos(service,
                 gateway,
                 [file],
                 []);
@@ -2580,7 +2580,7 @@ createTempDirectory);
             }, workerCountOverride: 2);
 
             List<string> logs = [];
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -2638,7 +2638,7 @@ createTempDirectory);
             gateway.EnsureChartInfoSchema();
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 []);
@@ -2677,7 +2677,7 @@ createTempDirectory);
                 return File.ReadAllBytes(path);
             }, workerCountOverride: 2);
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [fileA, fileB],
                 []);
@@ -2713,7 +2713,7 @@ createTempDirectory);
             gateway.EnsureChartInfoSchema();
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [],
                 [song]);
@@ -3221,7 +3221,7 @@ createTempDirectory);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 2);
             List<string> logs = [];
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -3260,7 +3260,7 @@ createTempDirectory);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             var firstService = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
-            ChartInfoBackfillResult first = firstService.BackfillChartInfos(
+            ChartInfoBackfillResult first = BackfillChartInfos(firstService,
                 gateway,
                 [firstFile],
                 [],
@@ -3283,7 +3283,7 @@ createTempDirectory);
             }, workerCountOverride: 1);
             List<string> logs = [];
 
-            ChartInfoBackfillResult second = secondService.BackfillChartInfos(
+            ChartInfoBackfillResult second = BackfillChartInfos(secondService,
                 gateway,
                 [secondFile],
                 [],
@@ -3356,7 +3356,7 @@ createTempDirectory);
             ]);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -3394,7 +3394,7 @@ createTempDirectory);
             ]);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, parseTimeoutOverride: TimeSpan.FromSeconds(1));
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -3432,7 +3432,7 @@ createTempDirectory);
             ]);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -3465,7 +3465,7 @@ createTempDirectory);
             }, workerCountOverride: 1);
             List<string> logs = [];
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -3518,7 +3518,7 @@ createTempDirectory);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, commitChunkSizeOverride: 2, parseTimeoutOverride: TimeSpan.Zero);
             List<string> logs = [];
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -3570,7 +3570,7 @@ createTempDirectory);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 2, commitChunkSizeOverride: 2);
             List<string> logs = [];
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 files,
                 [],
@@ -3682,7 +3682,7 @@ createTempDirectory);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, commitChunkSizeOverride: 1);
             List<string> logs = [];
 
-            ChartInfoBackfillResult result = service.BackfillChartInfos(
+            ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
@@ -4056,6 +4056,37 @@ createTempDirectory);
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Could not find repository root.");
+    }
+
+    private static ChartInfoBackfillResult BackfillChartInfos(
+        ChartInfoBuildService service,
+        BmsLibraryDbGateway gateway,
+        IEnumerable<BMSFile>? currentFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song>? currentBmsonSongs,
+        Action<int, int, string>? reportProgress = null,
+        Action<string>? logInstallPerformance = null,
+        Action<string>? logInstallPerformanceWarn = null,
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>>? chartInfoRowsCommitted = null,
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info>? existingRowsSnapshot = null)
+    {
+        return service.BackfillChartInfos(
+            gateway,
+            CreateChartSnapshot(currentFiles, currentBmsonSongs),
+            reportProgress,
+            logInstallPerformance,
+            logInstallPerformanceWarn,
+            chartInfoRowsCommitted,
+            existingRowsSnapshot);
+    }
+
+    private static List<ChartFile> CreateChartSnapshot(
+        IEnumerable<BMSFile>? currentFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song>? currentBmsonSongs)
+    {
+        List<ChartFile> charts = [];
+        charts.AddRange(ChartFileProjection.FromBmsFiles(currentFiles, includeWarningSnapshot: false));
+        charts.AddRange(ChartFileProjection.FromBmsonSongs(currentBmsonSongs, includeWarningSnapshot: false));
+        return charts;
     }
 
     private sealed class ColumnNameRow

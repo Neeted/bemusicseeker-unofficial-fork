@@ -5201,14 +5201,12 @@ completeFileEnumerationOnce,
                 requests = [.. chartInfoBackfillRequests];
                 chartInfoBackfillRequests.Clear();
             }
-            List<BMSFile> filesSnapshot;
-            List<LR2SongDBExtended.bmson_song> bmsonSongsSnapshot;
+            List<ChartFile> chartSnapshot;
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-                bmsonSongsSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
+                chartSnapshot = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs);
             }
-            int snapshotCount = filesSnapshot.Count + bmsonSongsSnapshot.Count;
+            int snapshotCount = chartSnapshot.Count;
             bool completedLatestRequest = false;
             Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null;
             ChartInfoBackfillResult result = null;
@@ -5227,8 +5225,7 @@ completeFileEnumerationOnce,
                 existingRowsSnapshot = CreateHydratedChartInfoIndexSha256Snapshot();
                 result = chartInfoBuildService.BackfillChartInfos(
                     dbGateway,
-                    filesSnapshot,
-                    bmsonSongsSnapshot,
+                    chartSnapshot,
 reportProgress,
                     LogInstallPerformance,
                     LogInstallPerformanceWarn,
@@ -5262,8 +5259,7 @@ reportProgress,
                         completedLatestRequest = true;
                     }
                 }
-                filesSnapshot?.Clear();
-                bmsonSongsSnapshot?.Clear();
+                chartSnapshot?.Clear();
                 existingRowsSnapshot?.Clear();
                 LogStartupMemoryCheckpoint("chart_info_backfill", "after_release");
             }

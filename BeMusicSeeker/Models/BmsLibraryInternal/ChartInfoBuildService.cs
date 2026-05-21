@@ -58,8 +58,7 @@ internal sealed class ChartInfoBuildService
     /// ファイル読み取りは単一 reader で行い、読み取った byte[] を worker が並列解析します。
     /// </summary>
     /// <param name="dbGateway">song.db へのアクセス手段。</param>
-    /// <param name="currentFiles">現在所持している BMS 譜面。</param>
-    /// <param name="currentBmsonSongs">現在所持している bmson 譜面。</param>
+    /// <param name="currentCharts">現在所持している譜面。</param>
     /// <param name="reportProgress">進捗通知 callback。total, processed, currentPath を渡します。</param>
     /// <param name="logInstallPerformance">性能ログ callback。</param>
     /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
@@ -68,8 +67,7 @@ internal sealed class ChartInfoBuildService
     /// <returns>構築結果。</returns>
     public ChartInfoBackfillResult BackfillChartInfos(
         BmsLibraryDbGateway dbGateway,
-        IEnumerable<BMSFile> currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        IEnumerable<ChartFile> currentCharts,
         Action<int, int, string> reportProgress = null,
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null,
@@ -78,8 +76,7 @@ internal sealed class ChartInfoBuildService
     {
         return BackfillChartInfosCore(
             dbGateway,
-            currentFiles,
-            currentBmsonSongs,
+            currentCharts,
             "full",
             reportProgress,
             logInstallPerformance,
@@ -171,8 +168,7 @@ internal sealed class ChartInfoBuildService
 
     private ChartInfoBackfillResult BackfillChartInfosCore(
         BmsLibraryDbGateway dbGateway,
-        IEnumerable<BMSFile> currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        IEnumerable<ChartFile> currentCharts,
         string mode,
         Action<int, int, string> reportProgress,
         Action<string> logInstallPerformance,
@@ -191,8 +187,7 @@ internal sealed class ChartInfoBuildService
         var stopwatchTotal = Stopwatch.StartNew();
         int commitChunkSize = ResolveCommitChunkSize();
         TimeSpan parseTimeout = ResolveParseTimeout();
-        List<BMSFile> fileList = [.. (currentFiles ?? [])];
-        List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (currentBmsonSongs ?? [])];
+        List<ChartFile> chartList = [.. (currentCharts ?? []).Where(chart => chart != null)];
         dbGateway.EnsureChartInfoBackfillSchema();
         var existingRowsStopwatch = Stopwatch.StartNew();
         string existingRowsSource;
@@ -218,7 +213,7 @@ internal sealed class ChartInfoBuildService
         existingRowsStopwatch.Stop();
         string existingRowsLogValue = existingRows.Count.ToString();
         var targetBuildStopwatch = Stopwatch.StartNew();
-        List<ChartInfoBuildTarget> targets = BuildTargets(fileList, bmsonSongList, existingRows, currentFailures, result);
+        List<ChartInfoBuildTarget> targets = BuildTargets(chartList, existingRows, currentFailures, result);
         targetBuildStopwatch.Stop();
         result.TargetCount = targets.Count;
         result.WorkerCount = ResolveWorkerCount();
@@ -642,78 +637,58 @@ internal sealed class ChartInfoBuildService
     }
 
     private static List<ChartInfoBuildTarget> BuildTargets(
-        IEnumerable<BMSFile> currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        IEnumerable<ChartFile> currentCharts,
         IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
         IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
         ChartInfoBackfillResult result)
     {
         var targets = new Dictionary<string, ChartInfoBuildTarget>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in currentFiles ?? [])
+        foreach (ChartFile chart in currentCharts ?? [])
         {
-            if (file == null || string.IsNullOrWhiteSpace(file.path))
+            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(file.sha256) && IsCurrent(existingRows, file.sha256))
+            if (!string.IsNullOrWhiteSpace(chart.Sha256) && IsCurrent(existingRows, chart.Sha256))
             {
-                file.SetChartInfo(existingRows[file.sha256]);
+                ChartInfoBuildTarget.FromChart(chart)?.ApplyChartInfo(existingRows[chart.Sha256]);
                 result.CurrentRowSkippedCount++;
                 continue;
             }
-            if (string.IsNullOrWhiteSpace(file.sha256) && string.IsNullOrWhiteSpace(file.hash))
+            if (chart.Kind == ChartFileKind.Bms && string.IsNullOrWhiteSpace(chart.Sha256) && string.IsNullOrWhiteSpace(chart.Md5))
             {
                 continue;
             }
-            if (IsCurrentParseFailure(currentFailures, file.hash))
+            if (IsCurrentParseFailure(currentFailures, chart.Md5))
             {
                 result.FailureSkippedCount++;
                 continue;
             }
-            string key = BuildBmsTargetKey(file.sha256, file.hash, file.path);
+            string key = BuildTargetKey(chart);
             if (!targets.TryGetValue(key, out ChartInfoBuildTarget target))
             {
-                target = ChartInfoBuildTarget.FromChart(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
+                target = ChartInfoBuildTarget.FromChart(chart);
                 targets[key] = target;
             }
             else
             {
-                target.AddChart(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
+                target.AddChart(chart);
             }
-            if (string.IsNullOrWhiteSpace(file.sha256))
+            if (chart.GetBmsStorageOwner() is BMSFile file && string.IsNullOrWhiteSpace(file.sha256))
             {
                 result.DigestTargetCount++;
             }
         }
-        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? [])
-        {
-            if (song == null || string.IsNullOrWhiteSpace(song.path))
-            {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(song.sha256) && IsCurrent(existingRows, song.sha256))
-            {
-                song.ChartInfo = existingRows[song.sha256];
-                result.CurrentRowSkippedCount++;
-                continue;
-            }
-            if (IsCurrentParseFailure(currentFailures, song.md5))
-            {
-                result.FailureSkippedCount++;
-                continue;
-            }
-            string key = BuildTargetKey(song.sha256, song.md5, song.path);
-            if (!targets.TryGetValue(key, out ChartInfoBuildTarget target))
-            {
-                target = ChartInfoBuildTarget.FromChart(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
-                targets[key] = target;
-            }
-            else
-            {
-                target.AddChart(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
-            }
-        }
         return [.. targets.Values];
+    }
+
+    private static string BuildTargetKey(ChartFile chart)
+    {
+        if (chart?.Kind == ChartFileKind.Bms)
+        {
+            return BuildBmsTargetKey(chart.Sha256, chart.Md5, chart.Path);
+        }
+        return BuildTargetKey(chart?.Sha256, chart?.Md5, chart?.Path);
     }
 
     private static string BuildTargetKey(string sha256, string md5, string path)
