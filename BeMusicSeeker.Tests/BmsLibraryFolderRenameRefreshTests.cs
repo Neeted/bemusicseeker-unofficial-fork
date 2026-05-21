@@ -23,7 +23,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
     [TestMethod]
-    public void RenameChartFolder_UpdatesFolderCellWithoutRaisingBmsFilesChanged()
+    public void RenameChartFolder_UpdatesFolderCellWithoutRaisingLibraryChartsChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -85,7 +85,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void MoveLibraryRootFolder_BmsChart_RaisesBmsFilesChanged()
+    public void MoveLibraryRootFolder_BmsChart_RaisesLibraryChartsChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -186,7 +186,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void MoveLibraryRootFolder_BmsonChart_RaisesBmsFilesChanged()
+    public void MoveLibraryRootFolder_BmsonChart_RaisesLibraryChartsChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -436,7 +436,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void RefreshReferenceDisplayForTable_UpdatesPlaylistCellWithoutRaisingBmsFilesChanged()
+    public void RefreshReferenceDisplayForTable_UpdatesPlaylistCellWithoutRaisingLibraryChartsChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)

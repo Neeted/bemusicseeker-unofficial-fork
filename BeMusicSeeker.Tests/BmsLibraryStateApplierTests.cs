@@ -134,7 +134,7 @@ public sealed class BmsLibraryStateApplierTests
                 BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta
                 {
-                    RaiseBmsFilesChanged = true,
+                    RaiseLibraryChartsChanged = true,
                     RaiseInstalledPackagesChanged = true,
                     InvalidateInstalledDirectoryIndex = true,
                     InvalidateParentFolderCache = true,
@@ -176,7 +176,7 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
                 Assert.IsTrue(callbacks.ParentFolderInvalidationCount >= 1);
                 Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
-                Assert.AreEqual(1, callbacks.BmsFilesChangedCount);
+                Assert.AreEqual(1, callbacks.LibraryChartsChangedCount);
                 Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
                 Assert.AreEqual(0, callbacks.BmsonSongsSetCount);
                 Assert.AreEqual(newBmsonPath, bmsonSongs[0].path);
@@ -574,7 +574,7 @@ public sealed class BmsLibraryStateApplierTests
             () => callbacks.InstalledDirectoryInvalidationCount++,
             () => callbacks.ParentFolderInvalidationCount++,
             () => callbacks.ClearDuplicatedCount++,
-            () => callbacks.BmsFilesChangedCount++,
+            () => callbacks.LibraryChartsChangedCount++,
             () => callbacks.InstalledPackagesChangedCount++);
     }
 
@@ -618,7 +618,7 @@ public sealed class BmsLibraryStateApplierTests
 
         public int ClearDuplicatedCount { get; set; }
 
-        public int BmsFilesChangedCount { get; set; }
+        public int LibraryChartsChangedCount { get; set; }
 
         public int InstalledPackagesChangedCount { get; set; }
     }

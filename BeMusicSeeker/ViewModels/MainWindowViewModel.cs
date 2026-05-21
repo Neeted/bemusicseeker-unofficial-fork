@@ -6764,7 +6764,7 @@ public class MainWindowViewModel : ViewModel
 
     private static bool ShouldDebouncePlaylistLibraryIndexPrewarm(string reason)
     {
-        return string.Equals(reason, "library_bmsfiles_changed", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(reason, "library_charts_changed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(reason, "library_bmsons_changed", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -14124,16 +14124,16 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
-            InvalidatePlaylistLibraryIndexSnapshot("library_bmsfiles_changed");
+            InvalidatePlaylistLibraryIndexSnapshot("library_charts_changed");
             PruneRegularBmsLibraryRowCache(files?.BMSFiles);
-            IncrementNormalLibrarySourceGeneration("library_bmsfiles_changed");
+            IncrementNormalLibrarySourceGeneration("library_charts_changed");
             ResetRegularDerivedViewCaches();
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
-                RefreshPlaylistSummaryIfVisible("library_bmsfiles_changed");
+                RefreshPlaylistSummaryIfVisible("library_charts_changed");
                 return;
             }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "library_bmsfiles_changed"))
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "library_charts_changed"))
             {
                 RequestDeferredPlaylistSummaryRefresh();
                 return;
@@ -14150,7 +14150,7 @@ public class MainWindowViewModel : ViewModel
             {
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
-            RefreshPlaylistSummaryIfVisible("library_bmsfiles_changed");
+            RefreshPlaylistSummaryIfVisible("library_charts_changed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {

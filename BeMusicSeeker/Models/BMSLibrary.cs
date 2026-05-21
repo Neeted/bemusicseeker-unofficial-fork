@@ -10725,7 +10725,7 @@ reportProgress,
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
                     string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-                    MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: false);
+                    MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, raiseLibraryChartsChanged: false);
                     if (unregister == false)
                     {
                         InvalidateDuplicateChartGroupsCache();
@@ -10764,7 +10764,7 @@ reportProgress,
                     }
                     foreach (FolderAutoRenamePlan plan in plans)
                     {
-                        MoveLibraryChartFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, raiseBmsFilesChanged: true);
+                        MoveLibraryChartFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, raiseLibraryChartsChanged: true);
                     }
                     if (unregister == false)
                     {
@@ -10775,7 +10775,7 @@ reportProgress,
         }
     }
 
-    private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool raiseBmsFilesChanged)
+    private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool raiseLibraryChartsChanged)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
@@ -10800,7 +10800,7 @@ reportProgress,
         {
             return;
         }
-        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, BmsonSongs, ChartPackagesPending, ChartPackagesInstalled, unregister == true, raiseBmsFilesChanged);
+        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, BmsonSongs, ChartPackagesPending, ChartPackagesInstalled, unregister == true, raiseLibraryChartsChanged: raiseLibraryChartsChanged);
         ApplyLibraryMutationDelta(delta);
     }
 

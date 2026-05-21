@@ -17,7 +17,7 @@ internal sealed class LibraryMutationDelta
 
     public List<LibraryDeleteFailure> Failures { get; } = [];
 
-    public bool RaiseBmsFilesChanged { get; set; }
+    public bool RaiseLibraryChartsChanged { get; set; }
 
     public bool RaiseInstalledPackagesChanged { get; set; }
 

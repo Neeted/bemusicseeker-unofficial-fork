@@ -348,7 +348,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         bool unregister,
-        bool raiseBmsFilesChanged = true)
+        bool raiseLibraryChartsChanged = true)
     {
         var delta = new LibraryMutationDelta();
         List<BMSFile> targetFiles = [.. (libraryFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
@@ -401,7 +401,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 NewPath = bmsonSong.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
             });
         }
-        delta.RaiseBmsFilesChanged = raiseBmsFilesChanged && delta.ChartPathChanges.Count > 0;
+        delta.RaiseLibraryChartsChanged = raiseLibraryChartsChanged && delta.ChartPathChanges.Count > 0;
         delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
         delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0;
@@ -668,7 +668,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 continue;
             }
-            result.MutationDelta.RaiseBmsFilesChanged = true;
+            result.MutationDelta.RaiseLibraryChartsChanged = true;
             result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
             result.MutationDelta.InvalidateParentFolderCache = true;
             result.MutationDelta.ClearDuplicatedCache = true;
@@ -707,7 +707,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                             Chart = ChartFileProjection.FromBmsFile(file),
                             NewPath = renameResult.FinalPath
                         });
-                        delta.RaiseBmsFilesChanged = true;
+                        delta.RaiseLibraryChartsChanged = true;
                     }
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:

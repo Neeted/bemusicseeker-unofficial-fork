@@ -29,7 +29,7 @@ internal sealed class BmsLibraryStateApplier(
     Action invalidateInstalledDirectoryIndex,
     Action invalidateParentFolderCache,
     Action clearDuplicatedCache,
-    Action raiseBmsFilesChanged,
+    Action raiseLibraryChartsChanged,
     Action raiseInstalledPackagesChanged)
 {
     private readonly BmsLibraryDbGateway dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
@@ -56,7 +56,7 @@ internal sealed class BmsLibraryStateApplier(
 
     private readonly Action clearDuplicatedCache = clearDuplicatedCache ?? throw new ArgumentNullException(nameof(clearDuplicatedCache));
 
-    private readonly Action raiseBmsFilesChanged = raiseBmsFilesChanged ?? throw new ArgumentNullException(nameof(raiseBmsFilesChanged));
+    private readonly Action raiseLibraryChartsChanged = raiseLibraryChartsChanged ?? throw new ArgumentNullException(nameof(raiseLibraryChartsChanged));
 
     private readonly Action raiseInstalledPackagesChanged = raiseInstalledPackagesChanged ?? throw new ArgumentNullException(nameof(raiseInstalledPackagesChanged));
 
@@ -167,9 +167,9 @@ internal sealed class BmsLibraryStateApplier(
             clearDuplicatedCache();
         }
 
-        if (delta.RaiseBmsFilesChanged)
+        if (delta.RaiseLibraryChartsChanged)
         {
-            raiseBmsFilesChanged();
+            raiseLibraryChartsChanged();
         }
     }
 
