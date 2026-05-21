@@ -95,6 +95,16 @@ internal sealed class ChartFile
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; }
 
+    internal BMSFile GetBmsStorageOwner()
+    {
+        return Kind == ChartFileKind.Bms ? BmsFile : null;
+    }
+
+    internal LR2SongDBExtended.bmson_song GetBmsonStorageOwner()
+    {
+        return Kind == ChartFileKind.Bmson ? BmsonSong : null;
+    }
+
     internal ChartFile(
         ChartFileKind kind,
         string path,

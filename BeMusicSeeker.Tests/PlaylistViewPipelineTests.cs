@@ -1549,6 +1549,35 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void CreateForPlaylistDrop_OwnerlessBmsonChartUsesSha256IdentityAndEmptyOrgMd5()
+    {
+        var chart = new ChartFile(
+            ChartFileKind.Bmson,
+            path: "C:\\Songs\\ownerless.bmson",
+            md5: "abababababababababababababababab",
+            sha256: new string('f', 64),
+            title: "Ownerless bmson",
+            rawTitle: "Ownerless bmson",
+            artist: "Artist",
+            genre: string.Empty,
+            folder: "Folder",
+            tag: string.Empty,
+            levelText: "12",
+            level: 12,
+            mode: null,
+            chartInfo: null,
+            bmsFile: null,
+            bmsonSong: null);
+
+        var entry = BMSTableEntry.CreateForPlaylistDrop(chart, ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]);
+
+        Assert.IsNull(entry.md5);
+        Assert.AreEqual(chart.Sha256, entry.sha256);
+        Assert.AreEqual("Ownerless bmson", entry.title);
+        Assert.AreEqual(0, entry.Org_md5.Count);
+    }
+
+    [TestMethod]
     public void LibraryChartRow_FromPendingBmson_PreservesPendingInstallState()
     {
         var bmson = new LR2SongDBExtended.bmson_song

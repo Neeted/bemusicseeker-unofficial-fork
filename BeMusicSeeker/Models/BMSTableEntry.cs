@@ -412,11 +412,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             MarkAsBmsonPlaylistIdentity(chart.Sha256);
             return;
         }
-        if (chart.BmsFile != null)
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null)
         {
-            md5 = chart.BmsFile.hash;
-            bmsfile = chart.BmsFile;
-            base.level = chart.BmsFile.level;
+            md5 = bmsFile.hash;
+            bmsfile = bmsFile;
+            base.level = bmsFile.level;
             playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
             return;
         }

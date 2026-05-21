@@ -27,7 +27,7 @@ internal sealed class NormalLibraryRowCache
 
     internal LibraryChartRow GetOrCreate(ChartFile chart, LibraryRowCacheBuildStats stats)
     {
-        BMSFile file = chart?.BmsFile;
+        BMSFile file = chart?.GetBmsStorageOwner();
         if (file == null)
         {
             return null;

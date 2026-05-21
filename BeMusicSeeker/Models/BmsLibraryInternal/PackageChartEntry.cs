@@ -69,8 +69,9 @@ internal sealed class PackageChartEntry
             return null;
         }
 
-        return currentChart.Kind == ChartFileKind.Bms && currentChart.BmsFile != null
-            ? FromBmsFile(currentChart.BmsFile)
+        BMSFile bmsFile = currentChart.GetBmsStorageOwner();
+        return bmsFile != null
+            ? FromBmsFile(bmsFile)
             : FromChart(currentChart);
     }
 
@@ -507,7 +508,7 @@ internal sealed class PackageChartEntry
 
     private BMSFile GetBmsStorageOwner()
     {
-        return chart?.Kind == ChartFileKind.Bms ? chart.BmsFile : null;
+        return chart?.GetBmsStorageOwner();
     }
 
     internal static PackageChartEntry FromPath(string filePath)

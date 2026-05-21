@@ -45,11 +45,11 @@ internal static class GridRowResolver
     {
         if (row is PlaylistDetailRow playlistDetailRow)
         {
-            file = playlistDetailRow.Chart?.BmsFile;
+            file = playlistDetailRow.Chart?.GetBmsStorageOwner();
         }
         else if (row is LibraryChartRow libraryChartRow)
         {
-            file = libraryChartRow.BmsFile;
+            file = libraryChartRow.GetBmsStorageOwner();
         }
         else
         {

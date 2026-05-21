@@ -67,8 +67,8 @@ internal sealed class LibraryChartRow : NotificationObject
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
         this.hasSourceChartProjection = hasSourceChartProjection;
-        BmsFile = sourceChart.BmsFile;
-        BmsonSong = sourceChart.BmsonSong;
+        BmsFile = sourceChart.GetBmsStorageOwner();
+        BmsonSong = sourceChart.GetBmsonStorageOwner();
         this.chartProvider = chartProvider;
         PackageEntry = packageEntry;
         if (BmsFile is INotifyPropertyChanged propertyChangedSource)
@@ -109,6 +109,17 @@ internal sealed class LibraryChartRow : NotificationObject
         return new LibraryChartRow(chart, hasSourceChartProjection: true);
     }
 
+    internal static LibraryChartRow FromOwnerBackedChart(ChartFile chart)
+    {
+        BMSFile bmsFile = chart?.GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return FromBmsFile(bmsFile);
+        }
+        LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
+        return bmsonSong != null ? FromBmsonSong(bmsonSong) : FromChartFile(chart);
+    }
+
     internal static LibraryChartRow FromPackageChartEntry(PackageChartEntry entry)
     {
         ChartFile chart = entry?.Chart;
@@ -142,6 +153,26 @@ internal sealed class LibraryChartRow : NotificationObject
     internal void SetBmsonTransientStateProvider(Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> provider)
     {
         bmsonTransientStateProvider = provider;
+    }
+
+    internal BMSFile GetBmsStorageOwner()
+    {
+        return BmsFile;
+    }
+
+    internal LR2SongDBExtended.bmson_song GetBmsonStorageOwner()
+    {
+        return BmsonSong;
+    }
+
+    internal bool HasBmsStorageOwner()
+    {
+        return BmsFile != null;
+    }
+
+    internal bool ReferencesBmsonStorageOwner(LR2SongDBExtended.bmson_song song)
+    {
+        return ReferenceEquals(BmsonSong, song);
     }
 
     internal void RaisePlaylistReferenceDisplayChanged()

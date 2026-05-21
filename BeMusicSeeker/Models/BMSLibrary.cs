@@ -10347,9 +10347,10 @@ reportProgress,
         {
             return null;
         }
-        return chart.Kind == ChartFileKind.Bmson || chart.BmsFile == null
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        return bmsFile == null
             ? []
-            : GetMD5sOfTheSameSong(chart.BmsFile);
+            : GetMD5sOfTheSameSong(bmsFile);
     }
 
     internal List<string> GetPlaylistFolderOrgMd5sForCharts(IEnumerable<ChartFile> charts)

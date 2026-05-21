@@ -40,8 +40,8 @@ internal sealed class ChartListSourceRow
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
         this.hasSourceChartProjection = hasSourceChartProjection;
-        bmsFile = sourceChart.BmsFile;
-        bmsonSong = sourceChart.BmsonSong;
+        bmsFile = sourceChart.GetBmsStorageOwner();
+        bmsonSong = sourceChart.GetBmsonStorageOwner();
         this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;

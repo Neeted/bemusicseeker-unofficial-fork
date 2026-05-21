@@ -10029,7 +10029,7 @@ public class MainWindowViewModel : ViewModel
 
     private static void RaiseBmsonPlaylistReferenceDisplayChanged(LibraryChartRow row)
     {
-        if (row != null && row.BmsFile == null)
+        if (row != null && !row.HasBmsStorageOwner())
         {
             row.RaisePlaylistReferenceDisplayChanged();
         }
@@ -10092,19 +10092,21 @@ public class MainWindowViewModel : ViewModel
         {
             return null;
         }
-        if (chart.BmsFile != null)
+        BeMusicSeeker.Models.BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null)
         {
             return GetOrCreateRegularBmsLibraryRow(chart, stats);
         }
-        if (chart.BmsonSong != null)
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        if (bmsonSong != null)
         {
             LibraryChartRow row = null;
-            if (!bmsonLibraryRowsBySong.TryGetValue(chart.BmsonSong, out row)
-                && !string.IsNullOrWhiteSpace(chart.BmsonSong.path))
+            if (!bmsonLibraryRowsBySong.TryGetValue(bmsonSong, out row)
+                && !string.IsNullOrWhiteSpace(bmsonSong.path))
             {
-                bmsonLibraryRowsByPath.TryGetValue(chart.BmsonSong.path, out row);
+                bmsonLibraryRowsByPath.TryGetValue(bmsonSong.path, out row);
             }
-            row ??= LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+            row ??= LibraryChartRow.FromBmsonSong(bmsonSong);
             ApplyLibraryChartRowProviders(row);
             return row;
         }
@@ -10236,12 +10238,13 @@ public class MainWindowViewModel : ViewModel
             return null;
         }
         ChartFile chart = sourceRow.Chart;
-        if (chart?.BmsFile != null)
+        if (chart?.GetBmsStorageOwner() != null)
         {
             return GetOrCreateRegularBmsLibraryRow(chart, null);
         }
-        var row = chart?.BmsonSong != null
-            ? LibraryChartRow.FromBmsonSong(chart.BmsonSong)
+        LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
+        var row = bmsonSong != null
+            ? LibraryChartRow.FromBmsonSong(bmsonSong)
             : LibraryChartRow.FromChartFile(chart);
         ApplyLibraryChartRowProviders(row);
         return row;
@@ -10575,20 +10578,21 @@ public class MainWindowViewModel : ViewModel
         {
             row = LibraryChartRow.FromChartFile(chart);
         }
-        else if (chart?.BmsFile == null)
+        else if (chart?.GetBmsStorageOwner() == null)
         {
-            if (chart?.BmsonSong == null)
+            LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
+            if (bmsonSong == null)
             {
                 row = LibraryChartRow.FromChartFile(chart);
             }
             else
             {
-                row = LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+                row = LibraryChartRow.FromBmsonSong(bmsonSong);
             }
         }
         else
         {
-            row = LibraryChartRow.FromBmsFile(chart.BmsFile);
+            row = LibraryChartRow.FromOwnerBackedChart(chart);
         }
 
         if (applyResourceHealthProjection)
@@ -16769,9 +16773,7 @@ public class MainWindowViewModel : ViewModel
 
     private static LibraryChartRow CreateBmsLibraryChartRowFromChart(ChartFile chart)
     {
-        return chart?.BmsFile == null
-            ? LibraryChartRow.FromChartFile(chart)
-            : LibraryChartRow.FromBmsFile(chart.BmsFile);
+        return LibraryChartRow.FromOwnerBackedChart(chart);
     }
 
     private LibraryChartRow CreateLibraryChartRowFromPackageEntry(PackageChartEntry entry)
@@ -16867,7 +16869,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                if (!ReferenceEquals(row.BmsonSong, song))
+                if (!row.ReferencesBmsonStorageOwner(song))
                 {
                     sourceReferenceChanged = true;
                 }
@@ -16917,12 +16919,13 @@ public class MainWindowViewModel : ViewModel
 
     internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
     {
-        if (row?.BmsonSong == null || mutateCurrentSong == null)
+        LR2SongDBExtended.bmson_song bmsonSong = row?.GetBmsonStorageOwner();
+        if (bmsonSong == null || mutateCurrentSong == null)
         {
             return false;
         }
         var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
-        mutateCurrentSong(row.BmsonSong);
+        mutateCurrentSong(bmsonSong);
         return previousSortKeys.HasChanged(row);
     }
 
@@ -17814,9 +17817,10 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(playlistRow));
         }
         ChartFile chart = playlistRow.Chart;
-        if (chart?.BmsonSong != null && chart.BmsFile == null)
+        LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
+        if (bmsonSong != null)
         {
-            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? chart.BmsonSong.sha256);
+            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? bmsonSong.sha256);
         }
         tables.CommitBMSTableEntry(playlistRow.Entry);
     }
