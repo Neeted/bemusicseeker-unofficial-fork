@@ -44,16 +44,6 @@ internal sealed class BmsLibraryMaintenanceService
             .Where(file => file != null && ChartFileKindResolver.IsBmsChartFile(file));
     }
 
-    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null)
-    {
-        if (bmsFile == null)
-        {
-            return [];
-        }
-        maintenanceInfo ??= bmsFile.HasValidMaintenanceInfoSnapshot ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null;
-        return BuildResourceHealthWarnings(maintenanceInfo);
-    }
-
     public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart)
     {
         if (chart == null || (chart.Kind != ChartFileKind.Bms && chart.Kind != ChartFileKind.Bmson))
@@ -61,15 +51,6 @@ internal sealed class BmsLibraryMaintenanceService
             return [];
         }
         return BuildResourceHealthWarnings(GetResourceHealthMaintenanceInfo(chart));
-    }
-
-    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(ChartFile chart, BMSFileMaintenanceInfo maintenanceInfo)
-    {
-        if (chart == null || (chart.Kind != ChartFileKind.Bms && chart.Kind != ChartFileKind.Bmson))
-        {
-            return [];
-        }
-        return BuildResourceHealthWarnings(maintenanceInfo ?? GetResourceHealthMaintenanceInfo(chart));
     }
 
     internal static BMSFileMaintenanceInfo GetResourceHealthMaintenanceInfo(ChartFile chart)

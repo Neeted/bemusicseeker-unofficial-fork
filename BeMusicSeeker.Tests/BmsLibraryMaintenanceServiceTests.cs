@@ -29,7 +29,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
 
-        IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(file, info);
+        IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info);
 
         Assert.AreEqual(1, warnings.Count);
         Assert.AreEqual(ChartWarningKind.ResourceWavMissing, warnings[0].Kind);
@@ -45,8 +45,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
         _ = file.maintenanceInfo;
-        IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(file);
         ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(chart);
         var snapshot = ResourceHealthIndexSnapshot.Build([chart], service, version: 1);
 
         Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, file.MaintenanceInfoOrigin);
@@ -372,7 +372,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
         var row = LibraryChartRow.FromBmsFile(file);
-        row.SetResourceHealthProjectionProvider(_ => new ResourceHealthWarningProjection(1, service.BuildResourceHealthWarnings(file, info), isIgnored: false));
+        row.SetResourceHealthProjectionProvider(_ => new ResourceHealthWarningProjection(1, BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info), isIgnored: false));
 
         StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_DuplicateChart);
         StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_ResourceMissing);
