@@ -343,26 +343,24 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public LibraryMutationDelta BuildFolderMoveDelta(
         string srcDir,
         string dstDir,
-        IEnumerable<BMSFile> libraryFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        IEnumerable<LibraryChartRef> libraryCharts,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         bool unregister,
         bool raiseLibraryChartsChanged = true)
     {
         var delta = new LibraryMutationDelta();
-        List<BMSFile> targetFiles = [.. (libraryFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
-        List<LR2SongDBExtended.bmson_song> targetBmsonSongs = [.. (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
+        List<LibraryChartRef> currentLibraryCharts = [.. (libraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        List<LibraryChartRef> targetCharts = [.. currentLibraryCharts.Where(chart => chart.Path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
         if (unregister)
         {
-            delta.ChartsToUnregister.AddRange(targetFiles.Select(file => ChartFileProjection.FromBmsFile(file)));
-            delta.ChartsToUnregister.AddRange(targetBmsonSongs.Select(song => ChartFileProjection.FromBmsonSong(song)));
-            delta.InvalidateInstalledDirectoryIndex = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
-            delta.InvalidateParentFolderCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
-            delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
+            delta.ChartsToUnregister.AddRange(targetCharts.Select(ToChartFile).Where(chart => chart != null));
+            delta.InvalidateInstalledDirectoryIndex = targetCharts.Count > 0;
+            delta.InvalidateParentFolderCache = targetCharts.Count > 0;
+            delta.ClearDuplicatedCache = targetCharts.Count > 0;
             return delta;
         }
-        delta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, BuildLibraryChartRefs(libraryFiles, bmsonSongs), srcDir, dstDir));
+        delta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, currentLibraryCharts, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
@@ -375,7 +373,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (IGrouping<string, BMSFile> group in targetFiles.GroupBy(target => Path.GetDirectoryName(target.path)))
+        foreach (IGrouping<string, LibraryChartRef> group in targetCharts
+            .Where(chart => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null)
+            .GroupBy(target => Path.GetDirectoryName(target.Path)))
         {
             string newFolderPath = group.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
             delta.FolderPathChanges.Add(new LibraryFolderPathChange
@@ -383,22 +383,22 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 NewFolderPath = newFolderPath,
                 OldFolderPath = group.Key
             });
-            foreach (BMSFile file in group)
+            foreach (LibraryChartRef chart in group)
             {
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(file),
-                    NewPath = file.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+                    Chart = ToChartFile(chart),
+                    NewPath = chart.Path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
                 });
             }
         }
-        foreach (LR2SongDBExtended.bmson_song bmsonSong in targetBmsonSongs)
+        foreach (LibraryChartRef chart in targetCharts.Where(chart => chart.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null))
         {
             delta.ChartPathChanges.Add(new LibraryChartPathChange
             {
-                Chart = ChartFileProjection.FromBmsonSong(bmsonSong),
-                OldPath = bmsonSong.path,
-                NewPath = bmsonSong.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+                Chart = ToChartFile(chart),
+                OldPath = chart.Path,
+                NewPath = chart.Path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
             });
         }
         delta.RaiseLibraryChartsChanged = raiseLibraryChartsChanged && delta.ChartPathChanges.Count > 0;
@@ -497,8 +497,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public LibraryMergeResult PrepareMergeDirectory(
         string srcDir,
         string dstDir,
-        IEnumerable<BMSFile> libraryFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> libraryBmsonSongs,
+        IEnumerable<LibraryChartRef> libraryCharts,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         Func<IEnumerable<ChartFile>, HashSet<string>> createHashSnapshotExcluding)
@@ -508,22 +507,15 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return result;
         }
-        result.SourceBmsFiles.AddRange((libraryFiles ?? [])
-            .Where(file => file != null && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
-        result.SourceBmsonSongs.AddRange((libraryBmsonSongs ?? [])
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
-        List<PackageChartEntry> sourceEntries =
-        [
-            .. result.SourceBmsFiles.Select(PackageChartEntry.FromBmsFile),
-            .. result.SourceBmsonSongs
-                .Select(song => PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song)))
-                .Where(entry => entry != null)
-        ];
+        List<LibraryChartRef> currentLibraryCharts = [.. (libraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        result.SourceCharts.AddRange(currentLibraryCharts
+            .Where(chart => chart.Path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+        List<PackageChartEntry> sourceEntries = [.. result.SourceCharts.Select(ToPackageChartEntry).Where(entry => entry != null)];
         result.Repackage = ChartPackage.FromChartEntries(sourceEntries);
         result.Repackage.path = srcDir;
         result.Repackage.delete_parent = false;
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        result.ReferenceMutationDelta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, BuildLibraryChartRefs(libraryFiles, libraryBmsonSongs), srcDir, dstDir));
+        result.ReferenceMutationDelta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, currentLibraryCharts, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
@@ -539,7 +531,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.ReferenceMutationDelta.RaiseInstalledPackagesChanged = result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
         result.ReferenceMutationDelta.InvalidateInstalledDirectoryIndex = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
         result.ReferenceMutationDelta.ClearDuplicatedCache = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
-        result.Success = result.SourceBmsFiles.Count > 0 || result.SourceBmsonSongs.Count > 0;
+        result.Success = result.SourceCharts.Count > 0;
         return result;
     }
 
@@ -587,13 +579,31 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    private static IEnumerable<LibraryChartRef> BuildLibraryChartRefs(
-        IEnumerable<BMSFile> libraryFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> libraryBmsonSongs)
+    private static ChartFile ToChartFile(LibraryChartRef chart)
     {
-        return (libraryFiles ?? []).Select(LibraryChartRef.FromBmsFile)
-            .Concat((libraryBmsonSongs ?? []).Select(LibraryChartRef.FromBmsonSong))
-            .Where(chart => chart != null);
+        if (chart == null)
+        {
+            return null;
+        }
+        if (chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null)
+        {
+            return ChartFileProjection.FromBmsFile(chart.BmsFile);
+        }
+        if (chart.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null)
+        {
+            return ChartFileProjection.FromBmsonSong(chart.BmsonSong);
+        }
+        return null;
+    }
+
+    private static PackageChartEntry ToPackageChartEntry(LibraryChartRef chart)
+    {
+        ChartFile chartFile = ToChartFile(chart);
+        if (chartFile == null)
+        {
+            return null;
+        }
+        return PackageChartEntry.FromChart(chartFile);
     }
 
     private static bool IsInstallDestinationUnderFolder(string installDestination, string folderPath)

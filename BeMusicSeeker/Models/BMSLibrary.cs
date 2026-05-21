@@ -10474,8 +10474,7 @@ reportProgress,
                     LibraryMergeResult mergeResult = libraryFileOperationsService.PrepareMergeDirectory(
                         src,
                         dst,
-                        BMSFiles,
-                        BmsonSongs,
+                        CreateLibraryChartRefSnapshotUnsafe(),
                         ChartPackagesPending,
                         ChartPackagesInstalled,
                         CreateInstalledChartKeySnapshotExcludingChartsUnsafe);
@@ -10483,8 +10482,13 @@ reportProgress,
                     {
                         return;
                     }
-                    List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceBmsFiles.Where(ChartFileKindResolver.IsBmsChartFile)];
-                    List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceBmsonSongs.Where(song => song != null).Distinct()];
+                    List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceCharts
+                        .Select(chart => chart?.BmsFile)
+                        .Where(ChartFileKindResolver.IsBmsChartFile)];
+                    List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceCharts
+                        .Select(chart => chart?.BmsonSong)
+                        .Where(song => song != null)
+                        .Distinct()];
                     unregisterBMSFiles(sourceBmsFiles);
                     unregisterBmsonSongs(sourceBmsonSongs);
                     DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
@@ -10762,8 +10766,15 @@ reportProgress,
         {
             return;
         }
-        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, BmsonSongs, ChartPackagesPending, ChartPackagesInstalled, unregister == true, raiseLibraryChartsChanged: raiseLibraryChartsChanged);
+        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, CreateLibraryChartRefSnapshotUnsafe(), ChartPackagesPending, ChartPackagesInstalled, unregister == true, raiseLibraryChartsChanged: raiseLibraryChartsChanged);
         ApplyLibraryMutationDelta(delta);
+    }
+
+    private IEnumerable<LibraryChartRef> CreateLibraryChartRefSnapshotUnsafe()
+    {
+        return (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
+            .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong))
+            .Where(chart => chart != null);
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
