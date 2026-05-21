@@ -377,9 +377,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, result.CleanupOnlyMissingSource);
         Assert.AreEqual(1, result.DeferredMaintenanceCharts.Count);
         Assert.AreSame(newFile, result.DeferredMaintenanceCharts[0].GetBmsStorageOwner());
-        Assert.IsNull(alreadyInstalledInPackage.instl_dst);
-        Assert.IsNull(newFile.instl_dst);
-        Assert.IsNull(cleanupOnlyFile.instl_dst);
+        Assert.IsTrue(mixedPackage.ChartEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)));
+        Assert.IsTrue(cleanupOnlyPackage.ChartEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)));
     }
 
     [TestMethod]
@@ -435,8 +434,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
-        pendingFile.instl_dst = "C:\\Installed\\Target";
-        var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+        PackageChartEntry pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
+        pendingEntry.SetInstallDestinationPathOnly("C:\\Installed\\Target");
+        var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
         pendingPackage.path = "C:\\Pending\\Pkg1";
         pendingPackage.delete_parent = false;
 
@@ -450,7 +450,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, result.Skipped);
         Assert.AreEqual(0, result.Processed);
         Assert.AreEqual(0, result.PendingPackagesToRemove.Count);
-        Assert.AreEqual("C:\\Installed\\Target", pendingFile.instl_dst);
+        Assert.AreEqual("C:\\Installed\\Target", pendingEntry.Chart.InstallDestination);
     }
 
     [TestMethod]
@@ -459,7 +459,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
-        pendingFile.instl_dst = "C:\\Installed\\Target";
+        PackageChartEntry pendingBmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
+        pendingBmsEntry.SetInstallDestinationPathOnly("C:\\Installed\\Target");
         var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\Pkg1\\chart.bmson",
@@ -467,7 +468,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             sha256 = new string('b', 64),
             title = "Bmson"
         }));
-        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)), adapterlessBmsonEntry]);
+        ChartPackage pendingPackage = ChartPackage.FromChartEntries([pendingBmsEntry, adapterlessBmsonEntry]);
         pendingPackage.path = "C:\\Pending\\Pkg1";
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
@@ -492,9 +493,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             path = "C:\\Pending\\Pkg\\adapterless.bmson",
             md5 = "cccccccccccccccccccccccccccccccc"
         }), "C:\\Installed\\Target", "Installed", "Artist", []));
+        PackageChartEntry bmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile)),
+            bmsEntry,
             adapterlessBmsonEntry
         ]);
 
@@ -503,7 +505,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             entry.ClearInstallDestination();
         }
 
-        Assert.IsNull(bmsFile.instl_dst);
+        Assert.AreEqual(string.Empty, bmsEntry.Chart.InstallDestination);
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
     }
@@ -1146,8 +1148,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         string installWarning = string.Format(Resources.Warning_InstallEstimationAmbiguous, "C:\\Installed\\A", "C:\\Installed\\B");
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
         file.SetWarning(ChartWarningKind.ResourceWavMissing, "pending resource warning");
-        file.InstallDestinationSuggestions = ["C:\\Installed\\A", "C:\\Installed\\B"];
         var package = ChartPackageTestExtensions.CreatePackage([file]);
+        PackageChartEntry entry = package.ChartEntries.Single();
+        entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(null, string.Empty, string.Empty, ["C:\\Installed\\A", "C:\\Installed\\B"]));
         package.path = "C:\\Pending\\Pkg1";
         package.delete_parent = false;
         List<BMSFile> songUpserts = [];
@@ -1173,7 +1176,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(new[] { file }, scoreTargets);
         CollectionAssert.AreEqual(new[] { file }, applyTargets);
         Assert.IsFalse(file.HasLowConfidenceInstallWarning);
-        Assert.AreEqual(0, file.InstallDestinationSuggestions.Count);
+        Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
         Assert.IsFalse(file.Warnings.BuildTooltipText().Contains(Resources.Warning_InstallEstimationAmbiguousPrefix));
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
         Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());

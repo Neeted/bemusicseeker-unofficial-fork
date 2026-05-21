@@ -270,10 +270,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsTrue(result.RemovedCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), libraryFile)));
             Assert.IsTrue(result.RemovedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), bmsonSong)));
             Assert.AreEqual(0, result.Failures.Count);
-            Assert.IsNull(pendingFile.instl_dst);
-            Assert.AreEqual(string.Empty, pendingFile.InstallDestinationTitle);
-            Assert.AreEqual(string.Empty, pendingFile.InstallDestinationArtist);
-            CollectionAssert.AreEqual(Array.Empty<string>(), pendingFile.InstallDestinationSuggestions.ToArray());
+            Assert.AreEqual(string.Empty, pendingBmsEntry.Chart.InstallDestination);
+            Assert.AreEqual(string.Empty, pendingBmsEntry.Chart.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, pendingBmsEntry.Chart.InstallDestinationArtist);
+            CollectionAssert.AreEqual(Array.Empty<string>(), pendingBmsEntry.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsFalse(pendingFile.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             Assert.IsNull(libraryFile.instl_dst);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);

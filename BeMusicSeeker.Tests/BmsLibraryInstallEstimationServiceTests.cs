@@ -1189,7 +1189,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void PackageChartEntry_BmsStorageOwnerMutatesBmsRow()
+    public void PackageChartEntry_BmsStorageOwnerKeepsInstallDestinationOnChartState()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
@@ -1201,12 +1201,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         entry.ApplyInstalledPath(installedPath);
 
         Assert.AreEqual(installedPath, file.path);
-        Assert.AreEqual(destinationDirectory, file.instl_dst);
-        Assert.AreEqual("Resolved Title", file.InstallDestinationTitle);
-        Assert.AreEqual("Resolved Artist", file.InstallDestinationArtist);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
+        Assert.AreEqual(string.Empty, file.InstallDestinationTitle);
+        Assert.AreEqual(string.Empty, file.InstallDestinationArtist);
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
         Assert.AreEqual(installedPath, entry.Chart.Path);
         Assert.AreEqual(destinationDirectory, entry.Chart.InstallDestination);
+        Assert.AreEqual("Resolved Title", entry.Chart.InstallDestinationTitle);
+        Assert.AreEqual("Resolved Artist", entry.Chart.InstallDestinationArtist);
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
     }
 

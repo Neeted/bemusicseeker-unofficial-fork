@@ -172,10 +172,6 @@ internal sealed class PackageChartEntry
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            bmsFile.instl_dst = destinationDirectory;
-            bmsFile.InstallDestinationTitle = title ?? string.Empty;
-            bmsFile.InstallDestinationArtist = artist ?? string.Empty;
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
             ReplacePendingInstallDestination(
                 destinationDirectory,
                 title,
@@ -185,7 +181,6 @@ internal sealed class PackageChartEntry
             if (!preserveAmbiguousInstallContext)
             {
                 bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-                bmsFile.InstallDestinationSuggestions = [];
             }
             return;
         }
@@ -206,9 +201,6 @@ internal sealed class PackageChartEntry
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            bmsFile.instl_dst = destinationDirectory;
-            bmsFile.InstallDestinationTitle = title ?? string.Empty;
-            bmsFile.InstallDestinationArtist = artist ?? string.Empty;
             ReplacePendingInstallDestination(destinationDirectory, title, artist, installDestinationSuggestions, forceProjection: true);
             return;
         }
@@ -222,13 +214,6 @@ internal sealed class PackageChartEntry
 
     internal void ApplyInstallEstimationResult(InstallEstimationResult result)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            ApplyInstallEstimationResultToBmsEntry(bmsFile, result);
-            return;
-        }
-
         InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
         string[] suggestionPaths = [.. (result?.SuggestedDestinationDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -251,13 +236,8 @@ internal sealed class PackageChartEntry
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            bmsFile.instl_dst = null;
             bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             bmsFile.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-            bmsFile.InstallDestinationTitle = string.Empty;
-            bmsFile.InstallDestinationArtist = string.Empty;
-            bmsFile.InstallDestinationSuggestions = [];
             ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
             return;
         }
@@ -271,12 +251,7 @@ internal sealed class PackageChartEntry
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            bmsFile.instl_dst = null;
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
             bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-            bmsFile.InstallDestinationTitle = string.Empty;
-            bmsFile.InstallDestinationArtist = string.Empty;
-            bmsFile.InstallDestinationSuggestions = [];
             ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
             return;
         }
@@ -291,8 +266,6 @@ internal sealed class PackageChartEntry
         {
             bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             bmsFile.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-            bmsFile.InstallDestinationSuggestions = [];
             ReplacePendingInstallDestination(Chart.InstallDestination, Chart.InstallDestinationTitle, Chart.InstallDestinationArtist, [], forceProjection: true);
             return;
         }
@@ -411,38 +384,6 @@ internal sealed class PackageChartEntry
         return [];
     }
 
-    private void ApplyInstallEstimationResultToBmsEntry(BMSFile bmsFile, InstallEstimationResult result)
-    {
-        if (bmsFile == null)
-        {
-            return;
-        }
-        InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
-        bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-        bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-        bmsFile.instl_dst = result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory) ? result.DestinationDirectory : null;
-        string title;
-        string artist;
-        if (result?.HasViableDestination == true)
-        {
-            title = selectedCandidate?.RepresentativeTitle ?? string.Empty;
-            artist = selectedCandidate?.RepresentativeArtist ?? string.Empty;
-        }
-        else
-        {
-            title = string.Empty;
-            artist = string.Empty;
-        }
-        IReadOnlyList<string> suggestions = result?.Confidence == InstallEstimationConfidence.Low
-            ? [.. (result?.SuggestedDestinationDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).Take(3)]
-            : [];
-        bmsFile.InstallDestinationTitle = title;
-        bmsFile.InstallDestinationArtist = artist;
-        bmsFile.InstallDestinationSuggestions = suggestions;
-        ReplacePendingInstallDestination(bmsFile.instl_dst, title, artist, suggestions, forceProjection: true);
-        bmsFile.ReplaceWarningsByCategory(ChartWarningCategory.InstallEstimation, BuildInstallEstimationWarnings(result));
-    }
-
     private static void ClearInstalledBmsMetadata(BMSFile chartFile)
     {
         chartFile.parent = null;
@@ -470,10 +411,6 @@ internal sealed class PackageChartEntry
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            bmsFile.instl_dst = destinationDirectory;
-            bmsFile.InstallDestinationTitle = title ?? string.Empty;
-            bmsFile.InstallDestinationArtist = artist ?? string.Empty;
-            bmsFile.InstallDestinationSuggestions = suggestions ?? [];
             ReplacePendingInstallDestination(destinationDirectory, title, artist, suggestions, forceProjection: true);
             return;
         }
