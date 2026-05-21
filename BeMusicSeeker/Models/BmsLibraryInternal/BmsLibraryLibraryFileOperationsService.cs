@@ -652,7 +652,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     NewPath = movedChart.BmsFile.path,
                     OldPath = oldPath
                 });
-                result.MaintenanceTargets.Add(movedChart.BmsFile);
+                result.MaintenanceCharts.Add(movedChart);
             }
             else if (movedChart?.BmsonSong != null)
             {

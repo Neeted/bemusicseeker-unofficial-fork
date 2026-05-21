@@ -998,7 +998,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bms"), result.MutationDelta.FilePathChanges[0].NewPath);
         Assert.AreEqual(1, result.ChartsToRemove.Count);
         Assert.AreSame(duplicateFile, result.ChartsToRemove[0].BmsFile);
-        CollectionAssert.AreEqual(new[] { movedFile }, result.MaintenanceTargets);
+        Assert.AreEqual(1, result.MaintenanceCharts.Count);
+        Assert.AreSame(movedFile, result.MaintenanceCharts[0].BmsFile);
     }
 
     [TestMethod]
@@ -1037,7 +1038,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreSame(song, result.MutationDelta.BmsonSongPathChanges[0].Song);
         Assert.AreEqual("C:\\Broken\\move.bmson", result.MutationDelta.BmsonSongPathChanges[0].OldPath);
         Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bmson"), result.MutationDelta.BmsonSongPathChanges[0].NewPath);
-        Assert.AreEqual(0, result.MaintenanceTargets.Count);
         Assert.AreEqual(1, result.MaintenanceCharts.Count);
         Assert.AreSame(song, result.MaintenanceCharts[0].BmsonSong);
     }

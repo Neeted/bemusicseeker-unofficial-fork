@@ -10706,11 +10706,10 @@ reportProgress,
                 {
                     RemoveLibraryCharts(result.ChartsToRemove);
                 }
-                SplitResourceMaintenanceCharts(result.MaintenanceCharts, out List<BMSFile> maintenanceChartBmsTargets, out List<LR2SongDBExtended.bmson_song> maintenanceChartBmsonSongs);
-                List<BMSFile> maintenanceTargets = [.. result.MaintenanceTargets, .. maintenanceChartBmsTargets];
-                if (maintenanceTargets.Count > 0 || maintenanceChartBmsonSongs.Count > 0)
+                List<ChartFile> maintenanceTargets = CreateResourceMaintenanceCharts(result.MaintenanceCharts);
+                if (maintenanceTargets.Count > 0)
                 {
-                    setMaintenanceInfo(CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceChartBmsonSongs), forceUpdate: true);
+                    setMaintenanceInfo(maintenanceTargets, forceUpdate: true);
                 }
             }
         }
