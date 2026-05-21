@@ -8043,8 +8043,7 @@ reportProgress,
             (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => MoveChartPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths),
             UpsertInstalledChartRows,
             UpdateInstalledChartMaintenance,
-            null,
-            (files) => SetBMSScore(files),
+            result => SetBMSScore(ChartStorageTargetSet.FromCharts(result?.AddedCharts).BmsFiles),
             ApplyInstalledChartState,
             excludedComponentPathsByPackage,
             existingHashes,
@@ -8065,7 +8064,7 @@ reportProgress,
                 ChartPackagesInstalled.AddRange(result.InstalledPackagesToRegister);
             }
         }
-        LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
+        LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
         if (deferredMaintenanceCharts == null)
         {
             BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedBmsFilesForChartInfo, addedBmsonSongsForChartInfo);

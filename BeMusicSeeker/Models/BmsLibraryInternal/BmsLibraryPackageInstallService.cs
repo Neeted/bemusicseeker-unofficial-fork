@@ -1825,8 +1825,7 @@ internal sealed class BmsLibraryPackageInstallService
         Func<ChartPackage, string, bool, HashSet<string>, ISet<string>, bool> movePackageFiles,
         Action<PackageInstallExecutionResult> upsertStorageRows,
         Action<PackageInstallExecutionResult> updateMaintenance,
-        Action<IEnumerable<BMSFile>> updateZeroNote,
-        Action<IEnumerable<BMSFile>> applyScores,
+        Action<PackageInstallExecutionResult> applyScores,
         Action<PackageInstallExecutionResult> applyState,
         Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
         HashSet<string> existingHashes = null,
@@ -1888,16 +1887,8 @@ internal sealed class BmsLibraryPackageInstallService
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 
-        if (updateZeroNote != null)
-        {
-            var zeroNoteStopwatch = Stopwatch.StartNew();
-            updateZeroNote(result.AddedBmsFiles);
-            zeroNoteStopwatch.Stop();
-            result.ZeroNoteMs = zeroNoteStopwatch.ElapsedMilliseconds;
-        }
-
         var scoreStopwatch = Stopwatch.StartNew();
-        applyScores?.Invoke(result.AddedBmsFiles);
+        applyScores?.Invoke(result);
         scoreStopwatch.Stop();
         result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
 

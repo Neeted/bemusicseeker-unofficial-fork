@@ -10,10 +10,6 @@ internal sealed class PackageInstallExecutionResult
 
     public List<ChartFile> AddedCharts { get; } = [];
 
-    public List<BMSFile> AddedBmsFiles => [.. AddedCharts
-        .Select(chart => chart?.GetBmsStorageOwner())
-        .Where(ChartFileKindResolver.IsBmsChartFile)];
-
     public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs => [.. AddedCharts
         .Select(chart => chart?.GetBmsonStorageOwner())
         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
@@ -27,8 +23,6 @@ internal sealed class PackageInstallExecutionResult
     public long SongDbMs { get; set; }
 
     public long MaintenanceMs { get; set; }
-
-    public long ZeroNoteMs { get; set; }
 
     public long ScoreMs { get; set; }
 
