@@ -10156,14 +10156,14 @@ reportProgress,
         }
     }
 
-    public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSFile> files)
+    internal void AddReferenceBMSTablesToCharts(BMSTable table, IEnumerable<ChartFile> charts)
     {
-        if (table == null || files == null)
+        if (table == null || charts == null)
         {
             return;
         }
         ReplacePlaylistReferenceIndexTable(table);
-        AddReferenceBMSTableToFiles(table, files);
+        AddReferenceBMSTableToFiles(table, charts.Select(chart => chart?.BmsFile).Where(file => file != null));
     }
 
     private static int AddReferenceBMSTableToFiles(BMSTable table, IEnumerable<BMSFile> files)

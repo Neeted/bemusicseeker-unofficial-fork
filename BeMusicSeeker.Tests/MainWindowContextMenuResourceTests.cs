@@ -961,6 +961,29 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistDropReferenceRefreshUsesChartTargets()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string addChartRows = ExtractBetween(
+            viewModelCode,
+            "internal void AddChartRowsToFolderBMSTable",
+            "internal static bool ShouldPreservePlaylistEntryForRootFolderDrop");
+        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string addReferenceCharts = ExtractBetween(
+            libraryCode,
+            "internal void AddReferenceBMSTablesToCharts",
+            "private static int AddReferenceBMSTableToFiles");
+
+        StringAssert.Contains(addChartRows, "List<ChartFile> resolvedCharts");
+        StringAssert.Contains(addChartRows, "files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts)");
+        Assert.IsTrue(addChartRows.IndexOf("files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts)", StringComparison.Ordinal) < addChartRows.IndexOf("RefreshChartRowsViewForPlaylist(bmsTable)", StringComparison.Ordinal));
+        Assert.IsFalse(addChartRows.Contains("resolvedBmsFiles"));
+        StringAssert.Contains(addReferenceCharts, "ReplacePlaylistReferenceIndexTable(table)");
+        StringAssert.Contains(addReferenceCharts, "chart?.BmsFile");
+        Assert.IsFalse(addReferenceCharts.Contains("IEnumerable<BMSFile>"));
+    }
+
+    [TestMethod]
     public void PendingInstallDestinationCellEditUsesChartTargets()
     {
         string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));

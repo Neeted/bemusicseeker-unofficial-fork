@@ -278,7 +278,7 @@ pending / installed package record の永続正本は `install` table の row �
 
 - `ChartPackage.ChartEntries` は package 内 chart discovery の読み取り primary API になりつつあり、`PackageChartEntry` / `ChartFile` を返す。
 - `ChartPackage.GetChartAdapters()` は production 参照がなくなったため削除済みである。package 内 chart をまとめて読む入口は `ChartEntries` とし、BMS storage owner が必要な操作は対象 `PackageChartEntry.Chart.BmsFile` から明示的に取得する。
-- 明示的に chart adapter list を渡された package でも private `PackageChartEntry` list を保持し、読み取りは `ChartEntries` から行う。
+- 明示的に chart entry list を渡された package でも private `PackageChartEntry` list を保持し、読み取りは `ChartEntries` から行う。
 - それ以外では `PackageChartDiscoverySnapshot` を lazy build し、chart file path から BMS は `BMSFile`、bmson は `bmson_song` / `ChartFile` entry を作る。
 - 旧 `PendingCharts` view は production 参照がなく、adapterless entry を表示確認だけで materialize し得るため削除済みである。pending package 内 chart は `ChartEntries` を正本として読み、mutation / warning 書き戻しが必要な時は対象 entry の `ChartFile` / storage owner へ直接降りる。
 
@@ -323,9 +323,9 @@ package / pending install 層の正本は `PackageChartEntry` / `ChartFile` で�
 - source surface snapshot / scan metrics / cache hit
 - batch source surface hit と scan backend 情報
 
-target chart list は `PackageChartEntry` として snapshot builder に渡され、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。pending package の通常推定では `MissingEntries` を直接渡すため、missing target を snapshot 化するだけなら追加の adapter 再解決は不要である。package-level target が空の場合は package の `ChartEntries` 全体を使うため、adapterless bmson entry も snapshot から落ちない。package-level pending estimation の request / batch state は `PackageEntries` / `MissingEntries` / `AlreadyInstalledEntries` だけを保持し、mutation writeback も entry を入口にする。adapter list は install / move 実行のように実ファイル操作が adapter を要求する境界で取得する。`DefinedResources` は `PackageChartEntry.Chart` から作るため、bmson pending chart では `PendingChartEntry` adapter の component cache ではなく `bmson_song` の resource refs を使う。metadata profile は `ChartFile` projection の title / artist / path から作る。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
+target chart list は `PackageChartEntry` として snapshot builder に渡され、読み取り専用で参照する代表譜面を `RepresentativeChart` として `ChartFile` 化する。pending package の通常推定では `MissingEntries` を直接渡すため、missing target を snapshot 化するだけなら追加の adapter 再解決は不要である。package-level target が空の場合は package の `ChartEntries` 全体を使うため、adapterless bmson entry も snapshot から落ちない。package-level pending estimation の request / batch state は `PackageEntries` / `MissingEntries` / `AlreadyInstalledEntries` だけを保持し、mutation writeback も entry を入口にする。install / move 実行のような実ファイル操作でも、対象は `PackageChartEntry` / `ChartFile` を正本にし、BMS-only parser / storage mutation が必要な時だけ `ChartFile.BmsFile` へ明示的に降りる。`DefinedResources` は `PackageChartEntry.Chart` から作るため、bmson pending chart では `PendingChartEntry` adapter の component cache ではなく `bmson_song` の resource refs を使う。metadata profile は `ChartFile` projection の title / artist / path から作る。bmson pending chart では `Kind=Bmson` と `BmsonSong` owner を保持し、BMS 専用 storage owner とは分ける。複数 package 推定では、`PackageInstallSurfaceSnapshot` や batch source surface を共有し、同じ source tree の scan / resource surface を再利用できる。
 
-loose chart 推定の model 入口は `PackageChartEntry` を受け取り、snapshot も entry から組み立てる。installed hash での除外や既に install destination が入っている対象の skip 判定は `ChartFile.PrimaryLookupHash` / `ChartFile.InstallDestination` を読む。UI から legacy compatibility adapter が必要な loose target を渡す場合も、ViewModel が background task 前に adapter を確定し、`PackageChartEntry` に包んでから model 層へ渡す。
+loose chart 推定の model 入口は `PackageChartEntry` を受け取り、snapshot も entry から組み立てる。installed hash での除外や既に install destination が入っている対象の skip 判定は `ChartFile.PrimaryLookupHash` / `ChartFile.InstallDestination` を読む。UI から standalone chart target を渡す場合も、ViewModel が background task 前に `ChartFile` を確定し、`PackageChartEntry` に包んでから model 層へ渡す。BMS-only parser / storage owner が必要な場合だけ `ChartFile.BmsFile` へ降り、bmson loose target のために compatibility adapter を作らない。
 
 ### installed directory index
 
@@ -378,6 +378,7 @@ playlist detail 表示時の `ChartRowsView` 実体は `PlaylistDetailVirtualVie
 - BMS row は実体 `BMSFile` を使う。
 - bmson library row は `ChartFile` / `BmsonSong` の identity から playlist entry を作り、playlist 追加のためだけには `PendingChartEntry` adapter を作らない。
 - playlist row は通常 folder 追加では `BMSTableEntry.Duplicate()` を優先し、既存 playlist metadata を保つ。
+- 追加後の playlist reference 表示更新は、追加元 row から解決した `ChartFile` list を `BMSLibrary.AddReferenceBMSTablesToCharts(...)` へ渡す。BMS storage row には従来どおり `RefTables` を書き戻し、bmson は `PlaylistReferenceIndex` 更新で表示へ反映する。旧実装のように追加後の対象を `BMSFile` list へ戻すと bmson が参照更新対象から落ちるため、その中間表現は残さない。
 
 folder table root への追加では、BMS は従来の同一ディレクトリ md5 group を使う。所持 playlist row は BMS / bmson とも `ResolvePlaylistDropChart(...)` で `ChartFile` へ解決され、root folder 自動振り分けでは新しい `BMSTableEntry(chart)` を作る。missing row など chart を解決できない playlist row は `BMSTableEntry.Duplicate()` で既存 metadata を保つ。bmson は sha256 identity を保ち、`Org_md5` は空にする。
 
@@ -688,6 +689,6 @@ production に残る `Compatibility` 名は playlist summary column settings の
 2. UI / operation の入口は chart target に寄せる。
 3. BMS-only 処理は capability で明示する。
 4. `BMSFile` 型を chart 共通処理の種別判定に使わない。production では `BMSFile` を BMS storage row / BMS-only 処理に閉じ込め、chart 共通処理は `ChartFile.Kind` を確認する。
-5. package 内 chart の読み取りは `ChartEntries` を入口にする。adapter materialization は対象 entry 単位に限定し、package-level adapter list API を再導入しない。
+5. package 内 chart の読み取りは `ChartEntries` を入口にする。BMS storage owner access は対象 entry 単位に限定し、package-level adapter list API を再導入しない。
 6. settings 名と UI 文言の BMS は互換契約として残す。内部 helper / log / operation symbol は必要に応じて chart 名へ寄せる。
 7. `ChartFile` / `ChartPackage` を使う場合も、既存の LR2 互換 DB と playlist JSON / DB の永続形式は維持する。

@@ -606,6 +606,57 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void AddReferenceBMSTablesToCharts_AddsReferenceToBmsStorageOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms"
+            };
+            file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            BMSTable table = CreateTable("Matched", "M", file.hash);
+
+            library.AddReferenceBMSTablesToCharts(table, [ChartFileProjection.FromBmsFile(file)]);
+
+            Assert.AreEqual(1, file.RefTables.Count);
+            Assert.AreSame(table, file.RefTables[0]);
+            Assert.AreEqual("M", file.RefTablesSymbols);
+            Assert.AreEqual("Matched", file.RefTablesNames);
+        });
+    }
+
+    [TestMethod]
+    public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsonWithoutBmsOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            var song = new LR2SongDBExtended.bmson_song
+            {
+                path = @"C:\Library\chart.bmson",
+                md5 = matchingHash,
+                sha256 = new string('b', 64),
+                title = "Library Bmson",
+                artist = "Artist"
+            };
+            ChartFile chart = ChartFileProjection.FromBmsonSong(song);
+            BMSTable table = CreateTable("Matched", "M", matchingHash);
+
+            library.AddReferenceBMSTablesToCharts(table, [chart]);
+
+            Assert.IsNull(chart.BmsFile);
+            Assert.AreSame(song, chart.BmsonSong);
+            Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
+        });
+    }
+
+    [TestMethod]
     public void AddReferenceBMSTablesToPackageCharts_DoesNotMaterializeUnmatchedBmsonEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();

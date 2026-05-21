@@ -21045,7 +21045,6 @@ public class MainWindowViewModel : ViewModel
             }
         }
         List<ChartFile> resolvedCharts = [.. sourceRows.Select(ResolvePlaylistDropChart).Where(chart => chart != null)];
-        List<BeMusicSeeker.Models.BMSFile> resolvedBmsFiles = [.. resolvedCharts.Select(chart => chart.BmsFile).Where(file => file != null)];
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
             List<object> playlistEntryRows = [.. sourceRows.Where(ShouldPreservePlaylistEntryForRootFolderDrop)];
@@ -21102,10 +21101,10 @@ public class MainWindowViewModel : ViewModel
             tables.AddPlaylistEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
         tables.ReOutputCustomFolderAndCommitToDB(bmsTable);
-        RefreshChartRowsViewForPlaylist(bmsTable);
         tables.AcquireReaderLockBMSTables();
-        files.AddReferenceBMSTables(bmsTable, resolvedBmsFiles);
+        files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts);
         tables.FreeReaderLockBMSTables();
+        RefreshChartRowsViewForPlaylist(bmsTable);
         InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
     }
 
