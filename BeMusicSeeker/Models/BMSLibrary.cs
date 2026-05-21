@@ -9511,7 +9511,7 @@ reportProgress,
         }
     }
 
-    public List<BMSFile> GetPendingBmsFormatChartFilesSnapshot()
+    internal List<ChartFile> GetPendingBmsFormatChartFilesSnapshot()
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -9522,7 +9522,7 @@ reportProgress,
         }
     }
 
-    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<BMSFile> targetFiles, CancellationToken token = default, Action onEachProcessed = null)
+    internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<ChartFile> targetCharts, CancellationToken token = default, Action onEachProcessed = null)
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -9530,7 +9530,7 @@ reportProgress,
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    IEnumerable<BMSFile> enumerable = targetFiles ?? packageInstallService.GetPendingBmsFormatChartFilesSnapshot(ChartPackagesPending);
+                    IEnumerable<ChartFile> enumerable = targetCharts ?? packageInstallService.GetPendingBmsFormatChartFilesSnapshot(ChartPackagesPending);
                     PendingZeroNoteRenameResult result = packageInstallService.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
                         enumerable,
                         (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),
@@ -10858,7 +10858,6 @@ reportProgress,
         {
             throw new ArgumentNullException("charts");
         }
-        List<BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -10866,7 +10865,7 @@ reportProgress,
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     PendingExtensionRenameResult result = packageInstallService.RenamePendingBmsFormatChartFileExtensions(
-                        bmsFiles,
+                        charts,
                         newExt,
                         (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false));
                     foreach (PendingExtensionRenameFailure failure in result.Failures)
@@ -10894,7 +10893,7 @@ reportProgress,
     private static List<BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? [])
-            .Where(ChartFileKindResolver.IsBmsFormatChartFile)
+            .Where(ChartFileKindResolver.IsBmsChartFile)
             .Select(chart => chart.BmsFile)
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }

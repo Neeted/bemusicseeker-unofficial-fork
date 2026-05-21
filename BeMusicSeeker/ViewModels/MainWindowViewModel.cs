@@ -20443,7 +20443,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public List<BeMusicSeeker.Models.BMSFile> GetPendingBmsFormatChartFilesSnapshot()
+    internal List<ChartFile> GetPendingBmsFormatChartFilesSnapshot()
     {
         if (files == null)
         {
@@ -20467,13 +20467,14 @@ public class MainWindowViewModel : ViewModel
         });
     }
 
-    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> targetFiles, CancellationToken token = default, Action onEachProcessed = null)
+    internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<ChartFile> targetCharts, CancellationToken token = default, Action onEachProcessed = null)
     {
-        List<BeMusicSeeker.Models.BMSFile> list = ((targetFiles != null) ? [.. targetFiles.Where(f => f != null)] : GetPendingBmsFormatChartFilesSnapshot());
+        List<ChartFile> list = ((targetCharts != null) ? [.. targetCharts.Where(chart => chart != null)] : GetPendingBmsFormatChartFilesSnapshot());
+        List<BeMusicSeeker.Models.BMSFile> bmsFiles = GetBmsFormatChartFiles(list);
         RunPendingInstallMutation(delegate
         {
             files.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(list, token, onEachProcessed);
-        }, list);
+        }, bmsFiles);
     }
 
     public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
@@ -21380,7 +21381,7 @@ public class MainWindowViewModel : ViewModel
     private static List<BeMusicSeeker.Models.BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? [])
-            .Where(ChartFileKindResolver.IsBmsFormatChartFile)
+            .Where(ChartFileKindResolver.IsBmsChartFile)
             .Select(chart => chart.BmsFile)
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }

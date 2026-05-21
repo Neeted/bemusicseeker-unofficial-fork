@@ -1177,13 +1177,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         return [.. GetSelectedChartTargets(capability, isPendingSection)
             .Select(target => target.Chart)
-            .Where(ChartFileKindResolver.IsBmsFormatChartFile)];
+            .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     private static List<BMSFile> ToBmsFiles(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? [])
-            .Where(ChartFileKindResolver.IsBmsFormatChartFile)
+            .Where(ChartFileKindResolver.IsBmsChartFile)
             .Select(chart => chart.BmsFile)
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
@@ -3746,7 +3746,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> list = viewModel.GetPendingBmsFormatChartFilesSnapshot();
+        List<ChartFile> list = viewModel.GetPendingBmsFormatChartFilesSnapshot();
         if (list.Count == 0)
         {
             DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_charts, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -3782,7 +3782,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 try
                 {
-                    ProgressDialog.Current.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].path ?? "(null)");
+                    ProgressDialog.Current.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].Path ?? "(null)");
                 }
                 catch
                 {

@@ -2057,9 +2057,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(bmsFile), adapterlessBmsonEntry, plainBmsonPathEntry]);
             ChartPackage adapterlessBmsonPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
-            List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
+            List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
 
-            CollectionAssert.AreEqual(new[] { bmsFile }, result);
+            CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.BmsFile).ToArray());
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });
     }
@@ -2072,9 +2072,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PackageChartEntry bmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile));
         ChartPackage package = ChartPackage.FromChartEntries([bmsEntry]);
 
-        List<BMSFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
+        List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
 
-        CollectionAssert.AreEqual(new[] { bmsFile }, result);
+        CollectionAssert.AreEqual(new[] { bmsFile }, result.Select(chart => chart.BmsFile).ToArray());
         Assert.AreSame(bmsFile, bmsEntry.GetBmsOwnerForTest());
     }
 
@@ -2131,7 +2131,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             duplicateFile.SetHash(fileOperationService.TryComputeFileMd5ForPath(duplicateSourcePath));
 
             PendingExtensionRenameResult result = service.RenamePendingBmsFormatChartFileExtensions(
-                [renameFile, duplicateFile, failureFile],
+                [
+                    ChartFileProjection.FromBmsFile(renameFile),
+                    ChartFileProjection.FromBmsFile(duplicateFile),
+                    ChartFileProjection.FromBmsFile(failureFile)
+                ],
                 ".bme",
                 delegate (BMSFile file, string requestedPath)
                 {

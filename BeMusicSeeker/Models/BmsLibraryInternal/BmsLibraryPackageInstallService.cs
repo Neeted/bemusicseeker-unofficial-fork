@@ -288,7 +288,7 @@ internal sealed class BmsLibraryPackageInstallService
         return deduplicated;
     }
 
-    public List<BMSFile> DeduplicateFilesByPathOrReference(IEnumerable<BMSFile> files)
+    private List<BMSFile> DeduplicateFilesByPathOrReference(IEnumerable<BMSFile> files)
     {
         List<BMSFile> deduplicated = [];
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -372,20 +372,59 @@ internal sealed class BmsLibraryPackageInstallService
     private static bool IsBmsFormatChartEntry(PackageChartEntry entry)
     {
         ChartFile chart = entry?.Chart;
+        return IsBmsFormatChartFile(chart);
+    }
+
+    private static bool IsBmsFormatChartFile(ChartFile chart)
+    {
         string extension = Path.GetExtension(chart?.Path);
         return chart?.Kind == ChartFileKind.Bms
+            && ChartFileKindResolver.IsBmsChartFile(chart)
             && !string.IsNullOrWhiteSpace(extension)
             && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
-    public List<BMSFile> GetPendingBmsFormatChartFilesSnapshot(IEnumerable<ChartPackage> pendingPackages)
+    private static List<ChartFile> DeduplicateBmsFormatChartsByPathOrBmsReference(IEnumerable<ChartFile> charts)
     {
-        return DeduplicateFilesByPathOrReference((pendingPackages ?? [])
+        List<ChartFile> deduplicated = [];
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<BMSFile> references = [];
+        foreach (ChartFile chart in charts ?? [])
+        {
+            if (!IsBmsFormatChartFile(chart))
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(chart.Path))
+            {
+                if (!paths.Add(chart.Path))
+                {
+                    continue;
+                }
+            }
+            else if (!references.Add(chart.BmsFile))
+            {
+                continue;
+            }
+            deduplicated.Add(chart);
+        }
+        return deduplicated;
+    }
+
+    private static List<BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
+    {
+        return [.. DeduplicateBmsFormatChartsByPathOrBmsReference(charts)
+            .Select(chart => chart.BmsFile)
+            .Where(IsBmsFormatChartFile)];
+    }
+
+    internal List<ChartFile> GetPendingBmsFormatChartFilesSnapshot(IEnumerable<ChartPackage> pendingPackages)
+    {
+        return DeduplicateBmsFormatChartsByPathOrBmsReference((pendingPackages ?? [])
             .Where(package => package != null)
             .SelectMany(package => package.ChartEntries)
             .Where(IsBmsFormatChartEntry)
-            .Select(entry => entry?.Chart?.BmsFile)
-            .Where(IsBmsFormatChartFile));
+            .Select(entry => entry?.Chart));
     }
 
     /// <summary>
@@ -2081,15 +2120,15 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingZeroNoteRenameResult RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
-        IEnumerable<BMSFile> targetFiles,
+    internal PendingZeroNoteRenameResult RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
+        IEnumerable<ChartFile> targetCharts,
         Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename,
         CancellationToken token = default,
         Action onEachProcessed = null,
         Action<string> logInfo = null)
     {
         var result = new PendingZeroNoteRenameResult();
-        List<BMSFile> files = DeduplicateFilesByPathOrReference((targetFiles ?? []).Where(IsBmsFormatChartFile));
+        List<BMSFile> files = GetBmsFormatChartFiles(targetCharts);
         result.Total = files.Count;
         foreach (BMSFile file in files)
         {
@@ -2167,15 +2206,14 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingExtensionRenameResult RenamePendingBmsFormatChartFileExtensions(
-        IEnumerable<BMSFile> targetFiles,
+    internal PendingExtensionRenameResult RenamePendingBmsFormatChartFileExtensions(
+        IEnumerable<ChartFile> targetCharts,
         string newExt,
         Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
     {
         var result = new PendingExtensionRenameResult();
         var stopwatch = Stopwatch.StartNew();
-        List<BMSFile> files = DeduplicateFilesByPathOrReference(
-            (targetFiles ?? []).Where(file => IsBmsFormatChartFile(file) && File.Exists(file.path)));
+        List<BMSFile> files = [.. GetBmsFormatChartFiles(targetCharts).Where(file => File.Exists(file.path))];
         result.Total = files.Count;
         foreach (BMSFile file in files)
         {
