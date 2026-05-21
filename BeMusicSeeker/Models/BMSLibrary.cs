@@ -6546,13 +6546,6 @@ reportProgress,
         return knownChartDirectories;
     }
 
-    private HashSet<string> CreateInstalledChartKeySnapshotExcludingUnsafe(IEnumerable<BMSFile> excluded)
-    {
-        return CreateInstalledChartKeySnapshotExcludingChartsUnsafe((excluded ?? [])
-            .Where(file => file != null)
-            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)));
-    }
-
     private HashSet<string> CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
     {
         var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -9152,7 +9145,7 @@ reportProgress,
             LogInstallPerformance("pending_regroup skip reason=" + skipReason + " source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
             return;
         }
-        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingUnsafe(null));
+        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingChartsUnsafe(null));
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select(pendingPackage => pendingPackage.path));
         dbGateway.UpsertInstallRows([regroupedPackage]);
