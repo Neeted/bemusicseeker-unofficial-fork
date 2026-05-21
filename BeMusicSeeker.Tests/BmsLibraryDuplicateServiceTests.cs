@@ -60,7 +60,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
 
-        service.ClearDuplicateState([file]);
+        service.ClearDuplicateState([ChartFileProjection.FromBmsFile(file)]);
 
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));

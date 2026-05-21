@@ -23,15 +23,14 @@ internal sealed class BmsLibraryDuplicateService
     /// BMS storage row に残っている重複 warning だけを消します。
     /// bmson duplicate warning は duplicate group の <see cref="ChartFile"/> projection にだけ持つため、ここでは永続状態を消しません。
     /// </summary>
-    /// <param name="files">BMS storage row。</param>
-    public void ClearDuplicateState(IEnumerable<BMSFile> files)
+    /// <param name="charts">重複判定対象の chart。</param>
+    public void ClearDuplicateState(IEnumerable<ChartFile> charts)
     {
-        foreach (BMSFile file in files ?? [])
+        foreach (BMSFile file in (charts ?? [])
+            .Select(chart => chart?.GetBmsStorageOwner())
+            .Where(file => file != null)
+            .Distinct())
         {
-            if (file == null)
-            {
-                continue;
-            }
             file.ClearWarning(ChartWarningKind.DuplicateChart);
         }
     }

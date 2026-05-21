@@ -7430,8 +7430,9 @@ reportProgress,
                     }
                     List<BMSFile> bmsSnapshot = [.. BMSFiles.Where(f => f != null)];
                     List<LR2SongDBExtended.bmson_song> bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
-                    duplicateService.ClearDuplicateState(bmsSnapshot);
-                    List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(CreateInstalledChartSnapshot(bmsSnapshot, bmsonSnapshot));
+                    List<ChartFile> installedChartSnapshot = CreateInstalledChartSnapshot(bmsSnapshot, bmsonSnapshot);
+                    duplicateService.ClearDuplicateState(installedChartSnapshot);
+                    List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(installedChartSnapshot);
                     var swNew = System.Diagnostics.Stopwatch.StartNew();
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot, DuplicateWarningMessage);
                     duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage);
