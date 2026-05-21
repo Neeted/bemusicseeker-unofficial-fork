@@ -346,7 +346,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     private void RefreshEditableChartSnapshot()
     {
-        if (Chart?.BmsFile != null || Chart?.BmsonSong != null)
+        if (Chart?.GetBmsStorageOwner() != null || Chart?.GetBmsonStorageOwner() != null)
         {
             return;
         }

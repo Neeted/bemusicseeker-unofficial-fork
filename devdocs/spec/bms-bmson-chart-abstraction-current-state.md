@@ -354,16 +354,16 @@ playlist detail は `PlaylistDetailSourceRow` / `PlaylistDetailRow` で表示さ
 
 主な状態:
 
-- `Chart`: playlist detail row の chart read model。所持 BMS は `ChartFile.BmsFile`、所持 bmson は `ChartFile.BmsonSong` を storage owner として持つ。
-- `IsOwned`: `ChartFile.BmsFile` または `ChartFile.BmsonSong` が path を持つ場合 true
+- `Chart`: playlist detail row の chart read model。所持 BMS / 所持 bmson は `ChartFile.GetBmsStorageOwner()` / `GetBmsonStorageOwner()` で storage owner を取り出す。
+- `IsOwned`: `ChartFile.GetBmsStorageOwner()` または `GetBmsonStorageOwner()` が path を持つ場合 true
 
-`PlaylistDetailSourceRow` は source snapshot 構築時に解決済み `ChartFile` を受け取る。BMS / bmson の storage owner は `ChartFile.BmsFile` / `ChartFile.BmsonSong` から派生し、playlist missing row は `resolvedChart == null` と playlist entry / `entryChartInfo` から metadata chart を作る。`BuildPlaylistSourceRows(...)` も `BMSFile + bmson_song` の tuple を source row 入口にせず、entry resolve の結果を `ChartFile` として保持する。`PlaylistDetailRow` は source row の `Chart` を引き継ぎ、missing row の手動 level 編集や source row の entry chart_info patch 時には `Chart` を作り直す。これにより、view row からも source row と同じ chart_info / identity snapshot を `GridRowResolver` に渡せる。
+`PlaylistDetailSourceRow` は source snapshot 構築時に解決済み `ChartFile` を受け取る。BMS / bmson の storage owner は `ChartFile.GetBmsStorageOwner()` / `GetBmsonStorageOwner()` から派生し、playlist missing row は `resolvedChart == null` と playlist entry / `entryChartInfo` から metadata chart を作る。`BuildPlaylistSourceRows(...)` も `BMSFile + bmson_song` の tuple を source row 入口にせず、entry resolve の結果を `ChartFile` として保持する。`PlaylistDetailRow` は source row の `Chart` を引き継ぎ、missing row の手動 level 編集や source row の entry chart_info patch 時には `Chart` を作り直す。これにより、view row からも source row と同じ chart_info / identity snapshot を `GridRowResolver` に渡せる。
 
-`GridRowResolver` は playlist row から `ChartOperationTarget` を作る際、row の `Chart.Kind` と `ChartFile` の storage owner を組み合わせて source scope と capability を決める。owned bmson playlist row では `ChartFile.BmsonSong` を storage owner として保持し、operation target 作成のためだけには compatibility adapter を作らない。`PlaylistDetailRow` と `PlaylistDetailSourceRow` はどちらも playlist entry row として扱い、entry duplication / playlist cell edit policy / root folder drop preservation の判定で同じ `BMSTableEntry` を返す。
+`GridRowResolver` は playlist row から `ChartOperationTarget` を作る際、row の `Chart.Kind` と `ChartFile` の storage owner を組み合わせて source scope と capability を決める。owned bmson playlist row では `ChartFile.GetBmsonStorageOwner()` を storage owner として保持し、operation target 作成のためだけには compatibility adapter を作らない。`PlaylistDetailRow` と `PlaylistDetailSourceRow` はどちらも playlist entry row として扱い、entry duplication / playlist cell edit policy / root folder drop preservation の判定で同じ `BMSTableEntry` を返す。
 
 playlist detail row は view row materialization だけでは bmson compatibility adapter を作らない。`PlaylistDetailSourceRow` / `PlaylistDetailRow` は表示用 `ChartFile` を bmson storage row と `ChartFileTransientState` だけから作り、`CompatibilityBmsFile` surface を持たない。ViewModel が渡す transient state provider は repair / warning 表示 state を `ChartFileTransientState` として返し、存在しない adapterless bmson row は表示するだけでは `PendingChartEntry` へ変換しない。
 
-playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `ChartFile.BmsFile.RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
+playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS row では `ChartFile.GetBmsStorageOwner()` で取り出した storage row の `RefTables`、bmson row や missing row では `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
 
 playlist detail 表示時の `ChartRowsView` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncChartRowsViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
 

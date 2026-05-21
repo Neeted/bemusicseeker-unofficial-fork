@@ -128,9 +128,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal LR2SongDBExtended.chart_info EntryChartInfo { get; private set; }
 
-    internal LR2SongDBExtended.chart_info ChartInfo => resolvedChartSnapshot?.BmsFile?.ChartInfo ?? resolvedBmson?.ChartInfo ?? EntryChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => resolvedChartSnapshot?.GetBmsStorageOwner()?.ChartInfo ?? resolvedBmson?.ChartInfo ?? EntryChartInfo;
 
-    internal bool HasEntryChartInfoDependency => resolvedChartSnapshot?.BmsFile == null && resolvedBmson == null;
+    internal bool HasEntryChartInfoDependency => resolvedChartSnapshot?.GetBmsStorageOwner() == null && resolvedBmson == null;
 
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
@@ -216,14 +216,14 @@ internal sealed class PlaylistDetailSourceRow
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
-        resolvedBmson = resolvedChart?.BmsonSong;
+        resolvedBmson = resolvedChart?.GetBmsonStorageOwner();
         EntryChartInfo = entryChartInfo;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
         Chart = CreateChartFile();
         ChartFile chart = Chart;
         bool isBmsOwned = HasOwnedBmsChart(chart);
         bool isBmsonOwned = !isBmsOwned && HasOwnedBmsonChart(chart);
-        BMSFile bmsOwner = chart?.BmsFile;
+        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
         BMSScore effectiveScore = scoreSnapshot ?? bmsOwner?.bmsScore;
         Title = FirstNonEmpty(chart?.Title, entry.title);
         Artist = FirstNonEmpty(chart?.Artist, entry.artist);
@@ -325,7 +325,7 @@ internal sealed class PlaylistDetailSourceRow
 
     private ChartFile CreateChartFile()
     {
-        BMSFile bmsOwner = resolvedChartSnapshot?.BmsFile;
+        BMSFile bmsOwner = resolvedChartSnapshot?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
             return ChartFileProjection.FromBmsFile(bmsOwner);
@@ -381,12 +381,14 @@ internal sealed class PlaylistDetailSourceRow
 
     private static bool HasOwnedBmsChart(ChartFile chart)
     {
-        return chart?.BmsFile != null && !string.IsNullOrWhiteSpace(chart.BmsFile.path);
+        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+        return bmsOwner != null && !string.IsNullOrWhiteSpace(bmsOwner.path);
     }
 
     private static bool HasOwnedBmsonChart(ChartFile chart)
     {
-        return chart?.BmsonSong != null && !string.IsNullOrWhiteSpace(chart.BmsonSong.path);
+        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+        return bmsonOwner != null && !string.IsNullOrWhiteSpace(bmsonOwner.path);
     }
 
     private static string BuildLevelText(BMSTableEntry entry, ChartFile chart)
