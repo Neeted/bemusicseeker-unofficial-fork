@@ -11008,12 +11008,12 @@ reportProgress,
     /// </summary>
     private void unregisterBMSFiles(List<BMSFile> bmsFiles)
     {
-        stateApplier.UnregisterBmsFiles(bmsFiles);
+        stateApplier.UnregisterCharts(ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFiles));
     }
 
     private void unregisterBmsonSongs(List<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        stateApplier.UnregisterBmsonSongs(bmsonSongs);
+        stateApplier.UnregisterCharts(ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongs));
     }
 
     /// <summary>

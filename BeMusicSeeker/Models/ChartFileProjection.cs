@@ -301,6 +301,40 @@ internal static class ChartFileProjection
             .Where(chart => chart != null)];
     }
 
+    internal static ChartFile FromBmsonStorageOwnerIdentity(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null)
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            ChartFileKind.Bmson,
+            song.path,
+            song.md5,
+            song.sha256,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            song);
+    }
+
+    internal static List<ChartFile> FromBmsonStorageOwnerIdentities(IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    {
+        return [.. (songs ?? [])
+            .Where(song => song != null)
+            .Select(FromBmsonStorageOwnerIdentity)
+            .Where(chart => chart != null)];
+    }
+
     internal static List<ChartFile> FromBmsonSongs(
         IEnumerable<LR2SongDBExtended.bmson_song> songs,
         bool includeWarningSnapshot = false,

@@ -128,23 +128,7 @@ internal sealed class BmsLibraryStateApplier(
 
         if (delta.ChartsToUnregister.Count > 0)
         {
-            List<BMSFile> bmsFilesToUnregister = [.. delta.ChartsToUnregister
-                .Select(chart => chart?.GetBmsStorageOwner())
-                .Where(file => file != null)
-                .Distinct()];
-            if (bmsFilesToUnregister.Count > 0)
-            {
-                UnregisterBmsFiles(bmsFilesToUnregister);
-            }
-
-            List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. delta.ChartsToUnregister
-                .Select(chart => chart?.GetBmsonStorageOwner())
-                .Where(song => song != null)
-                .Distinct()];
-            if (bmsonSongsToUnregister.Count > 0)
-            {
-                UnregisterBmsonSongs(bmsonSongsToUnregister);
-            }
+            UnregisterCharts(delta.ChartsToUnregister);
         }
 
         if (delta.InvalidateInstalledDirectoryIndex)
@@ -173,7 +157,39 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    public void UnregisterBmsFiles(IEnumerable<BMSFile> bmsFiles)
+    public void UnregisterCharts(IEnumerable<ChartFile> charts)
+    {
+        if (charts == null)
+        {
+            throw new ArgumentNullException(nameof(charts));
+        }
+
+        List<ChartFile> chartList = [.. charts.Where(chart => chart != null)];
+        if (chartList.Count == 0)
+        {
+            return;
+        }
+
+        List<BMSFile> bmsFilesToUnregister = [.. chartList
+            .Select(chart => chart.GetBmsStorageOwner())
+            .Where(file => file != null)
+            .Distinct()];
+        if (bmsFilesToUnregister.Count > 0)
+        {
+            UnregisterBmsFiles(bmsFilesToUnregister);
+        }
+
+        List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. chartList
+            .Select(chart => chart.GetBmsonStorageOwner())
+            .Where(song => song != null)
+            .Distinct()];
+        if (bmsonSongsToUnregister.Count > 0)
+        {
+            UnregisterBmsonSongs(bmsonSongsToUnregister);
+        }
+    }
+
+    private void UnregisterBmsFiles(IEnumerable<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
         {
@@ -223,7 +239,7 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    public void UnregisterBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private void UnregisterBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         if (bmsonSongs == null)
         {

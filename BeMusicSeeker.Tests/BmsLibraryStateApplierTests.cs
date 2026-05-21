@@ -200,7 +200,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterBmsFiles_RemovesSongsAndPrunesInstalledPackages()
+    public void UnregisterCharts_RemovesBmsSongsAndPrunesInstalledPackages()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -237,7 +237,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsFiles([removedFile]);
+            applier.UnregisterCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]);
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreSame(keptFile, libraryFiles.Single());
@@ -255,7 +255,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterBmsFiles_RemovesLibraryRowsByPathWhenReferenceDiffers()
+    public void UnregisterCharts_RemovesBmsLibraryRowsByPathWhenReferenceDiffers()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -293,7 +293,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsFiles([removedFileReference]);
+            applier.UnregisterCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFileReference)]);
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreSame(keptFile, libraryFiles.Single());
@@ -307,7 +307,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterBmsFiles_DoesNotMaterializeUnmatchedAdapterlessBmsonInstalledPackageEntry()
+    public void UnregisterCharts_DoesNotMaterializeUnmatchedAdapterlessBmsonInstalledPackageEntry()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -337,7 +337,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsFiles([removedFile]);
+            applier.UnregisterCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]);
 
             Assert.AreEqual(0, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
@@ -349,7 +349,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterBmsonSongs_RemovesSongsFromCollectionAndDatabase()
+    public void UnregisterCharts_RemovesBmsonSongsFromCollectionAndDatabase()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -377,7 +377,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsonSongs([removedSong]);
+            applier.UnregisterCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]);
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());
@@ -393,7 +393,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterBmsonSongs_RemovesRowsFromInstalledPackages()
+    public void UnregisterCharts_RemovesBmsonRowsFromInstalledPackages()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -429,7 +429,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsonSongs([removedSong]);
+            applier.UnregisterCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]);
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());
@@ -442,7 +442,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterBmsonSongs_RemovesAdapterlessInstalledPackageEntryWithoutMaterializing()
+    public void UnregisterCharts_RemovesAdapterlessBmsonInstalledPackageEntryWithoutMaterializing()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -476,7 +476,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterBmsonSongs([removedSong]);
+            applier.UnregisterCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]);
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());
