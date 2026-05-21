@@ -39,8 +39,7 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
             {
                 inlineResults.Add(chartInfoBuildService.BuildInlineChartInfo(
                     target.Snapshot,
-                    target.GetBmsStorageOwner(),
-                    target.GetBmsonStorageOwner(),
+                    target.Chart,
                     currentRows,
                     currentFailures,
                     logInstallPerformance,
@@ -259,15 +258,5 @@ internal sealed class InlineChartSnapshotTarget
     public static InlineChartSnapshotTarget FromChart(ChartFile chart, ChartFileSnapshot snapshot)
     {
         return chart == null || snapshot == null ? null : new InlineChartSnapshotTarget(chart, snapshot);
-    }
-
-    public BMSFile GetBmsStorageOwner()
-    {
-        return Chart?.GetBmsStorageOwner();
-    }
-
-    public LR2SongDBExtended.bmson_song GetBmsonStorageOwner()
-    {
-        return Chart?.GetBmsonStorageOwner();
     }
 }

@@ -90,8 +90,7 @@ internal sealed class ChartInfoBuildService
 
     internal InlineChartInfoBuildResult BuildInlineChartInfo(
         ChartFileSnapshot snapshot,
-        BMSFile bmsFile,
-        LR2SongDBExtended.bmson_song bmsonSong,
+        ChartFile chart,
         IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
         IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
         Action<string> logInstallPerformance = null,
@@ -101,15 +100,18 @@ internal sealed class ChartInfoBuildService
         {
             throw new ArgumentNullException(nameof(snapshot));
         }
+        if (chart == null)
+        {
+            throw new ArgumentNullException(nameof(chart));
+        }
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
         if ((bmsFile == null) == (bmsonSong == null))
         {
             throw new ArgumentException("Exactly one chart model must be specified.");
         }
 
-        ChartInfoBuildTarget target = ChartInfoBuildTarget.FromChart(
-            bmsFile != null
-                ? ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)
-                : ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false));
+        ChartInfoBuildTarget target = ChartInfoBuildTarget.FromChart(chart);
         string md5 = string.IsNullOrWhiteSpace(snapshot.Md5) ? target.Md5 : snapshot.Md5;
         string sha256 = string.IsNullOrWhiteSpace(snapshot.Sha256) ? target.Sha256 : snapshot.Sha256;
         TimeSpan parseTimeout = ResolveParseTimeout();

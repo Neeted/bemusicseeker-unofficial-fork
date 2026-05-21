@@ -410,7 +410,7 @@ resource health は BMS / bmson 共通の表示概念である。
 
 `chart_info` は BMS / bmson 共通 metadata として扱う。
 
-inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot を `InlineChartSnapshotTarget` の `ChartFile` と組み合わせて受ける。BMS / bmson の storage owner へは inline build / digest writeback の直前だけ `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` で降り、短命な parser payload でも BMS list と bmson list を別々の正本として持たない。下位の `ChartInfoBuildService.BuildInlineChartInfo(...)` は parser / DB 適用の最終境界として BMS / bmson storage owner を別引数で受けるが、caller が二本立て DTO を正本にする構造は残さない。backfill 側の `ChartInfoBuildTarget` も `ChartFile` list を正本にし、BMS digest writeback や bmson `ChartInfo` attach の直前だけ storage owner へ降りる。最終的な chart_info 適用は md5 / sha256 で行う。
+inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot を `InlineChartSnapshotTarget` の `ChartFile` と組み合わせて受ける。`ChartInfoBuildService.BuildInlineChartInfo(...)` も snapshot と `ChartFile` を入口にし、BMS digest writeback や bmson `ChartInfo` attach の直前だけ `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` で storage owner へ降りる。短命な parser payload でも BMS list と bmson list を別々の正本として持たない。backfill 側の `ChartInfoBuildTarget` も `ChartFile` list を正本にし、BMS digest writeback や bmson `ChartInfo` attach の直前だけ storage owner へ降りる。最終的な chart_info 適用は md5 / sha256 で行う。
 
 細かい実装メモとして、backfill target の grouping key は既存の DB / digest 振る舞いを維持する。BMS は LR2 song row の `hash` が primary identity で、sha256 が未計算でも md5 で同一譜面をまとめて一度だけ読み、digest を BMS storage owner へ書き戻す。bmson は parser 時点で sha256 を持つため sha256 優先で grouping し、`chart_digest_map` への digest backfill は行わない。この違いは storage owner の都合ではなく、BMS song row と bmson_song row の永続化責務差として残す。
 
