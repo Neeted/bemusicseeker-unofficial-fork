@@ -6784,14 +6784,6 @@ public class MainWindowViewModel : ViewModel
         {
             return existing;
         }
-        if (existing.Kind == ChartFileKind.Bms)
-        {
-            return existing;
-        }
-        if (candidate.Kind == ChartFileKind.Bms)
-        {
-            return candidate;
-        }
         return string.Compare(candidate.Path ?? string.Empty, existing.Path ?? string.Empty, StringComparison.OrdinalIgnoreCase) < 0 ? candidate : existing;
     }
 
@@ -6816,7 +6808,7 @@ public class MainWindowViewModel : ViewModel
         {
             chartsByMd5.TryGetValue(entry.md5, out resolvedByMd5);
         }
-        if (resolvedByMd5?.Kind == ChartFileKind.Bms)
+        if (resolvedByMd5 != null)
         {
             return resolvedByMd5;
         }
@@ -6825,13 +6817,7 @@ public class MainWindowViewModel : ViewModel
         {
             chartsBySha256.TryGetValue(entry.sha256, out resolvedBySha256);
         }
-        // 旧実装は BMS md5 -> BMS sha256 -> bmson md5 -> bmson sha256 の順で解決していた。
-        // ChartFile index 化後も同じ代表選択順を維持し、score 解決は選ばれた ChartFile identity を読む。
-        if (resolvedBySha256?.Kind == ChartFileKind.Bms)
-        {
-            return resolvedBySha256;
-        }
-        return resolvedByMd5 ?? resolvedBySha256;
+        return resolvedBySha256;
     }
 
     /// <summary>

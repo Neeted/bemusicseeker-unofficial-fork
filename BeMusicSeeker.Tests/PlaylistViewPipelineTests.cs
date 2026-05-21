@@ -2389,14 +2389,14 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolveChartForPlaylistEntry_PrefersBmsThenBmsonRepresentativePathOrder()
+    public void ResolveChartForPlaylistEntry_PrefersMd5BeforeSha256AndRepresentativePathOrder()
     {
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         entry.SetSha256(new string('f', 64));
-        var bmsShaMatch = new TestableBmsFile();
-        bmsShaMatch.Apply("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", "99999999999999999999999999999998");
-        bmsShaMatch.SetSha256(entry.sha256);
+        var bmsMd5LaterPath = new TestableBmsFile();
+        bmsMd5LaterPath.Apply("C:\\Songs\\Omega\\chart.bms", "BMS", "Artist", entry.md5);
+        bmsMd5LaterPath.SetSha256(entry.sha256);
 
         var laterPath = new LR2SongDBExtended.bmson_song
         {
@@ -2419,19 +2419,107 @@ public sealed class PlaylistViewPipelineTests
 
         ChartFile laterChart = ChartFileProjection.FromBmsonSong(laterPath);
         ChartFile earlierChart = ChartFileProjection.FromBmsonSong(earlierPath);
-        ChartFile preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(laterChart, earlierChart);
-        ChartFile resolvedBmsFirst = MainWindowViewModel.ResolveChartForPlaylistEntry(
+        ChartFile bmsLaterChart = ChartFileProjection.FromBmsFile(bmsMd5LaterPath);
+        ChartFile preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+            MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(laterChart, earlierChart),
+            bmsLaterChart);
+        ChartFile resolvedMd5First = MainWindowViewModel.ResolveChartForPlaylistEntry(
             entry,
             new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, ChartFileProjection.FromBmsFile(bmsShaMatch) } });
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, bmsLaterChart } });
         ChartFile resolvedBmson = MainWindowViewModel.ResolveChartForPlaylistEntry(
             entry,
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, ChartFileProjection.FromBmsonSong(shaOnly) } });
 
         Assert.AreSame(earlierPath, preferred.BmsonSong);
-        Assert.AreSame(bmsShaMatch, resolvedBmsFirst.BmsFile);
-        Assert.AreSame(earlierPath, resolvedBmson.BmsonSong);
+        Assert.AreSame(earlierPath, resolvedMd5First.BmsonSong);
+        Assert.AreSame(shaOnly, resolvedBmson.BmsonSong);
+    }
+
+    [TestMethod]
+    public void ResolveChartForPlaylistEntry_FallsBackToSha256RepresentativeByPath()
+    {
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        entry.SetSha256(new string('f', 64));
+        var laterBms = new TestableBmsFile();
+        laterBms.Apply("C:\\Songs\\Omega\\chart.bms", "BMS", "Artist", new string('1', 32));
+        laterBms.SetSha256(entry.sha256);
+        var earlierBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Alpha\\chart.bmson",
+            md5 = new string('2', 32),
+            sha256 = entry.sha256
+        };
+
+        ChartFile preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+            ChartFileProjection.FromBmsFile(laterBms),
+            ChartFileProjection.FromBmsonSong(earlierBmson));
+        ChartFile resolved = MainWindowViewModel.ResolveChartForPlaylistEntry(
+            entry,
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, preferred } });
+
+        Assert.AreSame(earlierBmson, preferred.BmsonSong);
+        Assert.AreSame(earlierBmson, resolved.BmsonSong);
+    }
+
+    [TestMethod]
+    public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesResolvedRepresentativeSha256AfterPathTieBreak()
+    {
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        var laterBms = new TestableBmsFile();
+        laterBms.Apply("C:\\Songs\\Omega\\chart.bms", "BMS", "Artist", entry.md5);
+        laterBms.SetSha256(new string('1', 64));
+        var earlierBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Alpha\\chart.bmson",
+            md5 = entry.md5,
+            sha256 = new string('2', 64)
+        };
+        ChartFile representative = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+            ChartFileProjection.FromBmsFile(laterBms),
+            ChartFileProjection.FromBmsonSong(earlierBmson));
+        var bmsonScore = new BMSScore
+        {
+            hash = earlierBmson.sha256,
+            clear = ClearType.HARD,
+            perfect = 900,
+            great = 50,
+            totalnotes = 1000
+        };
+        var bmsScore = new BMSScore
+        {
+            hash = laterBms.sha256,
+            clear = ClearType.EASY,
+            perfect = 100,
+            great = 50,
+            totalnotes = 1000
+        };
+        var snapshot = new BMSLibrary.ScoreSnapshot
+        {
+            ActiveScoreSource = ActiveScoreSource.Beatoraja,
+            ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [earlierBmson.sha256] = bmsonScore,
+                [laterBms.sha256] = bmsScore
+            }
+        };
+
+        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+            entry,
+            representative,
+            entryChartInfo: null,
+            snapshot,
+            scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
+            scoresBySha256: snapshot.ScoresBySha256);
+
+        Assert.AreSame(earlierBmson, representative.BmsonSong);
+        Assert.IsNotNull(resolved);
+        Assert.AreEqual(earlierBmson.md5, resolved.hash);
+        Assert.AreEqual(ClearType.HARD, resolved.clear);
     }
 
     [TestMethod]
