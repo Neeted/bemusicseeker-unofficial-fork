@@ -508,8 +508,7 @@ internal sealed class BmsLibraryMaintenanceService
     }
 
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        IEnumerable<ChartFile> charts,
         bool forceUpdate,
         BmsLibraryDbGateway dbGateway,
         IBmsLibraryDialogService dialogService,
@@ -518,11 +517,32 @@ internal sealed class BmsLibraryMaintenanceService
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        List<BMSFile> bmsTargets = [.. (bmsFiles ?? []).Where(file => file != null)];
-        List<LR2SongDBExtended.bmson_song> bmsonTargets = [.. (bmsonSongs ?? []).Where(song => song != null)];
+        List<BMSFile> bmsTargets = [];
+        var bmsonTargetsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts ?? [])
+        {
+            if (chart == null)
+            {
+                continue;
+            }
+
+            BMSFile bmsFile = chart.GetBmsStorageOwner();
+            if (ChartFileKindResolver.IsBmsChartFile(bmsFile))
+            {
+                bmsTargets.Add(bmsFile);
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+            if (bmsonSong != null && !string.IsNullOrWhiteSpace(bmsonSong.path))
+            {
+                bmsonTargetsByPath[bmsonSong.path] = bmsonSong;
+            }
+        }
+        List<LR2SongDBExtended.bmson_song> bmsonTargets = [.. bmsonTargetsByPath.Values];
         if (bmsonTargets.Count == 0)
         {
-            return UpdateMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+            return UpdateBmsMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         }
         if (bmsTargets.Count == 0)
         {
@@ -530,7 +550,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
 
         resourceLookupContext ??= new ResourceHealthLookupContext(null);
-        MaintenanceWorkflowResult bmsResult = UpdateMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+        MaintenanceWorkflowResult bmsResult = UpdateBmsMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         if (bmsResult.Canceled || cancellationToken.IsCancellationRequested)
         {
             return bmsResult;
@@ -539,7 +559,7 @@ internal sealed class BmsLibraryMaintenanceService
         return CombineResults(bmsResult, bmsonResult);
     }
 
-    public MaintenanceWorkflowResult UpdateMaintenanceInfo(
+    private MaintenanceWorkflowResult UpdateBmsMaintenanceInfo(
         IEnumerable<BMSFile> bmsFiles,
         bool forceUpdate,
         BmsLibraryDbGateway dbGateway,

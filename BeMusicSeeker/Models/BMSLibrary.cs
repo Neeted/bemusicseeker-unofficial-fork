@@ -7059,16 +7059,22 @@ reportProgress,
         {
             return new MaintenanceWorkflowResult();
         }
-        SplitResourceMaintenanceCharts(maintenanceTargetCharts, out List<BMSFile> bmsMaintenanceTargets, out List<LR2SongDBExtended.bmson_song> bmsonMaintenanceSongs);
+        int bmsTargetCount = maintenanceTargetCharts.Count(chart => ChartFileKindResolver.IsBmsChartFile(chart?.GetBmsStorageOwner()));
+        int bmsonTargetCount = maintenanceTargetCharts
+            .Select(chart => chart?.GetBmsonStorageOwner())
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .Select(song => song.path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
         LogInstallPerformance("maintenance_update start inputCount=" + maintenanceTargetCharts.Count
             + " forceUpdate=" + forceUpdate
-            + " bmsTargets=" + bmsMaintenanceTargets.Count
-            + " bmsonTargets=" + bmsonMaintenanceSongs.Count);
+            + " bmsTargets=" + bmsTargetCount
+            + " bmsonTargets=" + bmsonTargetCount);
         MaintenanceWorkflowResult workflowResult;
         using (rwlockSongDBMaintenance.GetWriterGuard())
         {
             var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
-            workflowResult = maintenanceService.UpdateMaintenanceInfo(bmsMaintenanceTargets, bmsonMaintenanceSongs, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
+            workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
         }
         bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
         bool resourceHealthDeltaApplied = false;

@@ -964,7 +964,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                [file],
+                [ChartFileProjection.FromBmsFile(file)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1006,8 +1006,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [song],
+                [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1062,8 +1061,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [song],
+                [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1112,8 +1110,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [song],
+                [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1162,8 +1159,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [song],
+                [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1221,8 +1217,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [song],
+                [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1276,8 +1271,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [loadedLikeRow],
+                [ChartFileProjection.FromBmsonSong(loadedLikeRow)],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1321,8 +1315,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [song],
+                [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1370,8 +1363,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                [bmsFile],
-                [bmsonSong],
+                [ChartFileProjection.FromBmsFile(bmsFile), ChartFileProjection.FromBmsonSong(bmsonSong)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1431,7 +1423,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                [bmsFile],
+                [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
@@ -1481,7 +1473,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                [bmsFile],
+                [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: false,
                 new BmsLibraryDbGateway(songDbPath),
                 null,
@@ -1647,8 +1639,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
-                Array.Empty<BMSFile>(),
-                [invalidRow, validRow],
+                [ChartFileProjection.FromBmsonSong(invalidRow), ChartFileProjection.FromBmsonSong(validRow)],
                 forceUpdate: true,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
