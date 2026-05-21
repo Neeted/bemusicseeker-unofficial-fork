@@ -346,26 +346,18 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private readonly int innerWavHealthThreshold = innerWavHealthThreshold;
 
-    public InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs = null)
+    public InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<ChartFile> installedCharts)
     {
         var result = new InstalledChartDirectoryIndexSnapshot();
         var md5Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var sha256Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile item in installedFiles ?? [])
+        foreach (ChartFile item in installedCharts ?? [])
         {
             if (item == null)
             {
                 continue;
             }
-            RegisterInstalledDirectory(md5Map, sha256Map, result.KnownChartDirectories, item.hash, item.sha256, item.path);
-        }
-        foreach (LR2SongDBExtended.bmson_song item2 in installedBmsonSongs ?? [])
-        {
-            if (item2 == null)
-            {
-                continue;
-            }
-            RegisterInstalledDirectory(md5Map, sha256Map, result.KnownChartDirectories, item2.md5, item2.sha256, item2.path);
+            RegisterInstalledDirectory(md5Map, sha256Map, result.KnownChartDirectories, item.Md5, item.Sha256, item.Path);
         }
         foreach (KeyValuePair<string, HashSet<string>> item3 in md5Map)
         {
@@ -375,30 +367,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             result.Sha256Directories[item4.Key] = [.. item4.Value.OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
         }
-        return result;
-    }
-
-    public InstalledDirectoryLookupResult TryGetInstalledDirectoryByHash(IEnumerable<BMSFile> installedFiles, string hash)
-    {
-        var result = new InstalledDirectoryLookupResult();
-        if (!IsBmsHashAvailable(hash))
-        {
-            result.Reason = InstalledDirectoryResolveReason.InvalidInput;
-            return result;
-        }
-        string installDirectory = (installedFiles ?? [])
-            .Where(file => file != null && IsBmsHashAvailable(file.hash) && file.hash.Equals(hash, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(file.path))
-            .Select(file => DirectoryExt.GetDirectoryNameSimple(file.path))
-            .Where(dir => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(installDirectory))
-        {
-            result.Reason = InstalledDirectoryResolveReason.NoInstalledDirectoryMatch;
-            return result;
-        }
-        result.InstallDirectory = installDirectory;
         return result;
     }
 

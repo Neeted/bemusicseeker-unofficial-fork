@@ -6456,25 +6456,32 @@ reportProgress,
         RebuildInstalledChartKeyIndexUnsafe();
     }
 
+    private static List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        return [.. (bmsFiles ?? [])
+            .Where(file => file != null)
+            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
+            .Concat((bmsonSongs ?? [])
+                .Where(song => song != null)
+                .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)))];
+    }
+
     /// <summary>
-    /// BMS ファイル群から MD5 ハッシュ⇒インストール済みディレクトリのマップを再構築します。
+    /// 所持 chart から hash⇒インストール済みディレクトリのマップを再構築します。
     /// </summary>
     private void RebuildInstalledDirectoryIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
     {
         var stopwatch = Stopwatch.StartNew();
-        int num = 0;
-        foreach (BMSFile item in bmsFiles ?? [])
-        {
-            num++;
-        }
-        InstalledChartDirectoryIndexSnapshot dictionary2 = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(bmsFiles, BmsonSongs);
+        List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
+        List<ChartFile> installedCharts = CreateInstalledChartSnapshot(bmsFileList, BmsonSongs);
+        InstalledChartDirectoryIndexSnapshot dictionary2 = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(installedCharts);
         int num2 = dictionary2.DirectoryReferenceCount;
         lock (lockInstalledDirectoryIndex)
         {
             RebuildInstalledDirectoryIndexCoreUnsafe(dictionary2);
         }
         stopwatch.Stop();
-        LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + dictionary2.HashCount + " dirRefs=" + num2 + " files=" + num + " bmson=" + (BmsonSongs?.Count ?? 0));
+        LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + dictionary2.HashCount + " dirRefs=" + num2 + " files=" + bmsFileList.Count + " bmson=" + (BmsonSongs?.Count ?? 0));
     }
 
     private void RebuildInstalledDirectoryIndexCoreUnsafe(InstalledChartDirectoryIndexSnapshot snapshot)
@@ -6496,7 +6503,8 @@ reportProgress,
             }
             var stopwatch = Stopwatch.StartNew();
             List<BMSFile> bmsFilesSnapshot = [.. (BMSFiles ?? Enumerable.Empty<BMSFile>()).Where(file => file != null)];
-            InstalledChartDirectoryIndexSnapshot snapshot = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(bmsFilesSnapshot, BmsonSongs);
+            List<ChartFile> installedCharts = CreateInstalledChartSnapshot(bmsFilesSnapshot, BmsonSongs);
+            InstalledChartDirectoryIndexSnapshot snapshot = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(installedCharts);
             RebuildInstalledDirectoryIndexCoreUnsafe(snapshot);
             stopwatch.Stop();
             LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + snapshot.HashCount + " dirRefs=" + snapshot.DirectoryReferenceCount + " files=" + bmsFilesSnapshot.Count + " bmson=" + (BmsonSongs?.Count ?? 0) + " singleFlight=true");
