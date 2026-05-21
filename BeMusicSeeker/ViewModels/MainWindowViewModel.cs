@@ -10575,7 +10575,7 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            row = LibraryChartRow.FromOwnerBackedChart(chart);
+            row = LibraryChartRow.FromChartFile(chart);
         }
 
         if (applyResourceHealthProjection)
@@ -16766,7 +16766,7 @@ public class MainWindowViewModel : ViewModel
 
     private LibraryChartRow CreateBmsLibraryChartRowFromChart(ChartFile chart)
     {
-        LibraryChartRow row = LibraryChartRow.FromOwnerBackedChart(chart);
+        LibraryChartRow row = LibraryChartRow.FromChartFile(chart);
         ApplyLibraryChartRowProviders(row);
         return row;
     }

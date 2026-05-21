@@ -139,11 +139,6 @@ internal sealed class LibraryChartRow : NotificationObject
         return new LibraryChartRow(chart, hasSourceChartProjection: true);
     }
 
-    internal static LibraryChartRow FromOwnerBackedChart(ChartFile chart)
-    {
-        return FromChartFile(chart);
-    }
-
     internal static LibraryChartRow FromPackageChartEntry(PackageChartEntry entry)
     {
         ChartFile chart = entry?.Chart;
@@ -187,11 +182,6 @@ internal sealed class LibraryChartRow : NotificationObject
     internal LR2SongDBExtended.bmson_song GetBmsonStorageOwner()
     {
         return BmsonSong;
-    }
-
-    internal bool HasBmsStorageOwner()
-    {
-        return BmsFile != null;
     }
 
     internal bool ReferencesBmsonStorageOwner(LR2SongDBExtended.bmson_song song)
