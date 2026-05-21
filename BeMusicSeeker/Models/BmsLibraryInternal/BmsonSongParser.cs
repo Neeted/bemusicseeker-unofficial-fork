@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class BmsonSongParser
 {
-    // Path-based compatibility API. New single-read flows should pass a ChartFileSnapshot
+    // Path-based parser entry point. New single-read flows should pass a ChartFileSnapshot
     // to ParseSnapshot so lightweight metadata and chart_info can share the same bytes.
     public static LR2SongDBExtended.bmson_song Parse(string filePath)
     {

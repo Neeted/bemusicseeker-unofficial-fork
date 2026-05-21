@@ -1110,7 +1110,7 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
 
-    internal IEnumerable<ChartFile> ChartFilesZeroNote => GetZeroNoteCharts(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
+    internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
 
     internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
 
@@ -7278,16 +7278,6 @@ reportProgress,
             RaisePropertyChanged(() => ChartFilesZeroNote);
         }
         NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3} changed={4}", result.Total, result.MismatchCount, result.ClearedCount, result.SkippedCount, result.ChangedCount));
-    }
-
-    /// <summary>
-    /// chart_info 上のノート数が 0 の BMS-format chart 一覧を取得します。
-    /// </summary>
-    /// <param name="charts">BMS / bmson を含む chart snapshot。</param>
-    /// <returns>chart_info 上のノート数が 0 の BMS-format chart 一覧。</returns>
-    internal List<ChartFile> GetZeroNoteCharts(IEnumerable<ChartFile> charts)
-    {
-        return maintenanceService.GetZeroNoteCharts(charts);
     }
 
     internal List<ChartFile> GetChartInfoParseFailedChartFiles()
