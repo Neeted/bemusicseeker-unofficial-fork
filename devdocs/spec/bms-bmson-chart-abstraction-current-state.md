@@ -603,44 +603,44 @@ production に残る `Compatibility` 名は playlist summary column settings の
 
 ### 残っている主な compatibility 境界
 
-残存 `BMSFile` 参照の意味監査により、次の chart-common へ寄せる余地がある境界が残っている。
+2026-05-22 現在、active plan で明示的に追っていた `CompatibilityBmsFile` / `PendingChartEntry : BMSFile` / playlist reference cache のような構造互換 boundary は閉じている。残りは新しい中間層を追加する作業ではなく、残存 `BMSFile` 参照を意味で監査し、BMS-only / LR2 storage row / 永続互換として説明できないものを境界単位で潰す最終監査である。
 
-- 表示行 / UI converter の status 型は `ChartFileStatus` を使う。BMS player / BMS storage row の mutation は引き続き `BMSFile.BMSFileStatus` を使うが、通常一覧 / playlist detail row / custom table status column は `ChartFileStatus` へ投影する。
-- playlist reference は `PlaylistReferenceIndex` / chart identity を正本にし、BMS storage row の `RefTables` / `RefTablesSymbols` / `RefTablesNames` / add-remove-refresh API を削除する。BMS / bmson / missing row の表示は同じ index lookup を使い、UI 更新は index version / table update 通知と chart row invalidation で行う。
-- duplicate / chart_info / strict resource scan など、BMS parser / LR2 song row が必要な領域は BMS-only boundary として残す。ただし UI operation / package / playlist / resource projection の共通入口へ `BMSFile` list を戻さない。
+主な監査対象:
 
-### playlist reference 統合 plan
+- `BMSFile` 参照が BMS storage row / LR2 `song` row / BMS parser / BMS player / score・IR・encoding・zero-note などの BMS-only boundary に閉じているか。
+- `ChartFileProjection.FromBmsFile(...)` などの BMS owner helper が、bmson を chart-common 経路へ戻す adapter として使われていないか。
+- production では使われず tests だけから参照される旧名 wrapper / 互換 API / projection overload が残っていないか。
+- `Compatibility*` / `Adapter` / `RefTables*` / `PendingChartEntry` などの語が、外部互換・履歴説明・negative assertion 以外の production surface に残っていないか。
+- settings 名、UI 文言、playlist DB / JSON、LR2 互換 schema の BMS 語彙は、抽象化だけを理由に変更していないか。
 
-`BMSFile.RefTables` 削除は単独の小規模 cleanup ではなく、playlist reference の cache / UI update 設計を chart-domain に戻す境界作業として進める。
+### 最終監査 plan
 
-1. **Index 正本化と service mutation 削除**
-   - `BmsLibraryPlaylistReferenceService.ApplyReferenceMap(...)` は matched chart count と stats だけを返し、`BMSFile.AddRefTables(...)` を呼ばない。
-   - `BMSLibrary.AddReferenceBMSTables(...)` / replace / remove / synchronize / package apply は `PlaylistReferenceIndex` の replace / remove / synchronize を正本にする。
-   - `BMSFile` へ書き戻すための `AddReferenceBMSTableToCharts(...)`、`RemoveReferenceBMSTableFromCharts(...)`、`RefreshReferenceDisplayForCharts(...)` は削除対象にする。
+今後の作業は、helper 単位ではなく audit category 単位で進める。各 commit は「監査で見つかった同種の残存 boundary を一括で閉じる」単位にする。
 
-2. **UI row / sort / keyword filter の projection 統一**
-   - `LibraryChartRow` / `ChartListSourceRow` / `PlaylistDetailSourceRow` は BMS owner があっても `PlaylistReferenceIndex` provider を使う。
-   - playlist reference 更新時は BMS row property changed に依存せず、`NormalLibraryReferenceTablesChangedReason` と row/provider invalidation で通常一覧・playlist detail・keyword search の表示を更新する。
-   - `BMSFile.RefTablesSymbols` を virtual sort key / custom table source として参照している箇所は row surface (`LibraryChartRow.RefTablesSymbols` / `ChartListSourceRow.RefTablesSymbols`) へ寄せる。
+1. **旧 adapter / compatibility 語彙の audit**
+   - production の `CompatibilityBmsFile` / `CompatibilityAdapter` / `GetOrCreateCompatibility*` / `PendingChartEntry` / `RefTables*` が復活していないことを確認する。
+   - 残存 hit は settings 互換、LR2 compatibility warning、XAML `markup-compatibility`、履歴説明、negative assertion のいずれかへ分類する。
+   - test-only production helper が見つかった場合は削除し、test 側を `ChartFile` / `PackageChartEntry` / storage owner helper に寄せる。
 
-3. **BMSFile transient state cleanup**
-   - `BMSFile.RefTables`、`RefTablesSymbols`、`RefTablesNames`、`AddRefTables(...)`、`RemoveRefTable(...)`、`RemoveRefTablesNotIn(...)`、`RefreshRefTablesDisplayCache(...)`、`ReleaseTransientListeners(clearRefTables: ...)` の playlist reference state を削除する。
-   - `BMSFile` は LR2 `song` row / BMS parser / BMS-only runtime state に閉じ、playlist reference cache を持たない。
-   - 既存 tests は BMS row の RefTables mutation assertion ではなく、`PlaylistReferenceIndex` / row projection / visible refresh assertion へ置き換える。
+2. **chart-common API に残る BMSFile list / overload の audit**
+   - package / playlist / resource health / duplicate / install destination / library mutation の production 入口に `IEnumerable<BMSFile>` が戻っていないか確認する。
+   - BMS-only callback（zero-note、score、IR、encoding、BMS parser）以外の BMSFile list 入口は `ChartFile` / `LibraryChartRef` / `PackageChartEntry` に統一する。
+   - 既に未使用になった old-name facade は互換用に残さず削除する。
 
-4. **最終監査**
-   - production / tests / docs から `BMSFile.RefTables*` と BMSFile playlist reference mutation API が消えていることを確認する。
-   - `BMSTable` / `BMSTableEntry` という playlist table の既存型名、playlist DB / JSON / user-facing text / settings 名は変更しない。
+3. **docs / tests / logs の terminology cleanup**
+   - active spec は現行実装を正本として保ち、古い計画書には進捗を追記しない。
+   - テスト名や assertion が旧 adapter の存在を前提に読める場合は、adapter 非生成または chart-native behavior を直接表す名前へ寄せる。
+   - 内部ログ文言は互換契約ではないため、実装の chart-common semantics と明らかにずれているものだけ直す。ユーザー向け UI 文言と settings 名は変更しない。
 
-この boundary は、途中でコンパイル可能な薄い wrapper を積み重ねるのではなく、上の 1〜3 を 2〜3 commit 程度にまとめる。具体的には、`service + BMSLibrary index mutation + tests`、`UI row/sort/filter invalidation + tests`、`BMSFile API 削除 + final audit` の単位を目安にする。F2 が必要な symbol rename が出る場合はその時点で中断する。
+F2 が必要な symbol rename が出る場合はそこで中断する。Roslynator rename-symbol または compiler-driven edits で安全に閉じられる場合は、同じ audit category 内でまとめて進める。
 
 ### 進捗感
 
 `a1cc092d281a27cd3abc0edba6d7035d8cfdc058` 時点からの作業で、adapter materialization / `PendingChartEntry : BMSFile` / package entry / resource health / installed directory index / duplicate / main view row source の主要 boundary はほぼ閉じている。`BMSFile` 参照総数は完了指標ではないが、chart-common operation が BMSFile adapter を要求する領域は大きく減っている。
 
-playlist reference 統合と `BMSFile.RefTables*` legacy API cleanup が終わったため、現在の完了度は **90% 前後** と見る。残りは BMS-only と説明できる参照の監査、test/doc cleanup、必要なら小さな symbol rename になる見込み。
+playlist reference 統合と `BMSFile.RefTables*` legacy API cleanup が終わったため、現在の完了度は **95% 前後** と見る。残りは BMS-only と説明できる参照の監査、test/doc terminology cleanup、必要なら小さな symbol rename になる見込み。
 
-今後の commit 見込みは、playlist reference 統合で 2〜3 commit、最終監査 / test cleanup / docs で 2〜4 commit、想定外の仕様判断や F2 rename がなければ合計 **4〜7 commit 程度**を目標にする。これは「小さく安全に」ではなく「境界を閉じる単位で安全確認する」粒度であり、標準確認手順とサブエージェントレビューは各 boundary commit ごとに実施する。
+今後の commit 見込みは、最終監査 / test cleanup / docs で **2〜4 commit 程度**を目標にする。commit 数を目標以内に収めること自体は必須ではないが、作業単位は helper 単位ではなく audit category 単位に寄せ、標準確認手順とサブエージェントレビューは各 boundary commit ごとに実施する。
 
 ### 閉じた compatibility 境界
 
