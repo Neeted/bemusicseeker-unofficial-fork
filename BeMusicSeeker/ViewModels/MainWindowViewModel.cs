@@ -5001,13 +5001,9 @@ public class MainWindowViewModel : ViewModel
 
         internal long BuildElapsedMs;
 
-        internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesByHash = new(StringComparer.OrdinalIgnoreCase);
+        internal Dictionary<string, ChartFile> ChartsByMd5 = new(StringComparer.OrdinalIgnoreCase);
 
-        internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesBySha256 = new(StringComparer.OrdinalIgnoreCase);
-
-        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonByMd5 = new(StringComparer.OrdinalIgnoreCase);
-
-        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonBySha256 = new(StringComparer.OrdinalIgnoreCase);
+        internal Dictionary<string, ChartFile> ChartsBySha256 = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -6744,7 +6740,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     prewarmToken.ThrowIfCancellationRequested();
                     PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(prewarmToken, targetVersion);
-                    LogPlaylistWorker("playlist_library_index_prewarm completed version=" + targetVersion + " filesByHashCount=" + snapshot.FilesByHash.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
+                    LogPlaylistWorker("playlist_library_index_prewarm completed version=" + targetVersion + " chartsByMd5Count=" + snapshot.ChartsByMd5.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
                     return snapshot;
                 }
                 catch (OperationCanceledException)
@@ -6772,7 +6768,13 @@ public class MainWindowViewModel : ViewModel
     /// 現在のライブラリから playlist 用 hash index snapshot を構築します。
     /// </summary>
     /// <returns>構築された snapshot。</returns>
-    internal static LR2SongDBExtended.bmson_song ChoosePreferredBmsonRepresentative(LR2SongDBExtended.bmson_song existing, LR2SongDBExtended.bmson_song candidate)
+    /// <summary>
+    /// playlist library index 内で同じ hash に一致した chart representative を選択します。
+    /// </summary>
+    /// <param name="existing">現在の代表 chart。</param>
+    /// <param name="candidate">新しい候補 chart。</param>
+    /// <returns>採用する代表 chart。</returns>
+    internal static ChartFile ChoosePreferredPlaylistChartRepresentative(ChartFile existing, ChartFile candidate)
     {
         if (existing == null)
         {
@@ -6782,24 +6784,83 @@ public class MainWindowViewModel : ViewModel
         {
             return existing;
         }
-        return string.Compare(candidate.path ?? string.Empty, existing.path ?? string.Empty, StringComparison.OrdinalIgnoreCase) < 0 ? candidate : existing;
+        if (existing.Kind == ChartFileKind.Bms)
+        {
+            return existing;
+        }
+        if (candidate.Kind == ChartFileKind.Bms)
+        {
+            return candidate;
+        }
+        return string.Compare(candidate.Path ?? string.Empty, existing.Path ?? string.Empty, StringComparison.OrdinalIgnoreCase) < 0 ? candidate : existing;
     }
 
-    internal static LR2SongDBExtended.bmson_song ResolveBmsonForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.bmson_song> bmsonByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.bmson_song> bmsonBySha256)
+    /// <summary>
+    /// playlist entry の md5 / sha256 から、現在ライブラリに存在する chart を解決します。
+    /// </summary>
+    /// <param name="entry">解決対象の playlist entry。</param>
+    /// <param name="chartsByMd5">md5 で引ける chart index。</param>
+    /// <param name="chartsBySha256">sha256 で引ける chart index。</param>
+    /// <returns>一致した chart。見つからない場合は null。</returns>
+    internal static ChartFile ResolveChartForPlaylistEntry(
+        BMSTableEntry entry,
+        IReadOnlyDictionary<string, ChartFile> chartsByMd5,
+        IReadOnlyDictionary<string, ChartFile> chartsBySha256)
     {
         if (entry == null)
         {
             return null;
         }
-        if (!string.IsNullOrWhiteSpace(entry.md5) && bmsonByMd5 != null && bmsonByMd5.TryGetValue(entry.md5, out LR2SongDBExtended.bmson_song resolvedByMd5))
+        ChartFile resolvedByMd5 = null;
+        if (!string.IsNullOrWhiteSpace(entry.md5) && chartsByMd5 != null)
+        {
+            chartsByMd5.TryGetValue(entry.md5, out resolvedByMd5);
+        }
+        if (resolvedByMd5?.Kind == ChartFileKind.Bms)
         {
             return resolvedByMd5;
         }
-        if (!string.IsNullOrWhiteSpace(entry.sha256) && bmsonBySha256 != null && bmsonBySha256.TryGetValue(entry.sha256, out LR2SongDBExtended.bmson_song resolvedBySha256))
+        ChartFile resolvedBySha256 = null;
+        if (!string.IsNullOrWhiteSpace(entry.sha256) && chartsBySha256 != null)
+        {
+            chartsBySha256.TryGetValue(entry.sha256, out resolvedBySha256);
+        }
+        // 旧実装は BMS md5 -> BMS sha256 -> bmson md5 -> bmson sha256 の順で解決していた。
+        // BMS row が score snapshot の owner でもあるため、ChartFile index 化後も BMS 優先順を維持する。
+        if (resolvedBySha256?.Kind == ChartFileKind.Bms)
         {
             return resolvedBySha256;
         }
-        return null;
+        return resolvedByMd5 ?? resolvedBySha256;
+    }
+
+    /// <summary>
+    /// playlist library index へ chart を md5 / sha256 の両方で登録します。
+    /// </summary>
+    /// <param name="chartsByMd5">md5 index。</param>
+    /// <param name="chartsBySha256">sha256 index。</param>
+    /// <param name="chart">登録対象 chart。</param>
+    private static void AddPlaylistLibraryIndexChart(
+        Dictionary<string, ChartFile> chartsByMd5,
+        Dictionary<string, ChartFile> chartsBySha256,
+        ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(chart.Md5))
+        {
+            chartsByMd5[chart.Md5] = ChoosePreferredPlaylistChartRepresentative(
+                chartsByMd5.TryGetValue(chart.Md5, out ChartFile existingByMd5) ? existingByMd5 : null,
+                chart);
+        }
+        if (!string.IsNullOrWhiteSpace(chart.Sha256))
+        {
+            chartsBySha256[chart.Sha256] = ChoosePreferredPlaylistChartRepresentative(
+                chartsBySha256.TryGetValue(chart.Sha256, out ChartFile existingBySha256) ? existingBySha256 : null,
+                chart);
+        }
     }
 
     internal static LR2SongDBExtended.chart_info ResolveChartInfoForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256)
@@ -6885,10 +6946,8 @@ public class MainWindowViewModel : ViewModel
     {
         var stopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
-        var filesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
-        var filesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
-        var bmsonByMd5 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        var bmsonBySha256 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        var chartsByMd5 = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
+        var chartsBySha256 = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
         foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? [])
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -6896,14 +6955,10 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(file.hash) && !filesByHash.ContainsKey(file.hash))
-            {
-                filesByHash[file.hash] = file;
-            }
-            if (!string.IsNullOrWhiteSpace(file.sha256) && !filesBySha256.ContainsKey(file.sha256))
-            {
-                filesBySha256[file.sha256] = file;
-            }
+            AddPlaylistLibraryIndexChart(
+                chartsByMd5,
+                chartsBySha256,
+                ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
         }
         foreach (LR2SongDBExtended.bmson_song song in files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
         {
@@ -6912,24 +6967,18 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(song.md5))
-            {
-                bmsonByMd5[song.md5] = ChoosePreferredBmsonRepresentative(bmsonByMd5.TryGetValue(song.md5, out LR2SongDBExtended.bmson_song existingByMd5) ? existingByMd5 : null, song);
-            }
-            if (!string.IsNullOrWhiteSpace(song.sha256))
-            {
-                bmsonBySha256[song.sha256] = ChoosePreferredBmsonRepresentative(bmsonBySha256.TryGetValue(song.sha256, out LR2SongDBExtended.bmson_song existingBySha256) ? existingBySha256 : null, song);
-            }
+            AddPlaylistLibraryIndexChart(
+                chartsByMd5,
+                chartsBySha256,
+                ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
         }
         cancellationToken.ThrowIfCancellationRequested();
         var newSnapshot = new PlaylistLibraryIndexSnapshot
         {
             Version = targetVersion,
             BuildElapsedMs = stopwatch.ElapsedMilliseconds,
-            FilesByHash = filesByHash,
-            FilesBySha256 = filesBySha256,
-            BmsonByMd5 = bmsonByMd5,
-            BmsonBySha256 = bmsonBySha256
+            ChartsByMd5 = chartsByMd5,
+            ChartsBySha256 = chartsBySha256
         };
         lock (playlistLibraryIndexSync)
         {
@@ -15407,10 +15456,8 @@ public class MainWindowViewModel : ViewModel
         tables?.EnsurePlaylistEntriesLoaded(bmsTable, "BuildPlaylistSourceRows");
         entryHydrationStopwatch.Stop();
         cancellationToken.ThrowIfCancellationRequested();
-        Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = libraryIndexSnapshot?.FilesByHash ?? new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, BeMusicSeeker.Models.BMSFile> filesBySha256 = libraryIndexSnapshot?.FilesBySha256 ?? new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonByMd5 = libraryIndexSnapshot?.BmsonByMd5 ?? new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonBySha256 = libraryIndexSnapshot?.BmsonBySha256 ?? new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, ChartFile> chartsByMd5 = libraryIndexSnapshot?.ChartsByMd5 ?? new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, ChartFile> chartsBySha256 = libraryIndexSnapshot?.ChartsBySha256 ?? new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
         BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Lr2
             ? scoreSnapshot.ScoresByHash
@@ -15429,19 +15476,7 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            BeMusicSeeker.Models.BMSFile realFile = null;
-            if (!string.IsNullOrWhiteSpace(entry.md5))
-            {
-                filesByHash.TryGetValue(entry.md5, out realFile);
-            }
-            if (realFile == null && !string.IsNullOrWhiteSpace(entry.sha256))
-            {
-                filesBySha256.TryGetValue(entry.sha256, out realFile);
-            }
-            LR2SongDBExtended.bmson_song resolvedBmson = realFile == null ? ResolveBmsonForPlaylistEntry(entry, bmsonByMd5, bmsonBySha256) : null;
-            ChartFile resolvedChart = realFile != null
-                ? ChartFileProjection.FromBmsFile(realFile, includeWarningSnapshot: false)
-                : ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false);
+            ChartFile resolvedChart = ResolveChartForPlaylistEntry(entry, chartsByMd5, chartsBySha256);
             bool isOwned = !string.IsNullOrWhiteSpace(resolvedChart?.Path);
             if (onlyNotOwned && isOwned)
             {

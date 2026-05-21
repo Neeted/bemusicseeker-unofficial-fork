@@ -2248,11 +2248,14 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolveBmsonForPlaylistEntry_PrefersMd5AndRepresentativePathOrder()
+    public void ResolveChartForPlaylistEntry_PrefersBmsThenBmsonRepresentativePathOrder()
     {
         var entry = new TestablePlaylistEntry();
         entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         entry.SetSha256(new string('f', 64));
+        var bmsShaMatch = new TestableBmsFile();
+        bmsShaMatch.Apply("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", "99999999999999999999999999999998");
+        bmsShaMatch.SetSha256(entry.sha256);
 
         var laterPath = new LR2SongDBExtended.bmson_song
         {
@@ -2273,14 +2276,21 @@ public sealed class PlaylistViewPipelineTests
             sha256 = entry.sha256
         };
 
-        LR2SongDBExtended.bmson_song preferred = MainWindowViewModel.ChoosePreferredBmsonRepresentative(laterPath, earlierPath);
-        LR2SongDBExtended.bmson_song resolved = MainWindowViewModel.ResolveBmsonForPlaylistEntry(
+        ChartFile laterChart = ChartFileProjection.FromBmsonSong(laterPath);
+        ChartFile earlierChart = ChartFileProjection.FromBmsonSong(earlierPath);
+        ChartFile preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(laterChart, earlierChart);
+        ChartFile resolvedBmsFirst = MainWindowViewModel.ResolveChartForPlaylistEntry(
             entry,
-            new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
-            new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, shaOnly } });
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, ChartFileProjection.FromBmsFile(bmsShaMatch) } });
+        ChartFile resolvedBmson = MainWindowViewModel.ResolveChartForPlaylistEntry(
+            entry,
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
+            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, ChartFileProjection.FromBmsonSong(shaOnly) } });
 
-        Assert.AreSame(earlierPath, preferred);
-        Assert.AreSame(earlierPath, resolved);
+        Assert.AreSame(earlierPath, preferred.BmsonSong);
+        Assert.AreSame(bmsShaMatch, resolvedBmsFirst.BmsFile);
+        Assert.AreSame(earlierPath, resolvedBmson.BmsonSong);
     }
 
     [TestMethod]
