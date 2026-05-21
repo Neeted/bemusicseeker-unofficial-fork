@@ -1,32 +1,22 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryDuplicateService
 {
     /// <summary>
-    /// BMS / bmson storage row から重複判定用 snapshot を作成します。
+    /// ChartFile projection から重複判定用 snapshot を作成します。
     /// bmson は compatibility adapter を作らず、storage row を持つ <see cref="ChartFile"/> として保持します。
     /// </summary>
-    /// <param name="bmsFiles">BMS storage row。</param>
-    /// <param name="bmsonSongs">bmson storage row。</param>
+    /// <param name="charts">重複判定対象の chart。</param>
     /// <returns>重複判定用 snapshot。</returns>
-    public List<DuplicateChartRow> BuildSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    public List<DuplicateChartRow> BuildSnapshot(IEnumerable<ChartFile> charts)
     {
-        List<DuplicateChartRow> rows =
-        [
-            .. (bmsFiles ?? [])
-                .Select(DuplicateChartRow.CreateFromBmsFile)
-                .Where(row => row != null),
-            .. (bmsonSongs ?? [])
-                .Select(DuplicateChartRow.CreateFromBmsonSong)
-                .Where(row => row != null),
-        ];
-        return rows;
+        return [.. (charts ?? [])
+            .Select(DuplicateChartRow.CreateFromChart)
+            .Where(row => row != null)];
     }
 
     /// <summary>

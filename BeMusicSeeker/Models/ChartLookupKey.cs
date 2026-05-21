@@ -51,6 +51,19 @@ internal static class ChartLookupKey
         return null;
     }
 
+    internal static ChartLookupHashKind GetPrimaryHashKind(ChartFile chart)
+    {
+        if (!string.IsNullOrWhiteSpace(chart?.Md5))
+        {
+            return ChartLookupHashKind.Md5;
+        }
+        if (!string.IsNullOrWhiteSpace(chart?.Sha256))
+        {
+            return ChartLookupHashKind.Sha256;
+        }
+        return ChartLookupHashKind.None;
+    }
+
     internal static ChartLookupHashKind GetPrimaryHashKind(LR2SongDBExtended.bmson_song song)
     {
         if (!string.IsNullOrWhiteSpace(song?.md5))
