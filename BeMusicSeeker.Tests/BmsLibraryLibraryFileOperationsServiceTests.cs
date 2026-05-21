@@ -728,7 +728,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             raiseLibraryChartsChanged: false);
 
         Assert.AreEqual(1, delta.ChartPathChanges.Count);
-        Assert.AreSame(bmsonSong, delta.ChartPathChanges[0].BmsonSong);
+        Assert.AreSame(bmsonSong, delta.ChartPathChanges[0].GetBmsonStorageOwner());
         Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", delta.ChartPathChanges[0].OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", delta.ChartPathChanges[0].NewPath);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
@@ -757,7 +757,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         Assert.IsTrue(delta.RaiseLibraryChartsChanged);
         Assert.AreEqual(1, delta.ChartPathChanges.Count);
-        Assert.AreSame(bmsonSong, delta.ChartPathChanges[0].BmsonSong);
+        Assert.AreSame(bmsonSong, delta.ChartPathChanges[0].GetBmsonStorageOwner());
     }
 
     [TestMethod]
@@ -910,9 +910,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             raiseLibraryChartsChanged: true);
 
         Assert.AreEqual(2, delta.ChartPathChanges.Count);
-        LibraryChartPathChange bmsPathChange = delta.ChartPathChanges.Single(change => change.BmsFile == bmsFile);
+        LibraryChartPathChange bmsPathChange = delta.ChartPathChanges.Single(change => change.GetBmsStorageOwner() == bmsFile);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bms", bmsPathChange.NewPath);
-        LibraryChartPathChange bmsonPathChange = delta.ChartPathChanges.Single(change => change.BmsonSong == bmsonSong);
+        LibraryChartPathChange bmsonPathChange = delta.ChartPathChanges.Single(change => change.GetBmsonStorageOwner() == bmsonSong);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", bmsonPathChange.NewPath);
         Assert.IsTrue(delta.RaiseLibraryChartsChanged);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
@@ -986,7 +986,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(1, result.MovedCount);
         Assert.AreEqual(1, result.DuplicateSkippedCount);
         Assert.AreEqual(1, result.MutationDelta.ChartPathChanges.Count);
-        Assert.AreSame(movedFile, result.MutationDelta.ChartPathChanges[0].BmsFile);
+        Assert.AreSame(movedFile, result.MutationDelta.ChartPathChanges[0].GetBmsStorageOwner());
         Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bms"), result.MutationDelta.ChartPathChanges[0].NewPath);
         Assert.AreEqual(1, result.ChartsToRemove.Count);
         Assert.AreSame(duplicateFile, result.ChartsToRemove[0].GetBmsStorageOwner());
@@ -1026,7 +1026,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(1, result.RequestedCount);
         Assert.AreEqual(1, result.MovedCount);
         Assert.AreEqual(1, result.MutationDelta.ChartPathChanges.Count);
-        Assert.AreSame(song, result.MutationDelta.ChartPathChanges[0].BmsonSong);
+        Assert.AreSame(song, result.MutationDelta.ChartPathChanges[0].GetBmsonStorageOwner());
         Assert.AreEqual("C:\\Broken\\move.bmson", result.MutationDelta.ChartPathChanges[0].OldPath);
         Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bmson"), result.MutationDelta.ChartPathChanges[0].NewPath);
         Assert.AreEqual(1, result.MaintenanceCharts.Count);
@@ -1105,7 +1105,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(1, delta.ChartPathChanges.Count);
             Assert.AreEqual(1, delta.ChartsToUnregister.Count);
             Assert.AreEqual(Path.Combine(tempDirectoryPath, "rename_me.bme"), delta.ChartPathChanges[0].NewPath);
-            Assert.AreSame(renameFile, delta.ChartPathChanges[0].BmsFile);
+            Assert.AreSame(renameFile, delta.ChartPathChanges[0].GetBmsStorageOwner());
             Assert.AreSame(duplicateFile, delta.ChartsToUnregister[0].GetBmsStorageOwner());
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectoryPath, "rename_me.bme")));
             Assert.IsFalse(File.Exists(renameSourcePath));

@@ -96,13 +96,18 @@ internal sealed class BmsLibraryStateApplier(
 
         foreach (LibraryChartPathChange chartPathChange in delta.ChartPathChanges)
         {
-            if (chartPathChange?.BmsFile != null)
+            BMSFile bmsFile = chartPathChange?.GetBmsStorageOwner();
+            if (bmsFile != null)
             {
-                ReplaceBmsFilePath(chartPathChange.BmsFile, chartPathChange.NewPath, chartPathChange.OldPath, chartPathChange.CalcFolderParent);
+                ReplaceBmsFilePath(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath, chartPathChange.CalcFolderParent);
             }
-            else if (chartPathChange?.BmsonSong != null)
+            else
             {
-                ReplaceBmsonSongPath(chartPathChange.BmsonSong, chartPathChange.NewPath, chartPathChange.OldPath);
+                LR2SongDBExtended.bmson_song bmsonSong = chartPathChange?.GetBmsonStorageOwner();
+                if (bmsonSong != null)
+                {
+                    ReplaceBmsonSongPath(bmsonSong, chartPathChange.NewPath, chartPathChange.OldPath);
+                }
             }
         }
 
