@@ -477,7 +477,7 @@ public class BMSFile : LR2SongDB.song
 
     public HashSet<string> BGAfiles { get; set; }
 
-    internal ChartWarningCollection Warnings => _warnings ??= new ChartWarningCollection(this);
+    internal ChartWarningCollection Warnings => _warnings ??= new ChartWarningCollection(RaiseWarningPresentationChanged, () => instl_dst);
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {

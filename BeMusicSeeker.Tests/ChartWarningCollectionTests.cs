@@ -64,6 +64,27 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
+    public void WarningCollection_UsesCallbackAndInstallDestinationWithoutBmsFileOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        int changedCount = 0;
+        string installDestination = string.Empty;
+        var warnings = new ChartWarningCollection(
+            () => changedCount++,
+            () => installDestination);
+
+        warnings.Set(ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "WAV"));
+
+        Assert.AreEqual(1, changedCount);
+        Assert.AreEqual("[1] リソース不足", warnings.BuildDigestText());
+
+        installDestination = "C:\\Installed";
+
+        Assert.AreEqual(string.Empty, warnings.BuildDigestText());
+        StringAssert.Contains(warnings.BuildTooltipText(), "WAV");
+    }
+
+    [TestMethod]
     public void StructuredWarnings_DriveCompatibilityAliasesHighlightAndDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();

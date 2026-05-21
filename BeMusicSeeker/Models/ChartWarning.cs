@@ -205,21 +205,24 @@ internal sealed class ChartWarningDefinition
 }
 
 /// <summary>
-/// BMSFile が保持する構造化 warning collection です。
+/// 譜面行が保持する構造化 warning collection です。
 /// 構造化 warning から表示用文字列と行色を計算します。
 /// </summary>
 internal sealed class ChartWarningCollection
 {
-    private readonly BMSFile owner;
+    private readonly Action onChanged;
+    private readonly Func<string> getInstallDestination;
     private readonly Dictionary<ChartWarningKind, ChartWarning> structuredWarnings = [];
 
     /// <summary>
     /// 指定した譜面行に紐付く collection を作成します。
     /// </summary>
-    /// <param name="owner">変更通知を出す所有譜面行。</param>
-    internal ChartWarningCollection(BMSFile owner)
+    /// <param name="onChanged">内容変更時に呼び出す通知 callback。</param>
+    /// <param name="getInstallDestination">digest 表示判定に使う導入先 provider。</param>
+    internal ChartWarningCollection(Action onChanged, Func<string> getInstallDestination)
     {
-        this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+        this.onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        this.getInstallDestination = getInstallDestination ?? throw new ArgumentNullException(nameof(getInstallDestination));
     }
 
     /// <summary>
@@ -233,7 +236,7 @@ internal sealed class ChartWarningCollection
             return;
         }
         structuredWarnings[warning.Kind] = warning;
-        owner.RaiseWarningPresentationChanged();
+        NotifyChanged();
     }
 
     /// <summary>
@@ -244,7 +247,7 @@ internal sealed class ChartWarningCollection
     {
         if (structuredWarnings.Remove(kind))
         {
-            owner.RaiseWarningPresentationChanged();
+            NotifyChanged();
         }
     }
 
@@ -262,7 +265,7 @@ internal sealed class ChartWarningCollection
         }
         if (removed)
         {
-            owner.RaiseWarningPresentationChanged();
+            NotifyChanged();
         }
     }
 
@@ -290,7 +293,7 @@ internal sealed class ChartWarningCollection
         }
         if (changed)
         {
-            owner.RaiseWarningPresentationChanged();
+            NotifyChanged();
         }
     }
 
@@ -308,7 +311,7 @@ internal sealed class ChartWarningCollection
                 structuredWarnings[warning.Kind] = warning;
             }
         }
-        owner.RaiseWarningPresentationChanged();
+        NotifyChanged();
     }
 
     /// <summary>
@@ -322,7 +325,7 @@ internal sealed class ChartWarningCollection
             return;
         }
         structuredWarnings.Clear();
-        owner.RaiseWarningPresentationChanged();
+        NotifyChanged();
     }
 
     /// <summary>
@@ -350,7 +353,7 @@ internal sealed class ChartWarningCollection
     /// <returns>digest 表示文字列。</returns>
     internal string BuildDigestText()
     {
-        return BuildDigestText(EnumerateEffectiveWarnings(), owner?.instl_dst);
+        return BuildDigestText(EnumerateEffectiveWarnings(), getInstallDestination?.Invoke());
     }
 
     internal static string BuildDigestText(IEnumerable<ChartWarning> sourceWarnings, string installDestination)
@@ -450,5 +453,10 @@ internal sealed class ChartWarningCollection
             }
         }
         return effective.Values;
+    }
+
+    private void NotifyChanged()
+    {
+        onChanged?.Invoke();
     }
 }

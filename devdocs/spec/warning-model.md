@@ -19,7 +19,7 @@
 - `KindCount` は現在有効な warning kind 数を数えます。たとえば WAV と BGA が両方不足している場合、label は `リソース不足` 1 つでも `[2] リソース不足` になります。
 - tooltip は `ShowInTooltip = true` の warning message を `Priority` 昇順で改行連結します。
 - 行ハイライトは、いずれかの warning が `HighlightRow = true` の場合に有効です。
-- `ResourceHealth` category の warning は、`instl_dst` が未設定の間だけ digest に出ます。tooltip には導入先設定後も詳細が残ります。
+- `ResourceHealth` category の warning は、対象 chart の導入先が未設定の間だけ digest に出ます。BMS storage row では `BMSFile.instl_dst`、`ChartFile` projection では `ChartFile.InstallDestination` を provider として使います。tooltip には導入先設定後も詳細が残ります。
 - resource health の一覧所属判定は chart warning collection を mutation せず、`maintenanceInfo` 由来の side-effect-free index で行います。BMS は有効な `BMSFile.maintenanceInfo`、bmson は現在の md5 と一致し resource health snapshot を持つ `bmson_song.MaintenanceInfo` を入力にします。bmson の maintenance row が parser 直後の encoding-only placeholder だったり、hash が古かったりする場合は、adapter を materialize せず `ChartResourceSnapshot` と現在の filesystem 状態から一時 snapshot を作ります。manual rescan / inline initialization でも bmson は `bmson_song` と `ChartResourceSnapshot` から直接 maintenance row を作り、`PendingChartEntry` shim は使いません。`maintenanceInfo` の resource health は file scan 由来の directory resource index を優先し、必要時のみ実ファイル確認へ fallback します。
 - 保留画面の `ResourceHealth` warning は導入前配置を評価するための一時状態です。導入成功時に source BMS row または `PackageChartEntry` の warning state から `ResourceHealth` category を消し、導入後の通常一覧・新規画面では `maintenanceInfo` / resource health index から投影します。bmson は `BMSFile` adapter へ戻さず、`bmson_song` / `ChartFile` / package entry state を正本にします。
 
@@ -41,9 +41,9 @@
 | `AlreadyInstalled` | `InstalledState` | 50 | `既に導入済み` | false | warning が存在する場合 |
 | `SingleBmsFile` | `PackageLayout` | 60 | `単体BMS` | false | warning が存在する場合 |
 | `SingleBmsonFile` | `PackageLayout` | 60 | `単体BMSON` | false | warning が存在する場合 |
-| `ResourceWavMissing` | `ResourceHealth` | 80 | `リソース不足` | false | warning が存在し、`instl_dst` が未設定の場合 |
-| `ResourceBgaMissing` | `ResourceHealth` | 80 | `リソース不足` | false | warning が存在し、`instl_dst` が未設定の場合 |
-| `ResourceMovieMissing` | `ResourceHealth` | 80 | `リソース不足` | false | warning が存在し、`instl_dst` が未設定の場合 |
+| `ResourceWavMissing` | `ResourceHealth` | 80 | `リソース不足` | false | warning が存在し、対象 chart の導入先が未設定の場合 |
+| `ResourceBgaMissing` | `ResourceHealth` | 80 | `リソース不足` | false | warning が存在し、対象 chart の導入先が未設定の場合 |
+| `ResourceMovieMissing` | `ResourceHealth` | 80 | `リソース不足` | false | warning が存在し、対象 chart の導入先が未設定の場合 |
 | `ResourceStagefileMissing` | `ResourceHealth` | 83 | `画像不足` | false | digest には出さない。tooltip のみ |
 | `ResourceBackbmpMissing` | `ResourceHealth` | 83 | `画像不足` | false | digest には出さない。tooltip のみ |
 | `ResourceBannerMissing` | `ResourceHealth` | 83 | `画像不足` | false | digest には出さない。tooltip のみ |
@@ -62,7 +62,7 @@
 
 ## 参照実装
 
-- 定義: `BeMusicSeeker/Models/ChartWarning.cs`
+- 定義: `BeMusicSeeker/Models/ChartWarning.cs`。`ChartWarningCollection` は BMSFile owner ではなく、変更通知 callback と導入先 provider を受け取ります。
 - `BMSFile` の表示 property と互換 alias: `BeMusicSeeker/Models/BMSFile.cs`
 - bmson storage row と一時表示 state の projection: `BeMusicSeeker/Models/ChartFileProjection.cs`, `BeMusicSeeker/Models/ChartFileTransientState.cs`
 - pending package の chart state: `BeMusicSeeker/Models/BmsLibraryInternal/PackageChartEntry.cs`

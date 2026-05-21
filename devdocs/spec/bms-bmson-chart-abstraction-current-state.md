@@ -629,6 +629,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
    - `BMSFile` の property / helper が BMS-only storage state なのか、Chart 共通の表示・操作 concept なのかを分類する。
    - `ChartInfo` / install destination / warning / maintenance / resource health / score display など、bmson にも適用される concept は `ChartFile` / `ChartFileTransientState` / 専用 snapshot へ移し、`BMSFile` には BMS / LR2 storage owner と parser / score producer として必要な state だけを残す。
    - 一覧 row の score / ranking 表示 getter は `ChartScoreSnapshot` を読む。BMS の producer は `BMSFile.bmsScore` のままだが、row / sort / keyword search 側は `BMSFile` の score 表示 API に依存しない。`BMSFile` の score 表示 getter は削除済みである。
+   - `ChartWarningCollection` は BMSFile owner 依存を持たず、変更通知 callback と install destination provider だけを受け取る。BMS storage row は引き続き `BMSFile.Warnings` を保持するが、collection 自体は chart-common warning list として使える。
    - `ChartInfo` の表示テキスト / sort key / undefined 判定は `ChartInfoDisplaySnapshot` を読む。`BMSFile` は `ChartInfo` storage owner と hydration 通知だけを持ち、`ChartLevelText` / `ChartTotalSortKey` のような chart-common 表示 property は持たない。
 
 3. **chart-common API に残る BMSFile list / overload の audit**
