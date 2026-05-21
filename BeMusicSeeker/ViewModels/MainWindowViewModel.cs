@@ -10578,18 +10578,6 @@ public class MainWindowViewModel : ViewModel
         {
             row = LibraryChartRow.FromChartFile(chart);
         }
-        else if (chart?.GetBmsStorageOwner() == null)
-        {
-            LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
-            if (bmsonSong == null)
-            {
-                row = LibraryChartRow.FromChartFile(chart);
-            }
-            else
-            {
-                row = LibraryChartRow.FromBmsonSong(bmsonSong);
-            }
-        }
         else
         {
             row = LibraryChartRow.FromOwnerBackedChart(chart);
@@ -11364,6 +11352,11 @@ public class MainWindowViewModel : ViewModel
     internal static LibraryChartRow CreateLibraryChartRowFromPackageEntryForTest(PackageChartEntry entry)
     {
         return LibraryChartRow.FromPackageChartEntry(entry);
+    }
+
+    internal static LibraryChartRow CreateVirtualChartSubsetRowForTest(ChartListSourceRow sourceRow)
+    {
+        return new MainWindowViewModel().CreateVirtualChartSubsetRow(sourceRow, applyResourceHealthProjection: false);
     }
 
     private static bool IsVirtualNormalLibraryModeSupported(viewUpdateMode mode)

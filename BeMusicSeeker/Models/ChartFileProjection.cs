@@ -92,6 +92,55 @@ internal static class ChartFileProjection
             source.Status);
     }
 
+    internal static ChartFile WithTransientOverrides(
+        ChartFile current,
+        ChartFile overrideChart,
+        ChartFile baseline,
+        bool includeWarningSnapshot = true)
+    {
+        if (current == null || overrideChart == null || baseline == null)
+        {
+            return current;
+        }
+
+        return new ChartFile(
+            current.Kind,
+            current.Path,
+            current.Md5,
+            current.Sha256,
+            current.Title,
+            current.RawTitle,
+            current.Artist,
+            current.Genre,
+            current.Folder,
+            current.Tag,
+            current.LevelText,
+            current.Level,
+            current.Mode,
+            current.ChartInfo,
+            current.BmsFile,
+            current.BmsonSong,
+            SelectStringOverride(current.Subtitle, overrideChart.Subtitle, baseline.Subtitle),
+            current.AudioResourcePaths,
+            current.VisualResourcePaths,
+            current.Stagefile,
+            current.Backbmp,
+            current.Banner,
+            SelectStringOverride(current.InstallDestination, overrideChart.InstallDestination, baseline.InstallDestination),
+            SelectStringOverride(current.InstallDestinationTitle, overrideChart.InstallDestinationTitle, baseline.InstallDestinationTitle),
+            SelectStringOverride(current.InstallDestinationArtist, overrideChart.InstallDestinationArtist, baseline.InstallDestinationArtist),
+            SelectStringListOverride(current.InstallDestinationSuggestions, overrideChart.InstallDestinationSuggestions, baseline.InstallDestinationSuggestions),
+            includeWarningSnapshot ? SelectWarningOverride(current.Warnings, overrideChart.Warnings, baseline.Warnings) : [],
+            SelectNullableOverride(current.WAVHealth, overrideChart.WAVHealth, baseline.WAVHealth),
+            SelectNullableOverride(current.BGAHealth, overrideChart.BGAHealth, baseline.BGAHealth),
+            SelectNullableOverride(current.MovieHealth, overrideChart.MovieHealth, baseline.MovieHealth),
+            SelectNullableOverride(current.StagefileHealth, overrideChart.StagefileHealth, baseline.StagefileHealth),
+            SelectNullableOverride(current.BannerHealth, overrideChart.BannerHealth, baseline.BannerHealth),
+            SelectNullableOverride(current.BackbmpHealth, overrideChart.BackbmpHealth, baseline.BackbmpHealth),
+            SelectStringOverride(current.EncodingName, overrideChart.EncodingName, baseline.EncodingName),
+            current.Status);
+    }
+
     internal static ChartFile FromBmsFile(
         BMSFile file,
         ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant,
@@ -233,6 +282,79 @@ internal static class ChartFileProjection
     private static IReadOnlyList<ChartWarning> GetWarnings(BMSFile file, bool includeWarningSnapshot)
     {
         return includeWarningSnapshot ? file?.Warnings.ToStructuredList() ?? [] : [];
+    }
+
+    private static string SelectStringOverride(string current, string overrideValue, string baseline)
+    {
+        return string.Equals(overrideValue ?? string.Empty, baseline ?? string.Empty, System.StringComparison.Ordinal)
+            ? current
+            : overrideValue;
+    }
+
+    private static T? SelectNullableOverride<T>(T? current, T? overrideValue, T? baseline)
+        where T : struct
+    {
+        return EqualityComparer<T?>.Default.Equals(overrideValue, baseline) ? current : overrideValue;
+    }
+
+    private static IReadOnlyList<string> SelectStringListOverride(IReadOnlyList<string> current, IReadOnlyList<string> overrideValue, IReadOnlyList<string> baseline)
+    {
+        return StringSequenceEquals(overrideValue, baseline) ? current : overrideValue ?? [];
+    }
+
+    private static IReadOnlyList<ChartWarning> SelectWarningOverride(IReadOnlyList<ChartWarning> current, IReadOnlyList<ChartWarning> overrideValue, IReadOnlyList<ChartWarning> baseline)
+    {
+        if (WarningSequenceEquals(overrideValue, baseline))
+        {
+            return current;
+        }
+        if ((overrideValue?.Count ?? 0) == 0 && (baseline?.Count ?? 0) > 0)
+        {
+            return current;
+        }
+        return overrideValue ?? [];
+    }
+
+    private static bool StringSequenceEquals(IReadOnlyList<string> first, IReadOnlyList<string> second)
+    {
+        first ??= [];
+        second ??= [];
+        return first.SequenceEqual(second, System.StringComparer.Ordinal);
+    }
+
+    private static bool WarningSequenceEquals(IReadOnlyList<ChartWarning> first, IReadOnlyList<ChartWarning> second)
+    {
+        first ??= [];
+        second ??= [];
+        if (first.Count != second.Count)
+        {
+            return false;
+        }
+        for (int i = 0; i < first.Count; i++)
+        {
+            ChartWarning left = first[i];
+            ChartWarning right = second[i];
+            if (left == null || right == null)
+            {
+                if (!ReferenceEquals(left, right))
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (left.Kind != right.Kind
+                || left.Category != right.Category
+                || left.Priority != right.Priority
+                || left.HighlightRow != right.HighlightRow
+                || left.ShowInDigest != right.ShowInDigest
+                || left.ShowInTooltip != right.ShowInTooltip
+                || !string.Equals(left.DigestLabel, right.DigestLabel, System.StringComparison.Ordinal)
+                || !string.Equals(left.Message, right.Message, System.StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static double? ParseNullableDouble(string value, ChartFileLevelParsing levelParsing)

@@ -191,6 +191,45 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void LibraryChartRow_FromWarninglessOwnerBackedProjectionUsesLiveOwnerWarnings()
+    {
+        BMSFile file = CreateFile(
+            @"D:\Charts\Warning\alpha.bms",
+            "Alpha",
+            "Warning",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetWarning(ChartWarningKind.DuplicateChart, "live warning");
+
+        LibraryChartRow row = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
+
+        Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+        StringAssert.Contains(row.WarningTooltipText, "live warning");
+    }
+
+    [TestMethod]
+    public void VirtualChartSubsetRow_PreservesOwnerBackedBmsonTransientState()
+    {
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        ChartFile statefulChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            "C:\\Installed\\Bmson",
+            "Installed Bmson",
+            "Installed Artist",
+            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(
+            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            ChartListSourceProjectionMode.OwnerBacked,
+            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot));
+
+        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+
+        Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
+        Assert.AreEqual("C:\\Installed\\Bmson", row.Chart.InstallDestination);
+        Assert.AreEqual("Installed Bmson", row.InstallDestinationTitle);
+        Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+    }
+
+    [TestMethod]
     public void ChartListSourceRow_FromChartFile_UsesProjectionChartInfoWithoutStorageRow()
     {
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(

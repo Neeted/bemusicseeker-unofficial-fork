@@ -1420,7 +1420,10 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(libraryRow, out ChartOperationTarget secondLibraryTarget));
 
-        Assert.AreSame(firstLibraryTarget.Chart, secondLibraryTarget.Chart);
+        Assert.AreEqual(firstLibraryTarget.Chart.Kind, secondLibraryTarget.Chart.Kind);
+        Assert.AreEqual(firstLibraryTarget.Chart.Path, secondLibraryTarget.Chart.Path);
+        Assert.AreEqual(firstLibraryTarget.Chart.PrimaryLookupHash, secondLibraryTarget.Chart.PrimaryLookupHash);
+        Assert.AreSame(firstLibraryTarget.Chart.GetBmsonStorageOwner(), secondLibraryTarget.Chart.GetBmsonStorageOwner());
         Assert.AreEqual("C:\\Installed\\Bmson", secondLibraryTarget.Chart.InstallDestination);
         Assert.IsTrue(secondLibraryTarget.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
         Assert.AreEqual("C:\\Installed\\Bmson", libraryRow.instl_dst);

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Globalization;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -21,6 +20,8 @@ internal sealed class LibraryChartRow : NotificationObject
     private readonly Func<ChartFile> chartProvider;
 
     private readonly bool hasSourceChartProjection;
+
+    private readonly ChartFile sourceTransientBaseline;
 
     private BMSFile BmsFile { get; }
 
@@ -49,18 +50,46 @@ internal sealed class LibraryChartRow : NotificationObject
         }
         if (hasSourceChartProjection)
         {
+            if (BmsFile != null)
+            {
+                return CreateBmsOwnerBackedChart();
+            }
+            LR2SongDBExtended.bmson_song sourceBmsonSong = GetBmsonSong();
+            if (sourceBmsonSong != null)
+            {
+                return CreateBmsonOwnerBackedChart();
+            }
             return sourceChart;
         }
         if (BmsFile != null)
         {
-            return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
+            return CreateBmsOwnerBackedChart();
         }
         LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
         if (bmsonSong != null)
         {
-            return ChartFileProjection.FromBmsonSong(bmsonSong, GetBmsonTransientState(includeWarningSnapshot: true));
+            return CreateBmsonOwnerBackedChart();
         }
         return sourceChart;
+    }
+
+    private ChartFile CreateBmsOwnerBackedChart()
+    {
+        ChartFile currentChart = ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
+        return sourceTransientBaseline != null
+            ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
+            : currentChart;
+    }
+
+    private ChartFile CreateBmsonOwnerBackedChart()
+    {
+        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
+        ChartFile currentChart = ChartFileProjection.FromBmsonSong(
+            bmsonSong,
+            GetBmsonTransientState(includeWarningSnapshot: true));
+        return sourceTransientBaseline != null
+            ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
+            : currentChart;
     }
 
     private LibraryChartRow(ChartFile sourceChart, bool hasSourceChartProjection = false, Func<ChartFile> chartProvider = null, PackageChartEntry packageEntry = null)
@@ -69,6 +98,7 @@ internal sealed class LibraryChartRow : NotificationObject
         this.hasSourceChartProjection = hasSourceChartProjection;
         BmsFile = sourceChart.GetBmsStorageOwner();
         BmsonSong = sourceChart.GetBmsonStorageOwner();
+        sourceTransientBaseline = CreateSourceTransientBaseline();
         this.chartProvider = chartProvider;
         PackageEntry = packageEntry;
         if (BmsFile is INotifyPropertyChanged propertyChangedSource)
@@ -111,13 +141,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal static LibraryChartRow FromOwnerBackedChart(ChartFile chart)
     {
-        BMSFile bmsFile = chart?.GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            return FromBmsFile(bmsFile);
-        }
-        LR2SongDBExtended.bmson_song bmsonSong = chart?.GetBmsonStorageOwner();
-        return bmsonSong != null ? FromBmsonSong(bmsonSong) : FromChartFile(chart);
+        return FromChartFile(chart);
     }
 
     internal static LibraryChartRow FromPackageChartEntry(PackageChartEntry entry)
@@ -181,19 +205,19 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(RefTablesNames));
     }
 
-    public string Title => BmsFile?.Title ?? (BmsonSong != null ? BmsonSongParser.ComposeDisplayTitle(BmsonSong) : Chart?.Title ?? string.Empty);
+    public string Title => Chart?.Title ?? string.Empty;
 
-    public string Artist => BmsFile?.Artist ?? BmsonSong?.artist ?? Chart?.Artist ?? string.Empty;
+    public string Artist => Chart?.Artist ?? string.Empty;
 
-    public string genre => BmsFile?.genre ?? BmsonSong?.genre ?? Chart?.Genre ?? string.Empty;
+    public string genre => Chart?.Genre ?? string.Empty;
 
-    public int? mode => BmsFile?.mode ?? (BmsonSong != null ? BmsonSongParser.ResolvePlaylistMode(BmsonSong?.mode_hint) : Chart?.Mode);
+    public int? mode => Chart?.Mode;
 
-    public string tag => BmsFile?.tag ?? Chart?.Tag ?? string.Empty;
+    public string tag => Chart?.Tag ?? string.Empty;
 
     public string Level
     {
-        get => BmsFile?.Level ?? (BmsonSong?.level.HasValue == true ? BmsonSong.level.Value.ToString(CultureInfo.InvariantCulture) : Chart?.LevelText ?? string.Empty);
+        get => Chart?.LevelText ?? string.Empty;
         set
         {
             if (BmsFile != null)
@@ -203,7 +227,7 @@ internal sealed class LibraryChartRow : NotificationObject
         }
     }
 
-    public double? level => BmsFile?.level ?? BmsonSong?.level ?? Chart?.Level;
+    public double? level => Chart?.Level;
 
     public bool HasZeroNoteMismatchWarning => BmsFile?.HasZeroNoteMismatchWarning ?? false;
 
@@ -217,9 +241,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
-    public string hash => BmsFile?.hash ?? BmsonSong?.md5 ?? Chart?.Md5 ?? string.Empty;
+    public string hash => Chart?.Md5 ?? string.Empty;
 
-    public string sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? Chart?.Sha256 ?? string.Empty;
+    public string sha256 => Chart?.Sha256 ?? string.Empty;
 
     public string Folder
     {
@@ -291,9 +315,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public double? scoreDifficulty => BmsFile?.scoreDifficulty;
 
-    public ChartFileStatus status => BmsFile != null
-        ? ChartFileStatusMapper.FromBmsFileStatus(BmsFile.status)
-        : Chart?.Status ?? ChartFileStatus.NONE;
+    public ChartFileStatus status => Chart?.Status ?? ChartFileStatus.NONE;
 
     public string lr2_bmsid => string.Empty;
 
@@ -307,7 +329,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string memo => string.Empty;
 
-    internal LR2SongDBExtended.chart_info ChartInfo => BmsFile?.ChartInfo ?? BmsonSong?.ChartInfo ?? Chart?.ChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => Chart?.ChartInfo;
 
     public string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
@@ -435,16 +457,36 @@ internal sealed class LibraryChartRow : NotificationObject
             }
             return providerState;
         }
-        return GetSourceChartTransientState(includeWarningSnapshot);
+        return ChartFileTransientState.Empty;
     }
 
     private ChartFileTransientState GetSourceChartTransientState(bool includeWarningSnapshot)
     {
-        if (!hasSourceChartProjection || sourceChart == null)
+        if (sourceTransientBaseline == null || sourceChart == null)
         {
             return ChartFileTransientState.Empty;
         }
-        return ChartFileTransientState.FromChartFile(sourceChart, includeWarningSnapshot);
+        return ChartFileTransientState.FromChartFile(
+            ChartFileProjection.WithTransientOverrides(sourceTransientBaseline, sourceChart, sourceTransientBaseline, includeWarningSnapshot),
+            includeWarningSnapshot);
+    }
+
+    private ChartFile CreateSourceTransientBaseline()
+    {
+        if (!hasSourceChartProjection || sourceChart == null)
+        {
+            return null;
+        }
+
+        if (BmsFile != null)
+        {
+            return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
+        }
+        if (BmsonSong != null)
+        {
+            return ChartFileProjection.FromBmsonSong(BmsonSong);
+        }
+        return null;
     }
 
 }
