@@ -145,15 +145,15 @@ public sealed class BmsLibraryStateApplierTests
                     OldFolderPath = oldDirectoryPath,
                     NewFolderPath = newDirectoryPath
                 });
-                delta.FilePathChanges.Add(new LibraryFilePathChange
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
-                    File = movedFile,
+                    Chart = ChartFileProjection.FromBmsFile(movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                 });
-                delta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
-                    Song = bmsonSongs[0],
+                    Chart = ChartFileProjection.FromBmsonSong(bmsonSongs[0]),
                     OldPath = oldBmsonPath,
                     NewPath = newBmsonPath
                 });
@@ -518,7 +518,7 @@ public sealed class BmsLibraryStateApplierTests
                 InvalidateParentFolderCache = true,
                 ClearDuplicatedCache = true
             };
-            delta.BmsonSongsToUnregister.Add(removedSong);
+            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsonSong(removedSong));
 
             applier.ApplyLibraryMutationDelta(delta);
 

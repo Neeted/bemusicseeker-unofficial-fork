@@ -355,8 +355,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<LR2SongDBExtended.bmson_song> targetBmsonSongs = [.. (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
         if (unregister)
         {
-            delta.FilesToUnregister.AddRange(targetFiles);
-            delta.BmsonSongsToUnregister.AddRange(targetBmsonSongs);
+            delta.ChartsToUnregister.AddRange(targetFiles.Select(file => ChartFileProjection.FromBmsFile(file)));
+            delta.ChartsToUnregister.AddRange(targetBmsonSongs.Select(song => ChartFileProjection.FromBmsonSong(song)));
             delta.InvalidateInstalledDirectoryIndex = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             delta.InvalidateParentFolderCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
@@ -385,27 +385,27 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             });
             foreach (BMSFile file in group)
             {
-                delta.FilePathChanges.Add(new LibraryFilePathChange
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
-                    File = file,
+                    Chart = ChartFileProjection.FromBmsFile(file),
                     NewPath = file.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
                 });
             }
         }
         foreach (LR2SongDBExtended.bmson_song bmsonSong in targetBmsonSongs)
         {
-            delta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
             {
-                Song = bmsonSong,
+                Chart = ChartFileProjection.FromBmsonSong(bmsonSong),
                 OldPath = bmsonSong.path,
                 NewPath = bmsonSong.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
             });
         }
-        delta.RaiseBmsFilesChanged = raiseBmsFilesChanged && (delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0);
+        delta.RaiseBmsFilesChanged = raiseBmsFilesChanged && delta.ChartPathChanges.Count > 0;
         delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
-        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
-        delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0;
-        delta.ClearDuplicatedCache = delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
+        delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
+        delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0;
+        delta.ClearDuplicatedCache = delta.ChartPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         return delta;
     }
 
@@ -646,9 +646,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             if (movedChart?.BmsFile != null)
             {
                 movedChart.BmsFile.instl_dst = null;
-                result.MutationDelta.FilePathChanges.Add(new LibraryFilePathChange
+                result.MutationDelta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
-                    File = movedChart.BmsFile,
+                    Chart = movedChart,
                     NewPath = movedChart.BmsFile.path,
                     OldPath = oldPath
                 });
@@ -656,9 +656,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
             else if (movedChart?.BmsonSong != null)
             {
-                result.MutationDelta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+                result.MutationDelta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
-                    Song = movedChart.BmsonSong,
+                    Chart = movedChart,
                     NewPath = movedChart.BmsonSong.path,
                     OldPath = oldPath
                 });
@@ -698,13 +698,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     delta.RenamedCount++;
                     if (unregister)
                     {
-                        delta.FilesToUnregister.Add(file);
+                        delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(file));
                     }
                     else
                     {
-                        delta.FilePathChanges.Add(new LibraryFilePathChange
+                        delta.ChartPathChanges.Add(new LibraryChartPathChange
                         {
-                            File = file,
+                            Chart = ChartFileProjection.FromBmsFile(file),
                             NewPath = renameResult.FinalPath
                         });
                         delta.RaiseBmsFilesChanged = true;
@@ -712,7 +712,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
                     delta.DuplicateDeletedCount++;
-                    delta.FilesToUnregister.Add(file);
+                    delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(file));
                     break;
                 default:
                     delta.SkippedCount++;
@@ -728,8 +728,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     break;
             }
         }
-        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0 || delta.FilesToUnregister.Count > 0;
-        delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0 || delta.FilesToUnregister.Count > 0;
+        delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.ChartsToUnregister.Count > 0;
+        delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0 || delta.ChartsToUnregister.Count > 0;
         stopwatch.Stop();
         delta.TotalMs = stopwatch.ElapsedMilliseconds;
         return delta;

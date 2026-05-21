@@ -94,14 +94,16 @@ internal sealed class BmsLibraryStateApplier(
             ReplaceBmsFolder(folderPathChange.NewFolderPath, folderPathChange.OldFolderPath);
         }
 
-        foreach (LibraryFilePathChange filePathChange in delta.FilePathChanges)
+        foreach (LibraryChartPathChange chartPathChange in delta.ChartPathChanges)
         {
-            ReplaceBmsFilePath(filePathChange.File, filePathChange.NewPath, filePathChange.OldPath, filePathChange.CalcFolderParent);
-        }
-
-        foreach (LibraryBmsonSongPathChange bmsonSongPathChange in delta.BmsonSongPathChanges)
-        {
-            ReplaceBmsonSongPath(bmsonSongPathChange.Song, bmsonSongPathChange.NewPath, bmsonSongPathChange.OldPath);
+            if (chartPathChange?.BmsFile != null)
+            {
+                ReplaceBmsFilePath(chartPathChange.BmsFile, chartPathChange.NewPath, chartPathChange.OldPath, chartPathChange.CalcFolderParent);
+            }
+            else if (chartPathChange?.BmsonSong != null)
+            {
+                ReplaceBmsonSongPath(chartPathChange.BmsonSong, chartPathChange.NewPath, chartPathChange.OldPath);
+            }
         }
 
         foreach (LibraryInstallDestinationChange installDestinationChange in delta.UpdatedInstallDestinations)
@@ -124,14 +126,25 @@ internal sealed class BmsLibraryStateApplier(
             }
         }
 
-        if (delta.FilesToUnregister.Count > 0)
+        if (delta.ChartsToUnregister.Count > 0)
         {
-            UnregisterBmsFiles([.. delta.FilesToUnregister.Distinct()]);
-        }
+            List<BMSFile> bmsFilesToUnregister = [.. delta.ChartsToUnregister
+                .Select(chart => chart?.BmsFile)
+                .Where(file => file != null)
+                .Distinct()];
+            if (bmsFilesToUnregister.Count > 0)
+            {
+                UnregisterBmsFiles(bmsFilesToUnregister);
+            }
 
-        if (delta.BmsonSongsToUnregister.Count > 0)
-        {
-            UnregisterBmsonSongs([.. delta.BmsonSongsToUnregister.Distinct()]);
+            List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. delta.ChartsToUnregister
+                .Select(chart => chart?.BmsonSong)
+                .Where(song => song != null)
+                .Distinct()];
+            if (bmsonSongsToUnregister.Count > 0)
+            {
+                UnregisterBmsonSongs(bmsonSongsToUnregister);
+            }
         }
 
         if (delta.InvalidateInstalledDirectoryIndex)

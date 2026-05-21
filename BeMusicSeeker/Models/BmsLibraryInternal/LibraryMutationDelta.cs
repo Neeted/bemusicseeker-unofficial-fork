@@ -5,21 +5,15 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class LibraryMutationDelta
 {
-    public List<BMSFile> FilesToUnregister { get; } = [];
+    public List<ChartFile> ChartsToUnregister { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> BmsonSongsToUnregister { get; } = [];
-
-    public List<LibraryFilePathChange> FilePathChanges { get; } = [];
-
-    public List<LibraryBmsonSongPathChange> BmsonSongPathChanges { get; } = [];
+    public List<LibraryChartPathChange> ChartPathChanges { get; } = [];
 
     public List<LibraryFolderPathChange> FolderPathChanges { get; } = [];
 
     public List<LibraryInstallDestinationChange> UpdatedInstallDestinations { get; } = [];
 
     public List<LibraryInstalledPackagePathChange> UpdatedInstalledPackagePaths { get; } = [];
-
-    public List<BMSFile> FilesToRecheckMaintenance { get; } = [];
 
     public List<LibraryDeleteFailure> Failures { get; } = [];
 
@@ -42,24 +36,19 @@ internal sealed class LibraryMutationDelta
     public long TotalMs { get; set; }
 }
 
-internal sealed class LibraryFilePathChange
+internal sealed class LibraryChartPathChange
 {
-    public BMSFile File { get; set; }
+    public ChartFile Chart { get; set; }
 
     public string NewPath { get; set; }
 
     public string OldPath { get; set; }
 
     public bool CalcFolderParent { get; set; } = true;
-}
 
-internal sealed class LibraryBmsonSongPathChange
-{
-    public LR2SongDBExtended.bmson_song Song { get; set; }
+    public BMSFile BmsFile => Chart?.BmsFile;
 
-    public string NewPath { get; set; }
-
-    public string OldPath { get; set; }
+    public LR2SongDBExtended.bmson_song BmsonSong => Chart?.BmsonSong;
 }
 
 internal sealed class LibraryFolderPathChange
