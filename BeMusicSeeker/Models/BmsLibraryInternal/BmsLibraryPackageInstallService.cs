@@ -1820,11 +1820,11 @@ internal sealed class BmsLibraryPackageInstallService
         IEnumerable<ChartPackage> chartPackagesInstall,
         string installationDirectory,
         Func<ChartPackage, string, bool, HashSet<string>, ISet<string>, bool> movePackageFiles,
-        Action<IEnumerable<BMSFile>> upsertSongs,
-        Action<IEnumerable<BMSFile>> updateMaintenance,
+        Action<PackageInstallExecutionResult> upsertStorageRows,
+        Action<PackageInstallExecutionResult> updateMaintenance,
         Action<IEnumerable<BMSFile>> updateZeroNote,
         Action<IEnumerable<BMSFile>> applyScores,
-        Action<IEnumerable<BMSFile>> applyState,
+        Action<PackageInstallExecutionResult> applyState,
         Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
         HashSet<string> existingHashes = null,
         bool skipInstalledPackageWhenNoBms = false,
@@ -1882,12 +1882,12 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         var songDbStopwatch = Stopwatch.StartNew();
-        upsertSongs?.Invoke(result.AddedBmsFiles);
+        upsertStorageRows?.Invoke(result);
         songDbStopwatch.Stop();
         result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
 
         var maintenanceStopwatch = Stopwatch.StartNew();
-        updateMaintenance?.Invoke(result.AddedBmsFiles);
+        updateMaintenance?.Invoke(result);
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 
@@ -1905,7 +1905,7 @@ internal sealed class BmsLibraryPackageInstallService
         result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
 
         var applyStopwatch = Stopwatch.StartNew();
-        applyState?.Invoke(result.AddedBmsFiles);
+        applyState?.Invoke(result);
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
 

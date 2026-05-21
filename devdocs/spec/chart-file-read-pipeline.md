@@ -95,14 +95,16 @@ package install は、保留で読んだ bytes を長期保持しない。pendin
 
 ```text
 package install / move
-  -> song / bmson_song registration
   -> clear pending ResourceHealth package-entry warnings
-  -> final path chart_info read / parse
+  -> song / bmson_song registration
   -> affected chart maintenance update
+  -> BMS-only zero-note / score update
+  -> library state apply
+  -> final path chart_info read / parse
   -> DB apply + session chart_info index apply
 ```
 
-このため、旧来の added chart_info backfill は使わない。install inline の summary は `chart_info_inline_install ...` として `install-performance.log` に出る。
+このため、旧来の added chart_info backfill は使わない。install inline の summary は `chart_info_inline_install ...` として `install-performance.log` に出る。`song` / `bmson_song` registration は install execution result の post-processing callback で BMS / bmson を同じタイミングに揃える。inline `chart_info` 適用後にも storage row は再 upsert され得るが、これは chart_info / parse failure / runtime index 更新を伴う冪等な最終適用として扱う。
 
 package install は起動時 file diff と完全には同じではない。起動時 file diff は追加/更新 chart のその時点の snapshot を起点に lightweight parse、maintenance、inline `chart_info` を一貫処理する。一方 package install は pending discovery 時の model、移動後の destination file からの `chart_info` read、batch 末尾の maintenance 再計算に分かれる。discovery から install までに source file が変わった場合は、起動時 file diff より鮮度差が生じやすい。
 
