@@ -8980,7 +8980,12 @@ reportProgress,
                             return;
                         }
                         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                        PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(packages, ChartPackagesPending, BMSFiles, BmsonSongs, deletePendingPackageSourceAfterInstall, CountComponentMoveTargetsForPackage);
+                        PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
+                            packages,
+                            ChartPackagesPending,
+                            CreateInstalledChartSnapshot(BMSFiles, BmsonSongs),
+                            deletePendingPackageSourceAfterInstall,
+                            CountComponentMoveTargetsForPackage);
                         if (installPlan.SelectedPendingPackages.Count == 0)
                         {
                             totalStopwatch.Stop();

@@ -202,8 +202,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
             [mixedPackage, cleanupOnlyPackage],
-            [installedFile, cleanupInstalledFile],
-            [],
+            CreateInstalledChartSnapshot([installedFile, cleanupInstalledFile]),
             deletePendingPackageSourceAfterInstall: true,
             countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
 
@@ -246,8 +245,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [pendingPackage],
             [pendingPackage],
-            [installedFile],
-            [],
+            CreateInstalledChartSnapshot([installedFile]),
             deletePendingPackageSourceAfterInstall: false,
             countComponentMoveTargets: (_, _, _) => 1);
 
@@ -256,6 +254,46 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, plan.Groups[0].Items[0].InstallWorkPackage.GetBmsOwnersForTest().Count);
         Assert.AreSame(pendingFile, plan.Groups[0].Items[0].InstallWorkPackage.GetBmsOwnersForTest()[0]);
         Assert.AreEqual(string.Empty, pendingFile.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void BuildEstimatedInstallBatchPlan_TreatsInstalledBmsonAsInstalledByPrimaryHash()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        string destinationDirectory = "C:\\Installed\\Target";
+        var installedBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Lib\\chart.bmson",
+            folder = "C:\\Lib",
+            title = "Installed Bmson",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+        var pendingBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Pkg1\\chart.bmson",
+            folder = "C:\\Pending\\Pkg1",
+            title = "Pending Bmson",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+        PackageChartEntry pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson));
+        pendingEntry.ApplyInstallDestination(destinationDirectory, "Pending Bmson", "Artist");
+        ChartPackage pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
+        pendingPackage.path = "C:\\Pending\\Pkg1";
+        pendingPackage.delete_parent = false;
+
+        PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+            [pendingPackage],
+            [pendingPackage],
+            CreateInstalledChartSnapshot([], [installedBmson]),
+            deletePendingPackageSourceAfterInstall: true,
+            countComponentMoveTargets: (_, _, _) => 0);
+
+        Assert.AreEqual(0, plan.Groups.Count);
+        Assert.AreEqual(1, plan.CleanupOnlyCandidates.Count);
+        Assert.AreSame(pendingPackage, plan.CleanupOnlyCandidates[0]);
+        Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+        Assert.IsNull(pendingEntry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
@@ -272,7 +310,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [deferredPackage],
             [deferredPackage],
-            [],
             [],
             deletePendingPackageSourceAfterInstall: false,
             countComponentMoveTargets: (_, _, _) => 0);
@@ -305,8 +342,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
             [mixedPackage, cleanupOnlyPackage],
-            [installedFile, cleanupInstalledFile],
-            [],
+            CreateInstalledChartSnapshot([installedFile, cleanupInstalledFile]),
             deletePendingPackageSourceAfterInstall: true,
             countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
 
@@ -368,7 +404,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [bmsonPackage],
             [bmsonPackage],
-            [],
             [],
             deletePendingPackageSourceAfterInstall: false,
             countComponentMoveTargets: (_, _, _) => 1);
@@ -2560,6 +2595,23 @@ public sealed class BmsLibraryPackageInstallServiceTests
         };
         file.SetHash(hash);
         return file;
+    }
+
+    private static List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> installedFiles)
+    {
+        return CreateInstalledChartSnapshot(installedFiles, []);
+    }
+
+    private static List<ChartFile> CreateInstalledChartSnapshot(
+        IEnumerable<BMSFile> installedFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs)
+    {
+        return [.. (installedFiles ?? [])
+            .Where(file => file != null)
+            .Select(file => ChartFileProjection.FromBmsFile(file))
+            .Concat((installedBmsonSongs ?? [])
+                .Where(song => song != null)
+                .Select(song => ChartFileProjection.FromBmsonSong(song)))];
     }
 
     private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<BMSFile> targetFiles)

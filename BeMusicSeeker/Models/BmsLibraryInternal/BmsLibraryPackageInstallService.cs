@@ -1549,7 +1549,7 @@ internal sealed class BmsLibraryPackageInstallService
         return delta;
     }
 
-    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<ChartPackage> requestedPackages, IEnumerable<ChartPackage> currentPendingPackages, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs, bool deletePendingPackageSourceAfterInstall, Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets)
+    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<ChartPackage> requestedPackages, IEnumerable<ChartPackage> currentPendingPackages, IEnumerable<ChartFile> installedCharts, bool deletePendingPackageSourceAfterInstall, Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets)
     {
         var planStopwatch = Stopwatch.StartNew();
         var plan = new PendingInstallBatchPlan();
@@ -1563,20 +1563,12 @@ internal sealed class BmsLibraryPackageInstallService
 
         var groupBuildStopwatch = Stopwatch.StartNew();
         var installedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile installedFile in installedFiles ?? [])
+        foreach (ChartFile installedChart in installedCharts ?? [])
         {
-            string key = ChartLookupKey.GetPrimaryHash(installedFile);
+            string key = installedChart?.PrimaryLookupHash;
             if (!string.IsNullOrWhiteSpace(key))
             {
                 installedHashes.Add(key);
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song installedBmsonSong in installedBmsonSongs ?? [])
-        {
-            string key2 = ChartLookupKey.GetPrimaryHash(installedBmsonSong);
-            if (!string.IsNullOrWhiteSpace(key2))
-            {
-                installedHashes.Add(key2);
             }
         }
         var moveGuardHashes = new HashSet<string>(installedHashes, StringComparer.OrdinalIgnoreCase);
