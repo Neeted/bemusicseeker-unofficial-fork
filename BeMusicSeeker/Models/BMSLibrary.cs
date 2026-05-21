@@ -4219,7 +4219,7 @@ public class BMSLibrary : NotificationObject
                 stopwatchSetMode.Stop();
                 setModeMs = stopwatchSetMode.ElapsedMilliseconds;
                 var stopwatchSetHealth = Stopwatch.StartNew();
-                setMaintenanceInfo(BMSFiles, includeInstalledBmson: true);
+                setOwnedMaintenanceInfo();
                 stopwatchSetHealth.Stop();
                 setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
             }
@@ -5540,12 +5540,14 @@ reportProgress,
                 int setModeTargetCount = 0;
                 var maintenanceResult = new MaintenanceWorkflowResult();
                 List<BMSFile> filesSnapshot = null;
+                List<LR2SongDBExtended.bmson_song> bmsonSnapshot = null;
                 try
                 {
                     using (rwlockBMSFiles.GetReaderGuard())
                     {
                         filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-                        snapshotCount = filesSnapshot.Count + ((BmsonSongs ?? []).Count(song => song != null));
+                        bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
+                        snapshotCount = filesSnapshot.Count + bmsonSnapshot.Count;
                     }
                     LogInstallPerformance("installable_maintenance_deferred run version=" + requestVersion
                         + " snapshotCount=" + snapshotCount
@@ -5556,7 +5558,7 @@ reportProgress,
                     setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                     var stopwatchSetHealth = Stopwatch.StartNew();
-                    maintenanceResult = setMaintenanceInfo(filesSnapshot, includeInstalledBmson: true) ?? new MaintenanceWorkflowResult();
+                    maintenanceResult = setMaintenanceInfo(CreateResourceMaintenanceCharts(filesSnapshot, bmsonSnapshot)) ?? new MaintenanceWorkflowResult();
                     stopwatchSetHealth.Stop();
                     setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
@@ -6910,42 +6912,15 @@ reportProgress,
         return irService.GetIRSongInfoCache(md5orlr2bmsid, seaarchAggressively, irClient, songInfoUrl);
     }
 
-    /// <summary>
-    /// BMS ファイル群の保守情報（ファイル存在チェック、エンコーディング検出等）を設定し、必要に応じて DB に永続化します。
-    /// </summary>
-    private List<BMSFile> CreateResourceMaintenanceBmsTargets(IEnumerable<BMSFile> bmsFiles)
-    {
-        return [.. (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
-    }
-
-    private List<LR2SongDBExtended.bmson_song> CreateResourceMaintenanceBmsonSongs(
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
-        bool includeInstalledBmson)
-    {
-        var songsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
-        {
-            songsByPath[song.path] = song;
-        }
-        if (includeInstalledBmson)
-        {
-            foreach (LR2SongDBExtended.bmson_song song in (BmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
-            {
-                songsByPath[song.path] = song;
-            }
-        }
-        return [.. songsByPath.Values];
-    }
-
     private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         List<ChartFile> charts = [.. (bmsFiles ?? [])
             .Where(ChartFileKindResolver.IsBmsChartFile)
-            .Select(file => ChartFileProjection.FromBmsFile(file))
+            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
             .Where(chart => chart != null)];
         charts.AddRange((bmsonSongs ?? [])
-            .Where(song => song != null)
-            .Select(song => ChartFileProjection.FromBmsonSong(song))
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false))
             .Where(chart => chart != null));
         return charts;
     }
@@ -6956,43 +6931,34 @@ reportProgress,
         out List<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         bmsTargets = [];
-        bmsonSongs = [];
+        var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartFile chart in charts ?? [])
         {
             if (chart == null)
             {
                 continue;
             }
-            if (chart.BmsFile != null)
+            if (ChartFileKindResolver.IsBmsChartFile(chart.BmsFile))
             {
                 bmsTargets.Add(chart.BmsFile);
                 continue;
             }
-            if (chart.BmsonSong != null)
+            if (chart.BmsonSong != null && !string.IsNullOrWhiteSpace(chart.BmsonSong.path))
             {
-                bmsonSongs.Add(chart.BmsonSong);
+                bmsonSongsByPath[chart.BmsonSong.path] = chart.BmsonSong;
             }
         }
-    }
-
-    private List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<BMSFile> bmsFiles, bool includeInstalledBmson)
-    {
-        List<ChartFile> charts = [.. (bmsFiles ?? [])
-            .Where(file => file != null)
-            .Select(file => ChartFileProjection.FromBmsFile(file))];
-        if (!includeInstalledBmson)
-        {
-            return charts;
-        }
-        charts.AddRange((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where(song => song != null)
-            .Select(song => ChartFileProjection.FromBmsonSong(song)));
-        return charts;
+        bmsonSongs = [.. bmsonSongsByPath.Values];
     }
 
     private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? []).Where(chart => chart != null)];
+    }
+
+    private List<ChartFile> CreateOwnedResourceMaintenanceCharts()
+    {
+        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs);
     }
 
     private void InvalidateResourceHealthIndex(string reason)
@@ -7025,7 +6991,7 @@ reportProgress,
 
     private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(string reason)
     {
-        List<ChartFile> targets = CreateResourceMaintenanceCharts(BMSFiles, includeInstalledBmson: true);
+        List<ChartFile> targets = CreateOwnedResourceMaintenanceCharts();
         int version = Interlocked.Increment(ref resourceHealthIndexVersionSeed);
         var snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version);
         lock (resourceHealthIndexLock)
@@ -7095,116 +7061,150 @@ reportProgress,
     }
 
     private MaintenanceWorkflowResult setMaintenanceInfo(
-        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<ChartFile> charts,
         bool forceUpdate = false,
-        bool includeInstalledBmson = false,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
-        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs = null)
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates)
     {
-        if (bmsFiles == null && bmsonSongs == null && !includeInstalledBmson)
+        if (charts == null)
         {
             return new MaintenanceWorkflowResult();
         }
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<BMSFile> bmsMaintenanceTargets = CreateResourceMaintenanceBmsTargets(bmsFiles);
-            List<LR2SongDBExtended.bmson_song> bmsonMaintenanceSongs = CreateResourceMaintenanceBmsonSongs(bmsonSongs, includeInstalledBmson);
-            List<ChartFile> maintenanceTargetCharts = CreateResourceMaintenanceCharts(bmsMaintenanceTargets, bmsonMaintenanceSongs);
-            LogInstallPerformance("maintenance_update start inputCount=" + maintenanceTargetCharts.Count
-                + " forceUpdate=" + forceUpdate
-                + " includeInstalledBmson=" + includeInstalledBmson);
-            MaintenanceWorkflowResult workflowResult;
-            using (rwlockSongDBMaintenance.GetWriterGuard())
-            {
-                var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
-                workflowResult = maintenanceService.UpdateMaintenanceInfo(bmsMaintenanceTargets, bmsonMaintenanceSongs, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
-            }
-            bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
-            bool resourceHealthDeltaApplied = false;
-            if (rebuildResourceHealthIndex
-                && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
-                && !includeInstalledBmson
-                && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", maintenanceTargetCharts, null, out ResourceHealthIndexSnapshot resourceHealthSnapshot))
-            {
-                resourceHealthDeltaApplied = true;
-            }
-            else
-            {
-                resourceHealthSnapshot = rebuildResourceHealthIndex
-                    ? RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo")
-                    : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
-            }
-            workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex ? resourceHealthSnapshot.BuildMs : 0L;
-            workflowResult.WarningReapplyTargets = 0;
-            workflowResult.WarningChangedCount = 0;
-            if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0 || resourceHealthSnapshot.TargetCount > 0)
-            {
-                LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
-                    + " bmsResourceTargets=" + workflowResult.BmsResourceTargetCount
-                    + " bmsonResourceTargets=" + workflowResult.BmsonResourceTargetCount
-                    + " healthTargetCount=" + workflowResult.HealthTargetCount
-                    + " healthDegree=" + workflowResult.HealthDegree
-                    + " forceTargets=" + workflowResult.ForceTargetCount
-                    + " missingInfoTargets=" + workflowResult.MissingInfoTargetCount
-                    + " missingEncodingTargets=" + workflowResult.MissingEncodingTargetCount
-                    + " bmsonMissingFreshRefs=" + workflowResult.BmsonMissingFreshResourceReferenceCount
-                    + " healthMs=" + workflowResult.HealthMs
-                    + " encodingMs=" + workflowResult.EncodingMs
-                    + " bmsonRefreshMs=" + workflowResult.BmsonRefreshMs
-                    + " healthCacheHit=" + workflowResult.HealthCacheHitCount
-                    + " healthFileExistsFallback=" + workflowResult.HealthFileExistsFallbackCount
-                    + " healthFileExistsFallbackAudio=" + workflowResult.HealthAudioFileExistsFallbackCount
-                    + " healthFileExistsFallbackImage=" + workflowResult.HealthImageFileExistsFallbackCount
-                    + " healthFileExistsFallbackMovie=" + workflowResult.HealthMovieFileExistsFallbackCount
-                    + " healthFileExistsFallbackOptionalImage=" + workflowResult.HealthOptionalImageFileExistsFallbackCount
-                    + " maintenanceUpserted=" + workflowResult.MaintenanceInfoUpsertCount
-                    + " bmsonReparsed=" + workflowResult.BmsonReparsedCount
-                    + " bmsonReparseFailed=" + workflowResult.BmsonReparseFailedCount
-                    + " bmsonResourceRefsReused=" + workflowResult.BmsonResourceReferenceReusedCount
-                    + " songReloaded=" + workflowResult.ReloadedSongCount
-                    + " resourceHealthIndexMs=" + workflowResult.ResourceHealthIndexMs
-                    + " resourceHealthIndexMode=" + (resourceHealthDeltaApplied ? "delta" : (rebuildResourceHealthIndex ? "full" : "current"))
-                    + " warningReapplyTargets=" + workflowResult.WarningReapplyTargets
-                    + " warningChanged=" + workflowResult.WarningChangedCount
-                    + " canceled=" + workflowResult.Canceled.ToString().ToLowerInvariant()
-                    + " elapsedMs=" + workflowResult.TotalMs);
-            }
-            Task.Run(delegate
-            {
-                RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-                RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
-                if (workflowResult.HasUpdates)
-                {
-                    RaisePropertyChanged(() => BMSFilesGarbled);
-                    RaisePropertyChanged(() => BMSFilesGarbledFixed);
-                }
-            }).Logging("setMaintenanceInfo");
-            return workflowResult;
+            List<ChartFile> maintenanceTargetCharts = CreateResourceMaintenanceCharts(charts);
+            return setMaintenanceInfoCoreLocked(
+                maintenanceTargetCharts,
+                forceUpdate,
+                progressReporter,
+                cancellationToken,
+                resourceHealthIndexUpdateMode);
         }
     }
 
-    internal List<ChartFile> GetChartsNeedResourceFix(IEnumerable<BMSFile> chartFiles, bool forceUpdate = false, bool isInIgnoredList = false)
+    private MaintenanceWorkflowResult setOwnedMaintenanceInfo(
+        bool forceUpdate = false,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default,
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates)
     {
-        bool includeInstalledBmson = chartFiles == null;
-        chartFiles ??= BMSFiles;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            return setMaintenanceInfoCoreLocked(
+                CreateOwnedResourceMaintenanceCharts(),
+                forceUpdate,
+                progressReporter,
+                cancellationToken,
+                resourceHealthIndexUpdateMode);
+        }
+    }
+
+    private MaintenanceWorkflowResult setMaintenanceInfoCoreLocked(
+        List<ChartFile> maintenanceTargetCharts,
+        bool forceUpdate,
+        Action<MaintenanceWorkflowProgress> progressReporter,
+        CancellationToken cancellationToken,
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode)
+    {
+        if (maintenanceTargetCharts == null || maintenanceTargetCharts.Count == 0)
+        {
+            return new MaintenanceWorkflowResult();
+        }
+        SplitResourceMaintenanceCharts(maintenanceTargetCharts, out List<BMSFile> bmsMaintenanceTargets, out List<LR2SongDBExtended.bmson_song> bmsonMaintenanceSongs);
+        LogInstallPerformance("maintenance_update start inputCount=" + maintenanceTargetCharts.Count
+            + " forceUpdate=" + forceUpdate
+            + " bmsTargets=" + bmsMaintenanceTargets.Count
+            + " bmsonTargets=" + bmsonMaintenanceSongs.Count);
+        MaintenanceWorkflowResult workflowResult;
+        using (rwlockSongDBMaintenance.GetWriterGuard())
+        {
+            var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
+            workflowResult = maintenanceService.UpdateMaintenanceInfo(bmsMaintenanceTargets, bmsonMaintenanceSongs, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
+        }
+        bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
+        bool resourceHealthDeltaApplied = false;
+        if (rebuildResourceHealthIndex
+            && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
+            && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", maintenanceTargetCharts, null, out ResourceHealthIndexSnapshot resourceHealthSnapshot))
+        {
+            resourceHealthDeltaApplied = true;
+        }
+        else
+        {
+            resourceHealthSnapshot = rebuildResourceHealthIndex
+                ? RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo")
+                : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+        }
+        workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex ? resourceHealthSnapshot.BuildMs : 0L;
+        workflowResult.WarningReapplyTargets = 0;
+        workflowResult.WarningChangedCount = 0;
+        if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0 || resourceHealthSnapshot.TargetCount > 0)
+        {
+            LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
+                + " bmsResourceTargets=" + workflowResult.BmsResourceTargetCount
+                + " bmsonResourceTargets=" + workflowResult.BmsonResourceTargetCount
+                + " healthTargetCount=" + workflowResult.HealthTargetCount
+                + " healthDegree=" + workflowResult.HealthDegree
+                + " forceTargets=" + workflowResult.ForceTargetCount
+                + " missingInfoTargets=" + workflowResult.MissingInfoTargetCount
+                + " missingEncodingTargets=" + workflowResult.MissingEncodingTargetCount
+                + " bmsonMissingFreshRefs=" + workflowResult.BmsonMissingFreshResourceReferenceCount
+                + " healthMs=" + workflowResult.HealthMs
+                + " encodingMs=" + workflowResult.EncodingMs
+                + " bmsonRefreshMs=" + workflowResult.BmsonRefreshMs
+                + " healthCacheHit=" + workflowResult.HealthCacheHitCount
+                + " healthFileExistsFallback=" + workflowResult.HealthFileExistsFallbackCount
+                + " healthFileExistsFallbackAudio=" + workflowResult.HealthAudioFileExistsFallbackCount
+                + " healthFileExistsFallbackImage=" + workflowResult.HealthImageFileExistsFallbackCount
+                + " healthFileExistsFallbackMovie=" + workflowResult.HealthMovieFileExistsFallbackCount
+                + " healthFileExistsFallbackOptionalImage=" + workflowResult.HealthOptionalImageFileExistsFallbackCount
+                + " maintenanceUpserted=" + workflowResult.MaintenanceInfoUpsertCount
+                + " bmsonReparsed=" + workflowResult.BmsonReparsedCount
+                + " bmsonReparseFailed=" + workflowResult.BmsonReparseFailedCount
+                + " bmsonResourceRefsReused=" + workflowResult.BmsonResourceReferenceReusedCount
+                + " songReloaded=" + workflowResult.ReloadedSongCount
+                + " resourceHealthIndexMs=" + workflowResult.ResourceHealthIndexMs
+                + " resourceHealthIndexMode=" + (resourceHealthDeltaApplied ? "delta" : (rebuildResourceHealthIndex ? "full" : "current"))
+                + " warningReapplyTargets=" + workflowResult.WarningReapplyTargets
+                + " warningChanged=" + workflowResult.WarningChangedCount
+                + " canceled=" + workflowResult.Canceled.ToString().ToLowerInvariant()
+                + " elapsedMs=" + workflowResult.TotalMs);
+        }
+        Task.Run(delegate
+        {
+            RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+            RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
+            if (workflowResult.HasUpdates)
+            {
+                RaisePropertyChanged(() => BMSFilesGarbled);
+                RaisePropertyChanged(() => BMSFilesGarbledFixed);
+            }
+        }).Logging("setMaintenanceInfo");
+        return workflowResult;
+    }
+
+    internal List<ChartFile> GetChartsNeedResourceFix(IEnumerable<ChartFile> charts, bool forceUpdate = false, bool isInIgnoredList = false)
+    {
+        bool useOwnedSnapshot = charts == null;
         _ = rwlockBMSFilesInitializedMin.IsWriteLockHeld;
         _ = rwlockBMSFiles.IsWriteLockHeld;
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
+                List<ChartFile> targets = useOwnedSnapshot
+                    ? CreateOwnedResourceMaintenanceCharts()
+                    : CreateResourceMaintenanceCharts(charts);
                 if (forceUpdate)
                 {
-                    RescanResourceHealthCharts(chartFiles, includeInstalledBmson);
+                    RescanResourceHealthCharts(targets);
                 }
                 ResourceHealthIndexSnapshot snapshot = GetResourceHealthIndexSnapshot(forceUpdate ? "force_resource_health_filter" : "resource_health_filter");
-                if (includeInstalledBmson)
+                if (useOwnedSnapshot)
                 {
                     return [.. (isInIgnoredList ? snapshot.IgnoredTargets : snapshot.ActiveTargets)];
                 }
-                List<ChartFile> targets = CreateResourceMaintenanceCharts(chartFiles, includeInstalledBmson);
                 if (targets.Count == 0)
                 {
                     return [];
@@ -7222,33 +7222,16 @@ reportProgress,
     /// 指定された譜面の構成ファイル health を明示的に再計算します。
     /// 通常の hydration とは異なり、ユーザー操作に基づいて実ファイル確認と DB 更新を行います。
     /// </summary>
-    /// <param name="chartFiles">再スキャン対象。null の場合は全所持譜面を対象にします。</param>
-    /// <param name="includeInstalledBmson">installed bmson も対象に含めるかどうか。</param>
+    /// <param name="charts">再スキャン対象。</param>
     /// <param name="progressReporter">section 単位の進捗通知。</param>
     /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
     /// <returns>再スキャン結果。</returns>
-    internal MaintenanceWorkflowResult RescanResourceHealthCharts(
-        IEnumerable<BMSFile> chartFiles,
-        bool includeInstalledBmson,
-        Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default)
-    {
-        IEnumerable<BMSFile> targets = chartFiles ?? BMSFiles;
-        MaintenanceWorkflowResult result = setMaintenanceInfo(targets, forceUpdate: true, includeInstalledBmson, progressReporter, cancellationToken);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
-        RaisePropertyChanged(() => BMSFilesGarbled);
-        RaisePropertyChanged(() => BMSFilesGarbledFixed);
-        return result;
-    }
-
     internal MaintenanceWorkflowResult RescanResourceHealthCharts(
         IEnumerable<ChartFile> charts,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        SplitResourceMaintenanceCharts(charts, out List<BMSFile> bmsTargets, out List<LR2SongDBExtended.bmson_song> bmsonSongs);
-        MaintenanceWorkflowResult result = setMaintenanceInfo(bmsTargets, forceUpdate: true, includeInstalledBmson: false, progressReporter, cancellationToken, bmsonSongs: bmsonSongs);
+        MaintenanceWorkflowResult result = setMaintenanceInfo(charts, forceUpdate: true, progressReporter: progressReporter, cancellationToken: cancellationToken);
         RaisePropertyChanged(() => ChartFilesNeedResourceFix);
         RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
         RaisePropertyChanged(() => BMSFilesGarbled);
@@ -7267,7 +7250,15 @@ reportProgress,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        return RescanResourceHealthCharts(BMSFiles, includeInstalledBmson: true, progressReporter, cancellationToken);
+        MaintenanceWorkflowResult result = setOwnedMaintenanceInfo(
+            forceUpdate: true,
+            progressReporter: progressReporter,
+            cancellationToken: cancellationToken);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
+        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
+        RaisePropertyChanged(() => BMSFilesGarbled);
+        RaisePropertyChanged(() => BMSFilesGarbledFixed);
+        return result;
     }
 
     internal void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
@@ -7309,7 +7300,7 @@ reportProgress,
             {
                 if (forceUpdate)
                 {
-                    setMaintenanceInfo(bmsFiles, forceUpdate);
+                    setMaintenanceInfo(CreateResourceMaintenanceCharts(bmsFiles, null), forceUpdate);
                 }
                 return maintenanceService.GetGarbledFiles(bmsFiles, isInFixedList);
             }
@@ -8080,7 +8071,7 @@ reportProgress,
                 }
                 else
                 {
-                    setMaintenanceInfo(files, forceUpdate: true);
+                    setMaintenanceInfo(CreateResourceMaintenanceCharts(files, null), forceUpdate: true);
                 }
             },
             null,
@@ -8121,7 +8112,7 @@ reportProgress,
             {
                 if (addedBmsonSongs.Count > 0)
                 {
-                    setMaintenanceInfo([], forceUpdate: true, bmsonSongs: addedBmsonSongs);
+                    setMaintenanceInfo(CreateResourceMaintenanceCharts(null, addedBmsonSongs), forceUpdate: true);
                 }
             }
             if (estimatedInstallBatchApplyContext != null)
@@ -9073,10 +9064,9 @@ reportProgress,
                         if (estimatedInstallBmsMaintenanceTargets.Count > 0 || batchResult.DeferredBmsonMaintenanceSongs.Count > 0)
                         {
                             setMaintenanceInfo(
-                                estimatedInstallBmsMaintenanceTargets,
+                                CreateResourceMaintenanceCharts(estimatedInstallBmsMaintenanceTargets, batchResult.DeferredBmsonMaintenanceSongs),
                                 forceUpdate: true,
-                                resourceHealthIndexUpdateMode: canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates,
-                                bmsonSongs: batchResult.DeferredBmsonMaintenanceSongs);
+                                resourceHealthIndexUpdateMode: canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates);
                         }
                         List<LR2SongDBExtended.bmson_song> estimatedInstallInlineBmsonTargets = BuildEstimatedInstallInlineBmsonTargets(
                             batchResult.DeferredBmsonMaintenanceSongs,
@@ -10635,7 +10625,7 @@ reportProgress,
                         .. movedBmsFiles,
                         .. BMSFiles.Where(f => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)),
                     ];
-                    setMaintenanceInfo(maintenanceTargets, forceUpdate: true, bmsonSongs: maintenanceBmsonSongs);
+                    setMaintenanceInfo(CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceBmsonSongs), forceUpdate: true);
                     var repackageBmsPathSet = new HashSet<string>(movedBmsFiles.Select(ff => ff.path), StringComparer.OrdinalIgnoreCase);
                     BMSFiles = [.. BMSFiles.Where(f => !repackageBmsPathSet.Contains(f.path)), .. movedBmsFiles];
                     if (movedBmsonSongs.Count > 0)
@@ -10703,7 +10693,7 @@ reportProgress,
                 List<BMSFile> maintenanceTargets = [.. result.MaintenanceTargets, .. maintenanceChartBmsTargets];
                 if (maintenanceTargets.Count > 0 || maintenanceChartBmsonSongs.Count > 0)
                 {
-                    setMaintenanceInfo(maintenanceTargets, forceUpdate: true, bmsonSongs: maintenanceChartBmsonSongs);
+                    setMaintenanceInfo(CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceChartBmsonSongs), forceUpdate: true);
                 }
             }
         }

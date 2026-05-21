@@ -1615,7 +1615,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
         StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
         StringAssert.Contains(libraryCode, "if (estimatedInstallBmsMaintenanceTargets.Count > 0 || batchResult.DeferredBmsonMaintenanceSongs.Count > 0)");
-        StringAssert.Contains(libraryCode, "bmsonSongs: batchResult.DeferredBmsonMaintenanceSongs");
+        StringAssert.Contains(libraryCode, "CreateResourceMaintenanceCharts(estimatedInstallBmsMaintenanceTargets, batchResult.DeferredBmsonMaintenanceSongs)");
         StringAssert.Contains(resourceHealthCode, "internal ResourceHealthIndexSnapshot ApplyDelta(");
         StringAssert.Contains(resourceHealthCode, "HashSet<ResourceHealthChartKey> targetKeys");
 

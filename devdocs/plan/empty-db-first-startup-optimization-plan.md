@@ -288,11 +288,11 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 主な処理:
 
 1. `setModeAndCommitToDB()`
-2. `setMaintenanceInfo(... includeInstalledBmson: true)`
+2. BMS / bmson を結合した `ChartFile` snapshot に対する resource maintenance (`setMaintenanceInfo(...)`)
 
 初回空DBでは `maintenance` が空のため、`setMaintenanceInfo` が全譜面を未チェックとして処理する。bmson は file diff で一度 `ParseSnapshot()` されているが、maintenance 側で resource references のため再度 `BmsonSongParser.Parse()` される。
 
-2回目以降は `maintenance` が埋まるため heavy health 再計算対象は減る。ただし `setMaintenanceInfo()` の最後で全 `maintenanceTargets` に `ApplyResourceHealthWarnings()` を行うため、全件 warning 再構築の固定費が残る。
+2回目以降は `maintenance` が埋まるため heavy health 再計算対象は減る。現行実装では resource health index / projection が `ChartFile` を返し、warning 表示は index projection から再構築するため、旧実装の全 `maintenanceTargets` への post-process warning 書き戻し loop は残していない。
 
 ### 修正方針
 
