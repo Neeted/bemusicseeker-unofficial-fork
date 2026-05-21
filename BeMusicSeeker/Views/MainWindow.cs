@@ -641,8 +641,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + (e.SelectedRows?.Count ?? 0));
             }
-            BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.SelectedRow);
-            if (bmsFile != null)
+            if (GridRowResolver.TryGetBmsPlayerFile(e.SelectedRow, out BMSFile bmsFile))
             {
                 _renewBMSPlayerControlInfo(bmsFile);
             }
@@ -659,8 +658,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSFile bmsFile = GridRowResolver.GetRealBmsFile(e.Row);
-        if (bmsFile == null)
+        if (!GridRowResolver.TryGetBmsPlayerFile(e.Row, out BMSFile bmsFile))
         {
             return;
         }

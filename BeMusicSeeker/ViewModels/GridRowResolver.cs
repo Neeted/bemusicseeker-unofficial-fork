@@ -34,12 +34,11 @@ internal static class GridRowResolver
     }
 
     /// <summary>
-    /// 行から実体 BMS 譜面を取得します。
-    /// bmson は chart target API で扱い、この互換 API では返しません。
+    /// 行から BMS player 用の BMS storage row を取得します。
+    /// bmson は現時点では再生対象にせず、この BMS-only 境界では返しません。
     /// </summary>
-    internal static BMSFile GetRealBmsFile(object row)
+    internal static bool TryGetBmsPlayerFile(object row, out BMSFile file)
     {
-        BMSFile file;
         if (row is PlaylistDetailRow playlistDetailRow)
         {
             file = playlistDetailRow.RealFile;
@@ -52,7 +51,7 @@ internal static class GridRowResolver
         {
             file = row as BMSFile;
         }
-        return file;
+        return file != null;
     }
 
     internal static bool TryGetChartFile(object row, out ChartFile chart)

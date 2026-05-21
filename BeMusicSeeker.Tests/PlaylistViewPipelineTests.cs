@@ -569,7 +569,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(RankType.INVALID, row.rank);
         Assert.IsNull(row.score);
         Assert.AreEqual(BMSFile.BMSFileStatus.NONE, row.status);
-        Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
     }
 
     [TestMethod]
@@ -628,7 +628,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetSha256(bmson.sha256);
         PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson).CreateViewRow();
 
-        Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreSame(row.Chart, target.Chart);
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
@@ -675,7 +675,7 @@ public sealed class PlaylistViewPipelineTests
         missingEntry.SetMd5("abababababababababababababababab");
         PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null).CreateViewRow();
 
-        Assert.IsNull(GridRowResolver.GetRealBmsFile(ownedBmsonRow));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(ownedBmsonRow, out _));
         Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(ownedBmsonRow, ChartOperationSourceScope.PlaylistOwned));
         Assert.IsTrue(MainWindow.ShouldUsePlaylistMissingContextMenu(missingRow, ChartOperationSourceScope.PlaylistOwned));
         Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(new object(), ChartOperationSourceScope.PlaylistOwned));
@@ -873,7 +873,7 @@ public sealed class PlaylistViewPipelineTests
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
 
-        Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsNull(target.Chart.BmsFile);
@@ -1457,7 +1457,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(bmson, row.BmsonSong);
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreSame(bmson, row.Chart.BmsonSong);
-        Assert.IsNull(GridRowResolver.GetRealBmsFile(row));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
         Assert.IsTrue(row.DisplayWarning.Contains("installed chart warning"));
         Assert.AreEqual("C:\\Library\\Destination", row.instl_dst);
         Assert.AreEqual(bmson.MaintenanceInfo.WAVHealth, row.WAVHealth);
@@ -1803,7 +1803,7 @@ public sealed class PlaylistViewPipelineTests
         var ownedRow = LibraryChartRow.FromBmsonSong(ownedBmson);
         var pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
 
-        Assert.IsNull(GridRowResolver.GetRealBmsFile(ownedRow));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(ownedRow, out _));
         Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(ownedRow, ChartOperationSourceScope.Library, out ChartOperationTarget ownedTarget));
         Assert.AreEqual(ChartFileKind.Bmson, ownedTarget.Chart.Kind);
         Assert.AreEqual(ownedBmson.path, ownedTarget.Chart.Path);
@@ -1839,7 +1839,8 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
-        Assert.AreSame(file, GridRowResolver.GetRealBmsFile(file));
+        Assert.IsTrue(GridRowResolver.TryGetBmsPlayerFile(file, out BMSFile playerFile));
+        Assert.AreSame(file, playerFile);
         Assert.AreSame(file, target.Chart.BmsFile);
     }
 

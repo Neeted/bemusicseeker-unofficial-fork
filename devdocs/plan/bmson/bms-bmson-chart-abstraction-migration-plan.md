@@ -2,6 +2,7 @@
 
 > この文書は過去の bmson 段階導入計画の履歴資料であり、現在進行中の ChartFile domain model 化の active plan ではない。
 > 現在の仕様・残作業・進行方針は `devdocs/spec/bms-bmson-chart-abstraction-current-state.md` を正とする。
+> この文書内の `PendingChartEntry` / `CompatibilityBmsFile` / `GetRealBmsFile` / `GetCompatibilityBmsFile` / `ChartPackage.ChartFiles` などの記述は移行開始時の履歴説明であり、現行 production API として読まない。
 
 ## 目的
 

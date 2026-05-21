@@ -14836,7 +14836,7 @@ public class MainWindowViewModel : ViewModel
         try
         {
             row = ChartRowsView[indexChartRowsView];
-            bmsFile = GridRowResolver.GetRealBmsFile(row);
+            GridRowResolver.TryGetBmsPlayerFile(row, out bmsFile);
         }
         catch
         {
@@ -15045,7 +15045,7 @@ public class MainWindowViewModel : ViewModel
                 while (Settings.Default.FolderSkipPlayMode && num != ChartRowsView.Count)
                 {
                     object candidateRow = ChartRowsView[num];
-                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetRealBmsFile(candidateRow);
+                    GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
                         break;
@@ -15108,7 +15108,7 @@ public class MainWindowViewModel : ViewModel
                 while (Settings.Default.FolderSkipPlayMode && num != -1)
                 {
                     object candidateRow = ChartRowsView[num];
-                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetRealBmsFile(candidateRow);
+                    GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
                         break;
@@ -21853,7 +21853,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(row));
         }
-        BeMusicSeeker.Models.BMSFile realFile = GridRowResolver.GetRealBmsFile(row);
+        GridRowResolver.TryGetBmsPlayerFile(row, out BeMusicSeeker.Models.BMSFile realFile);
         if (realFile != null)
         {
             return GetLR2IRSongInfoCache(realFile, seaarchAggressively);
