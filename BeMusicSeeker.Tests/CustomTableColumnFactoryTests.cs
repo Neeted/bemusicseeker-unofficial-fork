@@ -544,7 +544,7 @@ public sealed class CustomTableColumnFactoryTests
             Url = new Uri("https://example.test/main"),
             Url_diff = new Uri("https://example.test/diff")
         };
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, null).CreateViewRow();
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
 
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
 

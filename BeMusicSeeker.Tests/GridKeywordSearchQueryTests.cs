@@ -60,7 +60,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:★★").MatchesLibraryChartRow(LibraryChartRow.FromBmsFile(file)));
 
         var libraryRow = LibraryChartRow.FromBmsFile(file);
-        var playlistRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+        var playlistRow = new PlaylistDetailSourceRow(new BMSTableEntry(file), ChartFileProjection.FromBmsFile(file));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Satellite sl\"").MatchesLibraryChartRow(libraryRow));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Second Table\"").MatchesPlaylistDetail(playlistRow));
     }
@@ -466,7 +466,7 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        var row = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+        var row = new PlaylistDetailSourceRow(new BMSTableEntry(file), ChartFileProjection.FromBmsFile(file));
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\" score:>=1800 bp:0..10").MatchesPlaylistDetail(row));
     }

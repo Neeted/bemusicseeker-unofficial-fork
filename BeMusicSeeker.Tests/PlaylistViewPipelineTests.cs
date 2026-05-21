@@ -544,7 +544,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetMd5(bmson.md5);
         entry.SetSha256(bmson.sha256);
 
-        var sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson);
+        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
         Assert.IsTrue(sourceRow.IsOwned);
@@ -596,8 +596,7 @@ public sealed class PlaylistViewPipelineTests
 
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
-            realFile: null,
-            resolvedBmson: bmson,
+            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
             playlistReferenceDisplayProvider: chart => index.Find(chart));
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
@@ -626,7 +625,7 @@ public sealed class PlaylistViewPipelineTests
         var entry = new TestablePlaylistEntry();
         entry.SetMd5(bmson.md5);
         entry.SetSha256(bmson.sha256);
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
 
         Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
@@ -668,12 +667,12 @@ public sealed class PlaylistViewPipelineTests
         var ownedBmsonEntry = new TestablePlaylistEntry();
         ownedBmsonEntry.SetMd5(bmson.md5);
         ownedBmsonEntry.SetSha256(bmson.sha256);
-        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(ownedBmsonEntry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(ownedBmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetTitle("Missing");
         missingEntry.SetMd5("abababababababababababababababab");
-        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null).CreateViewRow();
+        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null).CreateViewRow();
 
         Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(ownedBmsonRow, out _));
         Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(ownedBmsonRow, ChartOperationSourceScope.PlaylistOwned));
@@ -697,8 +696,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetSha256(bmson.sha256);
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
-            realFile: null,
-            resolvedBmson: bmson);
+            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
 
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
@@ -801,7 +799,7 @@ public sealed class PlaylistViewPipelineTests
         file.SetSubtitle("Another");
         var entry = new TestablePlaylistEntry(file);
 
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, file).CreateViewRow();
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file)).CreateViewRow();
 
         Assert.AreEqual("Another", GridRowResolver.GetDisplaySubtitle(row));
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
@@ -1334,9 +1332,7 @@ public sealed class PlaylistViewPipelineTests
             [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "playlist ambiguous install destination")]);
         PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(
             entry,
-            realFile: null,
-            resolvedBmson: bmson,
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(playlistChart, includeWarningSnapshot)).CreateViewRow();
+            playlistChart).CreateViewRow();
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget firstPlaylistTarget));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(playlistRow, out ChartOperationTarget secondPlaylistTarget));
@@ -1346,9 +1342,7 @@ public sealed class PlaylistViewPipelineTests
 
         var rebuiltPlaylistSourceRow = new PlaylistDetailSourceRow(
             entry,
-            realFile: null,
-            resolvedBmson: bmson,
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(playlistChart, includeWarningSnapshot));
+            playlistChart);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.instl_dst);
         Assert.AreEqual("C:\\Installed\\PlaylistBmson", rebuiltPlaylistSourceRow.Chart.InstallDestination);
         Assert.AreEqual("Installed Playlist Bmson", rebuiltPlaylistSourceRow.InstallDestinationTitle);
@@ -1862,7 +1856,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetTitle("Missing");
         entry.SetMd5("abababababababababababababababab");
         entry.lr2_bmsid = "12345";
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null).CreateViewRow();
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
@@ -1891,7 +1885,7 @@ public sealed class PlaylistViewPipelineTests
         var entry = new TestablePlaylistEntry();
         entry.SetMd5(bmson.md5);
         entry.SetSha256(bmson.sha256);
-        var sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson);
+        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
 
         Assert.IsTrue(GridRowResolver.IsPlaylistRow(sourceRow));
         Assert.AreSame(entry, GridRowResolver.GetPlaylistEntry(sourceRow));
@@ -1907,7 +1901,7 @@ public sealed class PlaylistViewPipelineTests
     {
         var bms = new TestableBmsFile();
         bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), bms).CreateViewRow();
+        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), ChartFileProjection.FromBmsFile(bms)).CreateViewRow();
 
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1920,11 +1914,11 @@ public sealed class PlaylistViewPipelineTests
         var bmsonEntry = new TestablePlaylistEntry();
         bmsonEntry.SetMd5(bmson.md5);
         bmsonEntry.SetSha256(bmson.sha256);
-        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
-        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null).CreateViewRow();
+        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null).CreateViewRow();
 
         AssertPlaylistRowFileDeletePolicy(ownedBmsRow, expectedRemoveFromLibrary: true);
         AssertPlaylistRowFileDeletePolicy(ownedBmsonRow, expectedRemoveFromLibrary: true);
@@ -1936,7 +1930,7 @@ public sealed class PlaylistViewPipelineTests
     {
         var bms = new TestableBmsFile();
         bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), bms).CreateViewRow();
+        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), ChartFileProjection.FromBmsFile(bms)).CreateViewRow();
 
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1949,11 +1943,11 @@ public sealed class PlaylistViewPipelineTests
         var bmsonEntry = new TestablePlaylistEntry();
         bmsonEntry.SetMd5(bmson.md5);
         bmsonEntry.SetSha256(bmson.sha256);
-        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)).CreateViewRow();
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
-        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null).CreateViewRow();
+        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null).CreateViewRow();
 
         Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsRow));
         Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsonRow));
@@ -1976,11 +1970,11 @@ public sealed class PlaylistViewPipelineTests
         var bmsonEntry = new TestablePlaylistEntry();
         bmsonEntry.SetMd5(bmson.md5);
         bmsonEntry.SetSha256(bmson.sha256);
-        var ownedBmsonSourceRow = new PlaylistDetailSourceRow(bmsonEntry, realFile: null, resolvedBmson: bmson);
+        var ownedBmsonSourceRow = new PlaylistDetailSourceRow(bmsonEntry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
 
         var missingEntry = new TestablePlaylistEntry();
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
-        var missingSourceRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null);
+        var missingSourceRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null);
 
         Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsonSourceRow));
         Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingSourceRow));
@@ -1995,8 +1989,8 @@ public sealed class PlaylistViewPipelineTests
         file.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
         var entry = new TestablePlaylistEntry(file);
 
-        var ownedSource = new PlaylistDetailSourceRow(entry, file);
-        var missingSource = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null);
+        var ownedSource = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file));
+        var missingSource = new PlaylistDetailSourceRow(entry, resolvedChart: null);
         PlaylistDetailRow missingRow = missingSource.CreateViewRow();
 
         Assert.IsTrue(ownedSource.IsOwned);
@@ -2022,8 +2016,8 @@ public sealed class PlaylistViewPipelineTests
         entry.SetMd5(bmson.md5);
         entry.SetSha256(bmson.sha256);
 
-        var ownedSource = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson);
-        var missingSource = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null);
+        var ownedSource = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false));
+        var missingSource = new PlaylistDetailSourceRow(entry, resolvedChart: null);
         PlaylistDetailRow missingRow = missingSource.CreateViewRow();
 
         Assert.IsTrue(ownedSource.IsOwned);
@@ -2065,7 +2059,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetMd5("abababababababababababababababab");
         entry.SetSha256(new string('c', 64));
 
-        var sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null);
+        var sourceRow = new PlaylistDetailSourceRow(entry, resolvedChart: null);
 
         Assert.IsFalse(sourceRow.IsOwned);
         Assert.AreEqual("EntryTitle", sourceRow.Title);
@@ -2091,7 +2085,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetMd5(chartInfo.md5);
         entry.SetSha256(chartInfo.sha256);
 
-        var sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null, entryChartInfo: chartInfo);
+        var sourceRow = new PlaylistDetailSourceRow(entry, resolvedChart: null, entryChartInfo: chartInfo);
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
         Assert.IsFalse(sourceRow.IsOwned);
@@ -2125,7 +2119,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetTitle("MissingShaFallback");
         entry.SetMd5(chartInfo.md5);
 
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null, entryChartInfo: chartInfo).CreateViewRow();
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null, entryChartInfo: chartInfo).CreateViewRow();
 
         Assert.AreEqual(chartInfo.sha256, row.sha256);
         Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetRepositorySha256(row));
@@ -2165,7 +2159,7 @@ public sealed class PlaylistViewPipelineTests
         var entry = new TestablePlaylistEntry();
         entry.SetTitle("MissingEditableLevel");
         entry.SetMd5("abababababababababababababababab");
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null).CreateViewRow();
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
 
         row.Level = "13";
 
@@ -2282,7 +2276,7 @@ public sealed class PlaylistViewPipelineTests
             rank = RankType.AA,
             minbp = 3
         };
-        var sourceRow = new PlaylistDetailSourceRow(entry, file, scoreSnapshot: score);
+        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file), scoreSnapshot: score);
 
         Assert.AreEqual(ClearType.HARD, sourceRow.clear);
         Assert.AreEqual(RankType.AA, sourceRow.rank);
@@ -2318,7 +2312,7 @@ public sealed class PlaylistViewPipelineTests
 
         BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
             entry,
-            file,
+            ChartFileProjection.FromBmsFile(file),
             entryChartInfo: null,
             snapshot,
             scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
@@ -2365,7 +2359,7 @@ public sealed class PlaylistViewPipelineTests
 
         BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
             entry,
-            file,
+            ChartFileProjection.FromBmsFile(file),
             entryChartInfo: null,
             snapshot,
             scoresByHash: snapshot.ScoresByHash,
@@ -2400,7 +2394,7 @@ public sealed class PlaylistViewPipelineTests
 
         BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
             entry,
-            realFile: null,
+            resolvedChart: null,
             entryChartInfo: chartInfo,
             snapshot,
             scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
@@ -2565,7 +2559,7 @@ public sealed class PlaylistViewPipelineTests
         {
             entry.SetSha256(sha256);
         }
-        return new PlaylistDetailSourceRow(entry, file);
+        return new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file));
     }
 
     private static void AssertPlaylistRowFileDeletePolicy(PlaylistDetailRow row, bool expectedRemoveFromLibrary)
@@ -2615,7 +2609,7 @@ public sealed class PlaylistViewPipelineTests
         entry.SetTitle(title);
         entry.SetMd5(chartInfo.md5);
         entry.SetSha256(chartInfo.sha256);
-        return new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null, entryChartInfo: chartInfo);
+        return new PlaylistDetailSourceRow(entry, resolvedChart: null, entryChartInfo: chartInfo);
     }
 
     private static BMSFile CreateBmsFile(string path, string title, string artist, string hash)

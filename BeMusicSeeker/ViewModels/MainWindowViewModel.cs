@@ -6856,13 +6856,13 @@ public class MainWindowViewModel : ViewModel
 
     internal static BeMusicSeeker.Models.BMSScore ResolvePlaylistEntryScoreSnapshotForTest(
         BMSTableEntry entry,
-        BeMusicSeeker.Models.BMSFile realFile,
+        ChartFile resolvedChart,
         LR2SongDBExtended.chart_info entryChartInfo,
         BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot,
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash,
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256)
     {
-        return ResolvePlaylistEntryScoreSnapshot(entry, realFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
+        return ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart?.BmsFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
     }
 
     private static string FirstNonEmpty(params string[] candidates)
@@ -15371,7 +15371,7 @@ public class MainWindowViewModel : ViewModel
             : new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
         cancellationStage = "hash_index";
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = [];
+        List<(BMSTableEntry entry, ChartFile resolvedChart)> resolvedEntries = [];
         cancellationStage = "entry_resolve";
         foreach (BMSTableEntry entry in bmsTable.GetEntriesExceptDummy())
         {
@@ -15390,24 +15390,27 @@ public class MainWindowViewModel : ViewModel
                 filesBySha256.TryGetValue(entry.sha256, out realFile);
             }
             LR2SongDBExtended.bmson_song resolvedBmson = realFile == null ? ResolveBmsonForPlaylistEntry(entry, bmsonByMd5, bmsonBySha256) : null;
-            bool isOwned = (realFile != null && !string.IsNullOrWhiteSpace(realFile.path)) || (resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path));
+            ChartFile resolvedChart = realFile != null
+                ? ChartFileProjection.FromBmsFile(realFile, includeWarningSnapshot: false)
+                : ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false);
+            bool isOwned = !string.IsNullOrWhiteSpace(resolvedChart?.Path);
             if (onlyNotOwned && isOwned)
             {
                 continue;
             }
-            resolvedEntries.Add((entry, realFile, resolvedBmson, null));
+            resolvedEntries.Add((entry, resolvedChart));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo)> preparedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, LR2SongDBExtended.chart_info)>(resolvedEntries.Count);
+        List<(BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo)> preparedEntries = new List<(BMSTableEntry, ChartFile, LR2SongDBExtended.chart_info)>(resolvedEntries.Count);
         var chartInfoLookupStopwatch = Stopwatch.StartNew();
         int missingChartInfoResolveTargets = 0;
         int chartInfoResolvedCount = 0;
         int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
-        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore _) in resolvedEntries)
+        foreach ((BMSTableEntry entry, ChartFile resolvedChart) in resolvedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             LR2SongDBExtended.chart_info entryChartInfo = null;
-            if (realFile == null && resolvedBmson == null)
+            if (resolvedChart == null)
             {
                 missingChartInfoResolveTargets++;
                 entryChartInfo = files?.ResolveChartInfo(entry.sha256, entry.md5);
@@ -15416,7 +15419,7 @@ public class MainWindowViewModel : ViewModel
                     chartInfoResolvedCount++;
                 }
             }
-            preparedEntries.Add((entry, realFile, resolvedBmson, entryChartInfo));
+            preparedEntries.Add((entry, resolvedChart, entryChartInfo));
         }
         chartInfoLookupStopwatch.Stop();
         LogPlaylistWorker("playlist_chart_info_index_resolve entries=" + resolvedEntries.Count + " targets=" + missingChartInfoResolveTargets + " found=" + chartInfoResolvedCount + " version=" + chartInfoIndexVersion + " elapsedMs=" + chartInfoLookupStopwatch.ElapsedMilliseconds);
@@ -15425,17 +15428,17 @@ public class MainWindowViewModel : ViewModel
         cancellationToken.ThrowIfCancellationRequested();
         cancellationStage = "score_probe";
         var scoreProbeStopwatch = Stopwatch.StartNew();
-        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
-        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
+        List<(BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
+        foreach ((BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, realFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
+            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart?.BmsFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
             scoreUpdateTargetCount++;
             if (scoreSnapshotForRow != null)
             {
                 scoreProbeMetrics.MatchedScoreCount++;
             }
-            scoredEntries.Add((entry, realFile, resolvedBmson, entryChartInfo, scoreSnapshotForRow));
+            scoredEntries.Add((entry, resolvedChart, entryChartInfo, scoreSnapshotForRow));
         }
         scoreProbeStopwatch.Stop();
         scoreProbeMetrics.TargetCount = scoreUpdateTargetCount;
@@ -15443,13 +15446,12 @@ public class MainWindowViewModel : ViewModel
         scoreProbeMs = scoreProbeStopwatch.ElapsedMilliseconds;
         var playlistRows = new List<PlaylistDetailSourceRow>(scoredEntries.Count);
         cancellationStage = "source_row_materialize";
-        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in scoredEntries)
+        foreach ((BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in scoredEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             playlistRows.Add(new PlaylistDetailSourceRow(
                 entry,
-                realFile,
-                resolvedBmson,
+                resolvedChart,
                 scoreSnapshotForRow,
                 entryChartInfo,
                 GetPlaylistReferenceDisplayForChart,

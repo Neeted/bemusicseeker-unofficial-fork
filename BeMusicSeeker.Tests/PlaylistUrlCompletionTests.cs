@@ -302,7 +302,7 @@ public sealed class PlaylistUrlCompletionTests
         var entry = new BMSTableEntry(file);
         entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
-        var sourceRow = new PlaylistDetailSourceRow(entry, file);
+        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsFile(file));
 
         Assert.AreEqual(new Uri("https://example.com/runtime"), sourceRow.Url);
         Assert.AreEqual(new Uri("https://example.com/runtime-diff"), sourceRow.Url_diff);

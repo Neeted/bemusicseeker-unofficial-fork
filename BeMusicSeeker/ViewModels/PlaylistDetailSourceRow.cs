@@ -31,6 +31,8 @@ internal sealed class PlaylistDetailSourceRow
     /// </summary>
     internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
 
+    private readonly ChartFile resolvedChartSnapshot;
+
     private readonly Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
 
     /// <summary>
@@ -214,38 +216,40 @@ internal sealed class PlaylistDetailSourceRow
 
     internal PlaylistDetailSourceRow(
         BMSTableEntry entry,
-        BMSFile realFile,
-        LR2SongDBExtended.bmson_song resolvedBmson = null,
+        ChartFile resolvedChart,
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
-        RealFile = realFile;
-        ResolvedBmson = resolvedBmson;
+        resolvedChartSnapshot = resolvedChart;
+        RealFile = resolvedChart?.BmsFile;
+        ResolvedBmson = resolvedChart?.BmsonSong;
         EntryChartInfo = entryChartInfo;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
+        BMSFile realFile = RealFile;
+        LR2SongDBExtended.bmson_song resolvedBmson = ResolvedBmson;
         bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
         bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
         BMSFile snapshotSource = realFile;
         BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore;
-        Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), entry.title);
-        Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, entry.artist);
-        genre = FirstNonEmpty(realFile?.genre, resolvedBmson?.genre);
-        mode = realFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint);
-        tag = realFile?.tag ?? string.Empty;
+        Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), resolvedChart?.Title, entry.title);
+        Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, resolvedChart?.Artist, entry.artist);
+        genre = FirstNonEmpty(realFile?.genre, resolvedBmson?.genre, resolvedChart?.Genre);
+        mode = realFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint) ?? resolvedChart?.Mode;
+        tag = realFile?.tag ?? resolvedChart?.Tag ?? string.Empty;
         Url = entry.EffectiveUrl;
         Url_diff = entry.EffectiveUrlDiff;
         name_diff = entry.name_diff ?? string.Empty;
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
-        hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, entry.md5);
-        sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, entry.sha256, entryChartInfo?.sha256);
-        Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson));
-        path = FirstNonEmpty(realFile?.path, resolvedBmson?.path);
+        hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, resolvedChart?.Md5, entry.md5);
+        sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, resolvedChart?.Sha256, entry.sha256, entryChartInfo?.sha256);
+        Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson), resolvedChart?.Folder);
+        path = FirstNonEmpty(realFile?.path, resolvedBmson?.path, resolvedChart?.Path);
         Chart = CreateChartFile();
-        PlaylistReferenceDisplay playlistReferenceDisplay = realFile == null && playlistReferenceDisplayProvider != null
+        PlaylistReferenceDisplay playlistReferenceDisplay = RealFile == null && playlistReferenceDisplayProvider != null
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
         HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
@@ -337,9 +341,17 @@ internal sealed class PlaylistDetailSourceRow
         }
         if (ResolvedBmson != null)
         {
+            if (bmsonTransientStateProvider == null && resolvedChartSnapshot != null)
+            {
+                return resolvedChartSnapshot;
+            }
             return ChartFileProjection.FromBmsonSong(
                 ResolvedBmson,
                 GetBmsonTransientState(includeWarningSnapshot: true));
+        }
+        if (resolvedChartSnapshot != null && EntryChartInfo == null)
+        {
+            return resolvedChartSnapshot;
         }
         return ChartFileProjection.FromBmsMetadata(
             path,
