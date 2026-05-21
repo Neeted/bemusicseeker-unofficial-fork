@@ -21123,20 +21123,7 @@ public class MainWindowViewModel : ViewModel
             }
             foreach (IGrouping<string, ChartFile> item in source.GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase).ToList())
             {
-                List<string> md5sInTheSameDir = null;
-                foreach (ChartFile item2 in item)
-                {
-                    if (item2.Kind == ChartFileKind.Bmson || item2.BmsFile == null)
-                    {
-                        continue;
-                    }
-                    md5sInTheSameDir = files.GetMD5sOfTheSameSong(item2.BmsFile);
-                    if (md5sInTheSameDir != null)
-                    {
-                        break;
-                    }
-                }
-                md5sInTheSameDir ??= [];
+                List<string> md5sInTheSameDir = files.GetPlaylistFolderOrgMd5sForCharts(item);
                 string text = null;
                 if (md5sInTheSameDir.Count > 0)
                 {
@@ -21149,10 +21136,7 @@ public class MainWindowViewModel : ViewModel
                     text = BMSLibrary.GetLongestCommonChartInfo(item.Select(chart => chart.Title));
                     text = tables.CreateNewFolderBMSTable(bmsTable, text, commitFlag: false);
                 }
-                tables.AddPlaylistEntriesToFolderBMSTable(item.Select(chart => new BMSTableEntry(chart)
-                {
-                    Org_md5 = chart.Kind == ChartFileKind.Bmson ? [] : md5sInTheSameDir
-                }), bmsTable, text, commitFlag: false);
+                tables.AddPlaylistEntriesToFolderBMSTable(item.Select(chart => BMSTableEntry.CreateForPlaylistDrop(chart, md5sInTheSameDir)), bmsTable, text, commitFlag: false);
             }
         }
         else
@@ -21161,10 +21145,7 @@ public class MainWindowViewModel : ViewModel
                                                       let entry = GridRowResolver.GetPlaylistEntry(row)
                                                       let chart = ResolvePlaylistDropChart(row)
                                                       where entry != null || chart != null
-                                                      select (entry != null) ? entry.Duplicate() : new BMSTableEntry(chart)
-                                                      {
-                                                          Org_md5 = GetPlaylistDropOrgMd5(chart)
-                                                      };
+                                                      select (entry != null) ? entry.Duplicate() : BMSTableEntry.CreateForPlaylistDrop(chart, GetPlaylistDropOrgMd5(chart));
             tables.AddPlaylistEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
         tables.ReOutputCustomFolderAndCommitToDB(bmsTable);
@@ -21199,9 +21180,7 @@ public class MainWindowViewModel : ViewModel
         {
             return null;
         }
-        return chart.Kind == ChartFileKind.Bmson || chart.BmsFile == null
-            ? []
-            : files.GetMD5sOfTheSameSong(chart.BmsFile);
+        return files.GetPlaylistOrgMd5sForChart(chart);
     }
 
     internal void DeleteBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable)

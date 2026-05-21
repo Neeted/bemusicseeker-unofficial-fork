@@ -10341,7 +10341,31 @@ reportProgress,
         }
     }
 
-    public List<string> GetMD5sOfTheSameSong(BMSFile file)
+    internal List<string> GetPlaylistOrgMd5sForChart(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+        return chart.Kind == ChartFileKind.Bmson || chart.BmsFile == null
+            ? []
+            : GetMD5sOfTheSameSong(chart.BmsFile);
+    }
+
+    internal List<string> GetPlaylistFolderOrgMd5sForCharts(IEnumerable<ChartFile> charts)
+    {
+        foreach (ChartFile chart in charts ?? [])
+        {
+            List<string> orgMd5s = GetPlaylistOrgMd5sForChart(chart);
+            if (orgMd5s?.Count > 0)
+            {
+                return orgMd5s;
+            }
+        }
+        return [];
+    }
+
+    private List<string> GetMD5sOfTheSameSong(BMSFile file)
     {
         if (file == null)
         {

@@ -1522,7 +1522,7 @@ public sealed class PlaylistViewPipelineTests
         var row = LibraryChartRow.FromBmsonSong(bmson);
 
         ChartFile chart = MainWindowViewModel.ResolvePlaylistDropChart(row);
-        var entry = new BMSTableEntry(chart);
+        var entry = BMSTableEntry.CreateForPlaylistDrop(chart);
 
         Assert.IsNotNull(chart);
         Assert.AreEqual(ChartFileKind.Bmson, chart.Kind);
@@ -1533,6 +1533,19 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(entry.md5);
         Assert.AreEqual(bmson.sha256, entry.sha256);
         Assert.AreEqual(0, entry.Org_md5.Count);
+    }
+
+    [TestMethod]
+    public void CreateForPlaylistDrop_BmsChartUsesProvidedOrgMd5s()
+    {
+        var file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "BMS", 8);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+
+        var entry = BMSTableEntry.CreateForPlaylistDrop(chart, ["cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"]);
+
+        Assert.AreEqual(file.hash, entry.md5);
+        CollectionAssert.AreEqual(new[] { "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" }, entry.Org_md5);
     }
 
     [TestMethod]

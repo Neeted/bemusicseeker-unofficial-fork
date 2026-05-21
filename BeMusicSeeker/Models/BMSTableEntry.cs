@@ -428,6 +428,13 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
     }
 
+    internal static BMSTableEntry CreateForPlaylistDrop(ChartFile chart, IEnumerable<string> bmsFolderOrgMd5s = null)
+    {
+        var entry = new BMSTableEntry(chart);
+        entry.Org_md5 = chart?.Kind == ChartFileKind.Bmson ? [] : [.. bmsFolderOrgMd5s ?? []];
+        return entry;
+    }
+
     public BMSTableEntry(dynamic data_json, BMSTable _parent = null)
         : this()
     {
