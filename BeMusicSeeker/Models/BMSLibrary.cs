@@ -10139,41 +10139,22 @@ reportProgress,
         return playlistReferenceService.ApplyReferenceMap(entries, referenceMaps, out _, out _, suppressFilePropertyChanged);
     }
 
-    private static int RemoveReferenceBMSTableFromPackageEntries(BMSTable table, IEnumerable<PackageChartEntry> entries)
+    private static void RemoveReferenceBMSTableFromPackageEntries(BMSTable table, IEnumerable<PackageChartEntry> entries)
     {
-        if (table == null || entries == null)
-        {
-            return 0;
-        }
-
-        int removedRefs = 0;
-        foreach (BMSFile file in GetBmsStorageOwnersFromPackageEntries(entries))
-        {
-            bool hadReference = file.HasRefTable(table);
-            file.RemoveRefTable(table);
-            if (hadReference)
-            {
-                removedRefs++;
-            }
-        }
-        return removedRefs;
+        RemoveReferenceBMSTableFromCharts(table, (entries ?? []).Select(entry => entry?.Chart));
     }
 
-    private static List<BMSFile> GetBmsStorageOwnersFromPackageEntries(IEnumerable<PackageChartEntry> entries)
+    private static IEnumerable<BMSFile> GetBmsStorageOwners(IEnumerable<ChartFile> charts)
     {
-        return [.. (entries ?? [])
-            .Select(entry => entry?.Chart?.GetBmsStorageOwner())
+        return (charts ?? [])
+            .Select(chart => chart?.GetBmsStorageOwner())
             .Where(file => file != null)
-            .Distinct()];
+            .Distinct();
     }
 
-    private static void RefreshReferenceDisplayForFiles(IEnumerable<BMSFile> files, bool suppressFilePropertyChanged = false)
+    private static void RefreshReferenceDisplayForCharts(IEnumerable<ChartFile> charts, bool suppressFilePropertyChanged = false)
     {
-        if (files == null)
-        {
-            return;
-        }
-        foreach (BMSFile file in files.Where(file => file != null).Distinct())
+        foreach (BMSFile file in GetBmsStorageOwners(charts))
         {
             file.RefreshRefTablesDisplayCache(suppressFilePropertyChanged);
         }
@@ -10186,34 +10167,37 @@ reportProgress,
             return;
         }
         ReplacePlaylistReferenceIndexTable(table);
-        List<BMSFile> list = [];
+        var libraryCharts = new List<ChartFile>();
         using (rwlockBMSFiles.GetReaderGuard())
         {
             if (BMSFiles != null)
             {
-                list.AddRange(BMSFiles.Where(file => file != null && file.HasRefTable(table)));
+                libraryCharts.AddRange(ChartFileProjection.FromBmsFiles(BMSFiles.Where(file => file != null && file.HasRefTable(table)), includeWarningSnapshot: false));
             }
         }
+        var pendingCharts = new List<ChartFile>();
         using (rwlockPendingInstallCharts.GetReaderGuard())
         {
             if (ChartPackagesPending != null)
             {
-                list.AddRange(GetBmsStorageOwnersFromPackageEntries(ChartPackagesPending
+                pendingCharts.AddRange(ChartPackagesPending
                     .Where(pkg => pkg != null)
-                    .SelectMany(pkg => pkg.ChartEntries))
-                    .Where(file => file.HasRefTable(table)));
+                    .SelectMany(pkg => pkg.ChartEntries)
+                    .Select(entry => entry?.Chart)
+                    .Where(chart => chart?.GetBmsStorageOwner()?.HasRefTable(table) == true));
             }
         }
-        RefreshReferenceDisplayForFiles(list, suppressFilePropertyChanged);
+        RefreshReferenceDisplayForCharts(libraryCharts, suppressFilePropertyChanged);
+        RefreshReferenceDisplayForCharts(pendingCharts, suppressFilePropertyChanged);
     }
 
     internal void SynchronizeReferenceBMSTables(IEnumerable<BMSTable> tables, bool suppressFilePropertyChanged = false)
     {
         List<BMSTable> list = ((tables != null) ? [.. tables.Where(table => table != null).Distinct()] : new List<BMSTable>());
         var hashSet = new HashSet<BMSTable>(list);
-        void action(IEnumerable<BMSFile> files)
+        void action(IEnumerable<ChartFile> charts)
         {
-            foreach (BMSFile file in files.Where(file => file != null))
+            foreach (BMSFile file in GetBmsStorageOwners(charts))
             {
                 file.RemoveRefTablesNotIn(hashSet, suppressFilePropertyChanged);
             }
@@ -10222,12 +10206,12 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                action(BMSFiles);
+                action(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
             }
         }
         if (ChartPackagesPending != null && ChartPackagesPending.Count > 0)
         {
-            action(GetBmsStorageOwnersFromPackageEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply()));
+            action((SnapshotPendingChartEntriesForPlaylistReferenceApply() ?? []).Select(entry => entry?.Chart));
         }
         if (list.Count > 0)
         {
@@ -10251,25 +10235,11 @@ reportProgress,
         if (entries == null)
         {
             RemovePlaylistReferenceIndexTable(table);
-            void action(IEnumerable<BMSFile> files)
+            using (rwlockBMSFiles.GetReaderGuard())
             {
-                foreach (BMSFile file in files.Where(file => file != null))
-                {
-                    file.RemoveRefTable(table);
-                }
+                RemoveReferenceBMSTableFromCharts(table, ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
             }
-            if (BMSFiles != null && BMSFiles.Count > 0)
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    action(BMSFiles);
-                }
-            }
-            if (ChartPackagesPending == null || ChartPackagesPending.Count <= 0)
-            {
-                return;
-            }
-            action(GetBmsStorageOwnersFromPackageEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply()));
+            RemoveReferenceBMSTableFromPackageEntries(table, SnapshotPendingChartEntriesForPlaylistReferenceApply());
             return;
         }
         ReplacePlaylistReferenceIndexTable(table);
@@ -10296,11 +10266,12 @@ reportProgress,
             return;
         }
         RemovePlaylistReferenceIndexTables(list);
-        void action(IEnumerable<BMSFile> l)
+        void action(IEnumerable<ChartFile> charts)
         {
+            List<BMSFile> files = [.. GetBmsStorageOwners(charts)];
             list.AsParallel().ForAll(delegate (BMSTable table)
             {
-                foreach (BMSFile file in l.Where(file => file != null))
+                foreach (BMSFile file in files)
                 {
                     file.RemoveRefTable(table);
                 }
@@ -10310,14 +10281,14 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                action(BMSFiles);
+                action(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
             }
         }
         if (ChartPackagesPending == null || ChartPackagesPending.Count <= 0)
         {
             return;
         }
-        action(GetBmsStorageOwnersFromPackageEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply()));
+        action((SnapshotPendingChartEntriesForPlaylistReferenceApply() ?? []).Select(entry => entry?.Chart));
     }
 
     private static void RemoveReferenceBMSTableFromCharts(BMSTable table, IEnumerable<ChartFile> charts)
@@ -10326,7 +10297,7 @@ reportProgress,
         {
             return;
         }
-        foreach (BMSFile file in charts.Select(chart => chart?.GetBmsStorageOwner()).Where(file => file != null).Distinct())
+        foreach (BMSFile file in GetBmsStorageOwners(charts))
         {
             file.RemoveRefTable(table);
         }
