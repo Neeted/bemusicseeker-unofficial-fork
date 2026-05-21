@@ -321,7 +321,7 @@ public sealed class BmsLibraryStateApplierTests
                 path = "C:\\Library\\keep.bmson",
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             }));
-            var mixedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(removedFile), unmatchedBmsonEntry]);
+            var mixedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(removedFile)), unmatchedBmsonEntry]);
             mixedPackage.path = "C:\\Installed\\MixedPkg";
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {

@@ -812,7 +812,7 @@ public sealed class ChartListVirtualViewTests
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromBmsFile(bms),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bms)),
             adapterlessBmsonEntry
         ]);
 
@@ -831,7 +831,7 @@ public sealed class ChartListVirtualViewTests
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromBmsFile(bms),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bms)),
             PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson))
         ]);
 
@@ -867,7 +867,7 @@ public sealed class ChartListVirtualViewTests
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromBmsFile(bms),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bms)),
             adapterlessBmsonEntry
         ]);
 
@@ -1070,7 +1070,7 @@ public sealed class ChartListVirtualViewTests
             "Pkg",
             hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        PackageChartEntry entry = PackageChartEntry.FromBmsFile(adapter);
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(adapter));
         LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));

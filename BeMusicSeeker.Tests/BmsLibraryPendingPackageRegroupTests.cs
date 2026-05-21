@@ -52,7 +52,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BMSFiles = [];
             SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
 
-            library.SearchEstimatedInstallationDirectory(PackageChartEntry.FromBmsFile(firstPackage.GetBmsOwnersForTest().Single()), asParallel: false, fixMode: false);
+            library.SearchEstimatedInstallationDirectory(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(firstPackage.GetBmsOwnersForTest().Single())), asParallel: false, fixMode: false);
 
             AssertPendingPackagePaths(library, firstPackage.path, secondPackage.path);
             CollectionAssert.AreEquivalent(new[] { firstPackage.path, secondPackage.path }, LoadInstallPaths(songDbPath));
@@ -886,7 +886,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Mixed Bmson", "Mixed Artist");
             var pendingBms = BMSFile.CreateBMSFileFromFile(pendingBmsPath);
             PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingBms), pendingBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBms)), pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -928,7 +928,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             var pendingBmsA = BMSFile.CreateBMSFileFromFile(pendingBmsAPath);
             var pendingBmsB = BMSFile.CreateBMSFileFromFile(pendingBmsBPath);
             PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingBmsA), PackageChartEntry.FromBmsFile(pendingBmsB), pendingBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBmsA)), PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBmsB)), pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -970,7 +970,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             File.WriteAllText(Path.Combine(resourceDestinationDirectoryPath, "sound.wav"), "resource");
             var pendingBms = BMSFile.CreateBMSFileFromFile(pendingBmsPath);
             PackageChartEntry pendingBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(pendingBmsonPath)));
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingBms), pendingBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBms)), pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BMSFiles =
@@ -1021,7 +1021,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage);
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
-            library.SearchMergeDestinationForPendingCharts([PackageChartEntry.FromBmsFile(pendingFile)]);
+            library.SearchMergeDestinationForPendingCharts([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile))]);
 
             Assert.AreEqual(candidateDirectoryPath, pendingFile.instl_dst);
             Assert.AreEqual("Installed Title", pendingFile.InstallDestinationTitle);
@@ -1048,7 +1048,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedFilePath)];
             SeedPendingPackages(library, songDbPath, pendingPackage);
 
-            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromBmsFile(pendingFile), destinationDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)), destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(destinationDirectoryPath, pendingFile.instl_dst);
@@ -1105,7 +1105,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(destinationFilePath)
             ];
 
-            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromBmsFile(sourceFile), destinationDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(sourceFile)), destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(destinationDirectoryPath, sourceFile.instl_dst);
@@ -1161,7 +1161,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(destinationFilePath)
             ];
 
-            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromBmsFile(sourceFile), destinationDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(sourceFile)), destinationDirectoryPath);
 
             Assert.IsFalse(succeeded);
             Assert.IsNull(sourceFile.instl_dst);
@@ -1197,7 +1197,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromBmsFile(pendingFile), candidateBDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)), candidateBDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(candidateBDirectoryPath, pendingFile.instl_dst);
@@ -1286,7 +1286,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromBmsFile(pendingFile), manualDirectoryPath);
+            bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)), manualDirectoryPath);
 
             Assert.IsTrue(succeeded);
             Assert.AreEqual(manualDirectoryPath, pendingFile.instl_dst);
@@ -1329,7 +1329,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
 
-            library.RemoveInstallDestination([PackageChartEntry.FromBmsFile(pendingFile)]);
+            library.RemoveInstallDestination([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile))]);
 
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.instl_dst));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.InstallDestinationTitle));
@@ -1367,7 +1367,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch));
 
-            library.RemoveInstallDestination([PackageChartEntry.FromBmsFile(pendingFile)]);
+            library.RemoveInstallDestination([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile))]);
 
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.instl_dst));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.InstallDestinationTitle));

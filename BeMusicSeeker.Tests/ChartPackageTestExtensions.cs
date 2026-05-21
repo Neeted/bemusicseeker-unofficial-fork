@@ -14,7 +14,7 @@ internal static class ChartPackageTestExtensions
 
     internal static ChartPackage CreatePackage(IEnumerable<BMSFile> chartFiles)
     {
-        return ChartPackage.FromChartEntries((chartFiles ?? []).Select(PackageChartEntry.FromBmsFile));
+        return ChartPackage.FromChartEntries((chartFiles ?? []).Select(file => PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file))));
     }
 
     internal static ChartPackage CreatePackage(params PackageChartEntry[] entries)

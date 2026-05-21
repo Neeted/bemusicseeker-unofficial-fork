@@ -119,7 +119,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
         TestableBmsFile file = CreateFile(md5);
-        PackageChartEntry entry = PackageChartEntry.FromBmsFile(file);
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
         int appliedCharts = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);

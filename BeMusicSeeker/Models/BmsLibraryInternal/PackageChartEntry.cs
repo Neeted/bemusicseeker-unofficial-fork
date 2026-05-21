@@ -34,11 +34,6 @@ internal sealed class PackageChartEntry
         }
     }
 
-    internal PackageChartEntry(BMSFile bmsFile)
-        : this(ChartFileProjection.FromBmsFile(bmsFile))
-    {
-    }
-
     internal ChartFile Chart
     {
         get
@@ -70,10 +65,7 @@ internal sealed class PackageChartEntry
             return null;
         }
 
-        BMSFile bmsFile = currentChart.GetBmsStorageOwner();
-        return bmsFile != null
-            ? FromBmsFile(bmsFile)
-            : FromChart(currentChart);
+        return FromChart(currentChart);
     }
 
     internal bool IsSameChartTarget(PackageChartEntry targetEntry)
@@ -148,11 +140,6 @@ internal sealed class PackageChartEntry
     {
         PackageChartInstallDestinationState state = CaptureInstallDestinationState();
         ReplaceInstallDestinationState(destinationDirectory, state.Title, state.Artist, state.Suggestions);
-    }
-
-    internal static PackageChartEntry FromBmsFile(BMSFile bmsFile)
-    {
-        return bmsFile == null ? null : new PackageChartEntry(bmsFile);
     }
 
     internal static PackageChartEntry FromChart(ChartFile chart)
@@ -523,7 +510,7 @@ internal sealed class PackageChartEntry
             {
                 return FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(filePath)));
             }
-            return FromBmsFile(BMSFile.CreateBMSFileFromFile(filePath));
+            return FromChart(ChartFileProjection.FromBmsFile(BMSFile.CreateBMSFileFromFile(filePath)));
         }
         catch
         {

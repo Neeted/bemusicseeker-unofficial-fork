@@ -113,7 +113,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            [PackageChartEntry.FromBmsFile(pendingC)],
+            [PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingC))],
             BuildInstalledHashToDirectoryMap(service, installedFiles));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
@@ -151,8 +151,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         };
         var package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromBmsFile(pendingA),
-            PackageChartEntry.FromBmsFile(pendingB),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingA)),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingB)),
             PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson))
         ]);
         package.path = "C:\\Pending";
@@ -190,7 +190,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
-            [PackageChartEntry.FromBmsFile(pendingMissing)],
+            [PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingMissing))],
             BuildInstalledHashToDirectoryMap(service, installedFiles));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
@@ -226,7 +226,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         };
         var package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromBmsFile(pendingBms),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingBms)),
             PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson))
         ]);
         package.path = "C:\\Pending";
@@ -1142,8 +1142,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     {
         TestableBmsFile firstBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingA", "chart.bms"));
         TestableBmsFile secondBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingB", "chart.bms"));
-        PackageChartEntry firstBmsEntry = PackageChartEntry.FromBmsFile(firstBms);
-        PackageChartEntry secondBmsEntry = PackageChartEntry.FromBmsFile(secondBms);
+        PackageChartEntry firstBmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(firstBms));
+        PackageChartEntry secondBmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(secondBms));
         var firstBmson = new LR2SongDBExtended.bmson_song
         {
             path = Path.Combine("C:\\PendingA", "chart.bmson"),
@@ -1192,7 +1192,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     public void PackageChartEntry_BmsStorageOwnerMutatesBmsRow()
     {
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
-        PackageChartEntry entry = PackageChartEntry.FromBmsFile(file);
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         string installedPath = Path.Combine(destinationDirectory, "chart.bms");
 
@@ -1615,7 +1615,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             pendingPackage.delete_parent = false;
 
             PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
-                PackageChartEntry.FromBmsFile(pendingFile),
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)),
                 [pendingPackage],
                 [installDirectoryPath],
                 installDirectoryPath);
@@ -1712,7 +1712,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
 
-        service.CorrectChartInstallationDirectory([PackageChartEntry.FromBmsFile(file)], delegate (PackageChartEntry target)
+        service.CorrectChartInstallationDirectory([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file))], delegate (PackageChartEntry target)
         {
             target.SetInstallDestinationPathOnly(Path.Combine("C:\\Music", "FolderA"));
         });
@@ -1728,7 +1728,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
         file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
 
-        service.ClearInstallDestinations([PackageChartEntry.FromBmsFile(file)]);
+        service.ClearInstallDestinations([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file))]);
 
         Assert.IsFalse(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
     }
@@ -3042,7 +3042,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     private static PackageInstallEstimationSnapshot? BuildLooseChartSnapshot(IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, ChartInstallationEstimateMode estimateMode)
     {
         List<PackageChartEntry> targetEntries = [.. (chartFiles ?? [])
-            .Select(PackageChartEntry.FromBmsFile)
+            .Select(file => PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file)))
             .Where(entry => entry?.Chart != null)];
         return BuildLooseChartSnapshot(targetEntries, installedHashes, estimateMode);
     }
@@ -3078,7 +3078,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
             PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
-            result.Add(packageEntry ?? PackageChartEntry.FromBmsFile(targetFile));
+            result.Add(packageEntry ?? PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(targetFile)));
         }
         return [.. result.Where(entry => entry?.Chart != null)];
     }

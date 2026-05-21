@@ -2008,7 +2008,7 @@ public sealed class PlaylistViewPipelineTests
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
 
-        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromBmsFile(file));
+        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file)));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
 

@@ -467,7 +467,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             sha256 = new string('b', 64),
             title = "Bmson"
         }));
-        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
+        ChartPackage pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)), adapterlessBmsonEntry]);
         pendingPackage.path = "C:\\Pending\\Pkg1";
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
 
@@ -494,7 +494,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }), "C:\\Installed\\Target", "Installed", "Artist", []));
         ChartPackage package = ChartPackage.FromChartEntries(
         [
-            PackageChartEntry.FromBmsFile(bmsFile),
+            PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile)),
             adapterlessBmsonEntry
         ]);
 
@@ -1066,13 +1066,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void PackageChartEntry_FromBmsFile_ProjectsBmsMode()
+    public void PackageChartEntry_FromBmsChartProjection_ProjectsBmsMode()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         TestableBmsFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
         source.SetMode(7);
 
-        PackageChartEntry entry = PackageChartEntry.FromBmsFile(source);
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(source));
 
         Assert.AreEqual(7, entry.Chart.Mode);
     }
@@ -1258,7 +1258,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 sha256 = new string('b', 64)
             }));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(chart), outsideBmsonEntry]);
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(chart)), outsideBmsonEntry]);
             package.path = sourceDirectoryPath;
 
             var service = new BmsLibraryPackageInstallService();
@@ -1503,7 +1503,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 sha256 = new string('b', 64)
             }));
-            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(chart), outsideBmsonEntry]);
+            ChartPackage package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(chart)), outsideBmsonEntry]);
             package.path = sourceDirectoryPath;
 
             var service = new BmsLibraryPackageInstallService();
@@ -2081,7 +2081,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 path = Path.Combine(tempDirectoryPath, "plain.bmson"),
                 md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             }));
-            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(bmsFile), adapterlessBmsonEntry, plainBmsonPathEntry]);
+            var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile)), adapterlessBmsonEntry, plainBmsonPathEntry]);
             ChartPackage adapterlessBmsonPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
 
             List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
@@ -2629,7 +2629,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
             PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
-            result.Add(packageEntry ?? PackageChartEntry.FromBmsFile(targetFile));
+            result.Add(packageEntry ?? PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(targetFile)));
         }
         return [.. result.Where(entry => entry?.Chart != null)];
     }

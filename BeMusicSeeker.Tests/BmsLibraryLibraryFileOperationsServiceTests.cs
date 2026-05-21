@@ -174,7 +174,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 folder = Path.Combine(tempDirectoryPath, "Pending"),
                 title = "Bmson"
             }));
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
             var installedPackage = ChartPackageTestExtensions.CreatePackage([libraryFile]);
@@ -241,7 +241,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             pendingFile.InstallDestinationArtist = "Pending BMS artist";
             pendingFile.InstallDestinationSuggestions = [Path.Combine(tempDirectoryPath, "Other")];
             pendingFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "pending bms warning");
-            PackageChartEntry pendingBmsEntry = PackageChartEntry.FromBmsFile(pendingFile);
+            PackageChartEntry pendingBmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
             var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = Path.Combine(tempDirectoryPath, "Pending", "chart.bmson"),
@@ -791,7 +791,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 folder = Path.Combine(tempDirectoryPath, "Pending"),
                 title = "Bmson"
             }));
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile)), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
