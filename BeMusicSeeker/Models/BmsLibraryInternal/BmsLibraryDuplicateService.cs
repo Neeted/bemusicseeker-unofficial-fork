@@ -40,16 +40,15 @@ internal sealed class BmsLibraryDuplicateService
     /// BMS storage row へ重複 warning を反映します。
     /// bmson は storage row が warning collection を持たないため、<see cref="Analyze"/> が返す <see cref="DuplicateGroup.ChartFiles"/> の projection に反映します。
     /// </summary>
-    /// <param name="files">重複 warning を付与する BMS storage row。</param>
+    /// <param name="charts">重複 warning を付与する chart。</param>
     /// <param name="duplicateWarningMessage">重複 warning の表示本文。</param>
-    public void ApplyDuplicateWarnings(IEnumerable<BMSFile> files, string duplicateWarningMessage)
+    public void ApplyDuplicateWarnings(IEnumerable<ChartFile> charts, string duplicateWarningMessage)
     {
-        foreach (BMSFile file in files ?? [])
+        foreach (BMSFile file in (charts ?? [])
+            .Select(chart => chart?.GetBmsStorageOwner())
+            .Where(file => file != null)
+            .Distinct())
         {
-            if (file == null)
-            {
-                continue;
-            }
             file.ClearWarning(ChartWarningKind.DuplicateChart);
             file.SetWarning(ChartWarningKind.DuplicateChart, duplicateWarningMessage);
         }
@@ -74,9 +73,9 @@ internal sealed class BmsLibraryDuplicateService
             foreach (DuplicateChartRow item in duplicateHashGroup)
             {
                 duplicateRows.Add(item);
-                if (item.BmsFile != null)
+                if (item.Chart != null)
                 {
-                    result.DuplicateBmsFiles.Add(item.BmsFile);
+                    result.DuplicateCharts.Add(item.Chart);
                 }
             }
         }
