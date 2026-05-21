@@ -6826,7 +6826,7 @@ public class MainWindowViewModel : ViewModel
             chartsBySha256.TryGetValue(entry.sha256, out resolvedBySha256);
         }
         // 旧実装は BMS md5 -> BMS sha256 -> bmson md5 -> bmson sha256 の順で解決していた。
-        // BMS row が score snapshot の owner でもあるため、ChartFile index 化後も BMS 優先順を維持する。
+        // ChartFile index 化後も同じ代表選択順を維持し、score 解決は選ばれた ChartFile identity を読む。
         if (resolvedBySha256?.Kind == ChartFileKind.Bms)
         {
             return resolvedBySha256;
@@ -6882,7 +6882,7 @@ public class MainWindowViewModel : ViewModel
 
     private static BeMusicSeeker.Models.BMSScore ResolvePlaylistEntryScoreSnapshot(
         BMSTableEntry entry,
-        BeMusicSeeker.Models.BMSFile realFile,
+        ChartFile resolvedChart,
         LR2SongDBExtended.chart_info entryChartInfo,
         BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot,
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash,
@@ -6894,7 +6894,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Lr2)
         {
-            string hash = FirstNonEmpty(realFile?.hash, entry.md5);
+            string hash = FirstNonEmpty(resolvedChart?.Md5, entry.md5);
             if (scoresByHash != null && scoresByHash.TryGetValue(hash, out BeMusicSeeker.Models.BMSScore lr2Score))
             {
                 return lr2Score;
@@ -6903,10 +6903,10 @@ public class MainWindowViewModel : ViewModel
         }
         if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Beatoraja && scoresBySha256 != null)
         {
-            string sha256 = FirstNonEmpty(realFile?.sha256, entry.sha256, entryChartInfo?.sha256);
+            string sha256 = FirstNonEmpty(resolvedChart?.Sha256, entry.sha256, entryChartInfo?.sha256);
             if (scoresBySha256.TryGetValue(sha256, out BeMusicSeeker.Models.BMSScore beatorajaScore))
             {
-                string hash = FirstNonEmpty(realFile?.hash, entry.md5);
+                string hash = FirstNonEmpty(resolvedChart?.Md5, entry.md5);
                 return string.IsNullOrWhiteSpace(hash)
                     ? beatorajaScore
                     : BmsLibraryIrService.CloneScoreForFileHash(beatorajaScore, hash);
@@ -6923,7 +6923,7 @@ public class MainWindowViewModel : ViewModel
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash,
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256)
     {
-        return ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart?.BmsFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
+        return ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
     }
 
     private static string FirstNonEmpty(params string[] candidates)
@@ -15535,7 +15535,7 @@ public class MainWindowViewModel : ViewModel
         foreach ((BMSTableEntry entry, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart?.BmsFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
+            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
             scoreUpdateTargetCount++;
             if (scoreSnapshotForRow != null)
             {

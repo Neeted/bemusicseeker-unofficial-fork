@@ -538,7 +538,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlaylistDetailSourceRow_BmsonOwnedWithoutRealFile_UsesBmsonMetadata()
+    public void PlaylistDetailSourceRow_BmsonOwnedChart_UsesBmsonMetadata()
     {
         var entry = new TestablePlaylistEntry
         {
@@ -590,7 +590,45 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlaylistDetailSourceRow_BmsonOwnedWithoutRealFile_UsesPlaylistReferenceProjection()
+    public void PlaylistDetailSourceRow_BmsonOwnedWithResolvedScore_UsesScoreSnapshot()
+    {
+        var entry = new TestablePlaylistEntry();
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            title = "Bmson",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64)
+        };
+        var score = new BMSScore
+        {
+            hash = bmson.md5,
+            clear = ClearType.HARD,
+            rank = RankType.AA,
+            perfect = 800,
+            great = 100,
+            totalnotes = 1000,
+            maxcombo = 900,
+            minbp = 7
+        };
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+
+        var sourceRow = new PlaylistDetailSourceRow(
+            entry,
+            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            scoreSnapshot: score);
+
+        Assert.AreEqual(ClearType.HARD, sourceRow.clear);
+        Assert.AreEqual(RankType.AA, sourceRow.rank);
+        Assert.AreEqual(1700, sourceRow.score);
+        Assert.AreEqual(1000, sourceRow.totalnotes);
+        Assert.AreEqual(900, sourceRow.maxcombo);
+        Assert.AreEqual(7, sourceRow.minbp);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_BmsonOwnedChart_UsesPlaylistReferenceProjection()
     {
         var entry = new TestablePlaylistEntry();
         var bmson = new LR2SongDBExtended.bmson_song
@@ -2377,7 +2415,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesRealFileSha256ForMd5OnlyEntry()
+    public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesResolvedChartSha256ForMd5OnlyEntry()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
@@ -2416,7 +2454,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolvePlaylistEntryScoreSnapshot_Lr2PrefersRealFileHashWhenEntryHashIsStale()
+    public void ResolvePlaylistEntryScoreSnapshot_Lr2PrefersResolvedChartHashWhenEntryHashIsStale()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
@@ -2495,6 +2533,49 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(entry.md5, resolved.hash);
         Assert.AreEqual(ClearType.EX_HARD, resolved.clear);
         Assert.AreEqual(1250, resolved.score);
+    }
+
+    [TestMethod]
+    public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesBmsonChartSha256ForOwnedBmsonEntry()
+    {
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5("dddddddddddddddddddddddddddddddd");
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\score.bmson",
+            md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            sha256 = new string('c', 64),
+            title = "Bmson score"
+        };
+        var score = new BMSScore
+        {
+            hash = bmson.sha256,
+            clear = ClearType.HARD,
+            perfect = 700,
+            great = 100,
+            totalnotes = 900
+        };
+        var snapshot = new BMSLibrary.ScoreSnapshot
+        {
+            ActiveScoreSource = ActiveScoreSource.Beatoraja,
+            ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [bmson.sha256] = score
+            }
+        };
+
+        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+            entry,
+            ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
+            entryChartInfo: null,
+            snapshot,
+            scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
+            scoresBySha256: snapshot.ScoresBySha256);
+
+        Assert.IsNotNull(resolved);
+        Assert.AreEqual(bmson.md5, resolved.hash);
+        Assert.AreEqual(ClearType.HARD, resolved.clear);
+        Assert.AreEqual(1500, resolved.score);
     }
 
     [TestMethod]

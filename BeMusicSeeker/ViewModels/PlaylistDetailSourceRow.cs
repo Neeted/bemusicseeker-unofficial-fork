@@ -23,8 +23,6 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly ChartFile resolvedChartSnapshot;
 
-    private readonly BMSFile realFile;
-
     private readonly LR2SongDBExtended.bmson_song resolvedBmson;
 
     private readonly Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
@@ -130,9 +128,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal LR2SongDBExtended.chart_info EntryChartInfo { get; private set; }
 
-    internal LR2SongDBExtended.chart_info ChartInfo => realFile?.ChartInfo ?? resolvedBmson?.ChartInfo ?? EntryChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => resolvedChartSnapshot?.BmsFile?.ChartInfo ?? resolvedBmson?.ChartInfo ?? EntryChartInfo;
 
-    internal bool HasEntryChartInfoDependency => realFile == null && resolvedBmson == null;
+    internal bool HasEntryChartInfoDependency => resolvedChartSnapshot?.BmsFile == null && resolvedBmson == null;
 
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
@@ -218,7 +216,6 @@ internal sealed class PlaylistDetailSourceRow
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
-        realFile = resolvedChart?.BmsFile;
         resolvedBmson = resolvedChart?.BmsonSong;
         EntryChartInfo = entryChartInfo;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
@@ -259,8 +256,8 @@ internal sealed class PlaylistDetailSourceRow
         encoding = FirstNonEmpty(Chart?.EncodingName, bmsOwner?.encoding);
         RefTablesSymbols = bmsOwner?.RefTablesSymbols ?? playlistReferenceDisplay.Symbols;
         RefTablesNames = bmsOwner?.RefTablesNames ?? playlistReferenceDisplay.Names;
-        clear = ResolveClear(isBmsOwned, isBmsonOwned, effectiveScore);
-        rank = ResolveRank(isBmsOwned, isBmsonOwned, effectiveScore);
+        clear = ResolveClear(isBmsOwned || isBmsonOwned, effectiveScore);
+        rank = ResolveRank(effectiveScore);
         rate = effectiveScore?.rate;
         score = effectiveScore?.score;
         totalnotes = effectiveScore?.totalnotes;
@@ -328,9 +325,10 @@ internal sealed class PlaylistDetailSourceRow
 
     private ChartFile CreateChartFile()
     {
-        if (realFile != null)
+        BMSFile bmsOwner = resolvedChartSnapshot?.BmsFile;
+        if (bmsOwner != null)
         {
-            return ChartFileProjection.FromBmsFile(realFile);
+            return ChartFileProjection.FromBmsFile(bmsOwner);
         }
         if (resolvedBmson != null)
         {
@@ -442,34 +440,22 @@ internal sealed class PlaylistDetailSourceRow
         return string.Empty;
     }
 
-    private static ClearType ResolveClear(bool isBmsOwned, bool isBmsonOwned, BMSScore effectiveScore)
+    private static ClearType ResolveClear(bool isOwned, BMSScore effectiveScore)
     {
-        if (isBmsOwned)
+        if (effectiveScore != null)
         {
-            return effectiveScore?.clear ?? ClearType.NO_PLAY;
+            return effectiveScore.clear;
         }
-        if (isBmsonOwned)
-        {
-            return ClearType.NO_PLAY;
-        }
-        return effectiveScore?.clear ?? ClearType.NO_SONG;
+        return isOwned ? ClearType.NO_PLAY : ClearType.NO_SONG;
     }
 
-    private static RankType ResolveRank(bool isBmsOwned, bool isBmsonOwned, BMSScore effectiveScore)
+    private static RankType ResolveRank(BMSScore effectiveScore)
     {
-        if (isBmsOwned)
-        {
-            if (effectiveScore == null)
-            {
-                return RankType.INVALID;
-            }
-            return (effectiveScore.rank != RankType.INVALID) ? effectiveScore.rank : RankType.F;
-        }
-        if (isBmsonOwned)
+        if (effectiveScore == null)
         {
             return RankType.INVALID;
         }
-        return effectiveScore?.rank ?? RankType.INVALID;
+        return (effectiveScore.rank != RankType.INVALID) ? effectiveScore.rank : RankType.F;
     }
 
     private static int? ResolveMinBp(BMSScore effectiveScore)
