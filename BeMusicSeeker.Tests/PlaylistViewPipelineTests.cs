@@ -692,8 +692,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(bmson, target.Chart.GetBmsonStorageOwner());
         LibraryChartRef libraryRef = target.ToLibraryChartRef();
         Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
-        Assert.IsNull(libraryRef.BmsFile);
-        Assert.AreSame(bmson, libraryRef.BmsonSong);
+        Assert.IsNull(libraryRef.GetBmsStorageOwner());
+        Assert.AreSame(bmson, libraryRef.GetBmsonStorageOwner());
         Assert.AreEqual(bmson.path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
@@ -921,7 +921,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(file, target.Chart.GetBmsStorageOwner());
         LibraryChartRef libraryRef = target.ToLibraryChartRef();
         Assert.AreEqual(LibraryChartKind.Bms, libraryRef.Kind);
-        Assert.AreSame(file, libraryRef.BmsFile);
+        Assert.AreSame(file, libraryRef.GetBmsStorageOwner());
         Assert.AreEqual(file.path, libraryRef.Path);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
@@ -1021,8 +1021,44 @@ public sealed class PlaylistViewPipelineTests
         LibraryChartRef libraryRef = target.ToLibraryChartRef();
 
         Assert.AreEqual(LibraryChartKind.Bmson, libraryRef.Kind);
-        Assert.IsNull(libraryRef.BmsFile);
-        Assert.AreSame(bmson, libraryRef.BmsonSong);
+        Assert.IsNull(libraryRef.GetBmsStorageOwner());
+        Assert.AreSame(bmson, libraryRef.GetBmsonStorageOwner());
+    }
+
+    [TestMethod]
+    public void LibraryChartRef_StorageOwnersAreGetterOnlyAndKindGated()
+    {
+        var bms = new TestableBmsFile();
+        bms.ApplySnapshot("abababababababababababababababab", "BMS", 7);
+        bms.SetSha256(new string('a', 64));
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            md5 = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            sha256 = new string('c', 64)
+        };
+
+        LibraryChartRef bmsRef = LibraryChartRef.FromBmsFile(bms);
+        LibraryChartRef bmsonRef = LibraryChartRef.FromBmsonSong(bmson);
+        LibraryChartRef pathOnlyRef = LibraryChartRef.FromPath(
+            LibraryChartKind.Bmson,
+            "C:\\Songs\\Missing\\missing.bmson",
+            "efefefefefefefefefefefefefefefef",
+            new string('e', 64));
+
+        Assert.IsNull(typeof(LibraryChartRef).GetProperty("BmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
+        Assert.IsNull(typeof(LibraryChartRef).GetProperty("BmsonSong", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
+        Assert.AreSame(bms, bmsRef.GetBmsStorageOwner());
+        Assert.IsNull(bmsRef.GetBmsonStorageOwner());
+        Assert.AreSame(bms, bmsRef.ToChartFile().GetBmsStorageOwner());
+        Assert.IsNull(bmsonRef.GetBmsStorageOwner());
+        Assert.AreSame(bmson, bmsonRef.GetBmsonStorageOwner());
+        Assert.AreSame(bmson, bmsonRef.ToChartFile().GetBmsonStorageOwner());
+        Assert.IsNull(pathOnlyRef.GetBmsStorageOwner());
+        Assert.IsNull(pathOnlyRef.GetBmsonStorageOwner());
+        Assert.IsNull(pathOnlyRef.ToChartFile());
     }
 
     [TestMethod]
@@ -1622,8 +1658,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
 
         var chartRef = LibraryChartRef.FromChartFile(row.Chart);
-        Assert.IsNull(chartRef.BmsFile);
-        Assert.AreSame(bmson, chartRef.BmsonSong);
+        Assert.IsNull(chartRef.GetBmsStorageOwner());
+        Assert.AreSame(bmson, chartRef.GetBmsonStorageOwner());
     }
 
     [TestMethod]

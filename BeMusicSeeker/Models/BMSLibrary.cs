@@ -10473,10 +10473,10 @@ reportProgress,
                         return;
                     }
                     List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceCharts
-                        .Select(chart => chart?.BmsFile)
+                        .Select(chart => chart?.GetBmsStorageOwner())
                         .Where(ChartFileKindResolver.IsBmsChartFile)];
                     List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceCharts
-                        .Select(chart => chart?.BmsonSong)
+                        .Select(chart => chart?.GetBmsonStorageOwner())
                         .Where(song => song != null)
                         .Distinct()];
                     unregisterBMSFiles(sourceBmsFiles);
@@ -10928,11 +10928,11 @@ reportProgress,
                         }
                     }
                     List<BMSFile> removedBmsFiles = [.. result.RemovedCharts
-                        .Where(chart => chart?.Kind == LibraryChartKind.Bms && chart.BmsFile != null)
-                        .Select(chart => chart.BmsFile)];
+                        .Select(chart => chart?.GetBmsStorageOwner())
+                        .Where(file => file != null)];
                     List<LR2SongDBExtended.bmson_song> removedBmsonSongs = [.. result.RemovedCharts
-                        .Where(chart => chart?.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null)
-                        .Select(chart => chart.BmsonSong)
+                        .Select(chart => chart?.GetBmsonStorageOwner())
+                        .Where(song => song != null)
                         .Distinct()];
                     if (removedBmsFiles.Count > 0)
                     {

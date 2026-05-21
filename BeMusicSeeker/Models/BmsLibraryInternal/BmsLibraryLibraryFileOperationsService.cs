@@ -201,12 +201,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         var result = new CanonicalChartResolveResult();
         List<LibraryChartRef> currentCharts = [.. (currentLibraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         var bmsByReference = currentCharts
-            .Where(chart => chart.BmsFile != null)
-            .GroupBy(chart => chart.BmsFile)
+            .Where(chart => chart.GetBmsStorageOwner() != null)
+            .GroupBy(chart => chart.GetBmsStorageOwner())
             .ToDictionary(group => group.Key, group => group.First());
         var bmsonByReference = currentCharts
-            .Where(chart => chart.BmsonSong != null)
-            .GroupBy(chart => chart.BmsonSong)
+            .Where(chart => chart.GetBmsonStorageOwner() != null)
+            .GroupBy(chart => chart.GetBmsonStorageOwner())
             .ToDictionary(group => group.Key, group => group.First());
         var byPath = currentCharts
             .GroupBy(chart => CreatePathKey(chart.Path), StringComparer.OrdinalIgnoreCase)
@@ -216,7 +216,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         foreach (LibraryChartRef inputChart in inputCharts ?? [])
         {
             result.InputCount++;
-            if (inputChart.BmsFile == null && inputChart.BmsonSong == null)
+            if (inputChart.GetBmsStorageOwner() == null && inputChart.GetBmsonStorageOwner() == null)
             {
                 result.PathOnlyInputCount++;
             }
@@ -245,11 +245,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return null;
         }
-        if (inputChart.BmsFile != null && bmsByReference.TryGetValue(inputChart.BmsFile, out LibraryChartRef bmsChart))
+        BMSFile bmsFile = inputChart.GetBmsStorageOwner();
+        if (bmsFile != null && bmsByReference.TryGetValue(bmsFile, out LibraryChartRef bmsChart))
         {
             return bmsChart;
         }
-        if (inputChart.BmsonSong != null && bmsonByReference.TryGetValue(inputChart.BmsonSong, out LibraryChartRef bmsonChart))
+        LR2SongDBExtended.bmson_song bmsonSong = inputChart.GetBmsonStorageOwner();
+        if (bmsonSong != null && bmsonByReference.TryGetValue(bmsonSong, out LibraryChartRef bmsonChart))
         {
             return bmsonChart;
         }
@@ -374,7 +376,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         foreach (IGrouping<string, LibraryChartRef> group in targetCharts
-            .Where(chart => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null)
+            .Where(chart => chart.GetBmsStorageOwner() != null)
             .GroupBy(target => Path.GetDirectoryName(target.Path)))
         {
             string newFolderPath = group.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
@@ -392,7 +394,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (LibraryChartRef chart in targetCharts.Where(chart => chart.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null))
+        foreach (LibraryChartRef chart in targetCharts.Where(chart => chart.GetBmsonStorageOwner() != null))
         {
             delta.ChartPathChanges.Add(new LibraryChartPathChange
             {
@@ -569,7 +571,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             };
         }
         foreach (BMSFile file in (libraryCharts ?? [])
-            .Select(chart => chart?.BmsFile)
+            .Select(chart => chart?.GetBmsStorageOwner())
             .Where(file => file != null && IsInstallDestinationUnderFolder(file.instl_dst, folderPath)))
         {
             yield return new LibraryInstallDestinationChange
@@ -581,19 +583,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     private static ChartFile ToChartFile(LibraryChartRef chart)
     {
-        if (chart == null)
-        {
-            return null;
-        }
-        if (chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null)
-        {
-            return ChartFileProjection.FromBmsFile(chart.BmsFile);
-        }
-        if (chart.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null)
-        {
-            return ChartFileProjection.FromBmsonSong(chart.BmsonSong);
-        }
-        return null;
+        return chart?.ToChartFile();
     }
 
     private static PackageChartEntry ToPackageChartEntry(LibraryChartRef chart)
