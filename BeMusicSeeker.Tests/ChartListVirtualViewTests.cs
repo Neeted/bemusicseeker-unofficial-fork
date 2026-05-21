@@ -112,8 +112,8 @@ public sealed class ChartListVirtualViewTests
 
         LibraryChartRow row = LibraryChartRow.FromChartFile(chart);
 
-        Assert.IsNull(row.BmsFile);
-        Assert.IsNull(row.BmsonSong);
+        Assert.IsNull(row.Chart.BmsFile);
+        Assert.IsNull(row.Chart.BmsonSong);
         Assert.AreSame(chart, row.Chart);
         Assert.AreEqual("Alpha", row.Title);
         Assert.AreEqual("Artist", row.Artist);
@@ -215,8 +215,8 @@ public sealed class ChartListVirtualViewTests
 
         ChartListSourceRow row = ChartListSourceRow.BuildStandardLibraryRows([chart]).Single();
 
-        Assert.IsNull(row.BmsFile);
-        Assert.IsNull(row.BmsonSong);
+        Assert.IsNull(row.Chart.BmsFile);
+        Assert.IsNull(row.Chart.BmsonSong);
         Assert.AreSame(chart, row.Chart);
         Assert.AreEqual(12, row.ChartLevelSortKey);
         Assert.AreEqual(4, row.ChartDifficultySortKey);
@@ -232,7 +232,7 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], null);
         var order = ChartListOrder.CreateTitleAscending(sourceRows);
 
-        var view = new ChartListVirtualView(sourceRows, order, row => LibraryChartRow.FromBmsFile(row.BmsFile));
+        var view = new ChartListVirtualView(sourceRows, order, MaterializeSourceRow);
 
         Assert.AreEqual(1, view.Count);
         Assert.AreEqual(-1, view.DistinctFolderCount);
@@ -373,12 +373,12 @@ public sealed class ChartListVirtualViewTests
         var titleView = new ChartListVirtualView(sourceRows, titleOrder, row =>
         {
             createdCount++;
-            return LibraryChartRow.FromBmsFile(row.BmsFile);
+            return MaterializeSourceRow(row);
         });
         var pathView = new ChartListVirtualView(sourceRows, pathOrder, row =>
         {
             createdCount++;
-            return LibraryChartRow.FromBmsFile(row.BmsFile);
+            return MaterializeSourceRow(row);
         });
 
         Assert.AreEqual(3, titleView.Count);
@@ -441,7 +441,7 @@ public sealed class ChartListVirtualViewTests
         var view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
         {
             createdCount++;
-            return LibraryChartRow.FromBmsFile(row.BmsFile);
+            return MaterializeSourceRow(row);
         });
 
         Assert.AreEqual("directory:folder-z" + Path.DirectorySeparatorChar, folderFilterIdentity);
@@ -504,7 +504,7 @@ public sealed class ChartListVirtualViewTests
         var view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
         {
             createdCount++;
-            return LibraryChartRow.FromBmsFile(row.BmsFile);
+            return MaterializeSourceRow(row);
         });
 
         CollectionAssert.AreEqual(new[] { "Delta", "Bravo", "Alpha" }, filteredIndexes.Select(index => sourceRows[index].Title).ToArray());
@@ -661,7 +661,7 @@ public sealed class ChartListVirtualViewTests
             var view = new ChartListVirtualView(sourceRows, order, row =>
             {
                 createdCount++;
-                return LibraryChartRow.FromBmsFile(row.BmsFile);
+                return MaterializeSourceRow(row);
             });
 
             Assert.AreEqual(sourceRows.Count, view.Count);
@@ -720,8 +720,8 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
 
         Assert.IsNotNull(row);
-        Assert.IsNull(row.BmsFile);
-        Assert.AreSame(bmson, row.BmsonSong);
+        Assert.IsNull(row.Chart.BmsFile);
+        Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreSame(entry, row.PackageEntry);
         Assert.AreEqual(bmson.path, row.path);
@@ -1293,10 +1293,10 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> rows = MainWindowViewModel.CreateDuplicateVirtualSourceRowsForTest([duplicateGroup], duplicateGroup);
 
         Assert.AreEqual(2, rows.Count);
-        Assert.AreSame(bmsFile, rows.Single(row => row.BmsFile != null).BmsFile);
-        ChartListSourceRow bmsonRow = rows.Single(row => row.BmsonSong != null);
-        Assert.AreSame(bmsonSong, bmsonRow.BmsonSong);
-        Assert.IsNull(bmsonRow.BmsFile);
+        Assert.AreSame(bmsFile, rows.Single(row => row.Chart.BmsFile != null).Chart.BmsFile);
+        ChartListSourceRow bmsonRow = rows.Single(row => row.Chart.BmsonSong != null);
+        Assert.AreSame(bmsonSong, bmsonRow.Chart.BmsonSong);
+        Assert.IsNull(bmsonRow.Chart.BmsFile);
         StringAssert.Contains(bmsonRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_DuplicateChart);
     }
 
@@ -1509,8 +1509,8 @@ public sealed class ChartListVirtualViewTests
         };
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], [bmson]);
 
-        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsFile != null), LibraryChartRow.FromBmsFile(file));
-        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.BmsonSong != null), LibraryChartRow.FromBmsonSong(bmson));
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.BmsFile != null), LibraryChartRow.FromBmsFile(file));
+        AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.BmsonSong != null), LibraryChartRow.FromBmsonSong(bmson));
     }
 
     [TestMethod]
@@ -1593,11 +1593,25 @@ public sealed class ChartListVirtualViewTests
             row =>
             {
                 localCreatedCount++;
-                return LibraryChartRow.FromBmsFile(row.BmsFile);
+                return MaterializeSourceRow(row);
             },
             distinctFolderCount);
         getCreatedCount = () => localCreatedCount;
         return view;
+    }
+
+    private static LibraryChartRow MaterializeSourceRow(ChartListSourceRow row)
+    {
+        var chart = row?.Chart;
+        if (chart?.BmsFile != null)
+        {
+            return LibraryChartRow.FromBmsFile(chart.BmsFile);
+        }
+        if (chart?.BmsonSong != null)
+        {
+            return LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+        }
+        return LibraryChartRow.FromChartFile(chart);
     }
 
     private static void AssertVirtualOrderMatchesExistingSort(string columnName, ListSortDirection direction)
@@ -1610,9 +1624,7 @@ public sealed class ChartListVirtualViewTests
         var view = new ChartListVirtualView(
             sourceRows,
             order,
-            row => row.BmsFile != null
-                ? LibraryChartRow.FromBmsFile(row.BmsFile)
-                : LibraryChartRow.FromBmsonSong(row.BmsonSong));
+            MaterializeSourceRow);
         var sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = columnName,

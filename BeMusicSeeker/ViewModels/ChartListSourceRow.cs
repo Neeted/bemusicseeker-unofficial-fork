@@ -21,6 +21,10 @@ internal sealed class ChartListSourceRow
 
     private readonly bool hasSourceChartProjection;
 
+    private readonly BMSFile bmsFile;
+
+    private readonly LR2SongDBExtended.bmson_song bmsonSong;
+
     private ChartListSourceRow(
         ChartFile sourceChart,
         bool hasSourceChartProjection,
@@ -30,17 +34,13 @@ internal sealed class ChartListSourceRow
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
         this.hasSourceChartProjection = hasSourceChartProjection;
-        BmsFile = sourceChart.BmsFile;
-        BmsonSong = sourceChart.BmsonSong;
+        bmsFile = sourceChart.BmsFile;
+        bmsonSong = sourceChart.BmsonSong;
         this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
         identityChart = CreateChartFile(includeWarningSnapshot: false);
     }
-
-    internal BMSFile BmsFile { get; }
-
-    internal LR2SongDBExtended.bmson_song BmsonSong { get; }
 
     internal ChartFile Chart => CreateChartFile();
 
@@ -79,9 +79,9 @@ internal sealed class ChartListSourceRow
 
     internal string InstallDestinationArtist => CreateChartFile(includeWarningSnapshot: false)?.InstallDestinationArtist ?? string.Empty;
 
-    internal string RefTablesSymbols => BmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
+    internal string RefTablesSymbols => bmsFile?.RefTablesSymbols ?? GetPlaylistReferenceDisplay().Symbols;
 
-    internal string RefTablesNames => BmsFile?.RefTablesNames ?? GetPlaylistReferenceDisplay().Names;
+    internal string RefTablesNames => bmsFile?.RefTablesNames ?? GetPlaylistReferenceDisplay().Names;
 
     internal int? WAVHealth => Chart?.WAVHealth;
 
@@ -91,35 +91,35 @@ internal sealed class ChartListSourceRow
 
     internal string EncodingName => Chart?.EncodingName ?? string.Empty;
 
-    internal ClearType Clear => BmsFile?.clear ?? (string.IsNullOrWhiteSpace(Path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
+    internal ClearType Clear => bmsFile?.clear ?? (string.IsNullOrWhiteSpace(Path) ? ClearType.NO_SONG : ClearType.NO_PLAY);
 
-    internal RankType Rank => BmsFile?.rank ?? RankType.INVALID;
+    internal RankType Rank => bmsFile?.rank ?? RankType.INVALID;
 
-    internal double? RateDouble => BmsFile?.rateDouble;
+    internal double? RateDouble => bmsFile?.rateDouble;
 
-    internal int? Rate => BmsFile?.rate;
+    internal int? Rate => bmsFile?.rate;
 
-    internal int? Score => BmsFile?.score;
+    internal int? Score => bmsFile?.score;
 
-    internal int? TotalNotes => BmsFile?.totalnotes;
+    internal int? TotalNotes => bmsFile?.totalnotes;
 
-    internal int? MaxCombo => BmsFile?.maxcombo;
+    internal int? MaxCombo => bmsFile?.maxcombo;
 
-    internal int? MinBp => BmsFile?.minbp;
+    internal int? MinBp => bmsFile?.minbp;
 
-    internal int? Ranking => BmsFile?.ranking;
+    internal int? Ranking => bmsFile?.ranking;
 
-    internal int? RankingNum => BmsFile?.rankingNum;
+    internal int? RankingNum => bmsFile?.rankingNum;
 
-    internal string RankingString => BmsFile?.rankingString ?? string.Empty;
+    internal string RankingString => bmsFile?.rankingString ?? string.Empty;
 
-    internal DateTime? RankingLastUpdate => BmsFile?.rankingLastupdate;
+    internal DateTime? RankingLastUpdate => bmsFile?.rankingLastupdate;
 
-    internal double? StdDevVal => BmsFile?.stddevVal;
+    internal double? StdDevVal => bmsFile?.stddevVal;
 
-    internal double? ScoreDifficulty => BmsFile?.scoreDifficulty;
+    internal double? ScoreDifficulty => bmsFile?.scoreDifficulty;
 
-    internal LR2SongDBExtended.chart_info ChartInfo => BmsFile?.ChartInfo ?? BmsonSong?.ChartInfo ?? sourceChart?.ChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => bmsFile?.ChartInfo ?? bmsonSong?.ChartInfo ?? sourceChart?.ChartInfo;
 
     internal double? ChartLevelSortKey => ChartInfo?.level ?? 0;
 
@@ -159,17 +159,17 @@ internal sealed class ChartListSourceRow
     {
         if (sourceChart != null)
         {
-            if (BmsFile != null)
+            if (bmsFile != null)
             {
-                ChartFile currentChart = ChartFileProjection.FromBmsFile(BmsFile, includeWarningSnapshot: includeWarningSnapshot);
+                ChartFile currentChart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: includeWarningSnapshot);
                 return (sourceChart.Warnings?.Count ?? 0) > 0
                     ? ChartFileProjection.WithWarnings(currentChart, includeWarningSnapshot ? sourceChart.Warnings : [])
                     : currentChart;
             }
-            if (BmsonSong != null)
+            if (bmsonSong != null)
             {
                 return ChartFileProjection.FromBmsonSong(
-                    BmsonSong,
+                    bmsonSong,
                     GetBmsonTransientState(includeWarningSnapshot),
                     includeWarningSnapshot);
             }
@@ -180,11 +180,11 @@ internal sealed class ChartListSourceRow
 
     private ChartFileTransientState GetBmsonTransientState(bool includeWarningSnapshot)
     {
-        if (BmsonSong == null)
+        if (bmsonSong == null)
         {
             return ChartFileTransientState.Empty;
         }
-        ChartFileTransientState providerState = bmsonTransientStateProvider?.Invoke(BmsonSong, includeWarningSnapshot);
+        ChartFileTransientState providerState = bmsonTransientStateProvider?.Invoke(bmsonSong, includeWarningSnapshot);
         if (providerState?.HasState == true)
         {
             if (includeWarningSnapshot

@@ -10158,11 +10158,14 @@ public class MainWindowViewModel : ViewModel
         {
             return null;
         }
-        if (sourceRow.BmsFile != null)
+        ChartFile chart = sourceRow.Chart;
+        if (chart?.BmsFile != null)
         {
-            return GetOrCreateRegularBmsLibraryRow(sourceRow.BmsFile, null);
+            return GetOrCreateRegularBmsLibraryRow(chart.BmsFile, null);
         }
-        var row = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
+        var row = chart?.BmsonSong != null
+            ? LibraryChartRow.FromBmsonSong(chart.BmsonSong)
+            : LibraryChartRow.FromChartFile(chart);
         ApplyLibraryChartRowProviders(row);
         return row;
     }
@@ -10496,21 +10499,25 @@ public class MainWindowViewModel : ViewModel
             return null;
         }
         LibraryChartRow row;
+        ChartFile chart = sourceRow.Chart;
         if (sourceRow.HasSourceChartProjection)
         {
-            row = LibraryChartRow.FromChartFile(sourceRow.Chart);
+            row = LibraryChartRow.FromChartFile(chart);
         }
-        else if (sourceRow.BmsFile == null)
+        else if (chart?.BmsFile == null)
         {
-            if (sourceRow.BmsonSong == null)
+            if (chart?.BmsonSong == null)
             {
-                return null;
+                row = LibraryChartRow.FromChartFile(chart);
             }
-            row = LibraryChartRow.FromBmsonSong(sourceRow.BmsonSong);
+            else
+            {
+                row = LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+            }
         }
         else
         {
-            row = LibraryChartRow.FromBmsFile(sourceRow.BmsFile);
+            row = LibraryChartRow.FromBmsFile(chart.BmsFile);
         }
 
         if (applyResourceHealthProjection)
@@ -10834,7 +10841,8 @@ public class MainWindowViewModel : ViewModel
 
             foreach (ChartListSourceRow row in sourceRows)
             {
-                hash = (hash * 397L) ^ (row?.BmsFile != null ? 1 : 2);
+                ChartFile chart = row?.Chart;
+                hash = (hash * 397L) ^ (chart?.Kind == ChartFileKind.Bms ? 1 : 2);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Path ?? string.Empty);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Hash ?? string.Empty);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Sha256 ?? string.Empty);

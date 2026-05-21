@@ -788,6 +788,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(string.Empty, row.InstallDestination);
         Assert.IsNull(row.Chart.BmsFile);
         Assert.IsNull(typeof(ChartListSourceRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
+        Assert.IsNull(typeof(ChartListSourceRow).GetProperty("BmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
+        Assert.IsNull(typeof(ChartListSourceRow).GetProperty("BmsonSong", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
     }
 
     [TestMethod]
@@ -1380,7 +1382,7 @@ public sealed class PlaylistViewPipelineTests
             [bmson],
             bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
         var rebuiltViewRow = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsonSong(
-            rebuiltSourceRow.BmsonSong,
+            rebuiltSourceRow.Chart.BmsonSong,
             ChartFileTransientState.FromChartFile(statefulChart)));
 
         Assert.AreEqual("C:\\Installed\\Bmson", firstSourceRow.InstallDestination);
