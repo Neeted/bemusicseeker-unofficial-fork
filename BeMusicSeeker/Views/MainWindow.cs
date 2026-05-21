@@ -87,6 +87,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BlockedBySizeLimit
     }
 
+    private static readonly string[] DownloadAndInstallArchiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
+
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
     private readonly PropertyChangedEventListener settingsDefaultEventListnener;
@@ -5945,7 +5947,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     }
                 }
                 string fileName = ResolveDownloadedArchiveFileName(normalizedUri, response);
-                if (BMSFile.bmsExtensions.Concat([".zip", ".7z", ".rar", "lzh"]).All(e => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+                if (!IsDownloadAndInstallCandidateFileName(fileName))
                 {
                     return;
                 }
@@ -5968,6 +5970,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return DownloadAndInstallResult.Installed;
         }
         return result;
+    }
+
+    private static bool IsDownloadAndInstallCandidateFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+        if (ChartFileKindResolver.IsSupportedChartFilePath(fileName))
+        {
+            return true;
+        }
+        return DownloadAndInstallArchiveExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string NormalizeDownloadUrlString(string input)

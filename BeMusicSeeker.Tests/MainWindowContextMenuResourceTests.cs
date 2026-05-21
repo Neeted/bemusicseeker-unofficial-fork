@@ -1480,6 +1480,27 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void DownloadAndInstall_UsesChartFileKindResolverForDirectChartFiles()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string candidateHelper = ExtractBetween(mainWindowCode, "private static bool IsDownloadAndInstallCandidateFileName", "private static string NormalizeDownloadUrlString");
+        string downloadMethod = ExtractBetween(mainWindowCode, "private async Task<DownloadAndInstallResult> downloadAndInstall", "private static bool IsDownloadAndInstallCandidateFileName");
+        MethodInfo helper = typeof(MainWindow).GetMethod("IsDownloadAndInstallCandidateFileName", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(helper);
+
+        StringAssert.Contains(candidateHelper, "ChartFileKindResolver.IsSupportedChartFilePath(fileName)");
+        StringAssert.Contains(candidateHelper, "DownloadAndInstallArchiveExtensions");
+        Assert.IsFalse(candidateHelper.Contains("BMSFile.bmsExtensions"));
+        StringAssert.Contains(downloadMethod, "IsDownloadAndInstallCandidateFileName(fileName)");
+        Assert.IsFalse(downloadMethod.Contains("BMSFile.bmsExtensions"));
+        Assert.IsTrue((bool)helper.Invoke(null, ["chart.bmson"]));
+        Assert.IsTrue((bool)helper.Invoke(null, ["chart.bms"]));
+        Assert.IsTrue((bool)helper.Invoke(null, ["package.lzh"]));
+        Assert.IsFalse((bool)helper.Invoke(null, ["notes.txt"]));
+    }
+
+    [TestMethod]
     public void UserSettingDefaults_AppConfigAndSettingsCodeStayInSync()
     {
         string root = FindRepositoryRoot();
