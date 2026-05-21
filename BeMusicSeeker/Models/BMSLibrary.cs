@@ -6455,12 +6455,7 @@ reportProgress,
 
     private static List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        return [.. (bmsFiles ?? [])
-            .Where(file => file != null)
-            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
-            .Concat((bmsonSongs ?? [])
-                .Where(song => song != null)
-                .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)))];
+        return ChartFileProjection.FromStorageRows(bmsFiles, bmsonSongs, includeWarningSnapshot: false);
     }
 
     private void RebuildInstalledDirectoryIndexCoreUnsafe(InstalledChartDirectoryIndexSnapshot snapshot)
@@ -6870,15 +6865,11 @@ reportProgress,
 
     private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        List<ChartFile> charts = [.. (bmsFiles ?? [])
-            .Where(ChartFileKindResolver.IsBmsChartFile)
-            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
-            .Where(chart => chart != null)];
-        charts.AddRange((bmsonSongs ?? [])
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false))
-            .Where(chart => chart != null));
-        return charts;
+        return ChartFileProjection.FromStorageRows(
+            (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile),
+            bmsonSongs,
+            includeWarningSnapshot: false,
+            requireBmsonPath: true);
     }
 
     private static void SplitResourceMaintenanceCharts(
@@ -9927,9 +9918,9 @@ reportProgress,
         var charts = new List<ChartFile>();
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            charts.AddRange((BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)));
+            charts.AddRange(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
         }
-        charts.AddRange((BmsonSongs ?? []).Where(song => song != null).Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)));
+        charts.AddRange(ChartFileProjection.FromBmsonSongs(BmsonSongs, includeWarningSnapshot: false));
         return charts.Count == 0 ? null : charts;
     }
 

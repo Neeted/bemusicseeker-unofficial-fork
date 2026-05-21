@@ -10581,23 +10581,17 @@ public class MainWindowViewModel : ViewModel
         IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        return
-        [
-            .. (bmsFiles ?? [])
-                .Where(file => file != null)
-                .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)),
-            .. (bmsonSongs ?? [])
-                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-                .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)),
-        ];
+        return ChartFileProjection.FromStorageRows(
+            bmsFiles,
+            bmsonSongs,
+            includeWarningSnapshot: false,
+            requireBmsonPath: true,
+            orderBmsonByPath: true);
     }
 
     private static List<ChartFile> CreateBmsChartSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
-        return [.. (bmsFiles ?? [])
-            .Where(file => file != null)
-            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))];
+        return ChartFileProjection.FromBmsFiles(bmsFiles, includeWarningSnapshot: false);
     }
 
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(

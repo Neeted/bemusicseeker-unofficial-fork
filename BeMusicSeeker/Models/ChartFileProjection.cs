@@ -247,6 +247,46 @@ internal static class ChartFileProjection
             song.MaintenanceInfo?.encoding ?? transientState.EncodingName);
     }
 
+    internal static List<ChartFile> FromStorageRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        bool includeWarningSnapshot = false,
+        bool requireBmsonPath = false,
+        bool orderBmsonByPath = false)
+    {
+        List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot);
+        charts.AddRange(FromBmsonSongs(bmsonSongs, includeWarningSnapshot, requireBmsonPath, orderBmsonByPath));
+        return charts;
+    }
+
+    internal static List<ChartFile> FromBmsFiles(IEnumerable<BMSFile> files, bool includeWarningSnapshot = false)
+    {
+        return [.. (files ?? [])
+            .Where(file => file != null)
+            .Select(file => FromBmsFile(file, includeWarningSnapshot: includeWarningSnapshot))
+            .Where(chart => chart != null)];
+    }
+
+    internal static List<ChartFile> FromBmsonSongs(
+        IEnumerable<LR2SongDBExtended.bmson_song> songs,
+        bool includeWarningSnapshot = false,
+        bool requirePath = false,
+        bool orderByPath = false)
+    {
+        IEnumerable<LR2SongDBExtended.bmson_song> source = (songs ?? []).Where(song => song != null);
+        if (requirePath)
+        {
+            source = source.Where(song => !string.IsNullOrWhiteSpace(song.path));
+        }
+        if (orderByPath)
+        {
+            source = source.OrderBy(song => song.path, System.StringComparer.OrdinalIgnoreCase);
+        }
+        return [.. source
+            .Select(song => FromBmsonSong(song, includeWarningSnapshot))
+            .Where(chart => chart != null)];
+    }
+
     internal static ChartFile FromBmsMetadata(
         string path,
         string md5,
