@@ -588,7 +588,7 @@ public sealed class BmsSortCompatibilityTests
     public void RateDouble_ComputesFromScoreAndIgnoresStoredRate()
     {
         LibraryChartRow row = CreateLibraryChartRow("rate.bms", "Rate", level: 1, rateScorePerfect: 91);
-        row.BmsFile.bmsScore.rate = 12;
+        row.GetBmsStorageOwner().bmsScore.rate = 12;
 
         Assert.AreEqual(0.91, row.rateDouble.GetValueOrDefault(), 0.000001);
 

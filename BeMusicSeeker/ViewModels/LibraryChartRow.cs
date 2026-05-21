@@ -22,9 +22,9 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private readonly bool hasSourceChartProjection;
 
-    internal BMSFile BmsFile { get; }
+    private BMSFile BmsFile { get; }
 
-    internal LR2SongDBExtended.bmson_song BmsonSong { get; private set; }
+    private LR2SongDBExtended.bmson_song BmsonSong { get; set; }
 
     internal PackageChartEntry PackageEntry { get; }
 

@@ -1600,8 +1600,8 @@ public sealed class PlaylistViewPipelineTests
         entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
         var row = LibraryChartRow.FromPackageChartEntry(entry);
 
-        Assert.IsNull(row.BmsFile);
-        Assert.AreSame(bmson, row.BmsonSong);
+        Assert.IsNull(row.GetBmsStorageOwner());
+        Assert.AreSame(bmson, row.GetBmsonStorageOwner());
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
@@ -2684,8 +2684,8 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(2, rows.Count);
         CollectionAssert.AreEquivalent(new[] { "Keep Bms", "Keep Bmson" }, rows.Select(row => row.Title).ToArray());
-        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bms && row.BmsFile == keepBms));
-        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.BmsonSong == keepBmson));
+        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bms && row.GetBmsStorageOwner() == keepBms));
+        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.GetBmsonStorageOwner() == keepBmson));
         Assert.IsFalse(rows.Any(row => row.Title == "Skip Bms" || row.Title == "Skip Bmson"));
         Assert.IsTrue(rows.All(row => row.GetType() == typeof(LibraryChartRow)));
         Assert.IsTrue(metrics.FolderFilterApplied);
