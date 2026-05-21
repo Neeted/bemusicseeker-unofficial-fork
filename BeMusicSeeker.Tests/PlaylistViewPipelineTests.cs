@@ -720,6 +720,61 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailSourceRow_UsesResolvedChartProjectionBeforeStorageOwnerMetadata()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Storage Title",
+            artist = "Storage Artist",
+            genre = "Storage Genre",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64),
+            level = 3,
+            mode_hint = "beat-7k"
+        };
+        var entry = new TestablePlaylistEntry();
+        entry.SetTitle("Entry Title");
+        entry.SetArtist("Entry Artist");
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+        ChartFile projectedChart = new(
+            ChartFileKind.Bmson,
+            bmson.path,
+            bmson.md5,
+            bmson.sha256,
+            "Projected Title",
+            "Projected Raw Title",
+            "Projected Artist",
+            "Projected Genre",
+            "Projected Folder",
+            "Projected Tag",
+            "12",
+            12d,
+            14,
+            chartInfo: null,
+            bmsFile: null,
+            bmsonSong: bmson,
+            installDestination: "C:\\Installed\\Bmson",
+            warnings: [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "projected warning")]);
+
+        var sourceRow = new PlaylistDetailSourceRow(entry, projectedChart);
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+
+        Assert.AreEqual("Projected Title", row.Title);
+        Assert.AreEqual("Projected Artist", row.Artist);
+        Assert.AreEqual("Projected Genre", row.genre);
+        Assert.AreEqual("Projected Tag", row.tag);
+        Assert.AreEqual(14, row.mode);
+        Assert.AreEqual("12", row.Level);
+        Assert.AreEqual("C:\\Installed\\Bmson", row.instl_dst);
+        Assert.AreEqual("projected warning", row.DisplayWarning);
+        Assert.IsTrue(row.HasHighlightedWarning);
+        Assert.AreSame(projectedChart, row.Chart);
+    }
+
+    [TestMethod]
     public void LibraryChartRow_BmsonChartProjectionDoesNotCreateCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song

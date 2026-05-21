@@ -32,7 +32,7 @@ internal sealed class PlaylistDetailSourceRow
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
-    internal bool IsOwned => (realFile != null && !string.IsNullOrWhiteSpace(realFile.path)) || (resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path));
+    internal bool IsOwned => HasOwnedChart(Chart);
 
     internal string Title { get; }
 
@@ -222,42 +222,43 @@ internal sealed class PlaylistDetailSourceRow
         resolvedBmson = resolvedChart?.BmsonSong;
         EntryChartInfo = entryChartInfo;
         this.bmsonTransientStateProvider = bmsonTransientStateProvider;
-        bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
-        bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
-        BMSFile snapshotSource = realFile;
-        BMSScore effectiveScore = scoreSnapshot ?? realFile?.bmsScore;
-        Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), resolvedChart?.Title, entry.title);
-        Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, resolvedChart?.Artist, entry.artist);
-        genre = FirstNonEmpty(realFile?.genre, resolvedBmson?.genre, resolvedChart?.Genre);
-        mode = realFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint) ?? resolvedChart?.Mode;
-        tag = realFile?.tag ?? resolvedChart?.Tag ?? string.Empty;
+        Chart = CreateChartFile();
+        ChartFile chart = Chart;
+        bool isBmsOwned = HasOwnedBmsChart(chart);
+        bool isBmsonOwned = !isBmsOwned && HasOwnedBmsonChart(chart);
+        BMSFile bmsOwner = chart?.BmsFile;
+        BMSScore effectiveScore = scoreSnapshot ?? bmsOwner?.bmsScore;
+        Title = FirstNonEmpty(chart?.Title, entry.title);
+        Artist = FirstNonEmpty(chart?.Artist, entry.artist);
+        genre = FirstNonEmpty(chart?.Genre);
+        mode = chart?.Mode;
+        tag = chart?.Tag ?? string.Empty;
         Url = entry.EffectiveUrl;
         Url_diff = entry.EffectiveUrlDiff;
         name_diff = entry.name_diff ?? string.Empty;
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
-        hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, resolvedChart?.Md5, entry.md5);
-        sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, resolvedChart?.Sha256, entry.sha256, entryChartInfo?.sha256);
-        Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson), resolvedChart?.Folder);
-        path = FirstNonEmpty(realFile?.path, resolvedBmson?.path, resolvedChart?.Path);
-        Chart = CreateChartFile();
-        PlaylistReferenceDisplay playlistReferenceDisplay = realFile == null && playlistReferenceDisplayProvider != null
+        hash = FirstNonEmpty(chart?.Md5, entry.md5);
+        sha256 = FirstNonEmpty(chart?.Sha256, entry.sha256, entryChartInfo?.sha256);
+        Folder = FirstNonEmpty(entry.folder, chart?.Folder);
+        path = FirstNonEmpty(chart?.Path);
+        PlaylistReferenceDisplay playlistReferenceDisplay = bmsOwner == null && playlistReferenceDisplayProvider != null
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
-        HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
-        HasHighlightedWarning = HasProjectedWarning(Chart, snapshotSource);
-        DisplayWarning = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), snapshotSource?.DisplayWarning);
-        WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), snapshotSource?.WarningDigestText, DisplayWarning);
-        WarningTooltipText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), snapshotSource?.WarningTooltipText, DisplayWarning);
-        instl_dst = FirstNonEmpty(Chart?.InstallDestination, snapshotSource?.instl_dst);
-        InstallDestinationTitle = FirstNonEmpty(Chart?.InstallDestinationTitle, snapshotSource?.InstallDestinationTitle);
-        InstallDestinationArtist = FirstNonEmpty(Chart?.InstallDestinationArtist, snapshotSource?.InstallDestinationArtist);
-        WAVHealth = Chart?.WAVHealth ?? snapshotSource?.WAVHealth;
-        BGAHealth = Chart?.BGAHealth ?? snapshotSource?.BGAHealth;
-        MovieHealth = Chart?.MovieHealth ?? snapshotSource?.MovieHealth;
-        encoding = FirstNonEmpty(Chart?.EncodingName, snapshotSource?.encoding);
-        RefTablesSymbols = realFile?.RefTablesSymbols ?? playlistReferenceDisplay.Symbols;
-        RefTablesNames = realFile?.RefTablesNames ?? playlistReferenceDisplay.Names;
+        HasZeroNoteMismatchWarning = bmsOwner?.HasZeroNoteMismatchWarning ?? false;
+        HasHighlightedWarning = HasProjectedWarning(Chart, bmsOwner);
+        DisplayWarning = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), bmsOwner?.DisplayWarning);
+        WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), bmsOwner?.WarningDigestText, DisplayWarning);
+        WarningTooltipText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), bmsOwner?.WarningTooltipText, DisplayWarning);
+        instl_dst = FirstNonEmpty(Chart?.InstallDestination, bmsOwner?.instl_dst);
+        InstallDestinationTitle = FirstNonEmpty(Chart?.InstallDestinationTitle, bmsOwner?.InstallDestinationTitle);
+        InstallDestinationArtist = FirstNonEmpty(Chart?.InstallDestinationArtist, bmsOwner?.InstallDestinationArtist);
+        WAVHealth = Chart?.WAVHealth ?? bmsOwner?.WAVHealth;
+        BGAHealth = Chart?.BGAHealth ?? bmsOwner?.BGAHealth;
+        MovieHealth = Chart?.MovieHealth ?? bmsOwner?.MovieHealth;
+        encoding = FirstNonEmpty(Chart?.EncodingName, bmsOwner?.encoding);
+        RefTablesSymbols = bmsOwner?.RefTablesSymbols ?? playlistReferenceDisplay.Symbols;
+        RefTablesNames = bmsOwner?.RefTablesNames ?? playlistReferenceDisplay.Names;
         clear = ResolveClear(isBmsOwned, isBmsonOwned, effectiveScore);
         rank = ResolveRank(isBmsOwned, isBmsonOwned, effectiveScore);
         rate = effectiveScore?.rate;
@@ -269,12 +270,10 @@ internal sealed class PlaylistDetailSourceRow
         rankingLastupdate = effectiveScore?.rankingLastupdate;
         stddevVal = effectiveScore?.stddevVal;
         scoreDifficulty = effectiveScore?.scoreDifficulty;
-        status = snapshotSource == null
-            ? Chart?.Status ?? ChartFileStatus.NONE
-            : ChartFileStatusMapper.FromBmsFileStatus(snapshotSource.status);
+        status = Chart?.Status ?? ChartFileStatus.NONE;
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
-        Level = BuildLevelText(entry, realFile, resolvedBmson);
+        Level = BuildLevelText(entry, Chart);
         SearchText = BuildSearchText();
     }
 
@@ -349,12 +348,12 @@ internal sealed class PlaylistDetailSourceRow
         }
         return ChartFileProjection.FromBmsMetadata(
             path,
-            hash,
-            sha256,
-            Title,
-            Artist,
+            FirstNonEmpty(hash, Entry?.md5),
+            FirstNonEmpty(sha256, Entry?.sha256, EntryChartInfo?.sha256),
+            FirstNonEmpty(Title, Entry?.title),
+            FirstNonEmpty(Artist, Entry?.artist),
             genre,
-            Folder,
+            FirstNonEmpty(Folder, Entry?.folder),
             tag,
             Entry?.level,
             mode,
@@ -377,13 +376,28 @@ internal sealed class PlaylistDetailSourceRow
             || (chart?.Warnings.Count == 0 && (fallback?.HasHighlightedWarning ?? false));
     }
 
-    private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)
+    private static bool HasOwnedChart(ChartFile chart)
+    {
+        return HasOwnedBmsChart(chart) || HasOwnedBmsonChart(chart);
+    }
+
+    private static bool HasOwnedBmsChart(ChartFile chart)
+    {
+        return chart?.BmsFile != null && !string.IsNullOrWhiteSpace(chart.BmsFile.path);
+    }
+
+    private static bool HasOwnedBmsonChart(ChartFile chart)
+    {
+        return chart?.BmsonSong != null && !string.IsNullOrWhiteSpace(chart.BmsonSong.path);
+    }
+
+    private static string BuildLevelText(BMSTableEntry entry, ChartFile chart)
     {
         if (entry?.level != null)
         {
             return entry.level.ToString();
         }
-        return realFile?.level?.ToString() ?? resolvedBmson?.level?.ToString() ?? string.Empty;
+        return chart?.LevelText ?? string.Empty;
     }
 
     private static double? ResolveEntryLevelSortKey(string levelText, double? entryLevel, double? rowSortKey)
