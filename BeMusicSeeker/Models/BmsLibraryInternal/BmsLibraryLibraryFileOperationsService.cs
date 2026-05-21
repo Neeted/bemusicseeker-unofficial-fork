@@ -310,19 +310,33 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, currentLibraryCharts, folderPath))
             {
-                if (target.BmsFile != null)
+                if (target.Entry != null)
                 {
-                    target.BmsFile.instl_dst = null;
+                    target.Entry.ClearInstallDestination();
                 }
                 else
                 {
-                    target.Entry?.ClearInstallDestination();
+                    ClearBmsInstallDestination(target.GetBmsStorageOwner());
                 }
             }
         }
         catch
         {
         }
+    }
+
+    private static void ClearBmsInstallDestination(BMSFile file)
+    {
+        if (file == null)
+        {
+            return;
+        }
+        file.instl_dst = null;
+        file.InstallDestinationTitle = string.Empty;
+        file.InstallDestinationArtist = string.Empty;
+        file.InstallDestinationSuggestions = [];
+        file.IsInstallDestinationSuggestionPopupOpen = false;
+        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
     private static void AddRemovedCharts(LibraryRemovalResult result, IEnumerable<LibraryChartRef> charts)
@@ -545,11 +559,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     {
         foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, libraryCharts, sourceFolderPath))
         {
-            string currentInstallDestination = target.Entry?.Chart?.InstallDestination ?? target.BmsFile?.instl_dst;
+            string currentInstallDestination = target.GetCurrentInstallDestination();
             yield return new LibraryInstallDestinationChange
             {
                 Entry = target.Entry,
-                BmsFile = target.BmsFile,
+                Chart = target.Chart,
                 NewInstallDestination = currentInstallDestination.ReplaceFromStart(sourceFolderPath, destinationFolderPath, isIgnoreCase: true)
             };
         }
@@ -567,7 +581,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             yield return new LibraryInstallDestinationChange
             {
-                Entry = entry
+                Entry = entry,
+                Chart = entry.Chart
             };
         }
         foreach (BMSFile file in (libraryCharts ?? [])
@@ -576,7 +591,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             yield return new LibraryInstallDestinationChange
             {
-                BmsFile = file
+                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)
             };
         }
     }

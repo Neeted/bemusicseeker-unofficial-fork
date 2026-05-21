@@ -237,6 +237,11 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             };
             TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
             pendingFile.instl_dst = folderPath;
+            pendingFile.InstallDestinationTitle = "Pending BMS title";
+            pendingFile.InstallDestinationArtist = "Pending BMS artist";
+            pendingFile.InstallDestinationSuggestions = [Path.Combine(tempDirectoryPath, "Other")];
+            pendingFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "pending bms warning");
+            PackageChartEntry pendingBmsEntry = PackageChartEntry.FromBmsFile(pendingFile);
             var adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
             {
                 path = Path.Combine(tempDirectoryPath, "Pending", "chart.bmson"),
@@ -244,7 +249,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 title = "Bmson"
             }));
             adapterlessBmsonEntry.ApplyInstallDestination(folderPath, "Deleted title", "Deleted artist");
-            var pendingPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromBmsFile(pendingFile), adapterlessBmsonEntry]);
+            var pendingPackage = ChartPackage.FromChartEntries([pendingBmsEntry, adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
             var lookupCache = new DirectoryResourceLookupCache();
@@ -266,6 +271,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsTrue(result.RemovedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), bmsonSong)));
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsNull(pendingFile.instl_dst);
+            Assert.AreEqual(string.Empty, pendingFile.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, pendingFile.InstallDestinationArtist);
+            CollectionAssert.AreEqual(Array.Empty<string>(), pendingFile.InstallDestinationSuggestions.ToArray());
+            Assert.IsFalse(pendingFile.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             Assert.IsNull(libraryFile.instl_dst);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
             Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestinationTitle);

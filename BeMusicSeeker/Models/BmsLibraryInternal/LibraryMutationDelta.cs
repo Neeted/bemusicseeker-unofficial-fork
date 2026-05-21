@@ -66,11 +66,23 @@ internal sealed class LibraryFolderPathChange
 
 internal sealed class LibraryInstallDestinationChange
 {
-    public BMSFile BmsFile { get; set; }
+    public ChartFile Chart { get; set; }
 
     public PackageChartEntry Entry { get; set; }
 
     public string NewInstallDestination { get; set; }
+
+    internal string GetCurrentInstallDestination()
+    {
+        return Entry?.Chart?.InstallDestination
+            ?? Chart?.InstallDestination
+            ?? GetBmsStorageOwner()?.instl_dst;
+    }
+
+    internal BMSFile GetBmsStorageOwner()
+    {
+        return Chart?.GetBmsStorageOwner();
+    }
 }
 
 internal sealed class LibraryInstalledPackagePathChange

@@ -113,13 +113,17 @@ internal sealed class BmsLibraryStateApplier(
 
         foreach (LibraryInstallDestinationChange installDestinationChange in delta.UpdatedInstallDestinations)
         {
-            if (installDestinationChange?.BmsFile != null)
-            {
-                installDestinationChange.BmsFile.instl_dst = installDestinationChange.NewInstallDestination;
-            }
-            else if (installDestinationChange?.Entry != null)
+            if (installDestinationChange?.Entry != null)
             {
                 installDestinationChange.Entry.SetInstallDestinationPathOnly(installDestinationChange.NewInstallDestination);
+            }
+            else
+            {
+                BMSFile bmsFile = installDestinationChange?.GetBmsStorageOwner();
+                if (bmsFile != null)
+                {
+                    bmsFile.instl_dst = installDestinationChange.NewInstallDestination;
+                }
             }
         }
 

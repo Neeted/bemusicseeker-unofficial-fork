@@ -159,7 +159,7 @@ public sealed class BmsLibraryStateApplierTests
                 });
                 delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
                 {
-                    BmsFile = installLinkedFile,
+                    Chart = ChartFileProjection.FromBmsFile(installLinkedFile, includeWarningSnapshot: false),
                     NewInstallDestination = newDirectoryPath
                 });
                 delta.UpdatedInstalledPackagePaths.Add(new LibraryInstalledPackagePathChange
