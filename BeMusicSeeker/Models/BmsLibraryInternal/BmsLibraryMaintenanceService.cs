@@ -177,9 +177,9 @@ internal sealed class BmsLibraryMaintenanceService
                 lookupContext);
         }
 
-        string stagefile = chart.BmsFile?.stagefile ?? chart.BmsonSong?.stagefile;
-        string backbmp = chart.BmsFile?.backbmp ?? chart.BmsonSong?.backbmp;
-        string banner = chart.BmsFile?.banner ?? chart.BmsonSong?.banner;
+        string stagefile = chart.Stagefile;
+        string backbmp = chart.Backbmp;
+        string banner = chart.Banner;
         maintenanceInfo.is_stagefile_defined = !string.IsNullOrWhiteSpace(stagefile);
         if (maintenanceInfo.is_stagefile_defined == true)
         {

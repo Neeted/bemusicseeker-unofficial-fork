@@ -77,6 +77,54 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void BuildResourceHealthMaintenanceInfo_ProjectionOnlyBmsonUsesChartResources()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string chartPath = Path.Combine(tempDirectoryPath, "chart.bmson");
+        try
+        {
+            var chart = new ChartFile(
+                kind: ChartFileKind.Bmson,
+                path: chartPath,
+                md5: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                sha256: new string('c', 64),
+                title: "Title",
+                rawTitle: "Title",
+                artist: "Artist",
+                genre: string.Empty,
+                folder: "Folder",
+                tag: string.Empty,
+                levelText: string.Empty,
+                level: null,
+                mode: null,
+                chartInfo: null,
+                bmsFile: null,
+                bmsonSong: null,
+                audioResourcePaths: ["missing.wav"],
+                visualResourcePaths: ["missing.png", "missing.mp4"],
+                stagefile: "stage.png");
+
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(chart);
+
+            Assert.IsNotNull(info);
+            Assert.AreEqual("utf-8", info.encoding);
+            Assert.AreEqual(1, info.wav_files_defined);
+            Assert.AreEqual(0, info.wav_files_existing);
+            Assert.AreEqual(1, info.bga_files_defined);
+            Assert.AreEqual(0, info.bga_files_existing);
+            Assert.AreEqual(1, info.movie_files_defined);
+            Assert.AreEqual(0, info.movie_files_existing);
+            Assert.AreEqual(true, info.is_stagefile_defined);
+            Assert.AreEqual(false, info.is_stagefile_existing);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectoryPath, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void SetChartResourceWarningsIgnored_ChartBmsonPlaceholderAttachesMaintenanceInfoToSourceSong()
     {
         var service = new BmsLibraryMaintenanceService();

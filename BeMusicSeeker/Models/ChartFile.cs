@@ -55,6 +55,16 @@ internal sealed class ChartFile
 
     internal string Subtitle { get; }
 
+    internal IReadOnlyList<string> AudioResourcePaths { get; }
+
+    internal IReadOnlyList<string> VisualResourcePaths { get; }
+
+    internal string Stagefile { get; }
+
+    internal string Backbmp { get; }
+
+    internal string Banner { get; }
+
     internal string InstallDestination { get; }
 
     internal string InstallDestinationTitle { get; }
@@ -101,6 +111,11 @@ internal sealed class ChartFile
         BMSFile bmsFile,
         LR2SongDBExtended.bmson_song bmsonSong,
         string subtitle = null,
+        IReadOnlyList<string> audioResourcePaths = null,
+        IReadOnlyList<string> visualResourcePaths = null,
+        string stagefile = null,
+        string backbmp = null,
+        string banner = null,
         string installDestination = null,
         string installDestinationTitle = null,
         string installDestinationArtist = null,
@@ -130,6 +145,11 @@ internal sealed class ChartFile
         Mode = mode;
         ChartInfo = chartInfo;
         Subtitle = subtitle ?? string.Empty;
+        AudioResourcePaths = audioResourcePaths ?? [];
+        VisualResourcePaths = visualResourcePaths ?? [];
+        Stagefile = stagefile ?? string.Empty;
+        Backbmp = backbmp ?? string.Empty;
+        Banner = banner ?? string.Empty;
         InstallDestination = installDestination ?? string.Empty;
         InstallDestinationTitle = installDestinationTitle ?? string.Empty;
         InstallDestinationArtist = installDestinationArtist ?? string.Empty;

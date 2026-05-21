@@ -131,15 +131,24 @@ internal sealed class ChartResourceSnapshot
         {
             throw new ArgumentNullException(nameof(chart));
         }
-        if (chart.Kind == ChartFileKind.Bmson && chart.BmsonSong != null)
-        {
-            return Create(chart.BmsonSong);
-        }
-        if (chart.BmsFile != null)
+        if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null)
         {
             return Create(chart.BmsFile);
         }
-        return new ChartResourceSnapshot();
+        var snapshot = new ChartResourceSnapshot();
+        foreach (string audioPath in chart.AudioResourcePaths ?? Enumerable.Empty<string>())
+        {
+            snapshot.AddReference(ChartResourceKind.Audio, audioPath);
+        }
+        foreach (string visualPath in chart.VisualResourcePaths ?? Enumerable.Empty<string>())
+        {
+            snapshot.AddReference(ChartResourcePathNormalizer.ClassifyPath(visualPath), visualPath);
+        }
+        snapshot.AddOptionalImage(chart.Banner);
+        snapshot.AddOptionalImage(chart.Backbmp);
+        snapshot.AddOptionalImage(chart.Stagefile);
+        snapshot.PathSegmentReferenceCount = snapshot.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
+        return snapshot;
     }
 
     public static ChartResourceSnapshot Create(LR2SongDBExtended.bmson_song song)

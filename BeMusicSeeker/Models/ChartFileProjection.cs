@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
@@ -71,6 +72,11 @@ internal static class ChartFileProjection
             source.BmsFile,
             source.BmsonSong,
             source.Subtitle,
+            source.AudioResourcePaths,
+            source.VisualResourcePaths,
+            source.Stagefile,
+            source.Backbmp,
+            source.Banner,
             installDestination,
             installDestinationTitle,
             installDestinationArtist,
@@ -113,6 +119,11 @@ internal static class ChartFileProjection
             file,
             null,
             file.subtitle,
+            file.WAVfiles?.ToArray(),
+            file.BGAfiles?.ToArray(),
+            file.stagefile,
+            file.backbmp,
+            file.banner,
             file.instl_dst,
             file.InstallDestinationTitle,
             file.InstallDestinationArtist,
@@ -166,6 +177,11 @@ internal static class ChartFileProjection
             null,
             song,
             string.IsNullOrWhiteSpace(song.subtitle) ? transientState.Subtitle : song.subtitle,
+            song.wav_files,
+            song.bga_files,
+            song.stagefile,
+            song.backbmp,
+            song.banner,
             transientState.InstallDestination,
             transientState.InstallDestinationTitle,
             transientState.InstallDestinationArtist,
