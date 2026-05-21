@@ -212,14 +212,6 @@ public class BMSFile : LR2SongDB.song
 
     private readonly object lockObject = new();
 
-    private readonly ReaderWriterLockSlim rwlockRefTables = new(LockRecursionPolicy.SupportsRecursion);
-
-    private readonly List<BMSTable> refTables = [];
-
-    private string refTablesSymbolsCache = string.Empty;
-
-    private string refTablesNamesCache;
-
     private PropertyChangedEventListener listenerForBMSScore;
 
     private BMSScore _bmsScore;
@@ -1179,39 +1171,6 @@ public class BMSFile : LR2SongDB.song
         RaisePropertyChanged(() => BackbmpHealth);
     }
 
-    public virtual string RefTablesSymbols
-    {
-        get
-        {
-            using (new ReaderGuard(rwlockRefTables))
-            {
-                return refTablesSymbolsCache;
-            }
-        }
-    }
-
-    public virtual string RefTablesNames
-    {
-        get
-        {
-            using (new ReaderGuard(rwlockRefTables))
-            {
-                return refTablesNamesCache;
-            }
-        }
-    }
-
-    public virtual List<BMSTable> RefTables
-    {
-        get
-        {
-            using (new ReaderGuard(rwlockRefTables))
-            {
-                return [.. refTables];
-            }
-        }
-    }
-
     public BMSScore bmsScore
     {
         get
@@ -1288,91 +1247,6 @@ public class BMSFile : LR2SongDB.song
         });
     }
 
-    public void AddRefTable(BMSTable table)
-    {
-        AddRefTables([table]);
-    }
-
-    public int AddRefTables(IEnumerable<BMSTable> tables, bool suppressPropertyChanged = false)
-    {
-        if (tables == null)
-        {
-            return 0;
-        }
-        bool changed = false;
-        int addedCount = 0;
-        using (new WriterGuard(rwlockRefTables))
-        {
-            foreach (BMSTable item in tables)
-            {
-                if (item == null || refTables.Contains(item))
-                {
-                    continue;
-                }
-                refTables.Add(item);
-                addedCount++;
-                changed = true;
-            }
-            if (changed)
-            {
-                refreshRefTablesDisplayCacheUnsafe();
-            }
-        }
-        if (changed && !suppressPropertyChanged)
-        {
-            raiseRefTablesPropertyChanged(includeRefTables: true);
-        }
-        return addedCount;
-    }
-
-    public void RemoveRefTable(BMSTable table)
-    {
-        if (table == null)
-        {
-            return;
-        }
-        bool removed = false;
-        using (new WriterGuard(rwlockRefTables))
-        {
-            if (refTables.Remove(table))
-            {
-                refreshRefTablesDisplayCacheUnsafe();
-                removed = true;
-            }
-        }
-        if (removed)
-        {
-            raiseRefTablesPropertyChanged(includeRefTables: true);
-        }
-    }
-
-    internal bool RemoveRefTablesNotIn(ISet<BMSTable> tables, bool suppressPropertyChanged = false)
-    {
-        bool changed = false;
-        using (new WriterGuard(rwlockRefTables))
-        {
-            if (tables == null)
-            {
-                if (refTables.Count > 0)
-                {
-                    refTables.Clear();
-                    refreshRefTablesDisplayCacheUnsafe();
-                    changed = true;
-                }
-            }
-            else if (refTables.RemoveAll(table => !tables.Contains(table)) > 0)
-            {
-                refreshRefTablesDisplayCacheUnsafe();
-                changed = true;
-            }
-        }
-        if (changed && !suppressPropertyChanged)
-        {
-            raiseRefTablesPropertyChanged(includeRefTables: true);
-        }
-        return changed;
-    }
-
     private void registrateBMSScorePropertyChangedEventHandlers()
     {
         DisposeBmsScoreListener();
@@ -1411,25 +1285,13 @@ public class BMSFile : LR2SongDB.song
         });
     }
 
-    internal int ReleaseTransientListeners(bool clearRefTables = false, bool releaseOwnedListeners = true)
+    internal int ReleaseTransientListeners(bool releaseOwnedListeners = true)
     {
         int num = 0;
         if (releaseOwnedListeners)
         {
             num += DisposeMaintenanceInfoListener();
             num += DisposeBmsScoreListener();
-        }
-        if (clearRefTables)
-        {
-            using (new WriterGuard(rwlockRefTables))
-            {
-                if (refTables.Count > 0)
-                {
-                    num += refTables.Count;
-                    refTables.Clear();
-                    refreshRefTablesDisplayCacheUnsafe();
-                }
-            }
         }
         return num;
     }
@@ -1448,60 +1310,6 @@ public class BMSFile : LR2SongDB.song
         listenerForBMSScore?.Dispose();
         listenerForBMSScore = null;
         return result;
-    }
-
-    private void refreshRefTablesDisplayCacheUnsafe()
-    {
-        refTablesSymbolsCache = string.Join(" ", refTables.Select(t => t.symbol));
-        string text = string.Join(Environment.NewLine, refTables.Select(t => t.name));
-        refTablesNamesCache = string.IsNullOrWhiteSpace(text) ? null : text;
-    }
-
-    private void raiseRefTablesPropertyChanged(bool includeRefTables)
-    {
-        RaisePropertyChanged(() => RefTablesSymbols);
-        RaisePropertyChanged(() => RefTablesNames);
-        if (includeRefTables)
-        {
-            RaisePropertyChanged(() => RefTables);
-        }
-    }
-
-    internal void RefreshRefTablesDisplayCache(bool suppressPropertyChanged = false)
-    {
-        bool symbolsChanged;
-        bool namesChanged;
-        using (new WriterGuard(rwlockRefTables))
-        {
-            string refTablesSymbolsCache2 = refTablesSymbolsCache;
-            string refTablesNamesCache2 = refTablesNamesCache;
-            refreshRefTablesDisplayCacheUnsafe();
-            symbolsChanged = !string.Equals(refTablesSymbolsCache2, refTablesSymbolsCache, StringComparison.Ordinal);
-            namesChanged = !string.Equals(refTablesNamesCache2, refTablesNamesCache, StringComparison.Ordinal);
-        }
-        if (!suppressPropertyChanged)
-        {
-            if (symbolsChanged)
-            {
-                RaisePropertyChanged(() => RefTablesSymbols);
-            }
-            if (namesChanged)
-            {
-                RaisePropertyChanged(() => RefTablesNames);
-            }
-        }
-    }
-
-    internal bool HasRefTable(BMSTable table)
-    {
-        if (table == null)
-        {
-            return false;
-        }
-        using (new ReaderGuard(rwlockRefTables))
-        {
-            return refTables.Contains(table);
-        }
     }
 
     public void SetEncosingInfo(BMSFileMaintenanceInfo mtInfo = null)

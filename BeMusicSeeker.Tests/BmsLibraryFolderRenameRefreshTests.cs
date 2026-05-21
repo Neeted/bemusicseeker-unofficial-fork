@@ -454,8 +454,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 entries = [new BMSTableEntry(file)]
             };
             int bmsFilesChangedCount = 0;
-            int symbolsChangedCount = 0;
-            int namesChangedCount = 0;
+            int filePropertyChangedCount = 0;
             library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
@@ -463,21 +462,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Interlocked.Increment(ref bmsFilesChangedCount);
                 }
             };
-            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            file.PropertyChanged += delegate
             {
-                if (e.PropertyName == nameof(BMSFile.RefTablesSymbols))
-                {
-                    Interlocked.Increment(ref symbolsChangedCount);
-                }
-                if (e.PropertyName == nameof(BMSFile.RefTablesNames))
-                {
-                    Interlocked.Increment(ref namesChangedCount);
-                }
+                Interlocked.Increment(ref filePropertyChangedCount);
             };
             SetLibraryFilesWithoutNotification(library, [file]);
             Interlocked.Exchange(ref bmsFilesChangedCount, 0);
-            Interlocked.Exchange(ref symbolsChangedCount, 0);
-            Interlocked.Exchange(ref namesChangedCount, 0);
+            Interlocked.Exchange(ref filePropertyChangedCount, 0);
             library.RefreshReferenceDisplayForTable(table);
             ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
 
@@ -488,7 +479,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.RefreshReferenceDisplayForTable(table);
 
-            Assert.IsFalse(WaitUntilTrue(() => Volatile.Read(ref symbolsChangedCount) > 0 || Volatile.Read(ref namesChangedCount) > 0, timeoutMs: 100));
+            Assert.IsFalse(WaitUntilTrue(() => Volatile.Read(ref filePropertyChangedCount) > 0, timeoutMs: 100));
             Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
             Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
@@ -518,7 +509,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.SynchronizeReferenceBMSTables([newTable], suppressFilePropertyChanged: true);
 
-            Assert.AreEqual(0, file.RefTables.Count);
             Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
         });
@@ -653,7 +643,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.AddReferenceBMSTablesToCharts(table, [ChartFileProjection.FromBmsFile(file)]);
 
             ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
-            Assert.AreEqual(0, file.RefTables.Count);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });

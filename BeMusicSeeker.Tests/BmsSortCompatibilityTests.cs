@@ -373,7 +373,7 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.instl_dst)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.InstallDestinationTitle)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.InstallDestinationArtist)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.RefTablesSymbols)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.RefTablesSymbols)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.clear)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.rateDouble)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.score)));

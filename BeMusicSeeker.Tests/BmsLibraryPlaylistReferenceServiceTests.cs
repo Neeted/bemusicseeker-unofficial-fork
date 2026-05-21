@@ -33,9 +33,6 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.AreEqual(2, matchedFiles);
         Assert.AreEqual(2, appliedCharts);
         Assert.AreEqual(2, stats.Chunks);
-        Assert.AreEqual(0, files[0].RefTables.Count);
-        Assert.AreEqual(0, files[1].RefTables.Count);
-        Assert.AreEqual(0, files[2].RefTables.Count);
     }
 
     [TestMethod]
@@ -52,7 +49,6 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.AreEqual(1, maps.Sha256ToTablesMap.Count);
         Assert.AreEqual(1, matchedFiles);
         Assert.AreEqual(1, appliedCharts);
-        Assert.AreEqual(0, file.RefTables.Count);
     }
 
     [TestMethod]
@@ -70,7 +66,6 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
         Assert.AreEqual(1, matchedFiles);
         Assert.AreEqual(1, appliedCharts);
-        Assert.AreEqual(0, file.RefTables.Count);
     }
 
     [TestMethod]
@@ -131,7 +126,6 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
-        Assert.AreEqual(0, file.RefTables.Count);
     }
 
     [TestMethod]

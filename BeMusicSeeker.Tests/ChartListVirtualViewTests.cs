@@ -1724,7 +1724,6 @@ public sealed class ChartListVirtualViewTests
                 installDestination: "InstallC",
                 installDestinationTitle: "InstallTitleC",
                 installDestinationArtist: "InstallArtistC",
-                refTableSymbol: "C",
                 scoreSeed: 3,
                 chartSeed: 3,
                 maintenanceSeed: 3,
@@ -1743,7 +1742,6 @@ public sealed class ChartListVirtualViewTests
                 installDestination: "InstallA",
                 installDestinationTitle: "InstallTitleA",
                 installDestinationArtist: "InstallArtistA",
-                refTableSymbol: "A",
                 scoreSeed: 1,
                 chartSeed: 1,
                 maintenanceSeed: 1,
@@ -1762,7 +1760,6 @@ public sealed class ChartListVirtualViewTests
                 installDestination: "InstallB",
                 installDestinationTitle: "InstallTitleB",
                 installDestinationArtist: "InstallArtistB",
-                refTableSymbol: "B",
                 scoreSeed: 2,
                 chartSeed: 2,
                 maintenanceSeed: 2,
@@ -1819,7 +1816,6 @@ public sealed class ChartListVirtualViewTests
         string installDestination = "",
         string installDestinationTitle = "",
         string installDestinationArtist = "",
-        string refTableSymbol = "",
         int? scoreSeed = null,
         int? chartSeed = null,
         int? maintenanceSeed = null,
@@ -1856,10 +1852,6 @@ public sealed class ChartListVirtualViewTests
         if (maintenanceSeed.HasValue)
         {
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file.path, file.hash, maintenanceSeed.Value), suppressPropertyChanged: true);
-        }
-        if (!string.IsNullOrEmpty(refTableSymbol))
-        {
-            file.AddRefTable(new BMSTable { symbol = refTableSymbol, name = refTableSymbol });
         }
         if (warningSeed.HasValue)
         {

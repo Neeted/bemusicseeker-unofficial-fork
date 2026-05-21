@@ -61,138 +61,27 @@ public sealed class BmsFileListenerLifecycleTests
     }
 
     [TestMethod]
-    public void RemoveRefTable_UpdatesReferenceDisplay()
-    {
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var table = new BMSTable
-        {
-            name = "Before",
-            symbol = "A"
-        };
-        int symbolsChangedCount = 0;
-        int namesChangedCount = 0;
-        file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.RefTablesSymbols))
-            {
-                symbolsChangedCount++;
-            }
-            if (e.PropertyName == nameof(BMSFile.RefTablesNames))
-            {
-                namesChangedCount++;
-            }
-        };
-
-        file.AddRefTable(table);
-        Assert.AreEqual("A", file.RefTablesSymbols);
-        Assert.AreEqual("Before", file.RefTablesNames);
-
-        file.RemoveRefTable(table);
-
-        Assert.AreEqual(2, symbolsChangedCount);
-        Assert.AreEqual(2, namesChangedCount);
-        Assert.AreEqual(0, file.RefTables.Count);
-        Assert.AreEqual(string.Empty, file.RefTablesSymbols);
-        Assert.IsNull(file.RefTablesNames);
-    }
-
-    [TestMethod]
-    public void RefreshRefTablesDisplayCache_UpdatesAfterTableRename()
-    {
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var table = new BMSTable
-        {
-            name = "Before",
-            symbol = "A"
-        };
-        int symbolsChangedCount = 0;
-        int namesChangedCount = 0;
-        file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.RefTablesSymbols))
-            {
-                symbolsChangedCount++;
-            }
-            if (e.PropertyName == nameof(BMSFile.RefTablesNames))
-            {
-                namesChangedCount++;
-            }
-        };
-
-        file.AddRefTable(table);
-        symbolsChangedCount = 0;
-        namesChangedCount = 0;
-
-        table.symbol = "B";
-        table.name = "After";
-
-        Assert.AreEqual("A", file.RefTablesSymbols);
-        Assert.AreEqual("Before", file.RefTablesNames);
-        Assert.AreEqual(0, symbolsChangedCount);
-        Assert.AreEqual(0, namesChangedCount);
-
-        file.RefreshRefTablesDisplayCache();
-
-        Assert.AreEqual("B", file.RefTablesSymbols);
-        Assert.AreEqual("After", file.RefTablesNames);
-        Assert.AreEqual(1, symbolsChangedCount);
-        Assert.AreEqual(1, namesChangedCount);
-    }
-
-    [TestMethod]
     public void ReleaseTransientListeners_AllowsFileToBeCollectedWhileRootsRemainAlive()
     {
-        WeakReference weakReference = CreateWeakReferenceAfterRelease(out BMSTable table, out BMSScore score, out BMSFileMaintenanceInfo info);
+        WeakReference weakReference = CreateWeakReferenceAfterRelease(out BMSScore score, out BMSFileMaintenanceInfo info);
 
         ForceGc();
 
-        GC.KeepAlive(table);
         GC.KeepAlive(score);
         GC.KeepAlive(info);
         Assert.IsFalse(weakReference.IsAlive);
     }
 
-    [TestMethod]
-    public void AddRefTable_DoesNotKeepFileAliveWhileTableRemainsAlive()
-    {
-        var table = new BMSTable
-        {
-            name = "Table",
-            symbol = "T"
-        };
-        WeakReference weakReference = CreateWeakReferenceAfterAddingRefTable(table);
-
-        ForceGc();
-
-        GC.KeepAlive(table);
-        Assert.IsFalse(weakReference.IsAlive);
-    }
-
-    private static WeakReference CreateWeakReferenceAfterRelease(out BMSTable table, out BMSScore score, out BMSFileMaintenanceInfo info)
+    private static WeakReference CreateWeakReferenceAfterRelease(out BMSScore score, out BMSFileMaintenanceInfo info)
     {
         TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        table = new BMSTable
-        {
-            name = "Table",
-            symbol = "T"
-        };
         score = CreateScore(file.hash);
         info = CreateMaintenanceInfo(file, "shift_jis");
 
         file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: true);
         file.bmsScore = score;
-        file.AddRefTable(table);
-        file.ReleaseTransientListeners(clearRefTables: true);
+        file.ReleaseTransientListeners();
 
-        Assert.AreEqual(0, file.RefTables.Count);
-        var weakReference = new WeakReference(file);
-        return weakReference;
-    }
-
-    private static WeakReference CreateWeakReferenceAfterAddingRefTable(BMSTable table)
-    {
-        TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file.AddRefTable(table);
         var weakReference = new WeakReference(file);
         return weakReference;
     }
