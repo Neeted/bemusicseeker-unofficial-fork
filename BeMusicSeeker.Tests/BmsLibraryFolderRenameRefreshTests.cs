@@ -507,7 +507,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.AreEqual("A", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Before", library.GetPlaylistReferenceDisplay(chart).Names);
 
-            library.SynchronizeReferenceBMSTables([newTable], suppressFilePropertyChanged: true);
+            library.SynchronizeReferenceBMSTables([newTable]);
 
             Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
@@ -768,7 +768,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ]);
             BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
-            library.SynchronizeReferenceBMSTables([table], suppressFilePropertyChanged: true);
+            library.SynchronizeReferenceBMSTables([table]);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });

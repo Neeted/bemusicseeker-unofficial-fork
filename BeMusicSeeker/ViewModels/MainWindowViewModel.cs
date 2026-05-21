@@ -9029,7 +9029,7 @@ public class MainWindowViewModel : ViewModel
                         tables.FreeReaderLockBMSTables();
                     }
                     LogDeferredPlaylistReference("playlist_ref_deferred run version=" + requestVersion + " tableCount=" + list.Count);
-                    files.SynchronizeReferenceBMSTables(list, suppressFilePropertyChanged: true);
+                    files.SynchronizeReferenceBMSTables(list);
                     InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
                     int presentationRequestVersion = requestVersion;
                     DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate

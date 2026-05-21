@@ -50,7 +50,7 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         };
     }
 
-    public int ApplyReferenceMap(IEnumerable<ChartFile> charts, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats, bool suppressFilePropertyChanged = false)
+    public int ApplyReferenceMap(IEnumerable<ChartFile> charts, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats)
     {
         matchedCharts = 0;
         applyStats = default;
@@ -92,7 +92,7 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         return matchedCharts;
     }
 
-    public int ApplyReferenceMap(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats, bool suppressFilePropertyChanged = false)
+    public int ApplyReferenceMap(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats)
     {
         matchedCharts = 0;
         applyStats = default;
