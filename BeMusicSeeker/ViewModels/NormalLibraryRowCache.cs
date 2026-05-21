@@ -25,8 +25,9 @@ internal sealed class NormalLibraryRowCache
 
     internal int Count => rowsByFile.Count;
 
-    internal LibraryChartRow GetOrCreate(BMSFile file, LibraryRowCacheBuildStats stats)
+    internal LibraryChartRow GetOrCreate(ChartFile chart, LibraryRowCacheBuildStats stats)
     {
+        BMSFile file = chart?.BmsFile;
         if (file == null)
         {
             return null;

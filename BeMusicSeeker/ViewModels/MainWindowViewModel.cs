@@ -10079,9 +10079,9 @@ public class MainWindowViewModel : ViewModel
         return row;
     }
 
-    private LibraryChartRow GetOrCreateRegularBmsLibraryRow(BeMusicSeeker.Models.BMSFile file, LibraryRowCacheBuildStats stats)
+    private LibraryChartRow GetOrCreateRegularBmsLibraryRow(ChartFile chart, LibraryRowCacheBuildStats stats)
     {
-        LibraryChartRow row = regularBmsLibraryRowCache.GetOrCreate(file, stats);
+        LibraryChartRow row = regularBmsLibraryRowCache.GetOrCreate(chart, stats);
         ApplyLibraryChartRowProviders(row);
         return row;
     }
@@ -10094,7 +10094,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (chart.BmsFile != null)
         {
-            return GetOrCreateRegularBmsLibraryRow(chart.BmsFile, stats);
+            return GetOrCreateRegularBmsLibraryRow(chart, stats);
         }
         if (chart.BmsonSong != null)
         {
@@ -10238,7 +10238,7 @@ public class MainWindowViewModel : ViewModel
         ChartFile chart = sourceRow.Chart;
         if (chart?.BmsFile != null)
         {
-            return GetOrCreateRegularBmsLibraryRow(chart.BmsFile, null);
+            return GetOrCreateRegularBmsLibraryRow(chart, null);
         }
         var row = chart?.BmsonSong != null
             ? LibraryChartRow.FromBmsonSong(chart.BmsonSong)

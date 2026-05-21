@@ -2580,10 +2580,10 @@ public sealed class PlaylistViewPipelineTests
         fileB.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
         var cache = new NormalLibraryRowCache();
         var firstStats = new LibraryRowCacheBuildStats();
-        LibraryChartRow firstA = cache.GetOrCreate(fileA, firstStats);
-        LibraryChartRow firstB = cache.GetOrCreate(fileB, firstStats);
+        LibraryChartRow firstA = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), firstStats);
+        LibraryChartRow firstB = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileB), firstStats);
         var secondStats = new LibraryRowCacheBuildStats();
-        LibraryChartRow secondA = cache.GetOrCreate(fileA, secondStats);
+        LibraryChartRow secondA = cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), secondStats);
 
         Assert.AreSame(firstA, secondA);
         Assert.AreEqual(0, firstStats.HitCount);
@@ -2594,7 +2594,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, cache.Count);
         fileB.SetTitle("B2");
         fileA.SetTitle("A2");
-        Assert.AreSame(firstA, cache.GetOrCreate(fileA, new LibraryRowCacheBuildStats()));
+        Assert.AreSame(firstA, cache.GetOrCreate(ChartFileProjection.FromBmsFile(fileA), new LibraryRowCacheBuildStats()));
     }
 
     [TestMethod]
