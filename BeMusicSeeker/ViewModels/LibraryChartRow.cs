@@ -16,9 +16,11 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class LibraryChartRow : NotificationObject
 {
-    private readonly ChartFile chartOverride;
+    private readonly ChartFile sourceChart;
 
     private readonly Func<ChartFile> chartProvider;
+
+    private readonly bool hasSourceChartProjection;
 
     internal BMSFile BmsFile { get; }
 
@@ -45,9 +47,9 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return providedChart;
         }
-        if (chartOverride != null)
+        if (hasSourceChartProjection)
         {
-            return chartOverride;
+            return sourceChart;
         }
         if (BmsFile != null)
         {
@@ -58,17 +60,18 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return ChartFileProjection.FromBmsonSong(bmsonSong, GetBmsonTransientState(includeWarningSnapshot: true));
         }
-        return null;
+        return sourceChart;
     }
 
-    private LibraryChartRow(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong, ChartFile chartOverride = null, Func<ChartFile> chartProvider = null, PackageChartEntry packageEntry = null)
+    private LibraryChartRow(ChartFile sourceChart, bool hasSourceChartProjection = false, Func<ChartFile> chartProvider = null, PackageChartEntry packageEntry = null)
     {
-        BmsFile = bmsFile;
-        BmsonSong = bmsonSong;
-        this.chartOverride = chartOverride;
+        this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
+        this.hasSourceChartProjection = hasSourceChartProjection;
+        BmsFile = sourceChart.BmsFile;
+        BmsonSong = sourceChart.BmsonSong;
         this.chartProvider = chartProvider;
         PackageEntry = packageEntry;
-        if (bmsFile is INotifyPropertyChanged propertyChangedSource)
+        if (BmsFile is INotifyPropertyChanged propertyChangedSource)
         {
             PropertyChangedEventManager.AddHandler(propertyChangedSource, OnSourcePropertyChanged, string.Empty);
         }
@@ -85,12 +88,16 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        return new LibraryChartRow(file, null, packageEntry: packageEntry);
+        return new LibraryChartRow(
+            ChartFileProjection.FromBmsFile(file, ChartFileLevelParsing.CurrentCultureThenInvariant, includeWarningSnapshot: false),
+            packageEntry: packageEntry);
     }
 
     internal static LibraryChartRow FromBmsonSong(LR2SongDBExtended.bmson_song song)
     {
-        return song == null ? null : new LibraryChartRow(null, song);
+        return song == null
+            ? null
+            : new LibraryChartRow(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
     }
 
     internal static LibraryChartRow FromChartFile(ChartFile chart)
@@ -99,7 +106,7 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        return new LibraryChartRow(chart.BmsFile, chart.BmsonSong, chart);
+        return new LibraryChartRow(chart, hasSourceChartProjection: true);
     }
 
     internal static LibraryChartRow FromPackageChartEntry(PackageChartEntry entry)
@@ -109,15 +116,7 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        if (chart.Kind == ChartFileKind.Bmson)
-        {
-            return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart, packageEntry: entry);
-        }
-        if (chart.Kind == ChartFileKind.Bms && chart.BmsFile != null)
-        {
-            return FromBmsFile(chart.BmsFile, entry);
-        }
-        return new LibraryChartRow(null, chart.BmsonSong, chartProvider: () => entry.Chart, packageEntry: entry);
+        return new LibraryChartRow(chart, hasSourceChartProjection: true, chartProvider: () => entry.Chart, packageEntry: entry);
     }
 
     internal void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)
@@ -385,8 +384,34 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return ChartFileTransientState.Empty;
         }
-        return bmsonTransientStateProvider?.Invoke(bmsonSong, includeWarningSnapshot)
-            ?? ChartFileTransientState.Empty;
+        ChartFileTransientState providerState = bmsonTransientStateProvider?.Invoke(bmsonSong, includeWarningSnapshot);
+        if (providerState?.HasState == true)
+        {
+            if (includeWarningSnapshot
+                && (providerState.Warnings?.Count ?? 0) == 0
+                && (sourceChart?.Warnings?.Count ?? 0) > 0)
+            {
+                return ChartFileTransientState.FromChartFile(
+                    ChartFileProjection.WithPackageState(
+                        sourceChart,
+                        providerState.InstallDestination,
+                        providerState.InstallDestinationTitle,
+                        providerState.InstallDestinationArtist,
+                        providerState.InstallDestinationSuggestions,
+                        sourceChart.Warnings));
+            }
+            return providerState;
+        }
+        return GetSourceChartTransientState(includeWarningSnapshot);
+    }
+
+    private ChartFileTransientState GetSourceChartTransientState(bool includeWarningSnapshot)
+    {
+        if (!hasSourceChartProjection || sourceChart == null)
+        {
+            return ChartFileTransientState.Empty;
+        }
+        return ChartFileTransientState.FromChartFile(sourceChart, includeWarningSnapshot);
     }
 
 }
