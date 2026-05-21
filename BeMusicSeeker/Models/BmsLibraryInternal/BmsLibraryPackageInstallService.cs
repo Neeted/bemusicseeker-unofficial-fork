@@ -288,33 +288,6 @@ internal sealed class BmsLibraryPackageInstallService
         return deduplicated;
     }
 
-    private List<BMSFile> DeduplicateFilesByPathOrReference(IEnumerable<BMSFile> files)
-    {
-        List<BMSFile> deduplicated = [];
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSFile> references = [];
-        foreach (BMSFile file in files ?? [])
-        {
-            if (file == null)
-            {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(file.path))
-            {
-                if (!paths.Add(file.path))
-                {
-                    continue;
-                }
-            }
-            else if (!references.Add(file))
-            {
-                continue;
-            }
-            deduplicated.Add(file);
-        }
-        return deduplicated;
-    }
-
     private List<PendingChartDeletionTarget> DeduplicatePendingChartDeletionTargets(IEnumerable<PendingChartDeletionTarget> targets)
     {
         List<PendingChartDeletionTarget> deduplicated = [];

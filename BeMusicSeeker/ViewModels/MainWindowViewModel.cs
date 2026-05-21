@@ -4725,20 +4725,6 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        internal bool Matches(BeMusicSeeker.Models.BMSFile file)
-        {
-            if (file == null)
-            {
-                return false;
-            }
-            return Type switch
-            {
-                FolderFilterType.DirectoryFilter => ContainsIgnoreCase(file.path, Term),
-                FolderFilterType.ArtistFilter => ContainsIgnoreCase(file.Artist, Term),
-                _ => false,
-            };
-        }
-
         internal bool Matches(ChartListSourceRow row)
         {
             if (row == null)
@@ -16217,16 +16203,16 @@ public class MainWindowViewModel : ViewModel
                 }, 100u);
                 break;
             case viewUpdateMode.GarbledFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesGarbled);
+                ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesGarbled), CreateBmsLibraryChartRowFromChart);
                 break;
             case viewUpdateMode.GarbleFixedFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesGarbleFixed);
+                ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesGarbleFixed), CreateBmsLibraryChartRowFromChart);
                 break;
             case viewUpdateMode.UnregisteredFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesUnregistered);
+                ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesUnregistered), CreateBmsLibraryChartRowFromChart);
                 break;
             case viewUpdateMode.ZeroNoteFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesZeroNote);
+                ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesZeroNote), CreateBmsLibraryChartRowFromChart);
                 break;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
                 ChartRowsFolderView = ToLibraryChartRows(ChartInfoParseFailedChartFiles);
@@ -16701,18 +16687,6 @@ public class MainWindowViewModel : ViewModel
             sortCacheHit: cacheHit);
     }
 
-    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<BeMusicSeeker.Models.BMSFile> files)
-    {
-        return ToLibraryChartRows(files, LibraryChartRow.FromBmsFile);
-    }
-
-    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<BeMusicSeeker.Models.BMSFile> files, Func<BeMusicSeeker.Models.BMSFile, LibraryChartRow> rowFactory)
-    {
-        return [.. (files ?? [])
-            .Select(rowFactory ?? LibraryChartRow.FromBmsFile)
-            .Where(row => row != null)];
-    }
-
     private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? [])
@@ -16737,6 +16711,13 @@ public class MainWindowViewModel : ViewModel
         return [.. (entries ?? [])
             .Select(rowFactory ?? LibraryChartRow.FromPackageChartEntry)
             .Where(row => row != null)];
+    }
+
+    private static LibraryChartRow CreateBmsLibraryChartRowFromChart(ChartFile chart)
+    {
+        return chart?.BmsFile == null
+            ? LibraryChartRow.FromChartFile(chart)
+            : LibraryChartRow.FromBmsFile(chart.BmsFile);
     }
 
     private LibraryChartRow CreateLibraryChartRowFromPackageEntry(PackageChartEntry entry)
