@@ -530,9 +530,9 @@ internal sealed class BmsLibraryPackageInstallService
             return false;
         }
         ChartResourceSnapshot resources = entry.ResourceSnapshot;
-        return HasExistingResourceFile(chartDirectory, resources.AudioReferences, BMSFile.wavExtensions)
-            || HasExistingResourceFile(chartDirectory, resources.VisualReferences, BMSFile.bgaImageExtensions)
-            || HasExistingResourceFile(chartDirectory, resources.MovieReferences, BMSFile.bgaMovieExtensions);
+        return HasExistingResourceFile(chartDirectory, resources.AudioReferences, ChartResourceExtensions.AudioExtensions)
+            || HasExistingResourceFile(chartDirectory, resources.VisualReferences, ChartResourceExtensions.ImageExtensions)
+            || HasExistingResourceFile(chartDirectory, resources.MovieReferences, ChartResourceExtensions.MovieExtensions);
     }
 
     private static IEnumerable<string> EnumeratePackageGroupingResourcePaths(PackageChartEntry entry)

@@ -18,11 +18,11 @@ internal static class ChartDirectoryScanBuilder
 
     internal static readonly string[] ChartExtensions = [.. BMSFile.bmsExtensions.Concat([".bmson"]).Distinct(StringComparer.OrdinalIgnoreCase)];
 
-    internal static readonly string[] AudioExtensions = [.. BMSFile.wavExtensions.Concat([".flac"]).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] AudioExtensions = [.. ChartResourceExtensions.AudioExtensions];
 
-    internal static readonly string[] ImageExtensions = [.. BMSFile.bgaImageExtensions.Concat([".jpeg"]).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] ImageExtensions = [.. ChartResourceExtensions.ImageExtensions];
 
-    internal static readonly string[] MovieExtensions = [.. BMSFile.bgaMovieExtensions.Concat([".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm"]).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] MovieExtensions = [.. ChartResourceExtensions.MovieExtensions];
 
     private static readonly HashSet<string> chartExtensionsSet = new(ChartExtensions, StringComparer.OrdinalIgnoreCase);
 

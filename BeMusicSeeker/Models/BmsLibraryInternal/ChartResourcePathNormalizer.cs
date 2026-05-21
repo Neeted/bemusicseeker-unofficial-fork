@@ -108,15 +108,15 @@ internal static class ChartResourcePathNormalizer
         {
             return ChartResourceKind.Unknown;
         }
-        if (BMSFile.wavExtensions.Any(item => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
+        if (ChartResourceExtensions.IsAudioExtension(extension))
         {
             return ChartResourceKind.Audio;
         }
-        if (BMSFile.bgaImageExtensions.Any(item => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
+        if (ChartResourceExtensions.IsImageExtension(extension))
         {
             return ChartResourceKind.Image;
         }
-        if (BMSFile.bgaMovieExtensions.Any(item => extension.Equals(item, StringComparison.OrdinalIgnoreCase)))
+        if (ChartResourceExtensions.IsMovieExtension(extension))
         {
             return ChartResourceKind.Movie;
         }
@@ -141,17 +141,7 @@ internal static class ChartResourcePathNormalizer
         {
             return value;
         }
-        string normalizedExtension = extension.ToLowerInvariant();
-        string aliasExtension = normalizedExtension switch
-        {
-            ".ogg" => BMSFile.wavExtensionBase,
-            ".mp3" => BMSFile.wavExtensionBase,
-            ".flac" => BMSFile.wavExtensionBase,
-            ".bmp" => BMSFile.bgaImageExtensionBase,
-            ".jpg" => BMSFile.bgaImageExtensionBase,
-            ".jpeg" => BMSFile.bgaImageExtensionBase,
-            _ => normalizedExtension
-        };
+        string aliasExtension = ChartResourceExtensions.ResolveLookupAliasExtension(extension);
         if (string.Equals(extension, aliasExtension, StringComparison.OrdinalIgnoreCase))
         {
             return value;

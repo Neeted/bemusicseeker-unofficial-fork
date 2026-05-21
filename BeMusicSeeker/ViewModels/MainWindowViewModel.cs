@@ -14946,8 +14946,8 @@ public class MainWindowViewModel : ViewModel
                 string[] extensionsPermitted =
                 [
                     .. BeMusicSeeker.Models.BMSFile.bmsExtensions,
-                    .. BeMusicSeeker.Models.BMSFile.wavExtensions,
-                    .. BeMusicSeeker.Models.BMSFile.bgaImageExtensions,
+                    .. BeMusicSeeker.Models.ChartResourceExtensions.AudioExtensions,
+                    .. BeMusicSeeker.Models.ChartResourceExtensions.ImageExtensions,
                 ];
                 list = [.. (from f in Directory.EnumerateFiles(chartPackage.path, "*", System.IO.SearchOption.TopDirectoryOnly)
                         where extensionsPermitted.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase))

@@ -291,26 +291,6 @@ public class BMSFile : LR2SongDB.song
 
     public static readonly string[] bmsExtensions = [".bme", ".bms", ".bml", ".pms"];
 
-    public static readonly string wavExtensionBase = ".wav";
-
-    public static readonly string bgaImageExtensionBase = ".png";
-
-    public static readonly string[] bgaImageExtensionsExtend = [".bmp", ".jpg", ".jpeg"];
-
-    public static readonly string[] wavExtensionsExtend = [".ogg", ".mp3", ".flac"];
-
-    public static readonly string[] wavExtensions = [wavExtensionBase, .. wavExtensionsExtend];
-
-    public static readonly string[] bgaImageExtensions = [bgaImageExtensionBase, .. bgaImageExtensionsExtend];
-
-    public static readonly Regex wavExtensionsExtendRegex = new("(\\" + string.Join("|\\", wavExtensionsExtend) + ")$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    public static readonly Regex bgaImageExtensionsExtendRegex = new("(\\" + string.Join("|\\", bgaImageExtensionsExtend) + ")$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    public static readonly string[] bgaMovieExtensions = [".mpg", ".mpeg", ".mp4", ".m4v", ".mp4v", ".avi", ".wmv", ".mov", ".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm"];
-
-    public static readonly string[] bgaAllExtensions = [.. bgaImageExtensions, .. bgaMovieExtensions];
-
     private static readonly char[] invalidPathCharas = Path.GetInvalidPathChars();
 
     public override string hash
@@ -1619,7 +1599,7 @@ public class BMSFile : LR2SongDB.song
                     }
                     else
                     {
-                        ILookup<bool, string> lookup = BGAfiles.ToLookup(f => bgaMovieExtensions.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)));
+                        ILookup<bool, string> lookup = BGAfiles.ToLookup(f => ChartResourceExtensions.MovieExtensions.Any(e => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)));
                         ILookup<bool, string> lookup2 = lookup[false].ToLookup(f => !f.Contains('\\'));
                         ILookup<bool, string> lookup3 = lookup[true].ToLookup(f => !f.Contains('\\'));
                         nonlocalBGAfiles = [.. lookup2[false]];
@@ -1703,12 +1683,12 @@ public class BMSFile : LR2SongDB.song
             mtInfo.wav_files_defined = WAVfiles.Count;
             if (mtInfo.wav_files_defined > 0)
             {
-                mtInfo.wav_files_existing = mtInfo.wav_files_defined - func(localWAVfilesNameHashArray, nonlocalWAVfiles, wavExtensions, ChartResourceKind.Audio);
+                mtInfo.wav_files_existing = mtInfo.wav_files_defined - func(localWAVfilesNameHashArray, nonlocalWAVfiles, ChartResourceExtensions.AudioExtensions, ChartResourceKind.Audio);
             }
             mtInfo.bga_files_defined = localBGAfilesNameHashArray.Length + nonlocalBGAfiles.Count;
             if (mtInfo.bga_files_defined > 0)
             {
-                mtInfo.bga_files_existing = mtInfo.bga_files_defined - func(localBGAfilesNameHashArray, nonlocalBGAfiles, bgaImageExtensions, ChartResourceKind.Image);
+                mtInfo.bga_files_existing = mtInfo.bga_files_defined - func(localBGAfilesNameHashArray, nonlocalBGAfiles, ChartResourceExtensions.ImageExtensions, ChartResourceKind.Image);
             }
             mtInfo.movie_files_defined = localBGAfilesMovieNameHashArray.Length + nonlocalBGAfilesMovie.Count;
             if (mtInfo.movie_files_defined > 0)
@@ -1718,17 +1698,17 @@ public class BMSFile : LR2SongDB.song
             mtInfo.is_stagefile_defined = !string.IsNullOrWhiteSpace(stagefile);
             if (mtInfo.is_stagefile_defined == true)
             {
-                mtInfo.is_stagefile_existing = func2(stagefile, bgaImageExtensions);
+                mtInfo.is_stagefile_existing = func2(stagefile, ChartResourceExtensions.ImageExtensions);
             }
             mtInfo.is_backbmp_defined = !string.IsNullOrWhiteSpace(backbmp);
             if (mtInfo.is_backbmp_defined == true)
             {
-                mtInfo.is_backbmp_existing = func2(backbmp, bgaImageExtensions);
+                mtInfo.is_backbmp_existing = func2(backbmp, ChartResourceExtensions.ImageExtensions);
             }
             mtInfo.is_banner_defined = !string.IsNullOrWhiteSpace(banner);
             if (mtInfo.is_banner_defined == true)
             {
-                mtInfo.is_banner_existing = func2(banner, bgaImageExtensions);
+                mtInfo.is_banner_existing = func2(banner, ChartResourceExtensions.ImageExtensions);
             }
             if (forceUpdate)
             {
@@ -1847,7 +1827,7 @@ public class BMSFile : LR2SongDB.song
             uint[] localWavHashes = GetNormalizedResourceReferenceHashArray((wavReferences ?? []).Where(IsLocalReference));
             List<string> nonLocalWavReferences = [.. (wavReferences ?? []).Where(reference => !IsLocalReference(reference))];
             ILookup<bool, string> bgaByMovie = (bgaReferences ?? [])
-                .ToLookup(reference => bgaMovieExtensions.Any(extension => reference.EndsWith(extension, StringComparison.OrdinalIgnoreCase)));
+                .ToLookup(reference => ChartResourceExtensions.MovieExtensions.Any(extension => reference.EndsWith(extension, StringComparison.OrdinalIgnoreCase)));
             ILookup<bool, string> imageByLocal = bgaByMovie[false].ToLookup(IsLocalReference);
             ILookup<bool, string> movieByLocal = bgaByMovie[true].ToLookup(IsLocalReference);
             return new ResourceReferenceHealthCache(
@@ -1905,9 +1885,9 @@ public class BMSFile : LR2SongDB.song
 
         return resourceKind switch
         {
-            ChartResourceKind.Audio => wavExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
-            ChartResourceKind.Image => bgaImageExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
-            ChartResourceKind.Movie => bgaMovieExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Audio => ChartResourceExtensions.AudioExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Image => ChartResourceExtensions.ImageExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Movie => ChartResourceExtensions.MovieExtensions.Any(extension => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
             _ => false
         };
     }

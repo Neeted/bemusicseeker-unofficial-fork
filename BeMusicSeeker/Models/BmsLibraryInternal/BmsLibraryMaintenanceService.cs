@@ -133,7 +133,7 @@ internal sealed class BmsLibraryMaintenanceService
             maintenanceInfo.wav_files_existing = CountExistingResourceReferences(
                 chartDirectory,
                 resources.AudioReferences,
-                BMSFile.wavExtensions,
+                ChartResourceExtensions.AudioExtensions,
                 ChartResourceKind.Audio,
                 lookupContext);
         }
@@ -143,7 +143,7 @@ internal sealed class BmsLibraryMaintenanceService
             maintenanceInfo.bga_files_existing = CountExistingResourceReferences(
                 chartDirectory,
                 resources.VisualReferences,
-                BMSFile.bgaImageExtensions,
+                ChartResourceExtensions.ImageExtensions,
                 ChartResourceKind.Image,
                 lookupContext);
         }
@@ -251,7 +251,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
 
         lookupContext?.RecordFileExistsFallback(ResourceHealthFallbackKind.OptionalImage);
-        return ExistsWithCompatibleExtensions(chartDirectory, normalizedPath, BMSFile.bgaImageExtensions);
+        return ExistsWithCompatibleExtensions(chartDirectory, normalizedPath, ChartResourceExtensions.ImageExtensions);
     }
 
     private static string NormalizeLookupDirectory(string chartDirectory)
