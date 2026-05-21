@@ -228,7 +228,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ];
 
             InstalledChartDirectoryIndexSnapshot firstSnapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
-            CollectionAssert.AreEqual(new[] { installedDir1 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(firstSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            CollectionAssert.AreEqual(new[] { installedDir1 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(firstSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 
             installedFiles =
             [
@@ -236,7 +236,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ];
 
             InstalledChartDirectoryIndexSnapshot secondSnapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
-            CollectionAssert.AreEqual(new[] { installedDir2 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(secondSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            CollectionAssert.AreEqual(new[] { installedDir2 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(secondSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         });
     }
 

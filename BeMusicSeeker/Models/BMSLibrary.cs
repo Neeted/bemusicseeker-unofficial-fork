@@ -6468,24 +6468,6 @@ reportProgress,
                 .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)))];
     }
 
-    /// <summary>
-    /// 所持 chart から hash⇒インストール済みディレクトリのマップを再構築します。
-    /// </summary>
-    private void RebuildInstalledDirectoryIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
-        List<ChartFile> installedCharts = CreateInstalledChartSnapshot(bmsFileList, BmsonSongs);
-        InstalledChartDirectoryIndexSnapshot dictionary2 = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(installedCharts);
-        int num2 = dictionary2.DirectoryReferenceCount;
-        lock (lockInstalledDirectoryIndex)
-        {
-            RebuildInstalledDirectoryIndexCoreUnsafe(dictionary2);
-        }
-        stopwatch.Stop();
-        LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + dictionary2.HashCount + " dirRefs=" + num2 + " files=" + bmsFileList.Count + " bmson=" + (BmsonSongs?.Count ?? 0));
-    }
-
     private void RebuildInstalledDirectoryIndexCoreUnsafe(InstalledChartDirectoryIndexSnapshot snapshot)
     {
         installedDirectoryIndex = snapshot ?? new InstalledChartDirectoryIndexSnapshot();
@@ -6523,15 +6505,6 @@ reportProgress,
         {
             return installedDirectoryIndex.Clone();
         }
-    }
-
-    private bool ContainsInstalledChartUnsafe(BMSFile file)
-    {
-        if (file == null)
-        {
-            return false;
-        }
-        return ContainsInstalledChartUnsafe(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
     }
 
     private bool ContainsInstalledChartUnsafe(ChartFile chart)
@@ -9192,16 +9165,6 @@ reportProgress,
         PackageHasSplitInstalledDirectories
     }
 
-    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string md5, string sha256 = null)
-    {
-        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, md5, sha256);
-    }
-
-    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSFile file)
-    {
-        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file);
-    }
-
     private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
     {
         return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, chart);
@@ -9220,20 +9183,6 @@ reportProgress,
     private static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(package, installedDirectoryIndexSnapshot);
-    }
-
-    private bool TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out string destinationDir, out PrepareSkipReason reason)
-    {
-        InstalledOnlyPackageResolutionResult resolution = CreateInstallEstimationService().TryPrepareInstalledOnlyPackageDestination(package, installedDirectoryIndexSnapshot);
-        destinationDir = resolution.DestinationDirectory;
-        reason = resolution.Reason switch
-        {
-            InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories => PrepareSkipReason.ChartHasMultipleInstalledDirectories,
-            InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories => PrepareSkipReason.PackageHasSplitInstalledDirectories,
-            InstalledDirectoryResolveReason.None => PrepareSkipReason.None,
-            _ => PrepareSkipReason.MissingInstallDestination
-        };
-        return resolution.Success;
     }
 
     private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths)

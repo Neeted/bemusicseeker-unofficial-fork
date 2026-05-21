@@ -2929,7 +2929,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void GetDistinctInstalledDirectoriesByHash_FileWithMd5DoesNotFallBackToSha256()
+    public void GetDistinctInstalledDirectoriesByHash_ChartWithMd5DoesNotFallBackToSha256()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -2938,15 +2938,16 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         installedFile.SetSha256(new string('b', 64));
         TestableBmsFile pendingFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\chart.bms");
         pendingFile.SetSha256(new string('b', 64));
+        ChartFile pendingChart = ChartFileProjection.FromBmsFile(pendingFile, includeWarningSnapshot: false);
 
         InstalledChartDirectoryIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [installedFile]);
-        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingFile);
+        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingChart);
 
         Assert.AreEqual(0, directories.Count);
     }
 
     [TestMethod]
-    public void GetDistinctInstalledDirectoriesByHash_Sha256OnlyFileUsesSha256()
+    public void GetDistinctInstalledDirectoriesByHash_Sha256OnlyChartUsesSha256()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -2958,11 +2959,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             sha256 = new string('c', 64)
         };
-        TestableBmsFile pendingFile = CreateFile(null, "C:\\Pending\\chart.bmson");
-        pendingFile.SetSha256(new string('c', 64));
+        ChartFile pendingChart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\chart.bmson",
+            md5 = null,
+            sha256 = new string('c', 64)
+        }, includeWarningSnapshot: false);
 
         InstalledChartDirectoryIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [], [bmsonSong]);
-        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingFile);
+        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingChart);
 
         CollectionAssert.AreEqual(new[] { installDir }, directories);
     }

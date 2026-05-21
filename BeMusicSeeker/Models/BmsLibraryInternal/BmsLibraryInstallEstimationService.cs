@@ -1145,29 +1145,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string md5, string sha256 = null)
-    {
-        if (installedDirectoryIndexSnapshot == null)
-        {
-            return [];
-        }
-        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (IsBmsHashAvailable(md5) && installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(md5, out List<string> md5Directories) && md5Directories != null)
-        {
-            directories.UnionWith(md5Directories.Where(dir => !string.IsNullOrWhiteSpace(dir)));
-        }
-        if (!string.IsNullOrWhiteSpace(sha256) && installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(sha256, out List<string> shaDirectories) && shaDirectories != null)
-        {
-            directories.UnionWith(shaDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)));
-        }
-        return [.. directories];
-    }
-
-    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSFile file)
-    {
-        return GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
-    }
-
     public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
     {
         return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, chart?.PrimaryLookupHash);
