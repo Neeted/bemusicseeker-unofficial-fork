@@ -229,7 +229,7 @@ public sealed class ChartListVirtualViewTests
     {
         var file = new ThrowingFolderBmsFile();
         file.Apply(@"folder-a\alpha.bms", "Alpha");
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows([file]);
         var order = ChartListOrder.CreateTitleAscending(sourceRows);
 
         var view = new ChartListVirtualView(sourceRows, order, MaterializeSourceRow);
@@ -343,7 +343,7 @@ public sealed class ChartListVirtualViewTests
             CreateFile(@"folder-z\same.bms", "Alpha", "folder-z"),
             CreateFile(@"folder-a\other.bms", "Beta", "folder-a")
         ];
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files);
 
         bool created = ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder order);
 
@@ -356,7 +356,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void UnsupportedColumn_CannotCreateVirtualOrder()
     {
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
 
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "Path", ListSortDirection.Ascending, out _));
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "EntryLevelSortKey", ListSortDirection.Ascending, out _));
@@ -365,7 +365,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void SortUpdatedOrderSwap_DoesNotRealizeRowsUntilIndexed()
     {
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, out ChartListOrder titleOrder));
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder pathOrder));
         int createdCount = 0;
@@ -418,7 +418,7 @@ public sealed class ChartListVirtualViewTests
                 sha256 = "6666666666666666666666666666666666666666666666666666666666666666"
             }
         ];
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, bmsons);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files, bmsons);
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
         int[] existingOrderIndexes = [.. fullOrder.Indexes.Reverse()];
         var keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
@@ -488,7 +488,7 @@ public sealed class ChartListVirtualViewTests
             CreateFile(@"folder-y\charlie.bms", "Charlie", "folder-y", artist: "Other Artist", mode: 7),
             CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a", artist: "Target Artist", mode: 7)
         ];
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files);
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
         var keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
 
@@ -522,10 +522,10 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualChartSubsetSortCacheKey_UsesSubsetSignatureAndDependencyGeneration()
     {
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
         List<ChartListSourceRow> reorderedRows = [.. sourceRows.AsEnumerable().Reverse()];
         long signature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(sourceRows);
-        long sameSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null));
+        long sameSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(BuildOwnerBackedSourceRows(CreateSampleSortFiles()));
         long reorderedSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(reorderedRows);
         int treeMode = (int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected;
 
@@ -652,7 +652,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization()
     {
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
         int createdCount = 0;
 
         foreach (VirtualNormalLibrarySortDescriptor descriptor in MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest())
@@ -1310,7 +1310,7 @@ public sealed class ChartListVirtualViewTests
             new { Name = "FULLSCAN", Setting = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN) },
             new { Name = "INSTALL", Setting = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL) }
         };
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(CreateSampleSortFiles(), CreateSampleSortBmsons());
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles(), CreateSampleSortBmsons());
 
         foreach (var item in settings)
         {
@@ -1408,7 +1408,7 @@ public sealed class ChartListVirtualViewTests
     {
         var file = new TestableBmsFile();
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows([file]);
 
         file.Apply(
             @"folder-a\new.bms",
@@ -1456,11 +1456,10 @@ public sealed class ChartListVirtualViewTests
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
         index.ReplaceTable(table, table.entries);
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
             null,
             [bmson],
-            null,
-            row => index.Find(row.Hash, row.Sha256));
+            playlistReferenceDisplayProvider: row => index.Find(row.Hash, row.Sha256));
         var chartRow = LibraryChartRow.FromBmsonSong(bmson);
         chartRow.SetPlaylistReferenceDisplayProvider(row => index.Find(row.hash, row.sha256));
 
@@ -1507,7 +1506,7 @@ public sealed class ChartListVirtualViewTests
             ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0),
             MaintenanceInfo = CreateMaintenanceInfo(@"folder-b\bmson.bmson", "22222222222222222222222222222222", 4)
         };
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows([file], [bmson]);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows([file], [bmson]);
 
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.BmsFile != null), LibraryChartRow.FromBmsFile(file));
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.BmsonSong != null), LibraryChartRow.FromBmsonSong(bmson));
@@ -1527,10 +1526,9 @@ public sealed class ChartListVirtualViewTests
             1,
             [ChartWarning.Create(ChartWarningKind.ResourceBgaMissing, "projected resource warning")],
             isIgnored: false);
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
             [file],
-            null,
-            _ => projection);
+            resourceHealthProjectionProvider: _ => projection);
         var chartRow = LibraryChartRow.FromBmsFile(file);
         chartRow.SetResourceHealthProjectionProvider(_ => projection);
 
@@ -1584,7 +1582,7 @@ public sealed class ChartListVirtualViewTests
             CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a"),
             CreateFile(@"folder-a\bravo.bms", "Bravo", "folder-a")
         ];
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, null);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files);
         var order = ChartListOrder.CreateTitleAscending(sourceRows);
         int localCreatedCount = 0;
         var view = new ChartListVirtualView(
@@ -1618,7 +1616,7 @@ public sealed class ChartListVirtualViewTests
     {
         List<BMSFile> files = CreateSampleSortFiles();
         List<LR2SongDBExtended.bmson_song> bmsons = CreateSampleSortBmsons();
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(files, bmsons);
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files, bmsons);
         bool created = ChartListOrder.TryCreate(sourceRows, columnName, direction, out ChartListOrder order);
         Assert.IsTrue(created);
         var view = new ChartListVirtualView(
@@ -1988,6 +1986,45 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(chartRow.BGAHealth, sourceRow.BGAHealth);
         Assert.AreEqual(chartRow.MovieHealth, sourceRow.MovieHealth);
         Assert.AreEqual(chartRow.encoding, sourceRow.EncodingName);
+    }
+
+    private static ChartListSourceRow CreateOwnerBackedSourceRow(BMSFile file)
+    {
+        return ChartListSourceRow.FromChartFile(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            ChartListSourceProjectionMode.OwnerBacked);
+    }
+
+    private static ChartListSourceRow CreateOwnerBackedSourceRow(LR2SongDBExtended.bmson_song song)
+    {
+        return ChartListSourceRow.FromChartFile(
+            ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false),
+            ChartListSourceProjectionMode.OwnerBacked);
+    }
+
+    private static List<ChartListSourceRow> BuildOwnerBackedSourceRows(
+        IEnumerable<BMSFile>? files,
+        IEnumerable<LR2SongDBExtended.bmson_song>? bmsonSongs = null,
+        Func<ChartListSourceRow, ResourceHealthWarningProjection>? resourceHealthProjectionProvider = null,
+        Func<ChartListSourceRow, PlaylistReferenceDisplay>? playlistReferenceDisplayProvider = null,
+        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState>? bmsonTransientStateProvider = null)
+    {
+        List<ChartFile> charts =
+        [
+            .. (files ?? [])
+                .Where(file => file != null)
+                .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)),
+            .. (bmsonSongs ?? [])
+                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
+                .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)),
+        ];
+        return ChartListSourceRow.BuildStandardLibraryRows(
+            charts,
+            ChartListSourceProjectionMode.OwnerBacked,
+            resourceHealthProjectionProvider,
+            playlistReferenceDisplayProvider,
+            bmsonTransientStateProvider);
     }
 
     private static void AssertBmsonSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)

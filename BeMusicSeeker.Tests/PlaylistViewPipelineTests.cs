@@ -794,8 +794,8 @@ public sealed class PlaylistViewPipelineTests
             sha256 = new string('e', 64)
         };
         ChartListSourceRow row = ChartListSourceRow.BuildStandardLibraryRows(
-            [],
-            [bmson]).Single();
+            [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
+            ChartListSourceProjectionMode.OwnerBacked).Single();
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreEqual(string.Empty, row.InstallDestination);
@@ -1386,13 +1386,13 @@ public sealed class PlaylistViewPipelineTests
             [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
 
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
-            [],
-            [bmson],
+            [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
+            ChartListSourceProjectionMode.OwnerBacked,
             bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
-            [],
-            [bmson],
+            [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
+            ChartListSourceProjectionMode.OwnerBacked,
             bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
         var rebuiltViewRow = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsonSong(
             rebuiltSourceRow.Chart.BmsonSong,

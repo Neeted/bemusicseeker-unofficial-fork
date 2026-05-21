@@ -104,7 +104,7 @@ public sealed class GridKeywordSearchQueryTests
             CreateTable("Satellite sl", "★"),
             CreateTable("GENOSIDE", "▽")
         ]);
-        var sourceRow = ChartListSourceRow.FromBmsFile(file);
+        var sourceRow = CreateSourceRow(file);
 
         var query = GridKeywordSearchQuery.Parse("alpha artist:artistx genre:genrex tag:tagx path:alpha md5:abcdef sha256:123456 playlist:GENOSIDE");
 
@@ -136,7 +136,7 @@ public sealed class GridKeywordSearchQueryTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         };
-        var sourceRow = ChartListSourceRow.FromBmsonSong(song);
+        var sourceRow = CreateSourceRow(song);
 
         var query = GridKeywordSearchQuery.Parse("title:BmsonTitle artist:BmsonArtist genre:BmsonGenre path:bmson md5:bbbb sha256:cccc");
 
@@ -158,7 +158,7 @@ public sealed class GridKeywordSearchQueryTests
     public void ChartListSourceRow_IdentitySnapshotIsStableButChartInfoFollowsOwner()
     {
         TestableBmsFile file = CreateFile();
-        var bmsSourceRow = ChartListSourceRow.FromBmsFile(file);
+        var bmsSourceRow = CreateSourceRow(file);
         LR2SongDBExtended.chart_info bmsChartInfo = CreateChartInfo(level: 10);
 
         file.SetTitleForTest("Changed Title");
@@ -186,7 +186,7 @@ public sealed class GridKeywordSearchQueryTests
             md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         };
-        var bmsonSourceRow = ChartListSourceRow.FromBmsonSong(song);
+        var bmsonSourceRow = CreateSourceRow(song);
         LR2SongDBExtended.chart_info bmsonChartInfo = CreateChartInfo(level: 11);
 
         song.title = "Changed Bmson";
@@ -213,7 +213,7 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = CreateFile();
         file.SetChartInfo(CreateChartInfo());
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        var sourceRow = ChartListSourceRow.FromBmsFile(file);
+        var sourceRow = CreateSourceRow(file);
         var libraryRow = LibraryChartRow.FromBmsFile(file);
 
         var query = GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000 clear:HC rank:AA score:>=1800 bp:<10");
@@ -228,7 +228,7 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = CreateFile();
         file.SetChartInfo(CreateChartInfo());
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
-        var sourceRow = ChartListSourceRow.FromBmsFile(file);
+        var sourceRow = CreateSourceRow(file);
         var libraryRow = LibraryChartRow.FromBmsFile(file);
 
         var query = GridKeywordSearchQuery.Parse("feature:re:RANDOM judge:re:EASY clear:re:HARD rank:re:^AA$ score:re:^1800$ bp:re:^8$");
@@ -607,6 +607,20 @@ public sealed class GridKeywordSearchQueryTests
         var entry = new BMSTableEntry();
         entry.MarkAsBmsonPlaylistIdentity(sha256);
         return entry;
+    }
+
+    private static ChartListSourceRow CreateSourceRow(BMSFile file)
+    {
+        return ChartListSourceRow.FromChartFile(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            ChartListSourceProjectionMode.OwnerBacked);
+    }
+
+    private static ChartListSourceRow CreateSourceRow(LR2SongDBExtended.bmson_song song)
+    {
+        return ChartListSourceRow.FromChartFile(
+            ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false),
+            ChartListSourceProjectionMode.OwnerBacked);
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfo(int? level = 12, bool difficultyDefined = true, bool totalDefined = true)

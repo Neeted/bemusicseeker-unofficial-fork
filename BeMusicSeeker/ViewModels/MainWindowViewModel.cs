@@ -10351,11 +10351,12 @@ public class MainWindowViewModel : ViewModel
         List<ChartListSourceRow> sourceRows = subsetCharts != null
             ? ChartListSourceRow.BuildStandardLibraryRows(
                 subsetCharts,
+                ChartListSourceProjectionMode.PreserveSourceProjection,
                 applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
                 GetPlaylistReferenceDisplayForSourceRow)
             : ChartListSourceRow.BuildStandardLibraryRows(
-                subsetFiles,
-                subsetBmsonSongs,
+                CreateStandardLibraryChartSnapshot(subsetFiles, subsetBmsonSongs),
+                ChartListSourceProjectionMode.OwnerBacked,
                 applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
                 GetPlaylistReferenceDisplayForSourceRow);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -10528,6 +10529,22 @@ public class MainWindowViewModel : ViewModel
         return row;
     }
 
+    private static List<ChartFile> CreateStandardLibraryChartSnapshot(
+        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        return
+        [
+            .. (bmsFiles ?? [])
+                .Where(file => file != null)
+                .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)),
+            .. (bmsonSongs ?? [])
+                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
+                .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)),
+        ];
+    }
+
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
         bool includeBmsonRows,
         out bool cacheHit,
@@ -10558,8 +10575,8 @@ public class MainWindowViewModel : ViewModel
         }
 
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
-            BMSFiles,
-            includeBmsonRows ? files?.BmsonSongs : null,
+            CreateStandardLibraryChartSnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
+            ChartListSourceProjectionMode.OwnerBacked,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
             TryGetSharedBmsonChartTransientState);
@@ -11671,6 +11688,7 @@ public class MainWindowViewModel : ViewModel
         }
         return ChartListSourceRow.BuildStandardLibraryRows(
             sourceCharts,
+            ChartListSourceProjectionMode.PreserveSourceProjection,
             resourceHealthProjectionProvider: null,
             playlistReferenceDisplayProvider: null);
     }

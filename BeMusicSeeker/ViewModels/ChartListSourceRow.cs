@@ -7,6 +7,12 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
+internal enum ChartListSourceProjectionMode
+{
+    PreserveSourceProjection,
+    OwnerBacked
+}
+
 internal sealed class ChartListSourceRow
 {
     private readonly Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
@@ -205,66 +211,19 @@ internal sealed class ChartListSourceRow
         return sourceChart == null ? ChartFileTransientState.Empty : ChartFileTransientState.FromChartFile(sourceChart, includeWarningSnapshot);
     }
 
-    internal static ChartListSourceRow FromBmsFile(
-        BMSFile file,
-        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
-        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
-    {
-        return file == null
-            ? null
-            : new ChartListSourceRow(
-                ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
-                hasSourceChartProjection: false,
-                resourceHealthProjectionProvider,
-                playlistReferenceDisplayProvider,
-                bmsonTransientStateProvider);
-    }
-
-    internal static ChartListSourceRow FromBmsonSong(
-        LR2SongDBExtended.bmson_song song,
-        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
-        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
-    {
-        return song == null
-            ? null
-            : new ChartListSourceRow(
-                ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false),
-                hasSourceChartProjection: false,
-                resourceHealthProjectionProvider,
-                playlistReferenceDisplayProvider,
-                bmsonTransientStateProvider);
-    }
-
     internal static ChartListSourceRow FromChartFile(
         ChartFile chart,
+        ChartListSourceProjectionMode projectionMode = ChartListSourceProjectionMode.PreserveSourceProjection,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
     {
-        return chart == null ? null : new ChartListSourceRow(chart, hasSourceChartProjection: true, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonTransientStateProvider);
-    }
-
-    internal static List<ChartListSourceRow> BuildStandardLibraryRows(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
-        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
-        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
-    {
-        List<ChartListSourceRow> rows =
-        [
-            .. (bmsFiles ?? [])
-                .Select(file => FromBmsFile(file, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonTransientStateProvider))
-                .Where(row => row != null),
-            .. (bmsonSongs ?? [])
-                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-                .Select(song => FromBmsonSong(song, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonTransientStateProvider))
-                .Where(row => row != null),
-        ];
-        return rows;
+        return chart == null ? null : new ChartListSourceRow(
+            chart,
+            projectionMode == ChartListSourceProjectionMode.PreserveSourceProjection,
+            resourceHealthProjectionProvider,
+            playlistReferenceDisplayProvider,
+            bmsonTransientStateProvider);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(
@@ -273,8 +232,23 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
     {
+        return BuildStandardLibraryRows(
+            charts,
+            ChartListSourceProjectionMode.PreserveSourceProjection,
+            resourceHealthProjectionProvider,
+            playlistReferenceDisplayProvider,
+            bmsonTransientStateProvider);
+    }
+
+    internal static List<ChartListSourceRow> BuildStandardLibraryRows(
+        IEnumerable<ChartFile> charts,
+        ChartListSourceProjectionMode projectionMode,
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
+        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
+        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
+    {
         return [.. (charts ?? [])
-            .Select(chart => FromChartFile(chart, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonTransientStateProvider))
+            .Select(chart => FromChartFile(chart, projectionMode, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, bmsonTransientStateProvider))
             .Where(row => row != null)];
     }
 
