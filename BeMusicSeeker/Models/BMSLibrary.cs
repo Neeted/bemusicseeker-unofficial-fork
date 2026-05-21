@@ -9794,20 +9794,20 @@ reportProgress,
         PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(table, sourceEntries);
         ReplacePlaylistReferenceIndexTable(table, sourceEntries);
         stopwatchBuildMap.Stop();
-        int matchedSongFiles = 0;
+        int matchedLibraryCharts = 0;
         int matchedPendingFiles = 0;
         int addedSongRefs = 0;
         int addedPendingRefs = 0;
         PlaylistReferenceApplyStats songApplyStats = default;
         var stopwatchApplySong = Stopwatch.StartNew();
-        List<BMSFile> songFilesSnapshot = null;
+        List<ChartFile> libraryChartsSnapshot = null;
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
         {
-            songFilesSnapshot = SnapshotSongFilesForPlaylistReferenceApply();
+            libraryChartsSnapshot = SnapshotLibraryChartsForPlaylistReferenceApply();
         }
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && songFilesSnapshot != null && songFilesSnapshot.Count > 0)
+        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
         {
-            addedSongRefs = playlistReferenceService.ApplyReferenceMap(songFilesSnapshot, referenceMaps, out matchedSongFiles, out songApplyStats, suppressFilePropertyChanged);
+            addedSongRefs = playlistReferenceService.ApplyReferenceMap(libraryChartsSnapshot, referenceMaps, out matchedLibraryCharts, out songApplyStats, suppressFilePropertyChanged);
         }
         stopwatchApplySong.Stop();
         PlaylistReferenceApplyStats pendingApplyStats = default;
@@ -9823,7 +9823,7 @@ reportProgress,
         }
         stopwatchApplyPending.Stop();
         int tableCount = 1;
-        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + stopwatchApplySong.ElapsedMilliseconds + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + stopwatchApplyPending.ElapsedMilliseconds + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + tableCount + " matchedSongFiles=" + matchedSongFiles + " addSongCalls=" + addedSongRefs + " matchedPendingFiles=" + matchedPendingFiles + " addPendingCalls=" + addedPendingRefs + " suppressNotify=" + suppressFilePropertyChanged);
+        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + stopwatchApplySong.ElapsedMilliseconds + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + stopwatchApplyPending.ElapsedMilliseconds + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + tableCount + " matchedLibraryCharts=" + matchedLibraryCharts + " addSongCalls=" + addedSongRefs + " matchedPendingFiles=" + matchedPendingFiles + " addPendingCalls=" + addedPendingRefs + " suppressNotify=" + suppressFilePropertyChanged);
     }
 
     public void AddReferenceBMSTables(IEnumerable<BMSTable> tables, bool suppressFilePropertyChanged = false)
@@ -9843,7 +9843,7 @@ reportProgress,
         stopwatchBuildMap.Stop();
         long applySongMs = 0L;
         long applyPendingMs = 0L;
-        int matchedSongFiles = 0;
+        int matchedLibraryCharts = 0;
         int matchedPendingFiles = 0;
         int addedSongRefs = 0;
         int addedPendingRefs = 0;
@@ -9852,10 +9852,10 @@ reportProgress,
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
         {
             var stopwatchApplySong = Stopwatch.StartNew();
-            List<BMSFile> songFilesSnapshot = SnapshotSongFilesForPlaylistReferenceApply();
-            if (songFilesSnapshot != null && songFilesSnapshot.Count > 0)
+            List<ChartFile> libraryChartsSnapshot = SnapshotLibraryChartsForPlaylistReferenceApply();
+            if (libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
             {
-                addedSongRefs = playlistReferenceService.ApplyReferenceMap(songFilesSnapshot, referenceMaps, out matchedSongFiles, out songApplyStats, suppressFilePropertyChanged);
+                addedSongRefs = playlistReferenceService.ApplyReferenceMap(libraryChartsSnapshot, referenceMaps, out matchedLibraryCharts, out songApplyStats, suppressFilePropertyChanged);
             }
             stopwatchApplySong.Stop();
             applySongMs = stopwatchApplySong.ElapsedMilliseconds;
@@ -9868,7 +9868,7 @@ reportProgress,
             stopwatchApplyPending.Stop();
             applyPendingMs = stopwatchApplyPending.ElapsedMilliseconds;
         }
-        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + applyPendingMs + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + list.Count + " matchedSongFiles=" + matchedSongFiles + " addSongCalls=" + addedSongRefs + " matchedPendingFiles=" + matchedPendingFiles + " addPendingCalls=" + addedPendingRefs + " suppressNotify=" + suppressFilePropertyChanged);
+        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + applyPendingMs + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + list.Count + " matchedLibraryCharts=" + matchedLibraryCharts + " addSongCalls=" + addedSongRefs + " matchedPendingFiles=" + matchedPendingFiles + " addPendingCalls=" + addedPendingRefs + " suppressNotify=" + suppressFilePropertyChanged);
     }
 
     /// <summary>
@@ -9918,16 +9918,19 @@ reportProgress,
         LogInstallPerformance("playlist_ref_package_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applyPackageMs=" + applyPackageMs + " applyPackageChunks=" + packageApplyStats.Chunks + " applyPackageChunkMaxMs=" + packageApplyStats.MaxChunkMs + " applyPackageYieldCount=" + packageApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + tableList.Count + " packageCount=" + packageList.Count + " matchedPackageFiles=" + matchedPackageFiles + " addPackageCalls=" + addedPackageRefs + " suppressNotify=" + suppressFilePropertyChanged);
     }
 
-    private List<BMSFile> SnapshotSongFilesForPlaylistReferenceApply()
+    private List<ChartFile> SnapshotLibraryChartsForPlaylistReferenceApply()
     {
-        if (BMSFiles == null || BMSFiles.Count == 0)
+        if ((BMSFiles == null || BMSFiles.Count == 0) && (BmsonSongs == null || BmsonSongs.Count == 0))
         {
             return null;
         }
+        var charts = new List<ChartFile>();
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            return [.. BMSFiles.Where(file => file != null)];
+            charts.AddRange((BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)));
         }
+        charts.AddRange((BmsonSongs ?? []).Where(song => song != null).Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)));
+        return charts.Count == 0 ? null : charts;
     }
 
     private List<PackageChartEntry> SnapshotPendingChartEntriesForPlaylistReferenceApply(PlaylistReferenceMaps referenceMaps)
@@ -9970,22 +9973,22 @@ reportProgress,
         List<BMSTableEntry> newEntriesSnapshot = SnapshotPlaylistReferenceEntries(newTable, newEntries);
         BuildPlaylistReferenceHashSets(oldEntriesSnapshot, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
         BuildPlaylistReferenceHashSets(newEntriesSnapshot, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
-        List<BMSFile> oldSongFiles = FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), oldMd5Hashes, oldSha256Hashes);
+        List<ChartFile> oldLibraryCharts = FilterPlaylistReferenceTargets(SnapshotLibraryChartsForPlaylistReferenceApply(), oldMd5Hashes, oldSha256Hashes);
         List<PackageChartEntry> oldPendingEntries = FilterPendingPlaylistReferenceTargetEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply(), oldMd5Hashes, oldSha256Hashes);
-        List<BMSFile> newSongFiles = FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
+        List<ChartFile> newLibraryCharts = FilterPlaylistReferenceTargets(SnapshotLibraryChartsForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
         List<PackageChartEntry> newPendingEntries = FilterPendingPlaylistReferenceTargetEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
-        LogInstallPerformance("playlist_ref_replace targetsOldSong=" + oldSongFiles.Count + " targetsOldPending=" + oldPendingEntries.Count + " targetsNewSong=" + newSongFiles.Count + " targetsNewPending=" + newPendingEntries.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
+        LogInstallPerformance("playlist_ref_replace targetsOldLibraryCharts=" + oldLibraryCharts.Count + " targetsOldPending=" + oldPendingEntries.Count + " targetsNewLibraryCharts=" + newLibraryCharts.Count + " targetsNewPending=" + newPendingEntries.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
         if (oldTable != null)
         {
             RemovePlaylistReferenceIndexTable(oldTable);
-            RemoveReferenceBMSTableFromFiles(oldTable, oldSongFiles);
+            RemoveReferenceBMSTableFromCharts(oldTable, oldLibraryCharts);
             RemoveReferenceBMSTableFromPackageEntries(oldTable, oldPendingEntries);
         }
         if (newTable != null)
         {
             PlaylistReferenceMaps newReferenceMaps = playlistReferenceService.BuildReferenceMaps(newTable, newEntriesSnapshot);
             ReplacePlaylistReferenceIndexTable(newTable, newEntriesSnapshot);
-            AddReferenceBMSTableToFiles(newTable, newSongFiles);
+            AddReferenceBMSTableToCharts(newTable, newLibraryCharts);
             AddReferenceBMSTableToPackageEntries(newPendingEntries, newReferenceMaps);
         }
     }
@@ -10018,23 +10021,23 @@ reportProgress,
         }
     }
 
-    private static List<BMSFile> FilterPlaylistReferenceTargets(IEnumerable<BMSFile> files, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
+    private static List<ChartFile> FilterPlaylistReferenceTargets(IEnumerable<ChartFile> charts, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
     {
-        if (files == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
+        if (charts == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
         {
             return [];
         }
-        return [.. files.Where(delegate (BMSFile file)
+        return [.. charts.Where(delegate (ChartFile chart)
         {
-            if (file == null)
+            if (chart == null)
             {
                 return false;
             }
-            if (!string.IsNullOrWhiteSpace(file.hash) && md5Hashes.Contains(file.hash))
+            if (!string.IsNullOrWhiteSpace(chart.Md5) && md5Hashes.Contains(chart.Md5))
             {
                 return true;
             }
-            return !string.IsNullOrWhiteSpace(file.sha256) && sha256Hashes.Contains(file.sha256);
+            return !string.IsNullOrWhiteSpace(chart.Sha256) && sha256Hashes.Contains(chart.Sha256);
         }).Distinct()];
     }
 
@@ -10119,19 +10122,19 @@ reportProgress,
             return;
         }
         ReplacePlaylistReferenceIndexTable(table);
-        AddReferenceBMSTableToFiles(table, charts.Select(chart => chart?.BmsFile).Where(file => file != null));
+        AddReferenceBMSTableToCharts(table, charts);
     }
 
-    private static int AddReferenceBMSTableToFiles(BMSTable table, IEnumerable<BMSFile> files)
+    private static int AddReferenceBMSTableToCharts(BMSTable table, IEnumerable<ChartFile> charts)
     {
-        if (table == null || files == null)
+        if (table == null || charts == null)
         {
             return 0;
         }
         int addedRefs = 0;
-        foreach (BMSFile file in files)
+        foreach (BMSFile file in charts.Select(chart => chart?.BmsFile).Where(file => file != null).Distinct())
         {
-            addedRefs += file?.AddRefTables([table]) ?? 0;
+            addedRefs += file.AddRefTables([table]);
         }
         return addedRefs;
     }
@@ -10284,7 +10287,7 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                RemoveReferenceBMSTableFromFiles(table, FilterPlaylistReferenceTargets(BMSFiles, md5Hashes, sha256Hashes));
+                RemoveReferenceBMSTableFromCharts(table, FilterPlaylistReferenceTargets(BMSFiles.Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)), md5Hashes, sha256Hashes));
             }
         }
         if (ChartPackagesPending == null || ChartPackagesPending.Count <= 0)
@@ -10326,13 +10329,13 @@ reportProgress,
         action(GetBmsStorageOwnersFromPackageEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply()));
     }
 
-    private static void RemoveReferenceBMSTableFromFiles(BMSTable table, IEnumerable<BMSFile> files)
+    private static void RemoveReferenceBMSTableFromCharts(BMSTable table, IEnumerable<ChartFile> charts)
     {
-        if (table == null || files == null)
+        if (table == null || charts == null)
         {
             return;
         }
-        foreach (BMSFile file in files)
+        foreach (BMSFile file in charts.Select(chart => chart?.BmsFile).Where(file => file != null).Distinct())
         {
             file.RemoveRefTable(table);
         }

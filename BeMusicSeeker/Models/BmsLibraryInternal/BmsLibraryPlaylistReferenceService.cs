@@ -50,30 +50,25 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         };
     }
 
-    public int ApplyReferenceMap(IEnumerable<BMSFile> files, PlaylistReferenceMaps referenceMaps, out int matchedFiles, out PlaylistReferenceApplyStats applyStats, bool suppressFilePropertyChanged = false)
+    public int ApplyReferenceMap(IEnumerable<ChartFile> charts, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats, bool suppressFilePropertyChanged = false)
     {
-        matchedFiles = 0;
+        matchedCharts = 0;
         applyStats = default;
-        if (files == null || referenceMaps == null || ((referenceMaps.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps.Sha256ToTablesMap?.Count ?? 0) == 0))
+        if (charts == null || referenceMaps == null || ((referenceMaps.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps.Sha256ToTablesMap?.Count ?? 0) == 0))
         {
             return 0;
         }
         int addCalls = 0;
         int processed = 0;
         var chunkStopwatch = Stopwatch.StartNew();
-        foreach (BMSFile file in files)
+        foreach (ChartFile chart in charts)
         {
-            BMSTable[] value = null;
-            if (file != null)
+            if (TryGetReferenceTables(chart, referenceMaps, out BMSTable[] value))
             {
-                bool matched = !string.IsNullOrWhiteSpace(file.hash) && referenceMaps.Md5ToTablesMap != null && referenceMaps.Md5ToTablesMap.TryGetValue(file.hash, out value);
-                if (!matched && !string.IsNullOrWhiteSpace(file.sha256) && referenceMaps.Sha256ToTablesMap != null)
+                matchedCharts++;
+                BMSFile file = chart?.BmsFile;
+                if (file != null && value != null)
                 {
-                    matched = referenceMaps.Sha256ToTablesMap.TryGetValue(file.sha256, out value);
-                }
-                if (matched && value != null)
-                {
-                    matchedFiles++;
                     addCalls += file.AddRefTables(value, suppressFilePropertyChanged);
                 }
             }

@@ -606,6 +606,35 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void AddReferenceBMSTables_UsesPlaylistIndexForInstalledBmsonWithoutBmsOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            var song = new LR2SongDBExtended.bmson_song
+            {
+                path = @"C:\Library\chart.bmson",
+                md5 = matchingHash,
+                sha256 = new string('b', 64),
+                title = "Installed Bmson",
+                artist = "Artist"
+            };
+            SetLibraryBmsonSongsWithoutNotification(library, [song]);
+            ChartFile chart = ChartFileProjection.FromBmsonSong(song);
+            BMSTable table = CreateTable("Matched", "M", matchingHash);
+
+            library.AddReferenceBMSTables(table);
+
+            Assert.IsNull(chart.BmsFile);
+            Assert.AreSame(song, chart.BmsonSong);
+            Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
+        });
+    }
+
+    [TestMethod]
     public void AddReferenceBMSTablesToCharts_AddsReferenceToBmsStorageOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
