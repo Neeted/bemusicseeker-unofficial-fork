@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.ViewModels;
 using Codeplex.Data;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
@@ -126,10 +127,11 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreNotSame(beatorajaScore, file.bmsScore);
         Assert.AreEqual(file.hash, file.bmsScore.hash);
         Assert.AreEqual(ClearType.INVALID, file.bmsScore.clear);
-        Assert.AreEqual("ASSIST", file.ClearDisplayText);
         Assert.AreEqual(900, file.bmsScore.score);
-        Assert.AreEqual(450, file.maxcombo);
-        Assert.AreEqual(12, file.minbp);
+        var row = LibraryChartRow.FromBmsFile(file);
+        Assert.AreEqual("ASSIST", row.ClearDisplayText);
+        Assert.AreEqual(450, row.maxcombo);
+        Assert.AreEqual(12, row.minbp);
     }
 
     [TestMethod]

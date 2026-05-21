@@ -718,190 +718,6 @@ public class BMSFile : LR2SongDB.song
 
     public bool? BackbmpHealth => maintenanceInfo.BackbmpHealth;
 
-    public ClearType clear
-    {
-        get
-        {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return ClearType.NO_SONG;
-            }
-            if (bmsScore == null)
-            {
-                return ClearType.NO_PLAY;
-            }
-            if (bmsScore.clear >= ClearType.EASY && rank == RankType.INVALID)
-            {
-                return ClearType.INVALID;
-            }
-            return bmsScore.clear;
-        }
-    }
-
-    public RankType rank
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                if (bmsScore.rank != RankType.INVALID)
-                {
-                    return bmsScore.rank;
-                }
-                return RankType.F;
-            }
-            return RankType.INVALID;
-        }
-    }
-
-    public string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
-
-    public string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
-
-    public int? score
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return bmsScore.score;
-            }
-            return null;
-        }
-    }
-
-    public int? rate
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return bmsScore.rate;
-            }
-            return null;
-        }
-    }
-
-    public double? rateDouble
-    {
-        get
-        {
-            if (bmsScore != null && bmsScore.totalnotes > 0)
-            {
-                return (double)bmsScore.score / 2.0 / (double)bmsScore.totalnotes;
-            }
-            return null;
-        }
-    }
-
-    public int? totalnotes
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return bmsScore.totalnotes;
-            }
-            return null;
-        }
-    }
-
-    public int? minbp
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return (bmsScore.minbp == -1) ? bmsScore.totalnotes : bmsScore.minbp;
-            }
-            return null;
-        }
-    }
-
-    public int? maxcombo
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return bmsScore.maxcombo;
-            }
-            return null;
-        }
-    }
-
-    public int? ranking
-    {
-        get
-        {
-            if (bmsScore != null && bmsScore.ranking != 0)
-            {
-                return bmsScore.ranking;
-            }
-            return null;
-        }
-    }
-
-    public int? rankingNum
-    {
-        get
-        {
-            if (bmsScore != null && bmsScore.rankingNum != 0)
-            {
-                return bmsScore.rankingNum;
-            }
-            return null;
-        }
-    }
-
-    public string rankingString
-    {
-        get
-        {
-            if (bmsScore != null && ranking.HasValue && ranking != -1 && rankingNum.HasValue)
-            {
-                return bmsScore.ranking.ToString().PadLeft(bmsScore.rankingNum.ToString().Length) + "/" + bmsScore.rankingNum;
-            }
-            return string.Empty;
-        }
-    }
-
-    public DateTime? rankingLastupdate
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return bmsScore.rankingLastupdate;
-            }
-            return null;
-        }
-    }
-
-    public double? stddevVal
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return bmsScore.stddevVal;
-            }
-            return null;
-        }
-    }
-
-    public double? scoreDifficulty
-    {
-        get
-        {
-            if (bmsScore != null)
-            {
-                return bmsScore.scoreDifficulty;
-            }
-            return null;
-        }
-    }
-
     public BMSFileMaintenanceInfo maintenanceInfo
     {
         get
@@ -1060,22 +876,6 @@ public class BMSFile : LR2SongDB.song
                 _bmsScore = value;
                 registrateBMSScorePropertyChangedEventHandlers();
                 RaisePropertyChanged("bmsScore");
-                RaisePropertyChanged(() => clear);
-                RaisePropertyChanged(() => rank);
-                RaisePropertyChanged(() => ClearDisplayText);
-                RaisePropertyChanged(() => RankDisplayText);
-                RaisePropertyChanged(() => score);
-                RaisePropertyChanged(() => rate);
-                RaisePropertyChanged(() => rateDouble);
-                RaisePropertyChanged(() => totalnotes);
-                RaisePropertyChanged(() => minbp);
-                RaisePropertyChanged(() => maxcombo);
-                RaisePropertyChanged(() => ranking);
-                RaisePropertyChanged(() => rankingNum);
-                RaisePropertyChanged(() => rankingString);
-                RaisePropertyChanged(() => rankingLastupdate);
-                RaisePropertyChanged(() => stddevVal);
-                RaisePropertyChanged(() => scoreDifficulty);
             }
         }
     }
@@ -1128,31 +928,23 @@ public class BMSFile : LR2SongDB.song
         listenerForBMSScore = new PropertyChangedEventListener(bmsScore);
         listenerForBMSScore.RegisterHandler(() => bmsScore.ranking, delegate
         {
-            RaisePropertyChanged(() => ranking);
+            RaisePropertyChanged(() => bmsScore);
         });
         listenerForBMSScore.RegisterHandler(() => bmsScore.rankingNum, delegate
         {
-            RaisePropertyChanged(() => rankingNum);
-        });
-        listenerForBMSScore.RegisterHandler(() => bmsScore.ranking, delegate
-        {
-            RaisePropertyChanged(() => rankingString);
-        });
-        listenerForBMSScore.RegisterHandler(() => bmsScore.rankingNum, delegate
-        {
-            RaisePropertyChanged(() => rankingString);
+            RaisePropertyChanged(() => bmsScore);
         });
         listenerForBMSScore.RegisterHandler(() => bmsScore.rankingLastupdate, delegate
         {
-            RaisePropertyChanged(() => rankingLastupdate);
+            RaisePropertyChanged(() => bmsScore);
         });
         listenerForBMSScore.RegisterHandler(() => bmsScore.stddevVal, delegate
         {
-            RaisePropertyChanged(() => stddevVal);
+            RaisePropertyChanged(() => bmsScore);
         });
         listenerForBMSScore.RegisterHandler(() => bmsScore.scoreDifficulty, delegate
         {
-            RaisePropertyChanged(() => scoreDifficulty);
+            RaisePropertyChanged(() => bmsScore);
         });
     }
 

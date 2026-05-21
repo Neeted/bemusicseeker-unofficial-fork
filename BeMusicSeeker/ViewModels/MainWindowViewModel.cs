@@ -16377,9 +16377,9 @@ public class MainWindowViewModel : ViewModel
             {
                 columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
             }
-            if (string.Equals(columnName, nameof(BeMusicSeeker.Models.BMSFile.rank), StringComparison.Ordinal))
+            if (string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal))
             {
-                columnName = nameof(BeMusicSeeker.Models.BMSFile.rateDouble);
+                columnName = nameof(LibraryChartRow.rateDouble);
             }
             bool isTreeSelectionRequest = requestedMode != viewUpdateMode.TreeViewFilterNotChanged && requestedMode < viewUpdateMode.KeywordFilterUpdated;
             bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;

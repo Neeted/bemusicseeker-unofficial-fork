@@ -406,10 +406,9 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             RaiseChartInfoDisplayPropertiesChanged();
         }
-        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.clear) || e.PropertyName == nameof(BMSFile.rank) || e.PropertyName == nameof(BMSFile.bmsScore))
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.bmsScore))
         {
-            RaisePropertyChanged(nameof(ClearDisplayText));
-            RaisePropertyChanged(nameof(RankDisplayText));
+            RaiseScoreDisplayPropertiesChanged();
         }
     }
 
@@ -459,6 +458,26 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(ChartEndDensityText));
         RaisePropertyChanged(nameof(ChartEndDensitySortKey));
         RaisePropertyChanged(nameof(ChartSoflanCount));
+    }
+
+    private void RaiseScoreDisplayPropertiesChanged()
+    {
+        RaisePropertyChanged(nameof(clear));
+        RaisePropertyChanged(nameof(rank));
+        RaisePropertyChanged(nameof(ClearDisplayText));
+        RaisePropertyChanged(nameof(RankDisplayText));
+        RaisePropertyChanged(nameof(score));
+        RaisePropertyChanged(nameof(rate));
+        RaisePropertyChanged(nameof(rateDouble));
+        RaisePropertyChanged(nameof(totalnotes));
+        RaisePropertyChanged(nameof(minbp));
+        RaisePropertyChanged(nameof(maxcombo));
+        RaisePropertyChanged(nameof(ranking));
+        RaisePropertyChanged(nameof(rankingNum));
+        RaisePropertyChanged(nameof(rankingString));
+        RaisePropertyChanged(nameof(rankingLastupdate));
+        RaisePropertyChanged(nameof(stddevVal));
+        RaisePropertyChanged(nameof(scoreDifficulty));
     }
 
     private LR2SongDBExtended.bmson_song GetBmsonSong()

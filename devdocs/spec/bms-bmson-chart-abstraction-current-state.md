@@ -45,11 +45,13 @@ BMS の所持譜面の正本は `BMSLibrary.BMSFiles` であり、要素は `BMS
 - `folder`
 - `parent`
 - title / artist / level / mode
-- LR2 score / ranking / IR 関連の storage state
+- `BMSScore` attachment と LR2 score / ranking / IR 関連の storage state
 - BMS parser 由来の resource references
 - runtime `ChartInfo`
 - `maintenanceInfo`
 - `RefTables`
+
+`BMSFile` は LR2 score row の attachment と listener lifecycle を持つが、clear / rank / rate / ranking などの一覧表示・sort 用 getter は持たない。score 表示値は `ChartScoreSnapshot` を介して `ChartFile` / row read model 側で解決する。
 
 `BMSLibrary.BMSFiles` の更新時には、playlist summary owned hash snapshot、installed chart key / directory index、parent folder cache、install estimation metadata profile cache、duplicate cache、resource health index が無効化される。
 
@@ -105,7 +107,7 @@ parent folder cache は UI / settings の語彙としては BMS root / BMS direc
 
 playlist reference 表示は、BMS / bmson を分けず `ChartFile` identity から解決する。playlist entry の md5 / sha256 から作る `PlaylistReferenceIndex` を通常一覧 row / virtual source row / playlist detail source row に注入し、lookup は md5 優先、見つからない場合だけ sha256 fallback とする。`BMSLibrary` の playlist reference 更新も BMS storage row の `RefTables` cache へは書き戻さず、UI 更新は `PlaylistReferenceIndex` の version / table 更新通知と chart row の playlist reference projection invalidation で行う。BMS storage row の playlist reference cache / mutation API は削除済みであり、表示 / sort / keyword search / `BMSLibrary` mutation の正本は `PlaylistReferenceIndex` である。
 
-score / ranking 系の表示値は `ChartScoreSnapshot` として `ChartFile` に投影され、`LibraryChartRow` / `ChartListSourceRow` は `BMSFile` の score 表示 getter を直接読まない。BMS の通常一覧では `BMSFile.bmsScore` から snapshot を作る。通常 library の所持 bmson は現時点で LR2 score storage を持たないため、path がある chart は `NO_PLAY`、path が無い chart は `NO_SONG` の既定 snapshot になる。これは「score 表示 API の入口は Chart だが、score の storage producer は BMS/LR2 境界に残る」という整理である。
+score / ranking 系の表示値は `ChartScoreSnapshot` として `ChartFile` に投影され、`LibraryChartRow` / `ChartListSourceRow` は `BMSFile` の score 表示 getter を直接読まない。BMS の通常一覧では `BMSFile.bmsScore` から snapshot を作る。`BMSFile` 側には `bmsScore` attachment と listener lifecycle だけを残し、`clear` / `rank` / `score` / `rateDouble` / `rankingString` などの表示・sort getter は row read model 側へ閉じる。通常 library の所持 bmson は現時点で LR2 score storage を持たないため、path がある chart は `NO_PLAY`、path が無い chart は `NO_SONG` の既定 snapshot になる。これは「score 表示 API の入口は Chart だが、score の storage producer は BMS/LR2 境界に残る」という整理である。
 
 一方、次の列は BMS / LR2 storage 由来に依存するため、所持 bmson では空または既定値になりやすい。
 
@@ -626,7 +628,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 2. **BMSFile member surface の chart-common 責務 audit**
    - `BMSFile` の property / helper が BMS-only storage state なのか、Chart 共通の表示・操作 concept なのかを分類する。
    - `ChartInfo` / install destination / warning / maintenance / resource health / score display など、bmson にも適用される concept は `ChartFile` / `ChartFileTransientState` / 専用 snapshot へ移し、`BMSFile` には BMS / LR2 storage owner と parser / score producer として必要な state だけを残す。
-   - 一覧 row の score / ranking 表示 getter は `ChartScoreSnapshot` を読む。BMS の producer は `BMSFile.bmsScore` のままだが、row / sort / keyword search 側は `BMSFile` の score 表示 API に依存しない。
+   - 一覧 row の score / ranking 表示 getter は `ChartScoreSnapshot` を読む。BMS の producer は `BMSFile.bmsScore` のままだが、row / sort / keyword search 側は `BMSFile` の score 表示 API に依存しない。`BMSFile` の score 表示 getter は削除済みである。
    - `ChartInfo` の表示テキスト / sort key / undefined 判定は `ChartInfoDisplaySnapshot` を読む。`BMSFile` は `ChartInfo` storage owner と hydration 通知だけを持ち、`ChartLevelText` / `ChartTotalSortKey` のような chart-common 表示 property は持たない。
 
 3. **chart-common API に残る BMSFile list / overload の audit**

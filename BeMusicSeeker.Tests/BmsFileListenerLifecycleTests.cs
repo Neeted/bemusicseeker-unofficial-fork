@@ -40,24 +40,24 @@ public sealed class BmsFileListenerLifecycleTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         BMSScore score1 = CreateScore(file.hash);
         BMSScore score2 = CreateScore(file.hash);
-        int rankingChangedCount = 0;
+        int scoreChangedCount = 0;
         file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(BMSFile.ranking))
+            if (e.PropertyName == nameof(BMSFile.bmsScore))
             {
-                rankingChangedCount++;
+                scoreChangedCount++;
             }
         };
 
         file.bmsScore = score1;
         file.bmsScore = score2;
-        rankingChangedCount = 0;
+        scoreChangedCount = 0;
 
         score1.ranking = 1;
         score2.ranking = 2;
 
-        Assert.AreEqual(1, rankingChangedCount);
-        Assert.AreEqual(2, file.ranking);
+        Assert.AreEqual(1, scoreChangedCount);
+        Assert.AreEqual(2, file.bmsScore.ranking);
     }
 
     [TestMethod]

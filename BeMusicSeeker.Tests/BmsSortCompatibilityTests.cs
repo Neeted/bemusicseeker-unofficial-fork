@@ -374,11 +374,11 @@ public sealed class BmsSortCompatibilityTests
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.RefTablesSymbols)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.clear)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.rateDouble)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.score)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.maxcombo)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(BMSFile.minbp)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.clear)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.rateDouble)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.score)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.maxcombo)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.minbp)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.WarningDigestText)));
         Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.WAVHealth)));
@@ -596,7 +596,7 @@ public sealed class BmsSortCompatibilityTests
         zeroNotes.ApplySnapshot(new SongSnapshotRow { path = "zero.bms", title = "Zero", level = 1, hash = "55555555555555555555555555555555" });
         zeroNotes.bmsScore = new BMSScore { hash = zeroNotes.hash, perfect = 10, totalnotes = 0 };
 
-        Assert.IsFalse(zeroNotes.rateDouble.HasValue);
+        Assert.IsFalse(LibraryChartRow.FromBmsFile(zeroNotes).rateDouble.HasValue);
     }
 
     /// <summary>
