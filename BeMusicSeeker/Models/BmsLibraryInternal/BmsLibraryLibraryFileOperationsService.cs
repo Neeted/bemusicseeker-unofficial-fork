@@ -698,14 +698,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     }
 
     public LibraryMutationDelta RenameLibraryFileExtensions(
-        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<ChartFile> charts,
         string newExt,
         bool unregister,
         Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
     {
         var delta = new LibraryMutationDelta();
         var stopwatch = Stopwatch.StartNew();
-        foreach (BMSFile file in (bmsFiles ?? []).Where(file => file != null && File.Exists(file.path)))
+        foreach (BMSFile file in (charts ?? [])
+            .Select(chart => chart?.GetBmsStorageOwner())
+            .Where(file => file != null && File.Exists(file.path)))
         {
             string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + newExt);
             RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();

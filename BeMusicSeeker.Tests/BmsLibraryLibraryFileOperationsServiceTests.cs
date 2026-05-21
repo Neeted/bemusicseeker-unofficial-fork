@@ -1096,18 +1096,36 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string renameSourcePath = Path.Combine(tempDirectoryPath, "rename_me.bms");
             string duplicateSourcePath = Path.Combine(tempDirectoryPath, "duplicate.bms");
             string duplicateDestinationPath = Path.Combine(tempDirectoryPath, "duplicate.bme");
+            string bmsonPath = Path.Combine(tempDirectoryPath, "skip.bmson");
             File.WriteAllText(renameSourcePath, "rename");
             File.WriteAllText(duplicateSourcePath, "same");
             File.WriteAllText(duplicateDestinationPath, "same");
+            File.WriteAllText(bmsonPath, "{}");
             TestableBmsFile renameFile = CreateFile(renameSourcePath);
             TestableBmsFile duplicateFile = CreateFile(duplicateSourcePath);
+            var bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = bmsonPath,
+                md5 = new string('b', 32),
+                sha256 = new string('2', 64)
+            };
+            int callbackCount = 0;
 
             LibraryMutationDelta delta = service.RenameLibraryFileExtensions(
-                [renameFile, duplicateFile],
+                [
+                    ChartFileProjection.FromBmsFile(renameFile),
+                    ChartFileProjection.FromBmsFile(duplicateFile),
+                    ChartFileProjection.FromBmsonSong(bmsonSong)
+                ],
                 ".bme",
                 unregister: false,
-                (file, requestedPath) => service.ProcessInvalidExtensionRename(file, requestedPath, fileMutationService, null));
+                (file, requestedPath) =>
+                {
+                    callbackCount++;
+                    return service.ProcessInvalidExtensionRename(file, requestedPath, fileMutationService, null);
+                });
 
+            Assert.AreEqual(2, callbackCount);
             Assert.AreEqual(1, delta.RenamedCount);
             Assert.AreEqual(1, delta.DuplicateDeletedCount);
             Assert.AreEqual(0, delta.SkippedCount);
@@ -1120,6 +1138,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsFalse(File.Exists(renameSourcePath));
             Assert.IsFalse(File.Exists(duplicateSourcePath));
             Assert.IsTrue(File.Exists(duplicateDestinationPath));
+            Assert.IsTrue(File.Exists(bmsonPath));
         });
     }
 

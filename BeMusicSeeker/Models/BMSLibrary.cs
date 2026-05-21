@@ -10791,13 +10791,13 @@ reportProgress,
 
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, bool? unregister = false)
     {
-        List<BMSFile> bmsFiles = GetBmsFormatChartFiles(charts);
+        List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart?.GetBmsStorageOwner() != null)];
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
                 LibraryMutationDelta delta = libraryFileOperationsService.RenameLibraryFileExtensions(
-                    bmsFiles,
+                    targetCharts,
                     newExt,
                     unregister == true,
                     (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, unregister == true));
@@ -10815,7 +10815,7 @@ reportProgress,
                         MessageBoxResult.OK);
                 }
                 ApplyLibraryMutationDelta(delta);
-                NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=normal total=" + (bmsFiles?.Count() ?? 0) + " renamed=" + delta.RenamedCount + " deleted=" + delta.DuplicateDeletedCount + " skipped=" + delta.SkippedCount);
+                NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=normal total=" + targetCharts.Count + " renamed=" + delta.RenamedCount + " deleted=" + delta.DuplicateDeletedCount + " skipped=" + delta.SkippedCount);
             }
         }
     }
@@ -10856,14 +10856,6 @@ reportProgress,
                 }
             }
         }
-    }
-
-    private static List<BMSFile> GetBmsFormatChartFiles(IEnumerable<ChartFile> charts)
-    {
-        return [.. (charts ?? [])
-            .Where(ChartFileKindResolver.IsBmsChartFile)
-            .Select(chart => chart.GetBmsStorageOwner())
-            .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
     /// <summary>
