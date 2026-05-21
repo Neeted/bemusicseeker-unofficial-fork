@@ -56,10 +56,9 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
         return result;
     }
 
-    public ChartInfoInlineBuildResult BuildForExistingFiles(
+    public ChartInfoInlineBuildResult BuildForExistingCharts(
         BmsLibraryDbGateway dbGateway,
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        IEnumerable<ChartFile> charts,
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null)
     {
@@ -67,17 +66,7 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway != null
             ? dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout)
             : new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
-        List<ChartFile> targets =
-        [
-            .. (bmsFiles ?? [])
-                        .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                        .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
-                        .Where(chart => chart != null),
-            .. (bmsonSongs ?? [])
-                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                    .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false))
-                    .Where(chart => chart != null),
-        ];
+        List<ChartFile> targets = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         foreach (List<ChartFile> batch in CreateBatches(targets, batchSize))
         {
             List<InlineChartSnapshotTarget> snapshots = [];

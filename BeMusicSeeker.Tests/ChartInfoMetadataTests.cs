@@ -2816,10 +2816,9 @@ createTempDirectory);
                 songDb.CreateTable<LR2SongDB.song>();
             }
 
-            ChartInfoInlineBuildResult result = service.BuildForExistingFiles(
+            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
                 gateway,
-                [file],
-                []);
+                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
             gateway.UpsertSongs([file]);
             gateway.UpsertChartInfoBackfillChunk(
                 [],
@@ -3325,10 +3324,9 @@ createTempDirectory);
             ]);
             var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
 
-            ChartInfoInlineBuildResult result = service.BuildForExistingFiles(
+            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(
                 gateway,
-                [file],
-                []);
+                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.FailureSkippedCount);

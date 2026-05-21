@@ -5141,10 +5141,9 @@ completeFileEnumerationOnce,
         var inlineBuildService = new ChartInfoInlineBuildService(
             chartInfoBuildService,
             BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
-        result = inlineBuildService.BuildForExistingFiles(
+        result = inlineBuildService.BuildForExistingCharts(
             dbGateway,
-            bmsTargets,
-            bmsonTargets,
+            CreateResourceMaintenanceCharts(bmsTargets, bmsonTargets),
             LogInstallPerformance,
             LogInstallPerformanceWarn);
         if (bmsTargets.Count > 0)
