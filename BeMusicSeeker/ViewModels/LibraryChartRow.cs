@@ -398,6 +398,10 @@ internal sealed class LibraryChartRow : NotificationObject
     private void OnSourcePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         RaisePropertyChanged(e.PropertyName);
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.Warnings))
+        {
+            RaiseWarningPresentationPropertiesChanged();
+        }
         if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.ChartInfo))
         {
             RaiseChartInfoDisplayPropertiesChanged();
@@ -407,6 +411,14 @@ internal sealed class LibraryChartRow : NotificationObject
             RaisePropertyChanged(nameof(ClearDisplayText));
             RaisePropertyChanged(nameof(RankDisplayText));
         }
+    }
+
+    private void RaiseWarningPresentationPropertiesChanged()
+    {
+        RaisePropertyChanged(nameof(DisplayWarning));
+        RaisePropertyChanged(nameof(WarningDigestText));
+        RaisePropertyChanged(nameof(WarningTooltipText));
+        RaisePropertyChanged(nameof(HasHighlightedWarning));
     }
 
     private void RaiseChartInfoDisplayPropertiesChanged()

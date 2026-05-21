@@ -67,7 +67,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             CollectionAssert.DoesNotContain(changedProperties, nameof(BMSLibrary.ChartFilesZeroNote));
             Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
             Assert.IsTrue(file.HasHighlightedWarning);
-            Assert.AreEqual("[1] ゼロノート不整合", file.WarningDigestText);
+            Assert.AreEqual("[1] ゼロノート不整合", file.Warnings.BuildDigestText());
         });
     }
 
@@ -92,7 +92,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
             Assert.IsTrue(file.HasHighlightedWarning);
-            Assert.AreEqual("[1] ゼロノート不整合", file.WarningDigestText);
+            Assert.AreEqual("[1] ゼロノート不整合", file.Warnings.BuildDigestText());
         });
     }
 

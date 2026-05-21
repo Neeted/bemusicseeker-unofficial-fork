@@ -516,9 +516,7 @@ public class BMSFile : LR2SongDB.song
 
     internal void RaiseWarningPresentationChanged()
     {
-        RaisePropertyChanged(() => DisplayWarning);
-        RaisePropertyChanged(() => WarningDigestText);
-        RaisePropertyChanged(() => WarningTooltipText);
+        RaisePropertyChanged(() => Warnings);
         RaisePropertyChanged(() => HasHighlightedWarning);
         RaisePropertyChanged(() => HasZeroNoteMismatchWarning);
         RaisePropertyChanged(() => HasLowConfidenceInstallWarning);
@@ -596,18 +594,6 @@ public class BMSFile : LR2SongDB.song
             }
         }
     }
-
-    public virtual string DisplayWarning
-    {
-        get
-        {
-            return Warnings.BuildDisplayText();
-        }
-    }
-
-    public virtual string WarningDigestText => Warnings.BuildDigestText();
-
-    public virtual string WarningTooltipText => Warnings.BuildTooltipText();
 
     public virtual string instl_dst
     {

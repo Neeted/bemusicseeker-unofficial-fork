@@ -22,10 +22,10 @@ public sealed class ChartWarningCollectionTests
         file.SetWarning(ChartWarningKind.ResourceBgaMissing, "bga missing");
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
 
-        Assert.AreEqual("[3] サブフォルダ譜面, リソース不足", file.WarningDigestText);
-        StringAssert.Contains(file.WarningTooltipText, Resources.Warning_NestedChartFileInPackage);
-        StringAssert.Contains(file.WarningTooltipText, "wav missing");
-        StringAssert.Contains(file.WarningTooltipText, "bga missing");
+        Assert.AreEqual("[3] サブフォルダ譜面, リソース不足", file.Warnings.BuildDigestText());
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), Resources.Warning_NestedChartFileInPackage);
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "wav missing");
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "bga missing");
     }
 
     [TestMethod]
@@ -38,9 +38,9 @@ public sealed class ChartWarningCollectionTests
 
         file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
 
-        Assert.IsFalse(file.WarningTooltipText.Contains("structured estimate"));
+        Assert.IsFalse(file.Warnings.BuildTooltipText().Contains("structured estimate"));
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-        Assert.AreEqual("[1] サブフォルダ譜面", file.WarningDigestText);
+        Assert.AreEqual("[1] サブフォルダ譜面", file.Warnings.BuildDigestText());
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
     }
 
@@ -58,9 +58,9 @@ public sealed class ChartWarningCollectionTests
 
         file.instl_dst = "C:\\Installed";
 
-        Assert.AreEqual(string.Empty, file.WarningDigestText);
-        StringAssert.Contains(file.WarningTooltipText, "WAV");
-        CollectionAssert.Contains(changedProperties, nameof(BMSFile.WarningDigestText));
+        Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "WAV");
+        CollectionAssert.Contains(changedProperties, nameof(BMSFile.Warnings));
     }
 
     [TestMethod]
@@ -77,7 +77,7 @@ public sealed class ChartWarningCollectionTests
         Assert.IsTrue(file.HasLowConfidenceInstallWarning);
         Assert.IsTrue(file.IsHashDuplicated);
         Assert.IsTrue(file.HasHighlightedWarning);
-        Assert.AreEqual("[3] ゼロノート不整合, 重複譜面, 推定先複数", file.WarningDigestText);
+        Assert.AreEqual("[3] ゼロノート不整合, 重複譜面, 推定先複数", file.Warnings.BuildDigestText());
 
         file.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
         file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
@@ -87,7 +87,7 @@ public sealed class ChartWarningCollectionTests
         Assert.IsFalse(file.HasLowConfidenceInstallWarning);
         Assert.IsFalse(file.IsHashDuplicated);
         Assert.IsFalse(file.HasHighlightedWarning);
-        Assert.AreEqual(string.Empty, file.WarningDigestText);
+        Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
     }
 
     [TestMethod]
@@ -137,7 +137,7 @@ public sealed class ChartWarningCollectionTests
         Assert.IsTrue(file.HasLowConfidenceInstallWarning);
         Assert.IsTrue(file.HasHighlightedWarning);
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationAmbiguous));
-        StringAssert.Contains(file.WarningDigestText, Resources.WarningDigest_InstalledDestinationAmbiguous);
+        StringAssert.Contains(file.Warnings.BuildDigestText(), Resources.WarningDigest_InstalledDestinationAmbiguous);
     }
 
     [TestMethod]
@@ -152,9 +152,9 @@ public sealed class ChartWarningCollectionTests
 
         Assert.IsTrue(file.HasChartInfoParseFailureWarning);
         Assert.IsTrue(file.HasHighlightedWarning);
-        Assert.AreEqual("[1] メタデータ解析エラー", file.WarningDigestText);
-        StringAssert.Contains(file.WarningTooltipText, "InvalidDataException");
-        StringAssert.Contains(file.WarningTooltipText, "開始BPM未定義");
+        Assert.AreEqual("[1] メタデータ解析エラー", file.Warnings.BuildDigestText());
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "InvalidDataException");
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "開始BPM未定義");
     }
 
     [TestMethod]
@@ -166,8 +166,8 @@ public sealed class ChartWarningCollectionTests
         file.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
 
         Assert.IsTrue(file.HasHighlightedWarning);
-        Assert.AreEqual("[1] LR2パス非対応", file.WarningDigestText);
-        StringAssert.Contains(file.WarningTooltipText, "Shift_JIS");
+        Assert.AreEqual("[1] LR2パス非対応", file.Warnings.BuildDigestText());
+        StringAssert.Contains(file.Warnings.BuildTooltipText(), "Shift_JIS");
     }
 
     [TestMethod]
@@ -182,7 +182,7 @@ public sealed class ChartWarningCollectionTests
 
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
-        Assert.AreEqual("[1] サブフォルダ譜面", file.WarningDigestText);
+        Assert.AreEqual("[1] サブフォルダ譜面", file.Warnings.BuildDigestText());
     }
 
     [TestMethod]
@@ -198,7 +198,7 @@ public sealed class ChartWarningCollectionTests
 
         Assert.IsTrue(copy.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
         Assert.IsTrue(copy.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-        Assert.AreEqual(source.WarningDigestText, copy.WarningDigestText);
+        Assert.AreEqual(source.Warnings.BuildDigestText(), copy.Warnings.BuildDigestText());
     }
 
     [TestMethod]

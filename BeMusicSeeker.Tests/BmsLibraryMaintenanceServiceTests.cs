@@ -34,7 +34,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, warnings.Count);
         Assert.AreEqual(ChartWarningKind.ResourceWavMissing, warnings[0].Kind);
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-        Assert.AreEqual(string.Empty, file.WarningDigestText);
+        Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
     }
 
     [TestMethod]

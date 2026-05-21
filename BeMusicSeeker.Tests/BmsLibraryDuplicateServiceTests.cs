@@ -48,7 +48,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.HasHighlightedWarning);
-        Assert.AreEqual("[1] 重複譜面", file.WarningDigestText);
+        Assert.AreEqual("[1] 重複譜面", file.Warnings.BuildDigestText());
     }
 
     [TestMethod]
@@ -64,7 +64,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
-        Assert.AreEqual("[1] サブフォルダ譜面", file.WarningDigestText);
+        Assert.AreEqual("[1] サブフォルダ譜面", file.Warnings.BuildDigestText());
     }
 
     [TestMethod]

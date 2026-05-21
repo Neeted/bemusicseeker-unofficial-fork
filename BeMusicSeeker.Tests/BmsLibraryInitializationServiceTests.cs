@@ -812,7 +812,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(added.folder));
             Assert.IsTrue(string.IsNullOrWhiteSpace(added.parent));
             Assert.IsTrue(added.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
-            StringAssert.Contains(added.WarningTooltipText, "Shift_JIS");
+            StringAssert.Contains(added.Warnings.BuildTooltipText(), "Shift_JIS");
             Assert.AreEqual(1, result.NextFiles.Count(file => string.IsNullOrWhiteSpace(file.parent)));
 
             using var verify = new LR2SongDBExtended(songDbPath);
@@ -2747,9 +2747,9 @@ public sealed class BmsLibraryInitializationServiceTests
             BMSFile nestedChart = result.PendingPackages[0].GetBmsOwnersForTest().Single(file => Path.GetFileName(file.path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
             Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            Assert.AreEqual("[2] " + BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart + ", " + BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, nestedChart.WarningDigestText);
-            StringAssert.Contains(nestedChart.WarningTooltipText, BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage);
-            StringAssert.Contains(nestedChart.WarningTooltipText, "WAV");
+            Assert.AreEqual("[2] " + BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart + ", " + BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, nestedChart.Warnings.BuildDigestText());
+            StringAssert.Contains(nestedChart.Warnings.BuildTooltipText(), BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage);
+            StringAssert.Contains(nestedChart.Warnings.BuildTooltipText(), "WAV");
         });
     }
 
