@@ -9328,13 +9328,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesZeroNote
+    private IEnumerable<ChartFile> ChartFilesZeroNote
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesZeroNote;
+                return files.ChartFilesZeroNote;
             }
             return null;
         }
@@ -11446,7 +11446,7 @@ public class MainWindowViewModel : ViewModel
                 subsetName = "unregistered";
                 return true;
             case viewUpdateMode.ZeroNoteFilterSelected:
-                sourceCharts = CreateBmsChartSnapshot(BMSFilesZeroNote);
+                sourceCharts = ChartFilesZeroNote;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "zero_note";
                 return true;
@@ -14494,7 +14494,7 @@ public class MainWindowViewModel : ViewModel
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesZeroNote, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartFilesZeroNote, delegate
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
             if (treeViewFilterTypeSelected == viewUpdateMode.ZeroNoteFilterSelected)
@@ -16252,7 +16252,7 @@ public class MainWindowViewModel : ViewModel
                 ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesUnregistered), CreateBmsLibraryChartRowFromChart);
                 break;
             case viewUpdateMode.ZeroNoteFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesZeroNote), CreateBmsLibraryChartRowFromChart);
+                ChartRowsFolderView = ToLibraryChartRows(ChartFilesZeroNote, CreateBmsLibraryChartRowFromChart);
                 break;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
                 ChartRowsFolderView = ToLibraryChartRows(ChartInfoParseFailedChartFiles);

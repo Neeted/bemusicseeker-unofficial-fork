@@ -120,7 +120,7 @@ keyword / sort / virtual source row の基本判定は `ChartListSourceRow` の 
 
 bmson library rows は全ての tree mode に無条件で混ざるわけではない。`ShouldIncludeBmsonLibraryRowsInMainView(...)` は、通常 root / folder / keyword / mode filter と `FullScanAllChartsFilterSelected` では bmson を含めるが、playlist tree active、maintenance filter、install filter では除外する。maintenance / install / playlist detail 側は、それぞれ専用 source、`PackageChartEntry` / `ChartFile`、`ChartFileTransientState` / `PlaylistReferenceIndex` の経路で bmson を扱う。
 
-通常一覧の subset view 用の仮想 filter / sort cache は `VirtualChartSubset*` helper で扱う。これは file missing / duplicate / pending install / newly installed / chart_info parse failure などの subset を `ChartListSourceRow` として並べ替える経路であり、BMS / bmson を含む chart row subset を対象にする。BMS-only subset である garbled / garble fixed / unregistered / zero-note も UI source 境界では `ChartFile` snapshot へ投影してから `ChartListSourceRow` を作る。chart_info parse failure subset は warning 付き `ChartFile` projection をそのまま source row に渡し、表示のためだけに BMS / bmson compatibility adapter を materialize しない。performance log の scope 文字列は過去ログ検索互換のため、現状 `bms_file_subset` のまま残している。
+通常一覧の subset view 用の仮想 filter / sort cache は `VirtualChartSubset*` helper で扱う。これは file missing / duplicate / pending install / newly installed / chart_info parse failure などの subset を `ChartListSourceRow` として並べ替える経路であり、BMS / bmson を含む chart row subset を対象にする。BMS-only subset である garbled / garble fixed / unregistered / zero-note も UI source 境界では `ChartFile` snapshot へ投影してから `ChartListSourceRow` を作る。zero-note 一覧は `ChartFile.Kind == Bms` かつ `ChartFile.ChartInfo.notes == 0` を見る。これは実ファイルを読み直して zero-note 不整合 warning を再判定する `RunZeroNoteCheck` / `RecheckZeroNoteWarnings` が BMS parser / BMS file content 境界なので BMS-only capability のまま残るためである。chart_info parse failure subset は warning 付き `ChartFile` projection をそのまま source row に渡し、表示のためだけに BMS / bmson compatibility adapter を materialize しない。performance log の scope 文字列は過去ログ検索互換のため、現状 `bms_file_subset` のまま残している。
 
 ### Duplicate view
 
@@ -504,7 +504,7 @@ duplicate view の cache / search 入口は `DuplicateChartGroups` / `SearchDupl
 次の領域は BMS 専用意味を持つため、単純に chart 化しない。
 
 - garbled / encoding check / encoding fix
-- zero-note check
+- zero-note check / BMS-format zero-note rename
 - LR2IR
 - score viewer
 - ranking update
@@ -513,7 +513,7 @@ duplicate view の cache / search 入口は `DuplicateChartGroups` / `SearchDupl
 - LR2 `song` / `folder` update
 - `chart_digest_map`
 
-ここは `ChartFile` 化後も BMS-only capability として残す。
+ここは `ChartFile` 化後も BMS-only capability として残す。zero-note 一覧も BMS-format chart だけを対象にするが、UI source 境界は `ChartFile` snapshot に寄せる。
 pending invalid extension rename は `GetPendingBmsFormatChartFilesSnapshot` / `RenamePendingBmsFormatChartFileExtensions` / `RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` を入口にし、BMS-format chart file のみを対象にする。
 
 ## ChartFile / ChartPackage 化に向けた現在制約

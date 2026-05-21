@@ -533,22 +533,28 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void GetZeroNoteFiles_FiltersOnlyZeroNoteCharts()
+    public void GetZeroNoteCharts_FiltersOnlyZeroNoteCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(1200);
         zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
+        ChartFile zeroNoteChart = ChartFileProjection.FromBmsFile(zeroNoteFile);
         TestableBmsFile normalFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         normalFile.SetNotes(0);
         normalFile.SetChartInfo(CreateChartInfo(normalFile.hash, notes: 1200));
+        ChartFile normalChart = ChartFileProjection.FromBmsFile(normalFile);
         TestableBmsFile missingChartInfoFile = CreateFile("dddddddddddddddddddddddddddddddd");
         missingChartInfoFile.SetNotes(0);
+        ChartFile missingChartInfoChart = ChartFileProjection.FromBmsFile(missingChartInfoFile);
+        LR2SongDBExtended.bmson_song zeroNoteBmson = CreateBmsonSong("C:\\Library\\chart.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        zeroNoteBmson.ChartInfo = CreateChartInfo(zeroNoteBmson.md5, notes: 0);
+        ChartFile zeroNoteBmsonChart = ChartFileProjection.FromBmsonSong(zeroNoteBmson);
 
-        List<BMSFile> result = service.GetZeroNoteFiles([zeroNoteFile, normalFile, missingChartInfoFile]);
+        List<ChartFile> result = service.GetZeroNoteCharts([zeroNoteChart, normalChart, missingChartInfoChart, zeroNoteBmsonChart]);
 
-        CollectionAssert.AreEqual(new[] { zeroNoteFile }, result);
+        CollectionAssert.AreEqual(new[] { zeroNoteChart }, result);
     }
 
     [TestMethod]

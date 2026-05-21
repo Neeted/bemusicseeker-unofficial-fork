@@ -328,9 +328,14 @@ internal sealed class BmsLibraryMaintenanceService
             })];
     }
 
-    public List<BMSFile> GetZeroNoteFiles(IEnumerable<BMSFile> bmsFiles)
+    /// <summary>
+    /// chart_info 上のノート数が 0 の BMS-format chart を抽出します。
+    /// </summary>
+    /// <param name="charts">BMS / bmson を含む chart snapshot。</param>
+    /// <returns>chart_info 上のノート数が 0 の BMS-format chart 一覧。</returns>
+    public List<ChartFile> GetZeroNoteCharts(IEnumerable<ChartFile> charts)
     {
-        return [.. EnumerateBmsChartFiles(bmsFiles).Where(file => file.ChartInfo?.notes == 0)];
+        return [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms && chart.ChartInfo?.notes == 0)];
     }
 
     public List<BMSFileMaintenanceInfo> SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset)

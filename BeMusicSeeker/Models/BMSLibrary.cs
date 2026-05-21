@@ -1110,7 +1110,7 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
 
-    public IEnumerable<BMSFile> BMSFilesZeroNote => GetBMSFilesZeroNote(BMSFiles);
+    internal IEnumerable<ChartFile> ChartFilesZeroNote => GetZeroNoteCharts(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
 
     internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
 
@@ -4402,7 +4402,7 @@ completeFileEnumerationOnce,
         }
         if (inlineChartInfoApplied)
         {
-            RaisePropertyChanged(() => BMSFilesZeroNote);
+            RaisePropertyChanged(() => ChartFilesZeroNote);
         }
         if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
             || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0
@@ -4789,7 +4789,7 @@ completeFileEnumerationOnce,
         {
             RaisePropertyChanged(() => ChartInfoIndexHydrated);
         }
-        RaisePropertyChanged(() => BMSFilesZeroNote);
+        RaisePropertyChanged(() => ChartFilesZeroNote);
         return result;
     }
 
@@ -4826,7 +4826,7 @@ completeFileEnumerationOnce,
             result.ByMd5Count = chartInfoIndexByMd5.Count;
         }
         RaisePropertyChanged(() => ChartInfoIndexVersion);
-        RaisePropertyChanged(() => BMSFilesZeroNote);
+        RaisePropertyChanged(() => ChartFilesZeroNote);
         LogInstallPerformance("chart_info_index_delta upserted=" + rowList.Count
             + " bySha256=" + result.BySha256Count
             + " byMd5=" + result.ByMd5Count
@@ -5162,7 +5162,7 @@ completeFileEnumerationOnce,
         if (result.AppliedRows.Count > 0)
         {
             UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
-            RaisePropertyChanged(() => BMSFilesZeroNote);
+            RaisePropertyChanged(() => ChartFilesZeroNote);
         }
         if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
         {
@@ -7275,22 +7275,19 @@ reportProgress,
         ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(allFiles, (ex, message) => NLogWrapper.FileLogger?.Warn(ex, message));
         if (result.ChangedCount > 0)
         {
-            RaisePropertyChanged(() => BMSFilesZeroNote);
+            RaisePropertyChanged(() => ChartFilesZeroNote);
         }
         NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3} changed={4}", result.Total, result.MismatchCount, result.ClearedCount, result.SkippedCount, result.ChangedCount));
     }
 
     /// <summary>
-    /// ノート数が 0 の BMS ファイルの一覧を取得します。
+    /// chart_info 上のノート数が 0 の BMS-format chart 一覧を取得します。
     /// </summary>
-    public List<BMSFile> GetBMSFilesZeroNote(IEnumerable<BMSFile> bmsFiles)
+    /// <param name="charts">BMS / bmson を含む chart snapshot。</param>
+    /// <returns>chart_info 上のノート数が 0 の BMS-format chart 一覧。</returns>
+    internal List<ChartFile> GetZeroNoteCharts(IEnumerable<ChartFile> charts)
     {
-        bmsFiles ??= BMSFiles;
-        if (bmsFiles.Count() == 0)
-        {
-            return [];
-        }
-        return maintenanceService.GetZeroNoteFiles(bmsFiles);
+        return maintenanceService.GetZeroNoteCharts(charts);
     }
 
     internal List<ChartFile> GetChartInfoParseFailedChartFiles()

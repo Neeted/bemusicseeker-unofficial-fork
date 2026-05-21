@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryZeroNoteRefreshTests
 {
     [TestMethod]
-    public void RecheckZeroNoteWarnings_RaisesBmsFilesZeroNoteWhenWarningsChange()
+    public void RecheckZeroNoteWarnings_RaisesChartFilesZeroNoteWhenWarningsChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -34,13 +34,13 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             library.RecheckZeroNoteWarnings();
 
-            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.BMSFilesZeroNote));
+            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.ChartFilesZeroNote));
             Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
         });
     }
 
     [TestMethod]
-    public void RecheckZeroNoteWarnings_DoesNotRaiseBmsFilesZeroNoteWhenWarningsDoNotChange()
+    public void RecheckZeroNoteWarnings_DoesNotRaiseChartFilesZeroNoteWhenWarningsDoNotChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -64,7 +64,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             library.RecheckZeroNoteWarnings();
 
-            CollectionAssert.DoesNotContain(changedProperties, nameof(BMSLibrary.BMSFilesZeroNote));
+            CollectionAssert.DoesNotContain(changedProperties, nameof(BMSLibrary.ChartFilesZeroNote));
             Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
             Assert.IsTrue(file.HasHighlightedWarning);
             Assert.AreEqual("[1] ゼロノート不整合", file.WarningDigestText);
