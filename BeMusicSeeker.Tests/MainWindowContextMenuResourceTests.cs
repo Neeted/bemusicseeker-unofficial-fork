@@ -974,14 +974,14 @@ public sealed class MainWindowContextMenuResourceTests
         string addReferenceCharts = ExtractBetween(
             libraryCode,
             "internal void AddReferenceBMSTablesToCharts",
-            "private static int AddReferenceBMSTableToCharts");
+            "internal void RefreshReferenceDisplayForTable");
 
         StringAssert.Contains(addChartRows, "List<ChartFile> resolvedCharts");
         StringAssert.Contains(addChartRows, "files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts)");
         Assert.IsTrue(addChartRows.IndexOf("files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts)", StringComparison.Ordinal) < addChartRows.IndexOf("RefreshChartRowsViewForPlaylist(bmsTable)", StringComparison.Ordinal));
         Assert.IsFalse(addChartRows.Contains("resolvedBmsFiles"));
         StringAssert.Contains(addReferenceCharts, "ReplacePlaylistReferenceIndexTable(table)");
-        StringAssert.Contains(addReferenceCharts, "AddReferenceBMSTableToCharts(table, charts)");
+        Assert.IsFalse(addReferenceCharts.Contains("AddReferenceBMSTableToCharts(table, charts)"));
         Assert.IsFalse(addReferenceCharts.Contains("IEnumerable<BMSFile>"));
     }
 

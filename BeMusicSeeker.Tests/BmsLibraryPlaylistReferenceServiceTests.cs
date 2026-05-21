@@ -26,16 +26,16 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         ];
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int addedRefs = service.ApplyReferenceMap(ToCharts(files), maps, out int matchedFiles, out PlaylistReferenceApplyStats stats);
+        int appliedCharts = service.ApplyReferenceMap(ToCharts(files), maps, out int matchedFiles, out PlaylistReferenceApplyStats stats);
 
         Assert.AreEqual(2, maps.Md5ToTablesMap.Count);
         Assert.AreEqual(0, maps.Sha256ToTablesMap.Count);
         Assert.AreEqual(2, matchedFiles);
-        Assert.AreEqual(2, addedRefs);
+        Assert.AreEqual(2, appliedCharts);
         Assert.AreEqual(2, stats.Chunks);
-        Assert.IsTrue(files[0].RefTables.Contains(table));
-        Assert.IsTrue(files[1].RefTables.Contains(table));
-        Assert.IsFalse(files[2].RefTables.Contains(table));
+        Assert.AreEqual(0, files[0].RefTables.Count);
+        Assert.AreEqual(0, files[1].RefTables.Count);
+        Assert.AreEqual(0, files[2].RefTables.Count);
     }
 
     [TestMethod]
@@ -46,13 +46,13 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int addedRefs = service.ApplyReferenceMap(ToCharts([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        int appliedCharts = service.ApplyReferenceMap(ToCharts([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(0, maps.Md5ToTablesMap.Count);
         Assert.AreEqual(1, maps.Sha256ToTablesMap.Count);
         Assert.AreEqual(1, matchedFiles);
-        Assert.AreEqual(1, addedRefs);
-        Assert.IsTrue(file.RefTables.Contains(table));
+        Assert.AreEqual(1, appliedCharts);
+        Assert.AreEqual(0, file.RefTables.Count);
     }
 
     [TestMethod]
@@ -66,12 +66,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps([md5Table, shaTable]);
-        int addedRefs = service.ApplyReferenceMap(ToCharts([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        int appliedCharts = service.ApplyReferenceMap(ToCharts([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedFiles);
-        Assert.AreEqual(1, addedRefs);
-        Assert.IsTrue(file.RefTables.Contains(md5Table));
-        Assert.IsFalse(file.RefTables.Contains(shaTable));
+        Assert.AreEqual(1, appliedCharts);
+        Assert.AreEqual(0, file.RefTables.Count);
     }
 
     [TestMethod]
@@ -88,10 +87,10 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         });
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int addedRefs = service.ApplyReferenceMap([chart], maps, out int matchedCharts, out PlaylistReferenceApplyStats stats);
+        int appliedCharts = service.ApplyReferenceMap([chart], maps, out int matchedCharts, out PlaylistReferenceApplyStats stats);
 
         Assert.AreEqual(1, matchedCharts);
-        Assert.AreEqual(0, addedRefs);
+        Assert.AreEqual(1, appliedCharts);
         Assert.AreEqual(1, stats.Chunks);
         Assert.IsNull(chart.GetBmsStorageOwner());
     }
@@ -110,16 +109,16 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         }));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats stats);
+        int appliedCharts = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats stats);
 
         Assert.AreEqual(1, matchedCharts);
-        Assert.AreEqual(0, addedRefs);
+        Assert.AreEqual(1, appliedCharts);
         Assert.AreEqual(1, stats.Chunks);
         Assert.IsNull(entry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
-    public void ApplyReferenceMap_PackageEntryMutatesBmsStorageOwner()
+    public void ApplyReferenceMap_PackageEntryMatchesBmsStorageOwnerWithoutMutation()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -128,11 +127,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         PackageChartEntry entry = PackageChartEntry.FromBmsFile(file);
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
+        int appliedCharts = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedCharts);
-        Assert.AreEqual(1, addedRefs);
-        Assert.IsTrue(file.RefTables.Contains(table));
+        Assert.AreEqual(1, appliedCharts);
+        Assert.AreEqual(0, file.RefTables.Count);
     }
 
     [TestMethod]
@@ -150,10 +149,10 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int addedRefs = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
+        int appliedCharts = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedCharts);
-        Assert.AreEqual(0, addedRefs);
+        Assert.AreEqual(1, appliedCharts);
         Assert.IsNull(entry.GetBmsOwnerForTest());
     }
 

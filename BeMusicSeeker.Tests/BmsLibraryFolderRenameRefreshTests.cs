@@ -446,12 +446,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 path = @"C:\Library\chart.bms"
             };
+            file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             var table = new BMSTable
             {
                 name = "Before",
-                symbol = "A"
+                symbol = "A",
+                entries = [new BMSTableEntry(file)]
             };
-            file.AddRefTable(table);
             int bmsFilesChangedCount = 0;
             int symbolsChangedCount = 0;
             int namesChangedCount = 0;
@@ -477,18 +478,20 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Interlocked.Exchange(ref bmsFilesChangedCount, 0);
             Interlocked.Exchange(ref symbolsChangedCount, 0);
             Interlocked.Exchange(ref namesChangedCount, 0);
+            library.RefreshReferenceDisplayForTable(table);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
 
             table.symbol = "B";
             table.name = "After";
-            Assert.AreEqual("A", file.RefTablesSymbols);
-            Assert.AreEqual("Before", file.RefTablesNames);
+            Assert.AreEqual("A", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("Before", library.GetPlaylistReferenceDisplay(chart).Names);
 
             library.RefreshReferenceDisplayForTable(table);
 
-            Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref symbolsChangedCount) > 0 && Volatile.Read(ref namesChangedCount) > 0));
+            Assert.IsFalse(WaitUntilTrue(() => Volatile.Read(ref symbolsChangedCount) > 0 || Volatile.Read(ref namesChangedCount) > 0, timeoutMs: 100));
             Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
-            Assert.AreEqual("B", file.RefTablesSymbols);
-            Assert.AreEqual("After", file.RefTablesNames);
+            Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
         });
     }
 
@@ -509,16 +512,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             SetLibraryFilesWithoutNotification(library, [file]);
 
             library.AddReferenceBMSTables(oldTable);
-            Assert.AreEqual(1, file.RefTables.Count);
-            Assert.AreEqual("A", file.RefTablesSymbols);
-            Assert.AreEqual("Before", file.RefTablesNames);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
+            Assert.AreEqual("A", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("Before", library.GetPlaylistReferenceDisplay(chart).Names);
 
             library.SynchronizeReferenceBMSTables([newTable], suppressFilePropertyChanged: true);
 
-            Assert.AreEqual(1, file.RefTables.Count);
-            Assert.AreSame(newTable, file.RefTables[0]);
-            Assert.AreEqual("B", file.RefTablesSymbols);
-            Assert.AreEqual("After", file.RefTablesNames);
+            Assert.AreEqual(0, file.RefTables.Count);
+            Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
         });
     }
 
@@ -635,7 +637,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void AddReferenceBMSTablesToCharts_AddsReferenceToBmsStorageOwner()
+    public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsStorageOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -650,10 +652,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.AddReferenceBMSTablesToCharts(table, [ChartFileProjection.FromBmsFile(file)]);
 
-            Assert.AreEqual(1, file.RefTables.Count);
-            Assert.AreSame(table, file.RefTables[0]);
-            Assert.AreEqual("M", file.RefTablesSymbols);
-            Assert.AreEqual("Matched", file.RefTablesNames);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
+            Assert.AreEqual(0, file.RefTables.Count);
+            Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
+            Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });
     }
 
