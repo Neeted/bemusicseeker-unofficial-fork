@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace BeMusicSeeker.Models;
 
@@ -16,7 +17,13 @@ internal sealed class ChartFileTransientState
 
     internal IReadOnlyList<string> InstallDestinationSuggestions { get; private set; } = [];
 
+    internal bool HasInstallDestinationProjection { get; private set; }
+
     internal IReadOnlyList<ChartWarning> Warnings { get; private set; } = [];
+
+    internal bool HasWarningProjection { get; private set; }
+
+    internal bool HasInstallEstimationWarningProjection { get; private set; }
 
     internal int? WAVHealth { get; private set; }
 
@@ -32,12 +39,18 @@ internal sealed class ChartFileTransientState
 
     internal string EncodingName { get; private set; }
 
-    internal bool HasState =>
-        !string.IsNullOrWhiteSpace(Subtitle)
+    internal bool HasInstallDestinationState =>
+        HasInstallDestinationProjection
         || !string.IsNullOrWhiteSpace(InstallDestination)
         || !string.IsNullOrWhiteSpace(InstallDestinationTitle)
         || !string.IsNullOrWhiteSpace(InstallDestinationArtist)
-        || (InstallDestinationSuggestions?.Count ?? 0) > 0
+        || (InstallDestinationSuggestions?.Count ?? 0) > 0;
+
+    internal bool HasState =>
+        !string.IsNullOrWhiteSpace(Subtitle)
+        || HasInstallDestinationState
+        || HasWarningProjection
+        || HasInstallEstimationWarningProjection
         || (Warnings?.Count ?? 0) > 0
         || WAVHealth.HasValue
         || BGAHealth.HasValue
@@ -47,7 +60,11 @@ internal sealed class ChartFileTransientState
         || BackbmpHealth.HasValue
         || !string.IsNullOrWhiteSpace(EncodingName);
 
-    internal static ChartFileTransientState FromChartFile(ChartFile chart, bool includeWarningSnapshot = true)
+    internal static ChartFileTransientState FromChartFile(
+        ChartFile chart,
+        bool includeWarningSnapshot = true,
+        bool forceInstallDestinationProjection = false,
+        bool forceWarningProjection = false)
     {
         if (chart == null)
         {
@@ -61,7 +78,9 @@ internal sealed class ChartFileTransientState
             InstallDestinationTitle = chart.InstallDestinationTitle,
             InstallDestinationArtist = chart.InstallDestinationArtist,
             InstallDestinationSuggestions = chart.InstallDestinationSuggestions,
+            HasInstallDestinationProjection = forceInstallDestinationProjection,
             Warnings = includeWarningSnapshot ? chart.Warnings : [],
+            HasWarningProjection = forceWarningProjection || (includeWarningSnapshot && (chart.Warnings?.Count ?? 0) > 0),
             WAVHealth = chart.WAVHealth,
             BGAHealth = chart.BGAHealth,
             MovieHealth = chart.MovieHealth,
@@ -81,7 +100,10 @@ internal sealed class ChartFileTransientState
             InstallDestinationTitle = InstallDestinationTitle,
             InstallDestinationArtist = InstallDestinationArtist,
             InstallDestinationSuggestions = InstallDestinationSuggestions,
+            HasInstallDestinationProjection = HasInstallDestinationProjection,
             Warnings = [],
+            HasWarningProjection = false,
+            HasInstallEstimationWarningProjection = false,
             WAVHealth = WAVHealth,
             BGAHealth = BGAHealth,
             MovieHealth = MovieHealth,
@@ -89,6 +111,32 @@ internal sealed class ChartFileTransientState
             BannerHealth = BannerHealth,
             BackbmpHealth = BackbmpHealth,
             EncodingName = EncodingName
+        };
+    }
+
+    internal static ChartFileTransientState FromInstallDestinationState(
+        ChartFile chart,
+        bool includeWarningSnapshot = true,
+        bool forceInstallDestinationProjection = false,
+        bool forceWarningProjection = false)
+    {
+        if (chart == null)
+        {
+            return Empty;
+        }
+
+        return new ChartFileTransientState
+        {
+            InstallDestination = chart.InstallDestination,
+            InstallDestinationTitle = chart.InstallDestinationTitle,
+            InstallDestinationArtist = chart.InstallDestinationArtist,
+            InstallDestinationSuggestions = chart.InstallDestinationSuggestions,
+            HasInstallDestinationProjection = forceInstallDestinationProjection,
+            Warnings = includeWarningSnapshot
+                ? [.. (chart.Warnings ?? []).Where(warning => warning?.Category == ChartWarningCategory.InstallEstimation)]
+                : [],
+            HasInstallEstimationWarningProjection = forceWarningProjection
+                || (includeWarningSnapshot && (chart.Warnings ?? []).Any(warning => warning?.Category == ChartWarningCategory.InstallEstimation))
         };
     }
 }

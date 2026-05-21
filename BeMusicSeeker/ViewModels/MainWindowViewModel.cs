@@ -5743,7 +5743,7 @@ public class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new(BmsonSongReferenceComparer.Instance);
 
-    private readonly Dictionary<string, ChartFileTransientState> bmsonChartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ChartFileTransientState> chartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, BmsonLibrarySortKeySnapshot> bmsonLibrarySortKeysByPath = new(StringComparer.OrdinalIgnoreCase);
 
@@ -10105,7 +10105,7 @@ public class MainWindowViewModel : ViewModel
 
     private void ApplyLibraryChartRowProviders(LibraryChartRow row)
     {
-        row?.SetBmsonTransientStateProvider(TryGetSharedBmsonChartTransientState);
+        row?.SetChartTransientStateProvider(TryGetSharedChartTransientState);
         ApplyResourceHealthProjectionProvider(row);
         ApplyPlaylistReferenceDisplayProvider(row);
     }
@@ -10118,11 +10118,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private ChartFileTransientState TryGetSharedBmsonChartTransientState(LR2SongDBExtended.bmson_song song, bool includeWarningSnapshot)
+    private ChartFileTransientState TryGetSharedChartTransientState(ChartFile chart, bool includeWarningSnapshot)
     {
-        string key = GetSharedBmsonChartStateKey(song);
+        string key = GetSharedChartStateKey(chart);
         if (string.IsNullOrWhiteSpace(key)
-            || !bmsonChartTransientStatesByKey.TryGetValue(key, out ChartFileTransientState state)
+            || !chartTransientStatesByKey.TryGetValue(key, out ChartFileTransientState state)
             || state == null)
         {
             return ChartFileTransientState.Empty;
@@ -10130,73 +10130,67 @@ public class MainWindowViewModel : ViewModel
         return includeWarningSnapshot ? state : state.WithoutWarnings();
     }
 
-    private void PruneSharedBmsonChartTransientStateCache(IReadOnlyCollection<LR2SongDBExtended.bmson_song> currentSongs)
+    private void PruneSharedChartTransientStateCache(
+        IEnumerable<BeMusicSeeker.Models.BMSFile> currentBmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> currentSongs)
     {
         var currentKeys = new HashSet<string>(
-            (currentSongs ?? [])
-                .Select(GetSharedBmsonChartStateKey)
+            (currentBmsFiles ?? [])
+                .Select(file => GetSharedChartStateKey(ChartFileProjection.FromBmsStorageOwnerIdentity(file)))
+                .Concat((currentSongs ?? [])
+                    .Select(song => GetSharedChartStateKey(ChartFileProjection.FromBmsonStorageOwnerIdentity(song))))
                 .Where(key => !string.IsNullOrWhiteSpace(key)),
             StringComparer.OrdinalIgnoreCase);
-        foreach (string key in bmsonChartTransientStatesByKey.Keys.ToList())
+        foreach (string key in chartTransientStatesByKey.Keys.ToList())
         {
             if (!currentKeys.Contains(key))
             {
-                bmsonChartTransientStatesByKey.Remove(key);
+                chartTransientStatesByKey.Remove(key);
             }
         }
     }
 
-    private static string GetSharedBmsonChartStateKey(LR2SongDBExtended.bmson_song song)
+    private static string GetSharedChartStateKey(ChartFile chart)
     {
-        string lookupHash = ChartLookupKey.GetPrimaryHash(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
-        string path = song?.path;
-        if (!string.IsNullOrWhiteSpace(lookupHash) && !string.IsNullOrWhiteSpace(path))
-        {
-            return "hash-path:" + lookupHash + "|" + path;
-        }
-        if (!string.IsNullOrWhiteSpace(lookupHash))
-        {
-            return "hash:" + lookupHash;
-        }
-        return string.IsNullOrWhiteSpace(path) ? null : "path:" + path;
-    }
-
-    private static string GetSharedBmsonChartStateKey(ChartFile chart)
-    {
-        if (chart == null || chart.Kind != ChartFileKind.Bmson)
+        if (chart == null)
         {
             return null;
         }
+        string kindPrefix = chart.Kind.ToString().ToLowerInvariant() + ":";
         string lookupHash = chart.PrimaryLookupHash;
         string path = chart.Path;
         if (!string.IsNullOrWhiteSpace(lookupHash) && !string.IsNullOrWhiteSpace(path))
         {
-            return "hash-path:" + lookupHash + "|" + path;
+            return kindPrefix + "hash-path:" + lookupHash + "|" + path;
         }
         if (!string.IsNullOrWhiteSpace(lookupHash))
         {
-            return "hash:" + lookupHash;
+            return kindPrefix + "hash:" + lookupHash;
         }
-        return string.IsNullOrWhiteSpace(path) ? null : "path:" + path;
+        return string.IsNullOrWhiteSpace(path) ? null : kindPrefix + "path:" + path;
     }
 
-    private void UpdateSharedBmsonChartTransientStates(IEnumerable<ChartFile> charts)
+    private void UpdateSharedChartTransientStates(IEnumerable<ChartFile> charts, bool forceInstallDestinationProjection = false)
     {
         foreach (ChartFile chart in charts ?? [])
         {
-            string key = GetSharedBmsonChartStateKey(chart);
+            string key = GetSharedChartStateKey(chart);
             if (string.IsNullOrWhiteSpace(key))
             {
                 continue;
             }
-            ChartFileTransientState state = ChartFileTransientState.FromChartFile(chart);
+            ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
+                chart,
+                includeWarningSnapshot: true,
+                forceInstallDestinationProjection: forceInstallDestinationProjection,
+                forceWarningProjection: forceInstallDestinationProjection);
             if (state.HasState)
             {
-                bmsonChartTransientStatesByKey[key] = state;
+                chartTransientStatesByKey[key] = state;
             }
             else
             {
-                bmsonChartTransientStatesByKey.Remove(key);
+                chartTransientStatesByKey.Remove(key);
             }
         }
     }
@@ -10426,7 +10420,8 @@ public class MainWindowViewModel : ViewModel
             subsetCharts,
             subsetProjectionMode,
             applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-            GetPlaylistReferenceDisplayForSourceRow);
+            GetPlaylistReferenceDisplayForSourceRow,
+            TryGetSharedChartTransientState);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
         long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
@@ -10637,7 +10632,7 @@ public class MainWindowViewModel : ViewModel
             ChartListSourceProjectionMode.OwnerBacked,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
-            TryGetSharedBmsonChartTransientState);
+            TryGetSharedChartTransientState);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -15544,7 +15539,7 @@ public class MainWindowViewModel : ViewModel
                 scoreSnapshotForRow,
                 entryChartInfo,
                 GetPlaylistReferenceDisplayForChart,
-                TryGetSharedBmsonChartTransientState));
+                TryGetSharedChartTransientState));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
@@ -16836,7 +16831,7 @@ public class MainWindowViewModel : ViewModel
         List<LR2SongDBExtended.bmson_song> snapshot = [.. (bmsonSongs ?? [])
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-        PruneSharedBmsonChartTransientStateCache(snapshot);
+        PruneSharedChartTransientStateCache(BMSFiles, snapshot);
         var nextPaths = new HashSet<string>(snapshot.Select(song => song.path), StringComparer.OrdinalIgnoreCase);
         bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any(path => !nextPaths.Contains(path));
         bool sourceReferenceChanged = false;
@@ -17768,6 +17763,7 @@ public class MainWindowViewModel : ViewModel
             if (targets.LooseEntries.Count > 0)
             {
                 files.SearchEstimatedInstallationDirectoryForLooseCharts(targets.LooseEntries);
+                UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -17795,6 +17791,7 @@ public class MainWindowViewModel : ViewModel
             if (targets.LooseEntries.Count > 0)
             {
                 files.SearchMergeDestinationForPendingCharts(targets.LooseEntries);
+                UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -20618,7 +20615,7 @@ public class MainWindowViewModel : ViewModel
                 throw new ArgumentNullException(nameof(chartEntries));
             }
             files.SearchCorrectInstallationDirectoryCharts(chartEntries);
-            UpdateSharedBmsonChartTransientStates(chartEntries.Select(entry => entry?.Chart));
+            UpdateSharedChartTransientStates(chartEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }
@@ -20670,6 +20667,7 @@ public class MainWindowViewModel : ViewModel
         if (targets.LooseEntries.Count > 0)
         {
             files.RemoveInstallDestination(targets.LooseEntries);
+            UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
         }
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
     }
@@ -20699,7 +20697,7 @@ public class MainWindowViewModel : ViewModel
                 ClearChartPackageInstallDestinations(chartPackages[num]);
             }
             files.RemoveInstallDestination(entries);
-            UpdateSharedBmsonChartTransientStates(entries.Select(entry => entry?.Chart));
+            UpdateSharedChartTransientStates(entries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
     }
@@ -20725,9 +20723,11 @@ public class MainWindowViewModel : ViewModel
         lock (lockCopyFile)
         {
             bool changed;
+            PackageChartEntry changedEntry;
             if (target.PackageEntry != null)
             {
-                changed = files.SetPendingInstallDestination(target.PackageEntry, destinationDirectory);
+                changedEntry = target.PackageEntry;
+                changed = files.SetPendingInstallDestination(changedEntry, destinationDirectory);
             }
             else
             {
@@ -20736,10 +20736,12 @@ public class MainWindowViewModel : ViewModel
                 {
                     return false;
                 }
-                changed = files.SetPendingInstallDestination(chartEntry, destinationDirectory);
+                changedEntry = chartEntry;
+                changed = files.SetPendingInstallDestination(changedEntry, destinationDirectory);
             }
             if (changed)
             {
+                UpdateSharedChartTransientStates([changedEntry.Chart], forceInstallDestinationProjection: true);
                 InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
             }
             return changed;

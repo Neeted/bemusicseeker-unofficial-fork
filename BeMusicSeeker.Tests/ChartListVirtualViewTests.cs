@@ -219,7 +219,7 @@ public sealed class ChartListVirtualViewTests
         ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(
             ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
             ChartListSourceProjectionMode.OwnerBacked,
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot));
+            chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot));
 
         LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
 
@@ -227,6 +227,65 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("C:\\Installed\\Bmson", row.Chart.InstallDestination);
         Assert.AreEqual("Installed Bmson", row.InstallDestinationTitle);
         Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+    }
+
+    [TestMethod]
+    public void VirtualChartSubsetRow_OverlaysOwnerBackedBmsTransientStateWithoutWritingStorageRow()
+    {
+        BMSFile file = CreateFile(
+            @"D:\Charts\InstallDestination\alpha.bms",
+            "Alpha",
+            "Install",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        ChartFile statefulChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            "C:\\Installed\\Bms",
+            "Installed BMS",
+            "Installed Artist",
+            [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            ChartListSourceProjectionMode.OwnerBacked,
+            chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot));
+
+        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+
+        Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
+        Assert.AreEqual("C:\\Installed\\Bms", row.Chart.InstallDestination);
+        Assert.AreEqual("Installed BMS", row.InstallDestinationTitle);
+        Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
+    }
+
+    [TestMethod]
+    public void ChartListSourceRow_BmsTransientInstallEstimationProjectionClearsStaleSourceWarning()
+    {
+        BMSFile file = CreateFile(
+            @"D:\Charts\InstallDestination\clear.bms",
+            "Clear",
+            "Install",
+            hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        ChartFile sourceWithStaleWarning = ChartFileProjection.WithWarnings(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            [
+                ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "stale warning"),
+                ChartWarning.Create(ChartWarningKind.DuplicateChart, "projection-only duplicate warning")
+            ]);
+        ChartFile clearedProjection = ChartFileProjection.WithWarnings(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            []);
+
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(
+            sourceWithStaleWarning,
+            ChartListSourceProjectionMode.OwnerBacked,
+            chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromInstallDestinationState(
+                clearedProjection,
+                includeWarningSnapshot,
+                forceInstallDestinationProjection: true,
+                forceWarningProjection: true));
+
+        Assert.IsFalse(sourceRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        Assert.IsTrue(sourceRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
     [TestMethod]
@@ -2063,7 +2122,7 @@ public sealed class ChartListVirtualViewTests
         IEnumerable<LR2SongDBExtended.bmson_song>? bmsonSongs = null,
         Func<ChartListSourceRow, ResourceHealthWarningProjection>? resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay>? playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState>? bmsonTransientStateProvider = null)
+        Func<ChartFile, bool, ChartFileTransientState>? chartTransientStateProvider = null)
     {
         List<ChartFile> charts =
         [
@@ -2080,7 +2139,7 @@ public sealed class ChartListVirtualViewTests
             ChartListSourceProjectionMode.OwnerBacked,
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
-            bmsonTransientStateProvider);
+            chartTransientStateProvider);
     }
 
     private static void AssertBmsonSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)

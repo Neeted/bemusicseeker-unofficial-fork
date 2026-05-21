@@ -33,7 +33,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<LibraryChartRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider;
 
-    private Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
+    private Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
     internal bool IsBmson => BmsonSong != null && BmsFile == null;
 
@@ -76,19 +76,30 @@ internal sealed class LibraryChartRow : NotificationObject
     private ChartFile CreateBmsOwnerBackedChart()
     {
         ChartFile currentChart = ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
-        return sourceTransientBaseline != null
+        ChartFileTransientState transientState = GetChartTransientState(currentChart, includeWarningSnapshot: true);
+        currentChart = ChartFileProjection.WithTransientState(currentChart, transientState);
+        currentChart = sourceTransientBaseline != null
             ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
+            : currentChart;
+        return HasWarningProjection(transientState)
+            ? ChartFileProjection.WithTransientState(currentChart, transientState)
             : currentChart;
     }
 
     private ChartFile CreateBmsonOwnerBackedChart()
     {
         LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
+        ChartFile identityChart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false);
+        ChartFileTransientState transientState = GetChartTransientState(identityChart, includeWarningSnapshot: true);
         ChartFile currentChart = ChartFileProjection.FromBmsonSong(
             bmsonSong,
-            GetBmsonTransientState(includeWarningSnapshot: true));
-        return sourceTransientBaseline != null
+            transientState,
+            includeWarningSnapshot: true);
+        currentChart = sourceTransientBaseline != null
             ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
+            : currentChart;
+        return HasWarningProjection(transientState)
+            ? ChartFileProjection.WithTransientState(currentChart, transientState)
             : currentChart;
     }
 
@@ -169,9 +180,9 @@ internal sealed class LibraryChartRow : NotificationObject
         playlistReferenceDisplayProvider = provider;
     }
 
-    internal void SetBmsonTransientStateProvider(Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> provider)
+    internal void SetChartTransientStateProvider(Func<ChartFile, bool, ChartFileTransientState> provider)
     {
-        bmsonTransientStateProvider = provider;
+        chartTransientStateProvider = provider;
     }
 
     internal BMSFile GetBmsStorageOwner()
@@ -499,32 +510,37 @@ internal sealed class LibraryChartRow : NotificationObject
             : playlistReferenceDisplayProvider.Invoke(this) ?? PlaylistReferenceDisplay.Empty;
     }
 
-    private ChartFileTransientState GetBmsonTransientState(bool includeWarningSnapshot)
+    private ChartFileTransientState GetChartTransientState(ChartFile chart, bool includeWarningSnapshot)
     {
-        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
-        if (bmsonSong == null)
+        if (chart == null)
         {
             return ChartFileTransientState.Empty;
         }
-        ChartFileTransientState providerState = bmsonTransientStateProvider?.Invoke(bmsonSong, includeWarningSnapshot);
+        ChartFileTransientState providerState = chartTransientStateProvider?.Invoke(chart, includeWarningSnapshot);
         if (providerState?.HasState == true)
         {
             if (includeWarningSnapshot
+                && !HasWarningProjection(providerState)
                 && (providerState.Warnings?.Count ?? 0) == 0
                 && (sourceChart?.Warnings?.Count ?? 0) > 0)
             {
                 return ChartFileTransientState.FromChartFile(
                     ChartFileProjection.WithPackageState(
                         sourceChart,
-                        providerState.InstallDestination,
-                        providerState.InstallDestinationTitle,
-                        providerState.InstallDestinationArtist,
-                        providerState.InstallDestinationSuggestions,
+                        providerState.HasInstallDestinationState ? providerState.InstallDestination : sourceChart.InstallDestination,
+                        providerState.HasInstallDestinationState ? providerState.InstallDestinationTitle : sourceChart.InstallDestinationTitle,
+                        providerState.HasInstallDestinationState ? providerState.InstallDestinationArtist : sourceChart.InstallDestinationArtist,
+                        providerState.HasInstallDestinationState ? providerState.InstallDestinationSuggestions : sourceChart.InstallDestinationSuggestions,
                         sourceChart.Warnings));
             }
             return providerState;
         }
         return ChartFileTransientState.Empty;
+    }
+
+    private static bool HasWarningProjection(ChartFileTransientState state)
+    {
+        return state?.HasWarningProjection == true || state?.HasInstallEstimationWarningProjection == true;
     }
 
     private ChartFileTransientState GetSourceChartTransientState(bool includeWarningSnapshot)

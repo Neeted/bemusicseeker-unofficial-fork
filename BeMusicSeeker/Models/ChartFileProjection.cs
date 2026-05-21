@@ -25,6 +25,55 @@ internal static class ChartFileProjection
             warnings);
     }
 
+    internal static ChartFile WithTransientState(
+        ChartFile source,
+        ChartFileTransientState state,
+        bool includeWarningSnapshot = true)
+    {
+        if (source == null || state?.HasState != true)
+        {
+            return source;
+        }
+
+        return new ChartFile(
+            source.Kind,
+            source.Path,
+            source.Md5,
+            source.Sha256,
+            source.Title,
+            source.RawTitle,
+            source.Artist,
+            source.Genre,
+            source.Folder,
+            source.Tag,
+            source.LevelText,
+            source.Level,
+            source.Mode,
+            source.ChartInfo,
+            source.GetBmsStorageOwner(),
+            source.GetBmsonStorageOwner(),
+            string.IsNullOrWhiteSpace(state.Subtitle) ? source.Subtitle : state.Subtitle,
+            source.AudioResourcePaths,
+            source.VisualResourcePaths,
+            source.Stagefile,
+            source.Backbmp,
+            source.Banner,
+            state.HasInstallDestinationState ? state.InstallDestination : source.InstallDestination,
+            state.HasInstallDestinationState ? state.InstallDestinationTitle : source.InstallDestinationTitle,
+            state.HasInstallDestinationState ? state.InstallDestinationArtist : source.InstallDestinationArtist,
+            state.HasInstallDestinationState ? state.InstallDestinationSuggestions : source.InstallDestinationSuggestions,
+            SelectTransientWarnings(source.Warnings, state, includeWarningSnapshot),
+            state.WAVHealth ?? source.WAVHealth,
+            state.BGAHealth ?? source.BGAHealth,
+            state.MovieHealth ?? source.MovieHealth,
+            state.StagefileHealth ?? source.StagefileHealth,
+            state.BannerHealth ?? source.BannerHealth,
+            state.BackbmpHealth ?? source.BackbmpHealth,
+            string.IsNullOrWhiteSpace(state.EncodingName) ? source.EncodingName : state.EncodingName,
+            source.Score,
+            source.Status);
+    }
+
     internal static ChartFile WithPackageState(
         ChartFile source,
         string installDestination,
@@ -424,6 +473,25 @@ internal static class ChartFileProjection
             return current;
         }
         return overrideValue ?? [];
+    }
+
+    private static IReadOnlyList<ChartWarning> SelectTransientWarnings(IReadOnlyList<ChartWarning> sourceWarnings, ChartFileTransientState state, bool includeWarningSnapshot)
+    {
+        if (!includeWarningSnapshot)
+        {
+            return [];
+        }
+        if (state?.HasWarningProjection == true)
+        {
+            return state.Warnings ?? [];
+        }
+        if (state?.HasInstallEstimationWarningProjection == true)
+        {
+            return [..
+                (sourceWarnings ?? []).Where(warning => warning?.Category != ChartWarningCategory.InstallEstimation)
+                .Concat((state.Warnings ?? []).Where(warning => warning?.Category == ChartWarningCategory.InstallEstimation))];
+        }
+        return sourceWarnings ?? [];
     }
 
     private static bool StringSequenceEquals(IReadOnlyList<string> first, IReadOnlyList<string> second)

@@ -13,6 +13,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class PlaylistViewPipelineTests
 {
     [ClassInitialize]
@@ -863,10 +864,10 @@ public sealed class PlaylistViewPipelineTests
             string.Empty,
             [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous install destination")]);
         int transientStateLookupCount = 0;
-        row.SetBmsonTransientStateProvider((song, includeWarningSnapshot) =>
+        row.SetChartTransientStateProvider((chart, includeWarningSnapshot) =>
         {
             transientStateLookupCount++;
-            Assert.AreSame(newSong, song);
+            Assert.AreSame(newSong, chart.GetBmsonStorageOwner());
             return ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot);
         });
 
@@ -1523,12 +1524,12 @@ public sealed class PlaylistViewPipelineTests
         ChartListSourceRow firstSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
             ChartListSourceProjectionMode.OwnerBacked,
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
+            chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
 
         ChartListSourceRow rebuiltSourceRow = ChartListSourceRow.BuildStandardLibraryRows(
             [ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false)],
             ChartListSourceProjectionMode.OwnerBacked,
-            bmsonTransientStateProvider: (song, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
+            chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot)).Single();
         var rebuiltViewRow = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsonSong(
             rebuiltSourceRow.Chart.GetBmsonStorageOwner(),
             ChartFileTransientState.FromChartFile(statefulChart)));

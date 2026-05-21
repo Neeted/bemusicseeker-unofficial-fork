@@ -25,7 +25,7 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly LR2SongDBExtended.bmson_song resolvedBmson;
 
-    private readonly Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider;
+    private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
@@ -214,13 +214,13 @@ internal sealed class PlaylistDetailSourceRow
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<LR2SongDBExtended.bmson_song, bool, ChartFileTransientState> bmsonTransientStateProvider = null)
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
         resolvedBmson = resolvedChart?.GetBmsonStorageOwner();
         EntryChartInfo = entryChartInfo;
-        this.bmsonTransientStateProvider = bmsonTransientStateProvider;
+        this.chartTransientStateProvider = chartTransientStateProvider;
         Chart = CreateChartFile();
         ChartFile chart = Chart;
         bool isBmsOwned = HasOwnedBmsChart(chart);
@@ -330,17 +330,21 @@ internal sealed class PlaylistDetailSourceRow
         BMSFile bmsOwner = resolvedChartSnapshot?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
-            return ChartFileProjection.FromBmsFile(bmsOwner);
+            ChartFile currentChart = ChartFileProjection.FromBmsFile(bmsOwner);
+            return ChartFileProjection.WithTransientState(
+                currentChart,
+                GetChartTransientState(currentChart, includeWarningSnapshot: true));
         }
         if (resolvedBmson != null)
         {
-            if (bmsonTransientStateProvider == null && resolvedChartSnapshot != null)
+            if (chartTransientStateProvider == null && resolvedChartSnapshot != null)
             {
                 return resolvedChartSnapshot;
             }
+            ChartFile identityChart = ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false);
             return ChartFileProjection.FromBmsonSong(
                 resolvedBmson,
-                GetBmsonTransientState(includeWarningSnapshot: true));
+                GetChartTransientState(identityChart, includeWarningSnapshot: true));
         }
         if (resolvedChartSnapshot != null && EntryChartInfo == null)
         {
@@ -360,13 +364,13 @@ internal sealed class PlaylistDetailSourceRow
             ChartInfo);
     }
 
-    private ChartFileTransientState GetBmsonTransientState(bool includeWarningSnapshot)
+    private ChartFileTransientState GetChartTransientState(ChartFile chart, bool includeWarningSnapshot)
     {
-        if (resolvedBmson == null)
+        if (chart == null)
         {
             return ChartFileTransientState.Empty;
         }
-        return bmsonTransientStateProvider?.Invoke(resolvedBmson, includeWarningSnapshot)
+        return chartTransientStateProvider?.Invoke(chart, includeWarningSnapshot)
             ?? ChartFileTransientState.Empty;
     }
 
