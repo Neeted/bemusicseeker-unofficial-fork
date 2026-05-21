@@ -14862,7 +14862,7 @@ public class MainWindowViewModel : ViewModel
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
         if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
         {
-            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => ContainsChartTarget(pkg, bmsFile)).FirstOrDefault();
+            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => ContainsChartTarget(pkg, ChartFileProjection.FromBmsFile(bmsFile))).FirstOrDefault();
             if (chartPackage == null)
             {
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
@@ -19761,27 +19761,6 @@ public class MainWindowViewModel : ViewModel
         };
     }
 
-    private List<ChartPackage> ExtractChartPackagesFromChartFiles(ref List<BeMusicSeeker.Models.BMSFile> chartFiles, bool isInstalled = false)
-    {
-        DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
-        List<BeMusicSeeker.Models.BMSFile> remainingChartFiles = [];
-        List<ChartPackage> packages = [];
-        foreach (BeMusicSeeker.Models.BMSFile file in chartFiles)
-        {
-            ChartPackage chartPackage = source?.FirstOrDefault(p => ContainsChartTarget(p, file));
-            if (chartPackage == null)
-            {
-                remainingChartFiles.Add(file);
-            }
-            else
-            {
-                packages.Add(chartPackage);
-            }
-        }
-        chartFiles = remainingChartFiles;
-        return [.. packages.Distinct()];
-    }
-
     private List<ChartPackage> ExtractChartPackagesFromChartEntries(ref List<PackageChartEntry> entries, bool isInstalled = false)
     {
         DispatcherCollection<ChartPackage> source = (isInstalled ? ChartPackagesInstalled : ChartPackagesPending);
@@ -19824,13 +19803,12 @@ public class MainWindowViewModel : ViewModel
         return [.. packages.Distinct()];
     }
 
-    private static bool ContainsChartTarget(ChartPackage chartPackage, BeMusicSeeker.Models.BMSFile chartFile)
+    private static bool ContainsChartTarget(ChartPackage chartPackage, ChartFile chart)
     {
-        if (chartPackage == null || chartFile == null)
+        if (chartPackage == null || chart == null)
         {
             return false;
         }
-        ChartFile chart = ChartFileProjection.FromBmsFile(chartFile);
         return (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(chart) == true);
     }
 
