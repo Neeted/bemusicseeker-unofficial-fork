@@ -2461,7 +2461,7 @@ public sealed class PlaylistViewPipelineTests
         var skipBms = new TestableBmsFile();
         skipBms.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Skip Bms", 7);
         skipBms.path = "C:\\Skip\\bms\\chart.bms";
-        var keepBmson = LibraryChartRow.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        var keepBmson = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Keep\\bmson\\chart.bmson",
             folder = "C:\\Keep\\bmson",
@@ -2469,8 +2469,8 @@ public sealed class PlaylistViewPipelineTests
             artist = "Artist",
             md5 = "cccccccccccccccccccccccccccccccc",
             sha256 = new string('c', 64)
-        });
-        var skipBmson = LibraryChartRow.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        };
+        var skipBmson = new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Skip\\bmson\\chart.bmson",
             folder = "C:\\Skip\\bmson",
@@ -2478,19 +2478,23 @@ public sealed class PlaylistViewPipelineTests
             artist = "Artist",
             md5 = "dddddddddddddddddddddddddddddddd",
             sha256 = new string('d', 64)
-        });
+        };
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
-            [keepBms, skipBms],
-            [keepBmson, skipBmson],
+            [
+                ChartFileProjection.FromBmsFile(keepBms),
+                ChartFileProjection.FromBmsFile(skipBms),
+                ChartFileProjection.FromBmsonSong(keepBmson),
+                ChartFileProjection.FromBmsonSong(skipBmson),
+            ],
             MainWindowViewModel.NormalLibraryTreeFilter.Create(MainWindowViewModel.FolderFilterType.DirectoryFilter, "C:\\Keep"),
-            LibraryChartRow.FromBmsFile,
+            LibraryChartRow.FromChartFile,
             null,
             out LibraryRowsBuildMetrics metrics);
 
         Assert.AreEqual(2, rows.Count);
         CollectionAssert.AreEquivalent(new[] { "Keep Bms", "Keep Bmson" }, rows.Select(row => row.Title).ToArray());
         Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bms && row.BmsFile == keepBms));
-        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.BmsonSong == keepBmson.BmsonSong));
+        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.BmsonSong == keepBmson));
         Assert.IsFalse(rows.Any(row => row.Title == "Skip Bms" || row.Title == "Skip Bmson"));
         Assert.IsTrue(rows.All(row => row.GetType() == typeof(LibraryChartRow)));
         Assert.IsTrue(metrics.FolderFilterApplied);
@@ -2541,8 +2545,7 @@ public sealed class PlaylistViewPipelineTests
         };
 
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
-            [file],
-            [],
+            [ChartFileProjection.FromBmsFile(file)],
             null,
             _ => cachedRow,
             stats,

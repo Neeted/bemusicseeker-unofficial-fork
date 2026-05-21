@@ -4767,6 +4767,20 @@ public class MainWindowViewModel : ViewModel
             };
         }
 
+        internal bool Matches(ChartFile chart)
+        {
+            if (chart == null)
+            {
+                return false;
+            }
+            return Type switch
+            {
+                FolderFilterType.DirectoryFilter => ContainsIgnoreCase(chart.Path, Term),
+                FolderFilterType.ArtistFilter => ContainsIgnoreCase(chart.Artist, Term),
+                _ => false,
+            };
+        }
+
         private static string EnsureTrailingDirectorySeparator(string path)
         {
             string normalizedPath = (path ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -10037,6 +10051,34 @@ public class MainWindowViewModel : ViewModel
         return row;
     }
 
+    private LibraryChartRow GetOrCreateStandardLibraryRow(ChartFile chart, LibraryRowCacheBuildStats stats)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+        if (chart.BmsFile != null)
+        {
+            return GetOrCreateRegularBmsLibraryRow(chart.BmsFile, stats);
+        }
+        if (chart.BmsonSong != null)
+        {
+            LibraryChartRow row = null;
+            if (!bmsonLibraryRowsBySong.TryGetValue(chart.BmsonSong, out row)
+                && !string.IsNullOrWhiteSpace(chart.BmsonSong.path))
+            {
+                bmsonLibraryRowsByPath.TryGetValue(chart.BmsonSong.path, out row);
+            }
+            row ??= LibraryChartRow.FromBmsonSong(chart.BmsonSong);
+            ApplyLibraryChartRowProviders(row);
+            return row;
+        }
+
+        LibraryChartRow projectedRow = LibraryChartRow.FromChartFile(chart);
+        ApplyLibraryChartRowProviders(projectedRow);
+        return projectedRow;
+    }
+
     private void ApplyLibraryChartRowProviders(LibraryChartRow row)
     {
         row?.SetBmsonTransientStateProvider(TryGetSharedBmsonChartTransientState);
@@ -10323,9 +10365,8 @@ public class MainWindowViewModel : ViewModel
             || !TryGetVirtualChartSubsetSourceFiles(
                 treeMode,
                 subsetParameter,
-                out IEnumerable<BeMusicSeeker.Models.BMSFile> subsetFiles,
-                out IEnumerable<LR2SongDBExtended.bmson_song> subsetBmsonSongs,
                 out IEnumerable<ChartFile> subsetCharts,
+                out ChartListSourceProjectionMode subsetProjectionMode,
                 out string subsetName))
         {
             return false;
@@ -10348,17 +10389,11 @@ public class MainWindowViewModel : ViewModel
 
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
-        List<ChartListSourceRow> sourceRows = subsetCharts != null
-            ? ChartListSourceRow.BuildStandardLibraryRows(
-                subsetCharts,
-                ChartListSourceProjectionMode.PreserveSourceProjection,
-                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-                GetPlaylistReferenceDisplayForSourceRow)
-            : ChartListSourceRow.BuildStandardLibraryRows(
-                CreateStandardLibraryChartSnapshot(subsetFiles, subsetBmsonSongs),
-                ChartListSourceProjectionMode.OwnerBacked,
-                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-                GetPlaylistReferenceDisplayForSourceRow);
+        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
+            subsetCharts,
+            subsetProjectionMode,
+            applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
+            GetPlaylistReferenceDisplayForSourceRow);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
         long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
@@ -10543,6 +10578,13 @@ public class MainWindowViewModel : ViewModel
                 .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
                 .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)),
         ];
+    }
+
+    private static List<ChartFile> CreateBmsChartSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    {
+        return [.. (bmsFiles ?? [])
+            .Where(file => file != null)
+            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))];
     }
 
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
@@ -11349,48 +11391,45 @@ public class MainWindowViewModel : ViewModel
     private bool TryGetVirtualChartSubsetSourceFiles(
         viewUpdateMode treeMode,
         object parameter,
-        out IEnumerable<BeMusicSeeker.Models.BMSFile> sourceFiles,
-        out IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs,
         out IEnumerable<ChartFile> sourceCharts,
+        out ChartListSourceProjectionMode sourceProjectionMode,
         out string subsetName)
     {
-        sourceFiles = null;
-        sourceBmsonSongs = null;
         sourceCharts = null;
+        sourceProjectionMode = ChartListSourceProjectionMode.PreserveSourceProjection;
         switch (treeMode)
         {
             case viewUpdateMode.FileMissingFilterSelected:
-                sourceFiles = null;
                 sourceCharts = ChartFilesNeedResourceFix;
                 subsetName = "file_missing";
                 return true;
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                sourceFiles = null;
                 sourceCharts = ChartFilesNeedResourceFixIgnored;
                 subsetName = "file_missing_ignored";
                 return true;
             case viewUpdateMode.DuplicateFilterSelected:
-                sourceFiles = null;
-                sourceBmsonSongs = null;
                 return TryGetVirtualDuplicateSourceCharts(parameter, out sourceCharts, out subsetName);
             case viewUpdateMode.GarbledFilterSelected:
-                sourceFiles = BMSFilesGarbled;
+                sourceCharts = CreateBmsChartSnapshot(BMSFilesGarbled);
+                sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "garbled";
                 return true;
             case viewUpdateMode.GarbleFixedFilterSelected:
-                sourceFiles = BMSFilesGarbleFixed;
+                sourceCharts = CreateBmsChartSnapshot(BMSFilesGarbleFixed);
+                sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "garble_fixed";
                 return true;
             case viewUpdateMode.UnregisteredFilterSelected:
-                sourceFiles = BMSFilesUnregistered;
+                sourceCharts = CreateBmsChartSnapshot(BMSFilesUnregistered);
+                sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "unregistered";
                 return true;
             case viewUpdateMode.ZeroNoteFilterSelected:
-                sourceFiles = BMSFilesZeroNote;
+                sourceCharts = CreateBmsChartSnapshot(BMSFilesZeroNote);
+                sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "zero_note";
                 return true;
             case viewUpdateMode.ChartInfoParseErrorFilterSelected:
-                sourceFiles = null;
                 sourceCharts = ChartInfoParseFailedChartFiles;
                 subsetName = "chart_info_parse_error";
                 return true;
@@ -11411,8 +11450,6 @@ public class MainWindowViewModel : ViewModel
                     out sourceCharts,
                     out subsetName);
             default:
-                sourceFiles = null;
-                sourceBmsonSongs = null;
                 sourceCharts = null;
                 subsetName = string.Empty;
                 return false;
@@ -16082,12 +16119,22 @@ public class MainWindowViewModel : ViewModel
         {
             case viewUpdateMode.FolderFilterSelected:
                 LibraryRowCacheBuildStats folderRowCacheStats = CreateRegularRowCacheBuildStats();
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), virtualNormalLibraryTreeFilter, file => GetOrCreateRegularBmsLibraryRow(file, folderRowCacheStats), folderRowCacheStats, out LibraryRowsBuildMetrics folderMetrics);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(
+                    CreateStandardLibraryChartSnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
+                    virtualNormalLibraryTreeFilter,
+                    chart => GetOrCreateStandardLibraryRow(chart, folderRowCacheStats),
+                    folderRowCacheStats,
+                    out LibraryRowsBuildMetrics folderMetrics);
                 LogMainViewFolderDetail(mode, folderMetrics);
                 break;
             case viewUpdateMode.FullScanAllChartsFilterSelected:
                 LibraryRowCacheBuildStats fullScanRowCacheStats = CreateRegularRowCacheBuildStats();
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), null, file => GetOrCreateRegularBmsLibraryRow(file, fullScanRowCacheStats), fullScanRowCacheStats, out LibraryRowsBuildMetrics fullScanMetrics);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(
+                    CreateStandardLibraryChartSnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
+                    null,
+                    chart => GetOrCreateStandardLibraryRow(chart, fullScanRowCacheStats),
+                    fullScanRowCacheStats,
+                    out LibraryRowsBuildMetrics fullScanMetrics);
                 LogMainViewFolderDetail(mode, fullScanMetrics);
                 LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
@@ -16423,10 +16470,9 @@ public class MainWindowViewModel : ViewModel
     }
 
     internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
-        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        IEnumerable<LibraryChartRow> bmsonRows,
+        IEnumerable<ChartFile> charts,
         NormalLibraryTreeFilter folderFilter,
-        Func<BeMusicSeeker.Models.BMSFile, LibraryChartRow> bmsRowFactory,
+        Func<ChartFile, LibraryChartRow> rowFactory,
         LibraryRowCacheBuildStats rowCacheStats,
         out LibraryRowsBuildMetrics metrics)
     {
@@ -16436,34 +16482,35 @@ public class MainWindowViewModel : ViewModel
         long regularRowMaterializeMs;
         long bmsonRowMaterializeMs = 0L;
         long concatToListMs;
-        int sourceBmsCount = CountIfCheap(bmsFiles);
-        int sourceBmsonCount = CountIfCheap(bmsonRows);
-        IEnumerable<BeMusicSeeker.Models.BMSFile> regularRows = (bmsFiles ?? []).Where(file => file != null);
-        IEnumerable<LibraryChartRow> normalizedBmsonRows = (bmsonRows ?? []).Where(row => row != null);
+        List<ChartFile> sourceCharts = [.. (charts ?? []).Where(chart => chart != null)];
+        int sourceBmsCount = sourceCharts.Count(chart => chart.Kind == ChartFileKind.Bms);
+        int sourceBmsonCount = sourceCharts.Count(chart => chart.Kind == ChartFileKind.Bmson);
+        IEnumerable<ChartFile> regularCharts = sourceCharts.Where(chart => chart.Kind == ChartFileKind.Bms);
+        IEnumerable<ChartFile> bmsonCharts = sourceCharts.Where(chart => chart.Kind == ChartFileKind.Bmson);
         if (folderFilter != null)
         {
             var filterStopwatch = Stopwatch.StartNew();
-            regularRows = regularRows.AsParallel().Where(folderFilter.Matches);
-            List<BeMusicSeeker.Models.BMSFile> filteredRegularRows = [.. regularRows];
+            regularCharts = regularCharts.AsParallel().Where(folderFilter.Matches);
+            List<ChartFile> filteredRegularRows = [.. regularCharts];
             filterStopwatch.Stop();
             regularFilterMs = filterStopwatch.ElapsedMilliseconds;
-            regularRows = filteredRegularRows;
+            regularCharts = filteredRegularRows;
 
             filterStopwatch.Restart();
-            normalizedBmsonRows = normalizedBmsonRows.AsParallel().Where(folderFilter.Matches);
-            List<LibraryChartRow> filteredBmsonRows = [.. normalizedBmsonRows];
+            bmsonCharts = bmsonCharts.AsParallel().Where(folderFilter.Matches);
+            List<ChartFile> filteredBmsonRows = [.. bmsonCharts];
             filterStopwatch.Stop();
             bmsonFilterMs = filterStopwatch.ElapsedMilliseconds;
-            normalizedBmsonRows = filteredBmsonRows;
+            bmsonCharts = filteredBmsonRows;
         }
 
         var materializeStopwatch = Stopwatch.StartNew();
-        List<LibraryChartRow> regularLibraryRows = ToLibraryChartRows(regularRows, bmsRowFactory ?? LibraryChartRow.FromBmsFile);
+        List<LibraryChartRow> regularLibraryRows = ToLibraryChartRows(regularCharts, rowFactory ?? LibraryChartRow.FromChartFile);
         materializeStopwatch.Stop();
         regularRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
         materializeStopwatch.Restart();
-        List<LibraryChartRow> bmsonLibraryRows = [.. normalizedBmsonRows];
+        List<LibraryChartRow> bmsonLibraryRows = ToLibraryChartRows(bmsonCharts, rowFactory ?? LibraryChartRow.FromChartFile);
         materializeStopwatch.Stop();
         bmsonRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
@@ -16750,11 +16797,6 @@ public class MainWindowViewModel : ViewModel
             return DuplicateViewContext.ForFolder(folderPath);
         }
         return null;
-    }
-
-    private List<LibraryChartRow> GetBmsonLibraryRowsSnapshot()
-    {
-        return [.. bmsonLibraryRowsByPath.Values.OrderBy(row => row.path ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
     }
 
     private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
