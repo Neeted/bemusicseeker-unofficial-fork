@@ -313,12 +313,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
             true,
-            (installPackages, destinationDirectoryArg, deferredBmsMaintenanceTargets, deferredBmsonMaintenanceSongs, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
+            (installPackages, destinationDirectoryArg, deferredMaintenanceCharts, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
             {
                 deferredInstalledPackages.AddRange(installPackages);
                 foreach (ChartPackage installPackage in installPackages)
                 {
-                    deferredBmsMaintenanceTargets.AddRange(installPackage.GetBmsOwnersForTest());
+                    deferredMaintenanceCharts.AddRange(installPackage.ChartEntries.Select(entry => entry.Chart));
                 }
                 return [];
             },
@@ -339,15 +339,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, result.CleanupOnlySucceeded);
         Assert.AreEqual(0, result.CleanupOnlyFailed);
         Assert.AreEqual(1, result.CleanupOnlyMissingSource);
-        Assert.AreEqual(1, result.DeferredBmsMaintenanceTargets.Count);
-        Assert.AreEqual(0, result.DeferredBmsonMaintenanceSongs.Count);
+        Assert.AreEqual(1, result.DeferredMaintenanceCharts.Count);
+        Assert.AreSame(newFile, result.DeferredMaintenanceCharts[0].BmsFile);
         Assert.IsNull(alreadyInstalledInPackage.instl_dst);
         Assert.IsNull(newFile.instl_dst);
         Assert.IsNull(cleanupOnlyFile.instl_dst);
     }
 
     [TestMethod]
-    public void ExecuteEstimatedInstallBatchPlan_CarriesDeferredBmsonMaintenanceSongsSeparately()
+    public void ExecuteEstimatedInstallBatchPlan_CarriesDeferredBmsonMaintenanceCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
@@ -376,24 +376,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
             false,
-            (installPackages, destinationDirectoryArg, deferredBmsMaintenanceTargets, deferredBmsonMaintenanceSongs, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
+            (installPackages, destinationDirectoryArg, deferredMaintenanceCharts, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
             {
                 deferredInstalledPackages.AddRange(installPackages);
                 foreach (PackageChartEntry entry in installPackages.SelectMany(package => package.ChartEntries))
                 {
-                    if (entry?.Chart?.BmsonSong is LR2SongDBExtended.bmson_song song)
-                    {
-                        deferredBmsonMaintenanceSongs.Add(song);
-                    }
+                    deferredMaintenanceCharts.Add(entry?.Chart);
                 }
                 return [];
             },
             (originalPackage, destinationDirectoryArg) => null,
             (_) => (false, CleanupSourceKind.MissingSource));
 
-        Assert.AreEqual(0, result.DeferredBmsMaintenanceTargets.Count);
-        Assert.AreEqual(1, result.DeferredBmsonMaintenanceSongs.Count);
-        Assert.AreSame(bmsonSong, result.DeferredBmsonMaintenanceSongs[0]);
+        Assert.AreEqual(1, result.DeferredMaintenanceCharts.Count);
+        Assert.AreSame(bmsonSong, result.DeferredMaintenanceCharts[0].BmsonSong);
         Assert.IsNull(bmsonEntry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, bmsonEntry.Chart.InstallDestination);
     }

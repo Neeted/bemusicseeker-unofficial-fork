@@ -1689,7 +1689,7 @@ internal sealed class BmsLibraryPackageInstallService
     public PendingInstallBatchResult ExecuteEstimatedInstallBatchPlan(
         PendingInstallBatchPlan plan,
         bool deletePendingPackageSourceAfterInstall,
-        Func<IEnumerable<ChartPackage>, string, List<BMSFile>, List<LR2SongDBExtended.bmson_song>, List<ChartPackage>, Dictionary<ChartPackage, HashSet<string>>, HashSet<string>, bool, bool, List<ChartPackage>> installPackages,
+        Func<IEnumerable<ChartPackage>, string, List<ChartFile>, List<ChartPackage>, Dictionary<ChartPackage, HashSet<string>>, HashSet<string>, bool, bool, List<ChartPackage>> installPackages,
         Func<ChartPackage, string, ChartPackage> createInstalledDisplayPackage,
         Func<ChartPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
         Action<string> logInfo = null)
@@ -1711,8 +1711,7 @@ internal sealed class BmsLibraryPackageInstallService
             List<ChartPackage> failedInstallWorkPackages = installPackages?.Invoke(
                 installWorkPackages,
                 groupEntry.DestinationDirectory,
-                result.DeferredBmsMaintenanceTargets,
-                result.DeferredBmsonMaintenanceSongs,
+                result.DeferredMaintenanceCharts,
                 result.DeferredInstalledPackages,
                 excludedComponentPathsByWorkPackage,
                 plan.MoveGuardHashes,

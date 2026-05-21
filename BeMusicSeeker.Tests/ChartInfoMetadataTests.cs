@@ -3965,7 +3965,6 @@ createTempDirectory);
                 packages,
                 installDirectory,
                 null,
-                null,
                 new List<ChartPackage>(),
                 null,
                 null,

@@ -1610,12 +1610,13 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(libraryCode, "private sealed class EstimatedInstallBatchApplyContext");
         StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(batchApplyContext)");
-        StringAssert.Contains(libraryCode, "BuildEstimatedInstallBmsMaintenanceTargets(batchResult.DeferredBmsMaintenanceTargets)");
+        StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts)");
         StringAssert.Contains(libraryCode, "canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates");
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
         StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
-        StringAssert.Contains(libraryCode, "if (estimatedInstallBmsMaintenanceTargets.Count > 0 || batchResult.DeferredBmsonMaintenanceSongs.Count > 0)");
-        StringAssert.Contains(libraryCode, "CreateResourceMaintenanceCharts(estimatedInstallBmsMaintenanceTargets, batchResult.DeferredBmsonMaintenanceSongs)");
+        StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");
+        StringAssert.Contains(libraryCode, "setMaintenanceInfo(");
+        StringAssert.Contains(libraryCode, "estimatedInstallMaintenanceTargets,");
         StringAssert.Contains(resourceHealthCode, "internal ResourceHealthIndexSnapshot ApplyDelta(");
         StringAssert.Contains(resourceHealthCode, "HashSet<ResourceHealthChartKey> targetKeys");
 
