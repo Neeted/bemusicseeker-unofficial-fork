@@ -40,10 +40,6 @@ internal class ChartRowsViewToSummaryTextConverter : IValueConverter
 
     private static string GetFolderName(object row)
     {
-        if (row is BMSFile bMSFile)
-        {
-            return bMSFile.Folder;
-        }
         if (row is PlaylistDetailRow playlistDetailRow)
         {
             return playlistDetailRow.Folder;
@@ -51,6 +47,10 @@ internal class ChartRowsViewToSummaryTextConverter : IValueConverter
         if (row is LibraryChartRow libraryChartRow)
         {
             return libraryChartRow.Folder;
+        }
+        if (GridRowResolver.TryGetChartFile(row, out ChartFile chart))
+        {
+            return chart.Folder;
         }
         return string.Empty;
     }

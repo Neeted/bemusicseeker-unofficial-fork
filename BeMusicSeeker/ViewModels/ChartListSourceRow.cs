@@ -123,7 +123,7 @@ internal sealed class ChartListSourceRow
 
     internal double? ScoreDifficulty => BmsFile?.scoreDifficulty;
 
-    internal LR2SongDBExtended.chart_info ChartInfo => BmsFile?.ChartInfo ?? BmsonSong?.ChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => BmsFile?.ChartInfo ?? BmsonSong?.ChartInfo ?? sourceChart?.ChartInfo;
 
     internal double? ChartLevelSortKey => ChartInfo?.level ?? 0;
 

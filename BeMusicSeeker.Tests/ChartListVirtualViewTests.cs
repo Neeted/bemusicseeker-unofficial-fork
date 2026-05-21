@@ -95,6 +95,136 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void LibraryChartRow_FromChartFile_UsesChartDomainFieldsWithoutStorageRow()
+    {
+        ChartFile chart = ChartFileProjection.FromBmsMetadata(
+            @"D:\Charts\Root\alpha.bms",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            new string('b', 64),
+            "Alpha",
+            "Artist",
+            "Genre",
+            "Root",
+            "tag",
+            12,
+            7,
+            null);
+
+        LibraryChartRow row = LibraryChartRow.FromChartFile(chart);
+
+        Assert.IsNull(row.BmsFile);
+        Assert.IsNull(row.BmsonSong);
+        Assert.AreSame(chart, row.Chart);
+        Assert.AreEqual("Alpha", row.Title);
+        Assert.AreEqual("Artist", row.Artist);
+        Assert.AreEqual("Genre", row.genre);
+        Assert.AreEqual("Root", row.Folder);
+        Assert.AreEqual(@"D:\Charts\Root\alpha.bms", row.path);
+        Assert.AreEqual("tag", row.tag);
+        Assert.AreEqual("12", row.Level);
+        Assert.AreEqual(12d, row.level);
+        Assert.AreEqual(7, row.mode);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", row.hash);
+        Assert.AreEqual(new string('b', 64), row.sha256);
+    }
+
+    [TestMethod]
+    public void SummaryConverter_UsesChartFileFolderForMetadataOnlyRows()
+    {
+        ChartFile first = ChartFileProjection.FromBmsMetadata(
+            @"D:\Charts\Root\alpha.bms",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            null,
+            "Alpha",
+            "Artist",
+            "Genre",
+            "Root",
+            string.Empty,
+            12,
+            7,
+            null);
+        ChartFile second = ChartFileProjection.FromBmsMetadata(
+            @"D:\Charts\Other\beta.bms",
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            null,
+            "Beta",
+            "Artist",
+            "Genre",
+            "Other",
+            string.Empty,
+            10,
+            7,
+            null);
+        var converter = new ChartRowsViewToSummaryTextConverter();
+
+        object text = converter.Convert(
+            new[] { LibraryChartRow.FromChartFile(first), LibraryChartRow.FromChartFile(second) },
+            typeof(string),
+            null,
+            CultureInfo.InvariantCulture);
+
+        StringAssert.StartsWith(text.ToString(), "[2");
+        StringAssert.Contains(text.ToString(), "/ 2");
+    }
+
+    [TestMethod]
+    public void SummaryConverter_UsesLiveOwnerFolderForOwnerBackedChartRows()
+    {
+        BMSFile file = CreateFile(
+            @"D:\Charts\Old\alpha.bms",
+            "Alpha",
+            "Old",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LibraryChartRow row = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(file));
+        file.path = @"D:\Charts\New\alpha.bms";
+        var converter = new ChartRowsViewToSummaryTextConverter();
+
+        object text = converter.Convert(
+            new[] { row, row },
+            typeof(string),
+            null,
+            CultureInfo.InvariantCulture);
+
+        Assert.AreEqual("New", row.Folder);
+        StringAssert.StartsWith(text.ToString(), "[2");
+        Assert.IsFalse(text.ToString().Contains("/"));
+    }
+
+    [TestMethod]
+    public void ChartListSourceRow_FromChartFile_UsesProjectionChartInfoWithoutStorageRow()
+    {
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(
+            new string('c', 64),
+            "cccccccccccccccccccccccccccccccc",
+            level: 12,
+            difficulty: 4,
+            mainBpm: 180,
+            total: 360);
+        ChartFile chart = ChartFileProjection.FromBmsMetadata(
+            @"D:\Charts\Projection\gamma.bms",
+            chartInfo.md5,
+            chartInfo.sha256,
+            "Gamma",
+            "Artist",
+            "Genre",
+            "Projection",
+            string.Empty,
+            12,
+            7,
+            chartInfo);
+
+        ChartListSourceRow row = ChartListSourceRow.BuildStandardLibraryRows([chart]).Single();
+
+        Assert.IsNull(row.BmsFile);
+        Assert.IsNull(row.BmsonSong);
+        Assert.AreSame(chart, row.Chart);
+        Assert.AreEqual(12, row.ChartLevelSortKey);
+        Assert.AreEqual(4, row.ChartDifficultySortKey);
+        Assert.AreEqual(180, row.ChartMainBpmSortKey);
+        Assert.AreEqual(360, row.ChartTotalSortKey);
+    }
+
+    [TestMethod]
     public void Constructor_DoesNotReadFolderCountFromSourceRows()
     {
         var file = new ThrowingFolderBmsFile();

@@ -151,19 +151,19 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(RefTablesNames));
     }
 
-    public string Title => BmsFile?.Title ?? BmsonSongParser.ComposeDisplayTitle(BmsonSong);
+    public string Title => BmsFile?.Title ?? (BmsonSong != null ? BmsonSongParser.ComposeDisplayTitle(BmsonSong) : Chart?.Title ?? string.Empty);
 
-    public string Artist => BmsFile?.Artist ?? BmsonSong?.artist ?? string.Empty;
+    public string Artist => BmsFile?.Artist ?? BmsonSong?.artist ?? Chart?.Artist ?? string.Empty;
 
-    public string genre => BmsFile?.genre ?? BmsonSong?.genre ?? string.Empty;
+    public string genre => BmsFile?.genre ?? BmsonSong?.genre ?? Chart?.Genre ?? string.Empty;
 
-    public int? mode => BmsFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(BmsonSong?.mode_hint);
+    public int? mode => BmsFile?.mode ?? (BmsonSong != null ? BmsonSongParser.ResolvePlaylistMode(BmsonSong?.mode_hint) : Chart?.Mode);
 
-    public string tag => BmsFile?.tag ?? string.Empty;
+    public string tag => BmsFile?.tag ?? Chart?.Tag ?? string.Empty;
 
     public string Level
     {
-        get => BmsFile?.Level ?? (BmsonSong?.level.HasValue == true ? BmsonSong.level.Value.ToString(CultureInfo.InvariantCulture) : string.Empty);
+        get => BmsFile?.Level ?? (BmsonSong?.level.HasValue == true ? BmsonSong.level.Value.ToString(CultureInfo.InvariantCulture) : Chart?.LevelText ?? string.Empty);
         set
         {
             if (BmsFile != null)
@@ -173,7 +173,7 @@ internal sealed class LibraryChartRow : NotificationObject
         }
     }
 
-    public double? level => BmsFile?.level ?? BmsonSong?.level;
+    public double? level => BmsFile?.level ?? BmsonSong?.level ?? Chart?.Level;
 
     public bool HasZeroNoteMismatchWarning => BmsFile?.HasZeroNoteMismatchWarning ?? false;
 
@@ -187,13 +187,13 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
-    public string hash => BmsFile?.hash ?? BmsonSong?.md5 ?? string.Empty;
+    public string hash => BmsFile?.hash ?? BmsonSong?.md5 ?? Chart?.Md5 ?? string.Empty;
 
-    public string sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? string.Empty;
+    public string sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? Chart?.Sha256 ?? string.Empty;
 
     public string Folder
     {
-        get => BmsFile?.Folder ?? BmsonSongParser.ComposeDisplayFolder(BmsonSong);
+        get => BmsFile?.Folder ?? (BmsonSong != null ? BmsonSongParser.ComposeDisplayFolder(BmsonSong) : Chart?.Folder ?? string.Empty);
         set
         {
             if (BmsFile != null)
@@ -203,7 +203,7 @@ internal sealed class LibraryChartRow : NotificationObject
         }
     }
 
-    public string path => BmsFile?.path ?? BmsonSong?.path ?? string.Empty;
+    public string path => BmsFile?.path ?? BmsonSong?.path ?? Chart?.Path ?? string.Empty;
 
     public string instl_dst => Chart?.InstallDestination ?? string.Empty;
 
@@ -275,7 +275,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string memo => string.Empty;
 
-    internal LR2SongDBExtended.chart_info ChartInfo => BmsFile?.ChartInfo ?? BmsonSong?.ChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => BmsFile?.ChartInfo ?? BmsonSong?.ChartInfo ?? Chart?.ChartInfo;
 
     public string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
