@@ -3083,7 +3083,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 lr2config.AddBMSSearchDirectories([response]);
                 isSearchRootsChanged = true;
-                isBMSDirectoryAdded = Directory.EnumerateFiles(response, "*", System.IO.SearchOption.AllDirectories).Any(path => BeMusicSeeker.Models.BMSFile.bmsExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+                isBMSDirectoryAdded = Directory.EnumerateFiles(response, "*", System.IO.SearchOption.AllDirectories).Any(path => BeMusicSeeker.Models.ChartFileKindResolver.BmsExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
                 RaisePropertyChanged(() => LR2ConfigBMSDirectories);
                 RaisePropertyChanged(() => AvailableBMSDirectories);
                 RaiseValidationStateChanged();
@@ -14980,7 +14980,7 @@ public class MainWindowViewModel : ViewModel
             {
                 string[] extensionsPermitted =
                 [
-                    .. BeMusicSeeker.Models.BMSFile.bmsExtensions,
+                    .. BeMusicSeeker.Models.ChartFileKindResolver.BmsExtensions,
                     .. BeMusicSeeker.Models.ChartResourceExtensions.AudioExtensions,
                     .. BeMusicSeeker.Models.ChartResourceExtensions.ImageExtensions,
                 ];

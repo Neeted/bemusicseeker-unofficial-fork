@@ -6,7 +6,11 @@ namespace BeMusicSeeker.Models;
 
 internal static class ChartFileKindResolver
 {
+    internal static readonly string[] BmsExtensions = [".bme", ".bms", ".bml", ".pms"];
+
     internal static readonly string[] BmsonExtensions = [".bmson"];
+
+    internal static readonly string[] ChartExtensions = [.. BmsExtensions.Concat(BmsonExtensions).Distinct(StringComparer.OrdinalIgnoreCase)];
 
     internal static bool IsBmsonFilePath(string filePath)
     {
@@ -21,7 +25,7 @@ internal static class ChartFileKindResolver
         {
             return false;
         }
-        return BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
+        return BmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
             || BmsonExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 

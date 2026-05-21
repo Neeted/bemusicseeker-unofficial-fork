@@ -281,8 +281,6 @@ public class BMSFile : LR2SongDB.song
         public string DecodedText { get; }
     }
 
-    public static readonly string[] bmsExtensions = [".bme", ".bms", ".bml", ".pms"];
-
     private static readonly char[] invalidPathCharas = Path.GetInvalidPathChars();
 
     public override string hash

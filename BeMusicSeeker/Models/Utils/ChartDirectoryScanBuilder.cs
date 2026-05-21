@@ -16,7 +16,7 @@ internal static class ChartDirectoryScanBuilder
 
     internal const string MovieGroupName = "movie";
 
-    internal static readonly string[] ChartExtensions = [.. BMSFile.bmsExtensions.Concat([".bmson"]).Distinct(StringComparer.OrdinalIgnoreCase)];
+    internal static readonly string[] ChartExtensions = [.. ChartFileKindResolver.ChartExtensions];
 
     internal static readonly string[] AudioExtensions = [.. ChartResourceExtensions.AudioExtensions];
 

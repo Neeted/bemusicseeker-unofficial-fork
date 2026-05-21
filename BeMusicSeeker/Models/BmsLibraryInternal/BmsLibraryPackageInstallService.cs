@@ -339,7 +339,7 @@ internal sealed class BmsLibraryPackageInstallService
         string extension = Path.GetExtension(file?.path);
         return file != null
             && !string.IsNullOrWhiteSpace(extension)
-            && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+            && ChartFileKindResolver.BmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
     private static bool IsBmsFormatChartEntry(PackageChartEntry entry)
@@ -354,7 +354,7 @@ internal sealed class BmsLibraryPackageInstallService
         return chart?.Kind == ChartFileKind.Bms
             && ChartFileKindResolver.IsBmsChartFile(chart)
             && !string.IsNullOrWhiteSpace(extension)
-            && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+            && ChartFileKindResolver.BmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
     private static List<ChartFile> DeduplicateBmsFormatChartsByPathOrBmsReference(IEnumerable<ChartFile> charts)
