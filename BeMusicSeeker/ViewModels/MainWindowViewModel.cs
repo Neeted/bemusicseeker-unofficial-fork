@@ -10102,7 +10102,7 @@ public class MainWindowViewModel : ViewModel
 
     private static string GetSharedBmsonChartStateKey(LR2SongDBExtended.bmson_song song)
     {
-        string lookupHash = ChartLookupKey.GetPrimaryHash(song);
+        string lookupHash = ChartLookupKey.GetPrimaryHash(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
         string path = song?.path;
         if (!string.IsNullOrWhiteSpace(lookupHash) && !string.IsNullOrWhiteSpace(path))
         {

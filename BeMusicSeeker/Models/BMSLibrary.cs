@@ -6371,20 +6371,12 @@ reportProgress,
         lock (lockInstalledChartKeyIndex)
         {
             installedChartKeyIndex.Clear();
-            foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
+            foreach (ChartFile installedChart in CreateInstalledChartSnapshot(BMSFiles, BmsonSongs))
             {
-                string key = ChartLookupKey.GetPrimaryHash(bmsFile);
+                string key = installedChart.PrimaryLookupHash;
                 if (!string.IsNullOrWhiteSpace(key))
                 {
                     installedChartKeyIndex.Add(key);
-                }
-            }
-            foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            {
-                string key2 = ChartLookupKey.GetPrimaryHash(bmsonSong);
-                if (!string.IsNullOrWhiteSpace(key2))
-                {
-                    installedChartKeyIndex.Add(key2);
                 }
             }
             installedChartKeyIndexInitialized = true;
@@ -6586,24 +6578,12 @@ reportProgress,
             }
         }
         var installedKeyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
+        foreach (ChartFile installedChart in CreateInstalledChartSnapshot(BMSFiles, BmsonSongs))
         {
-            if (bmsFile == null)
-            {
-                continue;
-            }
-            string key2 = ChartLookupKey.GetPrimaryHash(bmsFile);
+            string key2 = installedChart.PrimaryLookupHash;
             if (!string.IsNullOrWhiteSpace(key2))
             {
                 installedKeyCounts[key2] = installedKeyCounts.TryGetValue(key2, out int value2) ? value2 + 1 : 1;
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-        {
-            string key3 = ChartLookupKey.GetPrimaryHash(bmsonSong);
-            if (!string.IsNullOrWhiteSpace(key3))
-            {
-                installedKeyCounts[key3] = installedKeyCounts.TryGetValue(key3, out int value3) ? value3 + 1 : 1;
             }
         }
         var snapshot = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -8917,32 +8897,19 @@ reportProgress,
         {
             return null;
         }
-        List<PackageChartEntry> entries = [.. BMSFiles.Where(delegate (BMSFile f)
+        List<PackageChartEntry> entries = [.. CreateInstalledChartSnapshot(BMSFiles, BmsonSongs).Where(delegate (ChartFile chart)
         {
-            if (f == null || string.IsNullOrWhiteSpace(f.path))
+            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
             {
                 return false;
             }
-            string key = ChartLookupKey.GetPrimaryHash(f);
+            string key = chart.PrimaryLookupHash;
             if (string.IsNullOrWhiteSpace(key) || !hashSet.Contains(key))
             {
                 return false;
             }
-            return string.Equals(DirectoryExt.GetDirectoryNameSimple(f.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
-        }).Select(PackageChartEntry.FromBmsFile).Where(entry => entry?.Chart != null)];
-        entries.AddRange((BmsonSongs ?? []).Where(delegate (LR2SongDBExtended.bmson_song song)
-        {
-            if (song == null || string.IsNullOrWhiteSpace(song.path))
-            {
-                return false;
-            }
-            string key = ChartLookupKey.GetPrimaryHash(song);
-            if (!string.IsNullOrWhiteSpace(key) && hashSet.Contains(key))
-            {
-                return string.Equals(DirectoryExt.GetDirectoryNameSimple(song.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
-            }
-            return false;
-        }).Select(song => PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song))).Where(entry => entry?.Chart != null));
+            return string.Equals(DirectoryExt.GetDirectoryNameSimple(chart.Path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
+        }).Select(PackageChartEntry.FromChart).Where(entry => entry?.Chart != null)];
         if (entries.Count == 0)
         {
             return null;
@@ -10589,17 +10556,12 @@ reportProgress,
         {
             return [];
         }
-        IEnumerable<string> bmsPaths = (BMSFiles ?? [])
-            .Where(file => file != null
-                && !string.Equals(file.path, chart.Path, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(ChartLookupKey.GetPrimaryHash(file), lookupHash, StringComparison.OrdinalIgnoreCase))
-            .Select(file => file.path);
-        IEnumerable<string> bmsonPaths = (BmsonSongs ?? [])
-            .Where(song => song != null
-                && !string.Equals(song.path, chart.Path, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(ChartLookupKey.GetPrimaryHash(song), lookupHash, StringComparison.OrdinalIgnoreCase))
-            .Select(song => song.path);
-        return bmsPaths.Concat(bmsonPaths).Where(path => !string.IsNullOrWhiteSpace(path));
+        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs)
+            .Where(installedChart => installedChart != null
+                && !string.Equals(installedChart.Path, chart.Path, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(installedChart.PrimaryLookupHash, lookupHash, StringComparison.OrdinalIgnoreCase))
+            .Select(installedChart => installedChart.Path)
+            .Where(path => !string.IsNullOrWhiteSpace(path));
     }
 
     internal void FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts)
