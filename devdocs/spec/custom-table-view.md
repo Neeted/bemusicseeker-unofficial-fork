@@ -474,7 +474,7 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
 - `Memo`
 - `InstallDst`
 
-`Url1` / `Url2` は download icon cell であり、通常 click は URL action として処理される。編集は repeat click、`F2`、またはテキスト入力などの編集開始操作から入り、編集 overlay では URL 文字列を表示する。`InstallDst` は行の `ChartFile.InstallDestinationSuggestions` を優先し、互換 adapter しか持たない行では `BMSFile.InstallDestinationSuggestions` から候補 list を出す。
+`Url1` / `Url2` は download icon cell であり、通常 click は URL action として処理される。編集は repeat click、`F2`、またはテキスト入力などの編集開始操作から入り、編集 overlay では URL 文字列を表示する。`InstallDst` の候補 list は行の `ChartFile.InstallDestinationSuggestions` を使う。pending package の BMS entry でも `PackageChartEntry.Chart` projection に候補を載せるため、UI は BMS storage row の transient property へ fallback しない。
 
 編集確定時は `CellEditEnded` を発火し、`MainWindow` 側で対象 row property または関連 DB / playlist 更新へつなぐ。
 
