@@ -1652,8 +1652,7 @@ internal sealed class BmsLibraryInitializationService
         var inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, result.FileDiffParserDegree, result.InlineChartInfoBatchSize);
         ChartInfoInlineBuildResult inlineResult = inlineBuildService.BuildForSnapshots(
             dbGateway,
-            parsedCandidates.Select(candidate => new InlineBmsChartSnapshot(candidate.File, candidate.Snapshot)),
-            null,
+            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromBmsFile(candidate.File, candidate.Snapshot)),
             currentFailures,
             logInstallPerformance,
             logInstallPerformanceWarn);
@@ -1680,8 +1679,7 @@ internal sealed class BmsLibraryInitializationService
         var inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, result.FileDiffParserDegree, result.InlineChartInfoBatchSize);
         ChartInfoInlineBuildResult inlineResult = inlineBuildService.BuildForSnapshots(
             dbGateway,
-            null,
-            parsedCandidates.Select(candidate => new InlineBmsonChartSnapshot(candidate.Song, candidate.Snapshot)),
+            parsedCandidates.Select(candidate => InlineChartSnapshotTarget.FromBmsonSong(candidate.Song, candidate.Snapshot)),
             currentFailures,
             logInstallPerformance,
             logInstallPerformanceWarn);

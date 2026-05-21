@@ -2713,8 +2713,7 @@ createTempDirectory);
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
                 gateway,
-                [new InlineBmsChartSnapshot(targetFile, ChartFileContentReader.ReadSnapshot(targetChartPath))],
-                null,
+                [InlineChartSnapshotTarget.FromBmsFile(targetFile, ChartFileContentReader.ReadSnapshot(targetChartPath))],
                 new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase));
 
             Assert.AreEqual(1, result.TargetCount);
@@ -2747,8 +2746,7 @@ createTempDirectory);
 
             ChartInfoInlineBuildResult result = service.BuildForSnapshots(
                 gateway,
-                [new InlineBmsChartSnapshot(file, snapshot)],
-                null,
+                [InlineChartSnapshotTarget.FromBmsFile(file, snapshot)],
                 new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase));
 
             Assert.AreEqual(1, result.TargetCount);

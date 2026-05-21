@@ -23,23 +23,13 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
 
     public ChartInfoInlineBuildResult BuildForSnapshots(
         BmsLibraryDbGateway dbGateway,
-        IEnumerable<InlineBmsChartSnapshot> bmsCharts,
-        IEnumerable<InlineBmsonChartSnapshot> bmsonCharts,
+        IEnumerable<InlineChartSnapshotTarget> charts,
         IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null)
     {
         var result = new ChartInfoInlineBuildResult();
-        List<InlineChartSnapshotTarget> targets =
-        [
-            .. (bmsCharts ?? [])
-                        .Where(item => item?.Snapshot != null && item.File != null)
-                        .Select(item => InlineChartSnapshotTarget.FromBms(item))
-,
-            .. (bmsonCharts ?? [])
-                    .Where(item => item?.Snapshot != null && item.Song != null)
-                    .Select(item => InlineChartSnapshotTarget.FromBmson(item)),
-        ];
+        List<InlineChartSnapshotTarget> targets = [.. (charts ?? []).Where(item => item?.Snapshot != null && item.Chart != null)];
         foreach (List<InlineChartSnapshotTarget> batch in CreateBatches(targets, batchSize))
         {
             Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadCurrentRows(dbGateway, batch.Select(target => target.Snapshot));
@@ -49,8 +39,8 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
             {
                 inlineResults.Add(chartInfoBuildService.BuildInlineChartInfo(
                     target.Snapshot,
-                    target.BmsFile,
-                    target.BmsonSong,
+                    target.GetBmsStorageOwner(),
+                    target.GetBmsonStorageOwner(),
                     currentRows,
                     currentFailures,
                     logInstallPerformance,
@@ -78,36 +68,41 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway != null
             ? dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout)
             : new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
-        List<InlineFileChartTarget> targets =
+        List<ChartFile> targets =
         [
             .. (bmsFiles ?? [])
                         .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                        .Select(file => InlineFileChartTarget.FromBms(file))
-,
+                        .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
+                        .Where(chart => chart != null),
             .. (bmsonSongs ?? [])
                     .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                    .Select(song => InlineFileChartTarget.FromBmson(song)),
+                    .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false))
+                    .Where(chart => chart != null),
         ];
-        foreach (List<InlineFileChartTarget> batch in CreateBatches(targets, batchSize))
+        foreach (List<ChartFile> batch in CreateBatches(targets, batchSize))
         {
-            List<InlineBmsChartSnapshot> bmsSnapshots = [];
-            List<InlineBmsonChartSnapshot> bmsonSnapshots = [];
-            foreach (InlineFileChartTarget target in batch)
+            List<InlineChartSnapshotTarget> snapshots = [];
+            foreach (ChartFile target in batch)
             {
                 try
                 {
                     ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
-                    if (target.BmsFile != null)
+                    BMSFile bmsFile = target.GetBmsStorageOwner();
+                    if (bmsFile != null)
                     {
-                        target.BmsFile.ApplySnapshotDigest(snapshot.Md5, snapshot.Sha256);
-                        bmsSnapshots.Add(new InlineBmsChartSnapshot(target.BmsFile, snapshot));
+                        bmsFile.ApplySnapshotDigest(snapshot.Md5, snapshot.Sha256);
+                        snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
                     }
-                    else if (target.BmsonSong != null)
+                    else
                     {
-                        target.BmsonSong.md5 = snapshot.Md5;
-                        target.BmsonSong.sha256 = snapshot.Sha256;
-                        target.BmsonSong.updated_at = snapshot.LastWriteTimeUtc;
-                        bmsonSnapshots.Add(new InlineBmsonChartSnapshot(target.BmsonSong, snapshot));
+                        LR2SongDBExtended.bmson_song bmsonSong = target.GetBmsonStorageOwner();
+                        if (bmsonSong != null)
+                        {
+                            bmsonSong.md5 = snapshot.Md5;
+                            bmsonSong.sha256 = snapshot.Sha256;
+                            bmsonSong.updated_at = snapshot.LastWriteTimeUtc;
+                            snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
+                        }
                     }
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
@@ -116,7 +111,7 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
                     logInstallPerformanceWarn?.Invoke("chart_info_inline read_failed path=" + QuoteLogValue(target.Path) + " exception=" + ex.GetType().Name + " message=" + QuoteLogValue(ex.Message));
                 }
             }
-            ChartInfoInlineBuildResult batchResult = BuildForSnapshots(dbGateway, bmsSnapshots, bmsonSnapshots, currentFailures, logInstallPerformance, logInstallPerformanceWarn);
+            ChartInfoInlineBuildResult batchResult = BuildForSnapshots(dbGateway, snapshots, currentFailures, logInstallPerformance, logInstallPerformanceWarn);
             Add(total, batchResult);
         }
         return total;
@@ -237,69 +232,42 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
         return "\"" + escaped + "\"";
     }
 
-    private sealed class InlineChartSnapshotTarget
-    {
-        private InlineChartSnapshotTarget(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong, ChartFileSnapshot snapshot)
-        {
-            BmsFile = bmsFile;
-            BmsonSong = bmsonSong;
-            Snapshot = snapshot;
-        }
-
-        public BMSFile BmsFile { get; }
-
-        public LR2SongDBExtended.bmson_song BmsonSong { get; }
-
-        public ChartFileSnapshot Snapshot { get; }
-
-        public static InlineChartSnapshotTarget FromBms(InlineBmsChartSnapshot item)
-        {
-            return new InlineChartSnapshotTarget(item.File, null, item.Snapshot);
-        }
-
-        public static InlineChartSnapshotTarget FromBmson(InlineBmsonChartSnapshot item)
-        {
-            return new InlineChartSnapshotTarget(null, item.Song, item.Snapshot);
-        }
-    }
-
-    private sealed class InlineFileChartTarget
-    {
-        private InlineFileChartTarget(BMSFile bmsFile, LR2SongDBExtended.bmson_song bmsonSong, string path)
-        {
-            BmsFile = bmsFile;
-            BmsonSong = bmsonSong;
-            Path = path ?? string.Empty;
-        }
-
-        public BMSFile BmsFile { get; }
-
-        public LR2SongDBExtended.bmson_song BmsonSong { get; }
-
-        public string Path { get; }
-
-        public static InlineFileChartTarget FromBms(BMSFile file)
-        {
-            return new InlineFileChartTarget(file, null, file?.path);
-        }
-
-        public static InlineFileChartTarget FromBmson(LR2SongDBExtended.bmson_song song)
-        {
-            return new InlineFileChartTarget(null, song, song?.path);
-        }
-    }
 }
 
-internal sealed class InlineBmsChartSnapshot(BMSFile file, ChartFileSnapshot snapshot)
+internal sealed class InlineChartSnapshotTarget
 {
-    public BMSFile File { get; } = file;
+    private InlineChartSnapshotTarget(ChartFile chart, ChartFileSnapshot snapshot)
+    {
+        Chart = chart;
+        Snapshot = snapshot;
+    }
 
-    public ChartFileSnapshot Snapshot { get; } = snapshot;
-}
+    public ChartFile Chart { get; }
 
-internal sealed class InlineBmsonChartSnapshot(LR2SongDBExtended.bmson_song song, ChartFileSnapshot snapshot)
-{
-    public LR2SongDBExtended.bmson_song Song { get; } = song;
+    public ChartFileSnapshot Snapshot { get; }
 
-    public ChartFileSnapshot Snapshot { get; } = snapshot;
+    public static InlineChartSnapshotTarget FromBmsFile(BMSFile file, ChartFileSnapshot snapshot)
+    {
+        return FromChart(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false), snapshot);
+    }
+
+    public static InlineChartSnapshotTarget FromBmsonSong(LR2SongDBExtended.bmson_song song, ChartFileSnapshot snapshot)
+    {
+        return FromChart(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false), snapshot);
+    }
+
+    public static InlineChartSnapshotTarget FromChart(ChartFile chart, ChartFileSnapshot snapshot)
+    {
+        return chart == null || snapshot == null ? null : new InlineChartSnapshotTarget(chart, snapshot);
+    }
+
+    public BMSFile GetBmsStorageOwner()
+    {
+        return Chart?.GetBmsStorageOwner();
+    }
+
+    public LR2SongDBExtended.bmson_song GetBmsonStorageOwner()
+    {
+        return Chart?.GetBmsonStorageOwner();
+    }
 }

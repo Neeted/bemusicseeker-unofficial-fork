@@ -410,7 +410,7 @@ resource health は BMS / bmson 共通の表示概念である。
 
 `chart_info` は BMS / bmson 共通 metadata として扱う。
 
-`ChartInfoBuildService` / inline chart_info pipeline は BMS と bmson の owner を別入力で受け、最終的に md5 / sha256 で chart_info を適用する。
+inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot を `InlineChartSnapshotTarget` の `ChartFile` と組み合わせて受ける。BMS / bmson の storage owner へは inline build / digest writeback の直前だけ `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` で降り、短命な parser payload でも BMS list と bmson list を別々の正本として持たない。下位の `ChartInfoBuildService.BuildInlineChartInfo(...)` は parser / DB 適用の最終境界として BMS / bmson storage owner を別引数で受けるが、caller が二本立て DTO を正本にする構造は残さない。最終的な chart_info 適用は md5 / sha256 で行う。
 
 通常一覧の chart_info 表示や sort key は `LibraryChartRow` / `ChartListSourceRow` に materialize された `ChartInfo` を使う。
 
