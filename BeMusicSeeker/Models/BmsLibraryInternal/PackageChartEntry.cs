@@ -78,43 +78,12 @@ internal sealed class PackageChartEntry
         {
             return true;
         }
-        return IsSameChartTarget(Chart, targetEntry.Chart);
+        return ChartFileIdentity.IsSameChartTarget(Chart, targetEntry.Chart);
     }
 
     internal bool IsSameChartTarget(ChartFile targetChart)
     {
-        return IsSameChartTarget(Chart, targetChart);
-    }
-
-    internal static bool IsSameChartTarget(ChartFile chart, ChartFile targetChart)
-    {
-        if (chart == null || targetChart == null || chart.Kind != targetChart.Kind)
-        {
-            return false;
-        }
-        if (ReferenceEquals(chart, targetChart))
-        {
-            return true;
-        }
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        BMSFile targetBmsFile = targetChart.GetBmsStorageOwner();
-        if (bmsFile != null
-            && targetBmsFile != null
-            && ReferenceEquals(bmsFile, targetBmsFile))
-        {
-            return true;
-        }
-        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-        LR2SongDBExtended.bmson_song targetBmsonSong = targetChart.GetBmsonStorageOwner();
-        if (bmsonSong != null
-            && targetBmsonSong != null
-            && ReferenceEquals(bmsonSong, targetBmsonSong))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(chart.Path)
-            && !string.IsNullOrWhiteSpace(targetChart.Path)
-            && chart.Path.Equals(targetChart.Path, StringComparison.OrdinalIgnoreCase);
+        return ChartFileIdentity.IsSameChartTarget(Chart, targetChart);
     }
 
     internal PackageChartInstallDestinationState CaptureInstallDestinationState()

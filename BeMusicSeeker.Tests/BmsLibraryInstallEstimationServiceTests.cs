@@ -1138,12 +1138,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void PackageChartEntry_IsSameChartTarget_DoesNotMatchSameHashDifferentPath()
+    public void ChartFileIdentity_IsSameChartTarget_DoesNotMatchSameHashDifferentPath()
     {
         TestableBmsFile firstBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingA", "chart.bms"));
         TestableBmsFile secondBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\PendingB", "chart.bms"));
-        PackageChartEntry firstBmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(firstBms));
-        PackageChartEntry secondBmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(secondBms));
+        ChartFile firstBmsChart = ChartFileProjection.FromBmsFile(firstBms);
+        ChartFile secondBmsChart = ChartFileProjection.FromBmsFile(secondBms);
         var firstBmson = new LR2SongDBExtended.bmson_song
         {
             path = Path.Combine("C:\\PendingA", "chart.bmson"),
@@ -1156,11 +1156,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             md5 = firstBmson.md5,
             sha256 = firstBmson.sha256
         };
-        PackageChartEntry firstBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(firstBmson));
-        PackageChartEntry secondBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(secondBmson));
+        ChartFile firstBmsonChart = ChartFileProjection.FromBmsonSong(firstBmson);
+        ChartFile secondBmsonChart = ChartFileProjection.FromBmsonSong(secondBmson);
 
-        Assert.IsFalse(firstBmsEntry.IsSameChartTarget(secondBmsEntry));
-        Assert.IsFalse(firstBmsonEntry.IsSameChartTarget(secondBmsonEntry));
+        Assert.IsFalse(ChartFileIdentity.IsSameChartTarget(firstBmsChart, secondBmsChart));
+        Assert.IsFalse(ChartFileIdentity.IsSameChartTarget(firstBmsonChart, secondBmsonChart));
     }
 
     [TestMethod]
