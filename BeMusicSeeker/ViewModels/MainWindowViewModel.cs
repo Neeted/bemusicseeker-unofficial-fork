@@ -21880,14 +21880,10 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException();
         }
-        string text = GridRowResolver.GetHash(bmsFile);
+        string text = bmsFile.hash;
         if (string.IsNullOrWhiteSpace(text))
         {
-            text = GridRowResolver.GetLr2BmsId(bmsFile);
-        }
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            throw new ArgumentException("MD5/LR2BMSID not found: " + bmsFile.path);
+            throw new ArgumentException("MD5 not found: " + bmsFile.path);
         }
         try
         {

@@ -1400,9 +1400,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         gridBMSPlayerControlsBanner.BorderThickness = ((gridBMSPlayerControlsBanner.Background == null) ? new Thickness(0.0) : new Thickness(1.0, 0.0, 1.0, 0.0));
-        gridBMSPlayerControlsTitle.Text = GridRowResolver.GetDisplayTitle(bmsFile);
-        gridBMSPlayerControlsSubtitle.Text = GridRowResolver.GetDisplaySubtitle(bmsFile);
-        gridBMSPlayerControlsArtist.Text = GridRowResolver.GetDisplayArtist(bmsFile);
+        gridBMSPlayerControlsTitle.Text = GridRowResolver.GetBmsPlayerDisplayTitle(bmsFile);
+        gridBMSPlayerControlsSubtitle.Text = GridRowResolver.GetBmsPlayerDisplaySubtitle(bmsFile);
+        gridBMSPlayerControlsArtist.Text = GridRowResolver.GetBmsPlayerDisplayArtist(bmsFile);
     }
     private void keywordSearchBoxTextChanged(object sender, TextChangedEventArgs e)
     {

@@ -503,26 +503,30 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void GridRowResolver_GetRepositorySha256_UsesBmsFileChartInfoFallback()
+    public void GridRowResolver_GetRepositorySha256_UsesBmsChartRowChartInfoFallback()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "ChartInfoSha", 7);
         file.SetChartInfo(CreateChartInfo(new string('d', 64), file.hash));
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
 
-        Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(file));
+        Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(row));
     }
 
     [TestMethod]
-    public void GridRowResolver_DisplayHelpers_KeepRawBmsFileFallbackForBmsPlayer()
+    public void GridRowResolver_BmsPlayerDisplayHelpers_ReadRawBmsFile()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "PlayerTitle", 7);
         file.SetSubtitle("[PlayerSubtitle]");
         file.SetArtist("PlayerArtist");
 
-        Assert.AreEqual("PlayerTitle [PlayerSubtitle]", GridRowResolver.GetDisplayTitle(file));
-        Assert.AreEqual("[PlayerSubtitle]", GridRowResolver.GetDisplaySubtitle(file));
-        Assert.AreEqual("PlayerArtist", GridRowResolver.GetDisplayArtist(file));
+        Assert.AreEqual("PlayerTitle [PlayerSubtitle]", GridRowResolver.GetBmsPlayerDisplayTitle(file));
+        Assert.AreEqual("[PlayerSubtitle]", GridRowResolver.GetBmsPlayerDisplaySubtitle(file));
+        Assert.AreEqual("PlayerArtist", GridRowResolver.GetBmsPlayerDisplayArtist(file));
+        Assert.AreEqual(string.Empty, GridRowResolver.GetDisplayTitle(file));
+        Assert.AreEqual(string.Empty, GridRowResolver.GetDisplaySubtitle(file));
+        Assert.AreEqual(string.Empty, GridRowResolver.GetDisplayArtist(file));
     }
 
     [TestMethod]

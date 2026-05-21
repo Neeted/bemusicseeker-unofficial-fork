@@ -198,11 +198,7 @@ internal static class GridRowResolver
         {
             return chart.Md5;
         }
-        return row switch
-        {
-            BMSFile bmsFile => bmsFile.hash,
-            _ => null
-        };
+        return null;
     }
 
     /// <summary>
@@ -214,11 +210,7 @@ internal static class GridRowResolver
         {
             return chart.Sha256;
         }
-        return row switch
-        {
-            BMSFile bmsFile => bmsFile.sha256,
-            _ => null
-        };
+        return null;
     }
 
     /// <summary>
@@ -229,13 +221,7 @@ internal static class GridRowResolver
     {
         string sha256 = TryGetChartFile(row, out ChartFile chart)
             ? FirstNonEmpty(chart.Sha256, chart.ChartInfo?.sha256)
-            : row switch
-            {
-                PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
-                LibraryChartRow libraryChartRow => FirstNonEmpty(libraryChartRow.sha256, libraryChartRow.ChartInfo?.sha256),
-                BMSFile bmsFile => FirstNonEmpty(bmsFile.sha256, bmsFile.ChartInfo?.sha256),
-                _ => null
-            };
+            : null;
         return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
     }
 
@@ -339,11 +325,7 @@ internal static class GridRowResolver
         {
             return chart.Title;
         }
-        return row switch
-        {
-            BMSFile bmsFile => bmsFile.Title,
-            _ => string.Empty
-        };
+        return string.Empty;
     }
 
     /// <summary>
@@ -355,11 +337,7 @@ internal static class GridRowResolver
         {
             return chart.Subtitle ?? string.Empty;
         }
-        return row switch
-        {
-            BMSFile bmsFile => bmsFile.subtitle ?? string.Empty,
-            _ => string.Empty
-        };
+        return string.Empty;
     }
 
     /// <summary>
@@ -371,11 +349,31 @@ internal static class GridRowResolver
         {
             return chart.Artist;
         }
-        return row switch
-        {
-            BMSFile bmsFile => bmsFile.Artist,
-            _ => string.Empty
-        };
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// BMS player controls に表示する BMS storage row のタイトルを取得します。
+    /// </summary>
+    internal static string GetBmsPlayerDisplayTitle(BMSFile file)
+    {
+        return file?.Title ?? string.Empty;
+    }
+
+    /// <summary>
+    /// BMS player controls に表示する BMS storage row のサブタイトルを取得します。
+    /// </summary>
+    internal static string GetBmsPlayerDisplaySubtitle(BMSFile file)
+    {
+        return file?.subtitle ?? string.Empty;
+    }
+
+    /// <summary>
+    /// BMS player controls に表示する BMS storage row のアーティストを取得します。
+    /// </summary>
+    internal static string GetBmsPlayerDisplayArtist(BMSFile file)
+    {
+        return file?.Artist ?? string.Empty;
     }
 
     /// <summary>
