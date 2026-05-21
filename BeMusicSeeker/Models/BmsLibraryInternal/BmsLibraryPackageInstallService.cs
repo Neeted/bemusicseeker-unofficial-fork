@@ -1848,12 +1848,6 @@ internal sealed class BmsLibraryPackageInstallService
                 result.AddedCharts.AddRange(packageEntries
                     .Select(entry => entry?.Chart)
                     .Where(chart => chart != null));
-                result.AddedBmsFiles.AddRange(packageEntries
-                    .Select(entry => entry?.Chart?.GetBmsStorageOwner())
-                    .Where(ChartFileKindResolver.IsBmsChartFile));
-                result.AddedBmsonSongs.AddRange(packageEntries
-                    .Select(entry => entry?.Chart?.GetBmsonStorageOwner())
-                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)));
                 if (existingHashes != null)
                 {
                     foreach (PackageChartEntry entry in packageEntries)

@@ -7984,10 +7984,9 @@ reportProgress,
 
         public HashSet<string> AffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public void AddInstalledCharts(IEnumerable<BMSFile> addedBmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs, string destinationDirectory)
+        public void AddInstalledCharts(IEnumerable<ChartFile> addedCharts, string destinationDirectory)
         {
-            List<BMSFile> addedBmsFileList = [.. (addedBmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
-            List<LR2SongDBExtended.bmson_song> addedBmsonSongList = [.. (addedBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+            SplitResourceMaintenanceCharts(CreateResourceMaintenanceCharts(addedCharts), out List<BMSFile> addedBmsFileList, out List<LR2SongDBExtended.bmson_song> addedBmsonSongList);
             AddedBmsFiles.AddRange(addedBmsFileList);
             AddedBmsonSongs.AddRange(addedBmsonSongList);
             AddAffectedDirectory(destinationDirectory);
@@ -8019,8 +8018,7 @@ reportProgress,
 
         void UpsertInstalledChartRows(PackageInstallExecutionResult installResult)
         {
-            List<BMSFile> addedBmsFiles = [.. (installResult?.AddedBmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
-            List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [.. (installResult?.AddedBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+            SplitResourceMaintenanceCharts(CreateResourceMaintenanceCharts(installResult?.AddedCharts), out List<BMSFile> addedBmsFiles, out List<LR2SongDBExtended.bmson_song> addedBmsonSongs);
             if (addedBmsFiles.Count > 0)
             {
                 dbGateway.UpsertSongs(addedBmsFiles);
@@ -8047,13 +8045,12 @@ reportProgress,
 
         void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
         {
-            List<BMSFile> addedBmsFiles = [.. (installResult?.AddedBmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
-            List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [.. (installResult?.AddedBmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+            SplitResourceMaintenanceCharts(CreateResourceMaintenanceCharts(installResult?.AddedCharts), out List<BMSFile> addedBmsFiles, out List<LR2SongDBExtended.bmson_song> addedBmsonSongs);
             addedBmsFilesForChartInfo.AddRange(addedBmsFiles);
             addedBmsonSongsForChartInfo.AddRange(addedBmsonSongs);
             if (estimatedInstallBatchApplyContext != null)
             {
-                estimatedInstallBatchApplyContext.AddInstalledCharts(addedBmsFiles, addedBmsonSongs, installationDirectory);
+                estimatedInstallBatchApplyContext.AddInstalledCharts(installResult?.AddedCharts, installationDirectory);
                 return;
             }
             if (addedBmsFiles.Count > 0)
@@ -8103,7 +8100,7 @@ reportProgress,
             deleteSourceContentsAfterSuccessfulInstall);
         if (estimatedInstallBatchApplyContext != null && result.FailedPackages.Count < installPackageList.Count)
         {
-            estimatedInstallBatchApplyContext.AddInstalledCharts([], [], installationDirectory);
+            estimatedInstallBatchApplyContext.AddInstalledCharts([], installationDirectory);
         }
         if (result.InstalledPackagesToRegister.Count > 0)
         {
