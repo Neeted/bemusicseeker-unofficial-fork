@@ -18,7 +18,7 @@ internal static class GridRowResolver
     /// </summary>
     internal static bool IsPlaylistRow(object row)
     {
-        return row is PlaylistDetailRow;
+        return row is PlaylistDetailRow or PlaylistDetailSourceRow;
     }
 
     /// <summary>
@@ -26,11 +26,15 @@ internal static class GridRowResolver
     /// </summary>
     internal static BMSTableEntry GetPlaylistEntry(object row)
     {
-        if (row is PlaylistDetailRow playlistDetailRow)
+        switch (row)
         {
-            return playlistDetailRow.Entry;
+            case PlaylistDetailRow playlistDetailRow:
+                return playlistDetailRow.Entry;
+            case PlaylistDetailSourceRow playlistSourceRow:
+                return playlistSourceRow.Entry;
+            default:
+                return null;
         }
-        return null;
     }
 
     /// <summary>
@@ -99,7 +103,7 @@ internal static class GridRowResolver
             return false;
         }
         BMSTableEntry playlistEntry = GetPlaylistEntry(row);
-        bool isPlaylistRow = IsPlaylistRow(row) || row is PlaylistDetailSourceRow;
+        bool isPlaylistRow = IsPlaylistRow(row);
         bool isOwned = row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.IsOwned,

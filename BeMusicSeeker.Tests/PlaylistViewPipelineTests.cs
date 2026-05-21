@@ -1878,6 +1878,31 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void GridRowResolver_TreatsPlaylistSourceRowAsPlaylistEntryRow()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Owned Bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+        var sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson);
+
+        Assert.IsTrue(GridRowResolver.IsPlaylistRow(sourceRow));
+        Assert.AreSame(entry, GridRowResolver.GetPlaylistEntry(sourceRow));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(sourceRow, out ChartOperationTarget target));
+        Assert.AreSame(entry, target.PlaylistEntry);
+        Assert.AreEqual(ChartOperationSourceScope.PlaylistOwned, target.SourceScope);
+        Assert.IsFalse(target.IsPlaylistMissing);
+        Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
+    }
+
+    [TestMethod]
     public void PlaylistDetailContextMenuPolicy_OwnedRowsAllowEntryAndFileDeleteButMissingRowsAllowEntryOnly()
     {
         var bms = new TestableBmsFile();
@@ -1935,6 +1960,32 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingRow));
         Assert.AreEqual(ChartFileKind.Bmson, MainWindowViewModel.ResolvePlaylistDropChart(ownedBmsonRow).Kind);
         Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(missingRow));
+    }
+
+    [TestMethod]
+    public void RootFolderDropEntryPolicy_SourceRowsPreservesOnlyMissingPlaylistRows()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Owned Bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        var bmsonEntry = new TestablePlaylistEntry();
+        bmsonEntry.SetMd5(bmson.md5);
+        bmsonEntry.SetSha256(bmson.sha256);
+        var ownedBmsonSourceRow = new PlaylistDetailSourceRow(bmsonEntry, realFile: null, resolvedBmson: bmson);
+
+        var missingEntry = new TestablePlaylistEntry();
+        missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
+        var missingSourceRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null);
+
+        Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsonSourceRow));
+        Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingSourceRow));
+        Assert.AreEqual(ChartFileKind.Bmson, MainWindowViewModel.ResolvePlaylistDropChart(ownedBmsonSourceRow).Kind);
+        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(missingSourceRow));
     }
 
     [TestMethod]
