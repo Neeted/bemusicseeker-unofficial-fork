@@ -795,12 +795,6 @@ public class BMSTable : LR2SongDBExtended.playlist
         return text;
     }
 
-    public void AddBMSTableEntriesToFolder(IEnumerable<BMSFile> bmsFiles, string folderName = "")
-    {
-        List<BMSTableEntry> bmsEntries = [.. bmsFiles.Select(f => new BMSTableEntry(f))];
-        AddBMSTableEntriesToFolder(bmsEntries, folderName);
-    }
-
     public void AddBMSTableEntriesToFolder(IEnumerable<BMSTableEntry> bmsEntries, string folderName = "")
     {
         bool flag = !GetExistingFolderNameSet().Contains(folderName);
