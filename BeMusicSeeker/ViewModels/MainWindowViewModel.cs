@@ -16104,10 +16104,6 @@ public class MainWindowViewModel : ViewModel
                             }, 100u);
                         }
                     }
-                    else if (parameter is List<BeMusicSeeker.Models.BMSFile>)
-                    {
-                        ChartRowsFolderView = ToLibraryChartRows(parameter as List<BeMusicSeeker.Models.BMSFile>);
-                    }
                     else if (parameter is DuplicateGroup)
                     {
                         ChartRowsFolderView = ToLibraryChartRows((parameter as DuplicateGroup).ChartFiles);

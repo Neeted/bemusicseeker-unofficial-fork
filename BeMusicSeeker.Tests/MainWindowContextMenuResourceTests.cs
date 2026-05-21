@@ -826,6 +826,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void DuplicateFilterViewUsesChartFileParameters()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string refreshChartRowsView = ExtractBetween(
+            viewModelCode,
+            "private void RefreshChartRowsView",
+            "private static bool TryNormalizeNormalLibrarySortCacheColumn");
+        string duplicateFilterBranch = ExtractBetween(
+            refreshChartRowsView,
+            "case viewUpdateMode.DuplicateFilterSelected:",
+            "case viewUpdateMode.GarbledFilterSelected:");
+
+        StringAssert.Contains(duplicateFilterBranch, "DuplicateGroup");
+        StringAssert.Contains(duplicateFilterBranch, "DuplicateChartGroups.SelectMany(g => g.ChartFiles)");
+        Assert.IsFalse(duplicateFilterBranch.Contains("List<BeMusicSeeker.Models.BMSFile>"));
+        Assert.IsFalse(duplicateFilterBranch.Contains("parameter as List<BeMusicSeeker.Models.BMSFile>"));
+    }
+
+    [TestMethod]
     public void ChartContextMenu_BmsOnlyAndChartCommonHandlersUseExpectedSelectionHelpers()
     {
         string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
