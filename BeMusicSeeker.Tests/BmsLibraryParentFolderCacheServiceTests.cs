@@ -26,16 +26,8 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
         {
             var service = new BmsLibraryParentFolderCacheService();
             BmsLibraryOptionsSnapshot options = CreateLr2Options(customFolderPath);
-            ChartFile bmsonChart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
-            {
-                path = chartPath,
-                md5 = "0123456789abcdef0123456789abcdef",
-                title = "Title",
-                folder = "Package"
-            });
-
             List<string> emptyResult = service.BuildParentFolderCandidates([libraryRootPath], [], options);
-            List<string> bmsonResult = service.BuildParentFolderCandidates([libraryRootPath], [bmsonChart], options);
+            List<string> bmsonResult = service.BuildParentFolderCandidates([libraryRootPath], [chartPath], options);
 
             CollectionAssert.DoesNotContain(emptyResult, libraryRootPath);
             CollectionAssert.Contains(bmsonResult, libraryRootPath);

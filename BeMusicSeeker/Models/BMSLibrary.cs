@@ -1222,23 +1222,36 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private List<ChartFile> CreateInstalledChartSnapshotForParentFolderCache()
+    private List<string> CreateInstalledChartPathSnapshotForParentFolderCache()
     {
-        List<BMSFile> bmsFilesSnapshot;
+        List<string> paths = [];
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            bmsFilesSnapshot = [.. BMSFiles];
+            foreach (BMSFile file in BMSFiles ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(file?.path))
+                {
+                    paths.Add(file.path);
+                }
+            }
         }
-        return CreateInstalledChartSnapshot(bmsFilesSnapshot, BmsonSongs);
+        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(song?.path))
+            {
+                paths.Add(song.path);
+            }
+        }
+        return paths;
     }
 
     /// <summary>
     /// インストール済み譜面のスナップショットから、親フォルダの候補リストを構築します。
     /// カスタムフォルダ出力先ディレクトリ配下は除外されます。
     /// </summary>
-    private List<string> BuildBMSParentFolderCandidates(List<ChartFile> installedChartsSnapshot)
+    private List<string> BuildBMSParentFolderCandidates(List<string> installedChartPaths)
     {
-        return parentFolderCacheService.BuildParentFolderCandidates(getBMSDirectories(), installedChartsSnapshot, CurrentOptionsSnapshot);
+        return parentFolderCacheService.BuildParentFolderCandidates(getBMSDirectories(), installedChartPaths, CurrentOptionsSnapshot);
     }
 
     /// <summary>
@@ -1256,8 +1269,8 @@ public class BMSLibrary : NotificationObject
             }
             version = bmsParentFolderListDirtyVersion;
         }
-        List<ChartFile> installedChartsSnapshot = CreateInstalledChartSnapshotForParentFolderCache();
-        return parentFolderCacheService.BuildSnapshot(version, installedChartsSnapshot, getBMSDirectories(), CurrentOptionsSnapshot);
+        List<string> installedChartPaths = CreateInstalledChartPathSnapshotForParentFolderCache();
+        return parentFolderCacheService.BuildSnapshot(version, installedChartPaths, getBMSDirectories(), CurrentOptionsSnapshot);
     }
 
     /// <summary>
@@ -1312,9 +1325,9 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        List<ChartFile> installedChartsSnapshot = CreateInstalledChartSnapshotForParentFolderCache();
+        List<string> installedChartPaths = CreateInstalledChartPathSnapshotForParentFolderCache();
         var stopwatch = Stopwatch.StartNew();
-        IEnumerable<string> enumerable = BuildBMSParentFolderCandidates(installedChartsSnapshot);
+        IEnumerable<string> enumerable = BuildBMSParentFolderCandidates(installedChartPaths);
         List<string> items = [.. enumerable.Except(bmsParentFolderListCache)];
         List<string> items2 = [.. bmsParentFolderListCache.Except(enumerable)];
         bmsParentFolderListCache = [.. enumerable];

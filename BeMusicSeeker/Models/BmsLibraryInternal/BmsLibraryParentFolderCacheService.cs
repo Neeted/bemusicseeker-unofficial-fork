@@ -8,13 +8,14 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryParentFolderCacheService
 {
-    public List<string> BuildParentFolderCandidates(IEnumerable<string> bmsDirectories, IEnumerable<ChartFile> installedChartsSnapshot, BmsLibraryOptionsSnapshot options)
+    public List<string> BuildParentFolderCandidates(IEnumerable<string> bmsDirectories, IEnumerable<string> installedChartPaths, BmsLibraryOptionsSnapshot options)
     {
+        List<string> chartPaths = [.. (installedChartPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         return [.. (bmsDirectories ?? []).Where(delegate (string directoryPath)
         {
-            if ((installedChartsSnapshot ?? []).Any(delegate (ChartFile chart)
+            if (chartPaths.Any(delegate (string chartPath)
             {
-                return chart != null && !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(directoryPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+                return chartPath.StartsWith(directoryPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
             }))
             {
                 return true;
@@ -42,10 +43,10 @@ internal sealed class BmsLibraryParentFolderCacheService
         })];
     }
 
-    public BMSLibrary.ParentFolderListCacheSnapshot BuildSnapshot(int version, IEnumerable<ChartFile> installedChartsSnapshot, IEnumerable<string> bmsDirectories, BmsLibraryOptionsSnapshot options)
+    public BMSLibrary.ParentFolderListCacheSnapshot BuildSnapshot(int version, IEnumerable<string> installedChartPaths, IEnumerable<string> bmsDirectories, BmsLibraryOptionsSnapshot options)
     {
         var stopwatch = Stopwatch.StartNew();
-        List<string> parentFolders = BuildParentFolderCandidates(bmsDirectories, installedChartsSnapshot, options);
+        List<string> parentFolders = BuildParentFolderCandidates(bmsDirectories, installedChartPaths, options);
         stopwatch.Stop();
         return new BMSLibrary.ParentFolderListCacheSnapshot
         {
