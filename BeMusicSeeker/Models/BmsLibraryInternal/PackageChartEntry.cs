@@ -13,7 +13,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private readonly Dictionary<ChartWarningKind, ChartWarning> pendingWarnings = [];
 
-    private bool hasPendingWarningProjection;
+    private readonly HashSet<ChartWarningCategory> projectedWarningCategories = [];
 
     private string installDestination;
 
@@ -33,10 +33,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
         ReplacePendingInstallDestination(chart.InstallDestination, chart.InstallDestinationTitle, chart.InstallDestinationArtist, chart.InstallDestinationSuggestions);
-        if (GetBmsStorageOwner() == null)
-        {
-            ReplacePendingWarnings(chart.Warnings);
-        }
+        ReplacePendingWarnings(chart.Warnings);
     }
 
     internal ChartFile Chart
@@ -45,14 +42,14 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         {
             BMSFile bmsFile = GetBmsStorageOwner();
             ChartFile currentChart = bmsFile != null ? ChartFileProjection.FromBmsFile(bmsFile) : chart;
-            ChartFile projectedChart = hasPendingWarningProjection || hasInstallDestinationProjection
+            ChartFile projectedChart = projectedWarningCategories.Count > 0 || hasInstallDestinationProjection
                 ? ChartFileProjection.WithPackageState(
                     currentChart,
                     hasInstallDestinationProjection ? installDestination : currentChart.InstallDestination,
                     hasInstallDestinationProjection ? installDestinationTitle : currentChart.InstallDestinationTitle,
                     hasInstallDestinationProjection ? installDestinationArtist : currentChart.InstallDestinationArtist,
                     hasInstallDestinationProjection ? installDestinationSuggestions : currentChart.InstallDestinationSuggestions,
-                    hasPendingWarningProjection ? [.. pendingWarnings.Values] : currentChart.Warnings)
+                    projectedWarningCategories.Count > 0 ? BuildProjectedWarnings(currentChart.Warnings) : currentChart.Warnings)
                 : currentChart;
             return searchingStatusProjection.HasValue
                 ? ChartFileProjection.WithStatus(projectedChart, ApplySearchingStatusProjection(projectedChart.Status, searchingStatusProjection.Value))
@@ -183,7 +180,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 forceProjection: true);
             if (!preserveAmbiguousInstallContext)
             {
-                bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+                ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             }
             return;
         }
@@ -236,14 +233,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void ApplyInstalledDestinationResolveFailed()
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-            bmsFile.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
-            ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
-            return;
-        }
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Properties.Resources.Warning_InstalledDestinationResolveFailed);
@@ -251,27 +240,12 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void ClearInstallDestination()
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-            ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
-            return;
-        }
         ReplacePendingInstallDestination(null, string.Empty, string.Empty, [], forceProjection: true);
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
     internal void ClearPostInstallState()
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-            bmsFile.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
-            ReplacePendingInstallDestination(Chart.InstallDestination, Chart.InstallDestinationTitle, Chart.InstallDestinationArtist, [], forceProjection: true);
-            return;
-        }
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
         ReplacePendingInstallDestination(Chart.InstallDestination, Chart.InstallDestinationTitle, Chart.InstallDestinationArtist, [], forceProjection: true);
@@ -279,56 +253,35 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void ClearStructuredWarnings()
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            bmsFile.ClearStructuredWarnings();
-            return;
-        }
         pendingWarnings.Clear();
-        hasPendingWarningProjection = true;
+        projectedWarningCategories.Clear();
+        foreach (ChartWarningCategory category in GetStructuredWarningClearCategories())
+        {
+            projectedWarningCategories.Add(category);
+        }
         RaiseChartChanged();
     }
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            bmsFile.ClearWarningsByCategory(category);
-            return;
-        }
         foreach (ChartWarningKind kind in pendingWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
         {
             pendingWarnings.Remove(kind);
         }
-        hasPendingWarningProjection = true;
+        projectedWarningCategories.Add(category);
         RaiseChartChanged();
     }
 
     internal void SetWarning(ChartWarningKind kind, string message)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            bmsFile.SetWarning(kind, message);
-            return;
-        }
         ChartWarning warning = ChartWarning.Create(kind, message);
         pendingWarnings[warning.Kind] = warning;
-        hasPendingWarningProjection = true;
+        projectedWarningCategories.Add(warning.Category);
         RaiseChartChanged();
     }
 
     internal void ReplaceWarningsByCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            bmsFile.ReplaceWarningsByCategory(category, warnings);
-            chart = ChartFileProjection.FromBmsFile(bmsFile);
-            return;
-        }
         foreach (ChartWarningKind kind in pendingWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
         {
             pendingWarnings.Remove(kind);
@@ -340,22 +293,54 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 pendingWarnings[warning.Kind] = warning;
             }
         }
-        hasPendingWarningProjection = true;
+        projectedWarningCategories.Add(category);
         RaiseChartChanged();
     }
 
     private void ReplacePendingWarnings(IEnumerable<ChartWarning> warnings)
     {
         pendingWarnings.Clear();
+        projectedWarningCategories.Clear();
+        bool hasBmsOwner = chart.GetBmsStorageOwner() != null;
         foreach (ChartWarning warning in warnings ?? [])
         {
-            if (warning != null)
+            if (warning != null && (!hasBmsOwner || IsPackageProjectionWarningCategory(warning.Category)))
             {
                 pendingWarnings[warning.Kind] = warning;
+                projectedWarningCategories.Add(warning.Category);
             }
         }
-        hasPendingWarningProjection = pendingWarnings.Count > 0;
         RaiseChartChanged();
+    }
+
+    private IReadOnlyList<ChartWarning> BuildProjectedWarnings(IEnumerable<ChartWarning> ownerWarnings)
+    {
+        return [.. (ownerWarnings ?? [])
+            .Where(warning => warning != null && !projectedWarningCategories.Contains(warning.Category))
+            .Concat(pendingWarnings.Values)];
+    }
+
+    private IEnumerable<ChartWarningCategory> GetStructuredWarningClearCategories()
+    {
+        return GetBmsStorageOwner() != null
+            ? EnumeratePackageProjectionWarningCategories()
+            : Enum.GetValues(typeof(ChartWarningCategory)).Cast<ChartWarningCategory>();
+    }
+
+    private static IEnumerable<ChartWarningCategory> EnumeratePackageProjectionWarningCategories()
+    {
+        yield return ChartWarningCategory.PackageLayout;
+        yield return ChartWarningCategory.InstalledState;
+        yield return ChartWarningCategory.ResourceHealth;
+        yield return ChartWarningCategory.InstallEstimation;
+    }
+
+    private static bool IsPackageProjectionWarningCategory(ChartWarningCategory category)
+    {
+        return category == ChartWarningCategory.PackageLayout
+            || category == ChartWarningCategory.InstalledState
+            || category == ChartWarningCategory.ResourceHealth
+            || category == ChartWarningCategory.InstallEstimation;
     }
 
     private void ApplyInstallEstimationWarnings(InstallEstimationResult result)

@@ -259,12 +259,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
             ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            BMSFile strictWarningFile = regroupedPackage.GetBmsOwnersForTest().Single(file => Path.GetFileName(file.path).Equals("strict.bms", StringComparison.OrdinalIgnoreCase));
-            BMSFile normalFile = regroupedPackage.GetBmsOwnersForTest().Single(file => Path.GetFileName(file.path).Equals("normal.bms", StringComparison.OrdinalIgnoreCase));
-            Assert.IsTrue(strictWarningFile.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            StringAssert.Contains(strictWarningFile.Warnings.BuildTooltipText(), "WAV");
-            Assert.IsFalse(strictWarningFile.Warnings.Contains(ChartWarningKind.SingleBmsFile));
-            Assert.AreEqual(string.Empty, normalFile.Warnings.BuildDigestText());
+            PackageChartEntry strictWarningEntry = GetEntryByFileName(regroupedPackage, "strict.bms");
+            PackageChartEntry normalEntry = GetEntryByFileName(regroupedPackage, "normal.bms");
+            Assert.IsTrue(strictWarningEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(strictWarningEntry), "WAV");
+            Assert.IsFalse(strictWarningEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SingleBmsFile));
+            Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(normalEntry));
         });
     }
 
@@ -382,13 +382,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Candidate A", pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist A", pendingEntry.Chart.InstallDestinationArtist);
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
-            Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguousPrefix);
-            StringAssert.Contains(pendingFile.Warnings.BuildDigestText(), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationAmbiguous);
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateADirectoryPath);
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateADirectoryPath);
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateBDirectoryPath);
+            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguousPrefix);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationAmbiguous);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateBDirectoryPath);
         });
     }
 
@@ -506,15 +506,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
             Assert.AreEqual(PendingEstimateDeferredReason.InstalledDestinationResolveFailed, pendingPackage.DeferredEstimateReason);
-            Assert.IsTrue(pendingInstalledA.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
-            Assert.IsTrue(pendingInstalledB.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+            Assert.IsTrue(GetEntryByFileName(pendingPackage, "installedA.bms").Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.IsTrue(GetEntryByFileName(pendingPackage, "installedB.bms").Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             PackageChartEntry pendingMissingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingMissingEntry.Chart.InstallDestination));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingMissingEntry.Chart.InstallDestinationTitle));
             Assert.AreEqual(0, pendingMissingEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissing));
-            Assert.IsTrue(pendingMissing.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
-            StringAssert.Contains(pendingMissing.Warnings.BuildTooltipText(), BeMusicSeeker.Properties.Resources.Warning_InstalledDestinationResolveFailed);
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissingEntry));
+            Assert.IsTrue(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), BeMusicSeeker.Properties.Resources.Warning_InstalledDestinationResolveFailed);
         });
     }
 
@@ -554,8 +554,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             PackageChartEntry pendingMissingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
             Assert.AreEqual(installedBDirectoryPath, pendingMissingEntry.Chart.InstallDestination);
             Assert.AreEqual(0, pendingMissingEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(pendingMissing.Warnings.Contains(ChartWarningKind.InstalledDestinationAmbiguous));
-            Assert.IsFalse(pendingMissing.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
+            Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAmbiguous));
+            Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
         });
     }
 
@@ -596,13 +596,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             PackageChartEntry pendingMissingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingMissingEntry.Chart.InstallDestination));
             CollectionAssert.AreEquivalent(new[] { installedADirectoryPath, installedBDirectoryPath }, pendingMissingEntry.Chart.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissing));
-            Assert.IsTrue(pendingMissing.Warnings.Contains(ChartWarningKind.InstalledDestinationAmbiguous));
-            Assert.IsFalse(pendingMissing.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-            StringAssert.Contains(pendingMissing.Warnings.BuildDigestText(), BeMusicSeeker.Properties.Resources.WarningDigest_InstalledDestinationAmbiguous);
-            StringAssert.Contains(pendingMissing.Warnings.BuildTooltipText(), BeMusicSeeker.Properties.Resources.Warning_InstalledDestinationAmbiguous.Split('\n')[0]);
-            StringAssert.Contains(pendingMissing.Warnings.BuildTooltipText(), installedADirectoryPath);
-            StringAssert.Contains(pendingMissing.Warnings.BuildTooltipText(), installedBDirectoryPath);
+            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingMissingEntry));
+            Assert.IsTrue(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAmbiguous));
+            Assert.IsFalse(pendingMissingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingMissingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstalledDestinationAmbiguous);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), BeMusicSeeker.Properties.Resources.Warning_InstalledDestinationAmbiguous.Split('\n')[0]);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), installedADirectoryPath);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingMissingEntry), installedBDirectoryPath);
         });
     }
 
@@ -643,7 +643,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(candidateBDirectoryPath, pendingEntry.Chart.InstallDestination);
             Assert.AreEqual("Target Song", pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist", pendingEntry.Chart.InstallDestinationArtist);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
             Assert.AreEqual(0, pendingEntry.Chart.InstallDestinationSuggestions.Count);
         });
     }
@@ -684,11 +684,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 Assert.AreEqual(candidateADirectoryPath, pendingEntry.Chart.InstallDestination);
                 Assert.AreEqual("Target Song", pendingEntry.Chart.InstallDestinationTitle);
                 Assert.AreEqual("Artist", pendingEntry.Chart.InstallDestinationArtist);
-                Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
+                Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
                 CollectionAssert.AreEqual(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
-                Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-                StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateADirectoryPath);
-                StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateBDirectoryPath);
+                Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+                StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
+                StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateBDirectoryPath);
             });
         });
     }
@@ -723,12 +723,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Completely Different", pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Another Artist", pendingEntry.Chart.InstallDestinationArtist);
             CollectionAssert.AreEqual(new[] { candidateDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
-            Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch));
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationMetadataMismatchPrefix);
-            StringAssert.Contains(pendingFile.Warnings.BuildDigestText(), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationMetadataMismatch);
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateDirectoryPath);
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateDirectoryPath);
+            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationMetadataMismatchPrefix);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationMetadataMismatch);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateDirectoryPath);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateDirectoryPath);
         });
     }
 
@@ -756,8 +756,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestinationTitle));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestinationArtist));
             Assert.AreEqual(0, pendingEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
-            Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(pendingEntry));
         });
     }
 
@@ -1061,7 +1061,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Installed Title", pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Installed Artist", pendingEntry.Chart.InstallDestinationArtist);
             Assert.AreEqual(0, pendingEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
         });
     }
 
@@ -1119,7 +1119,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Destination Title", sourceEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Destination Artist", sourceEntry.Chart.InstallDestinationArtist);
             Assert.AreEqual(0, sourceEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(sourceFile));
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(sourceEntry));
         });
     }
 
@@ -1212,11 +1212,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Candidate B", pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist B", pendingEntry.Chart.InstallDestinationArtist);
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingEntry.Chart.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
-            Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguousPrefix);
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateADirectoryPath);
-            StringAssert.Contains(pendingFile.Warnings.BuildTooltipText(), candidateBDirectoryPath);
+            Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguousPrefix);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateBDirectoryPath);
         });
     }
 
@@ -1302,9 +1302,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual("Manual Title", pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Manual Artist", pendingEntry.Chart.InstallDestinationArtist);
             Assert.AreEqual(0, pendingEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
-            Assert.IsFalse(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-            Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.IsFalse(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(pendingEntry));
         });
     }
 
@@ -1336,8 +1336,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
-            Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
             PackageChartEntry pendingEntry = GetOnlyEntry(pendingPackage);
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
 
             library.RemoveInstallDestination([pendingEntry]);
 
@@ -1345,9 +1345,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestinationTitle));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestinationArtist));
             Assert.AreEqual(0, pendingEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
-            Assert.IsFalse(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
-            Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.IsFalse(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+            Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(pendingEntry));
         });
     }
 
@@ -1375,8 +1375,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
-            Assert.IsTrue(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch));
             PackageChartEntry pendingEntry = GetOnlyEntry(pendingPackage);
+            Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
 
             library.RemoveInstallDestination([pendingEntry]);
 
@@ -1384,9 +1384,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestinationTitle));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestinationArtist));
             Assert.AreEqual(0, pendingEntry.Chart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingFile));
-            Assert.IsFalse(pendingFile.Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch));
-            Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
+            Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
+            Assert.IsFalse(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+            Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(pendingEntry));
         });
     }
 

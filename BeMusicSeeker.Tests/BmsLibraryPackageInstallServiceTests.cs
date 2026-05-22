@@ -217,8 +217,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, groupedItem.InstallWorkPackage.GetBmsOwnersForTest().Count);
         Assert.AreSame(newFile, groupedItem.InstallWorkPackage.GetBmsOwnersForTest()[0]);
         CollectionAssert.Contains(groupedItem.ExcludedComponentPaths.ToList(), alreadyInstalledInPackage.path);
-        Assert.IsTrue(alreadyInstalledInPackage.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
-        Assert.AreEqual("[1] " + BeMusicSeeker.Properties.Resources.WarningDigest_AlreadyInstalled, alreadyInstalledInPackage.Warnings.BuildDigestText());
+        PackageChartEntry alreadyInstalledEntry = mixedPackage.ChartEntries.Single(entry => ReferenceEquals(entry.Chart.GetBmsStorageOwner(), alreadyInstalledInPackage));
+        Assert.IsTrue(alreadyInstalledEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+        Assert.AreEqual("[1] " + BeMusicSeeker.Properties.Resources.WarningDigest_AlreadyInstalled, ChartWarningTestHelpers.BuildDigestText(alreadyInstalledEntry));
         Assert.IsTrue(plan.FilterMs >= 0);
         Assert.IsTrue(plan.GroupBuildMs >= 0);
         Assert.IsTrue(plan.PlanBuildMs >= 0);
@@ -886,8 +887,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
-            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
+            Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
         });
     }
 
@@ -927,8 +928,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
-            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
+            Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
         });
     }
 
@@ -969,8 +970,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(chart);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
-            Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
+            Assert.IsFalse(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
         });
     }
 
@@ -997,12 +998,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
-            BMSFile nestedChart = result.PendingPackagesToAdd[0].GetBmsOwnersForTest().Single(file => Path.GetFileName(file.path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
-            Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
-            Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-            Assert.AreEqual("[2] " + BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart + ", " + BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, nestedChart.Warnings.BuildDigestText());
-            StringAssert.Contains(nestedChart.Warnings.BuildTooltipText(), BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage);
-            StringAssert.Contains(nestedChart.Warnings.BuildTooltipText(), "WAV");
+            PackageChartEntry nestedEntry = result.PendingPackagesToAdd[0].ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
+            Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.AreEqual("[2] " + BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart + ", " + BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, ChartWarningTestHelpers.BuildDigestText(nestedEntry));
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(nestedEntry), BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage);
+            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(nestedEntry), "WAV");
         });
     }
 
@@ -1200,10 +1201,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
         var service = new BmsLibraryPackageInstallService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
         string installWarning = string.Format(Resources.Warning_InstallEstimationAmbiguous, "C:\\Installed\\A", "C:\\Installed\\B");
-        file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
-        file.SetWarning(ChartWarningKind.ResourceWavMissing, "pending resource warning");
         var package = ChartPackageTestExtensions.CreatePackage([file]);
         PackageChartEntry entry = package.ChartEntries.Single();
+        entry.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
+        entry.SetWarning(ChartWarningKind.ResourceWavMissing, "pending resource warning");
         entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(null, string.Empty, string.Empty, ["C:\\Installed\\A", "C:\\Installed\\B"]));
         package.path = "C:\\Pending\\Pkg1";
         package.delete_parent = false;
@@ -1229,11 +1230,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(new[] { file }, maintenanceTargets);
         CollectionAssert.AreEqual(new[] { file }, scoreTargets);
         CollectionAssert.AreEqual(new[] { file }, applyTargets);
-        Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
+        Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(entry));
         Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
-        Assert.IsFalse(file.Warnings.BuildTooltipText().Contains(Resources.Warning_InstallEstimationAmbiguousPrefix));
-        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-        Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
+        Assert.IsFalse(ChartWarningTestHelpers.BuildTooltipText(entry).Contains(Resources.Warning_InstallEstimationAmbiguousPrefix));
+        Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(entry));
         Assert.IsTrue(result.MoveMs >= 0);
         Assert.IsTrue(result.SongDbMs >= 0);
         Assert.IsTrue(result.MaintenanceMs >= 0);

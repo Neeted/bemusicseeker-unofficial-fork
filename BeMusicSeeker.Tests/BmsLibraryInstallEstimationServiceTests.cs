@@ -1103,7 +1103,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(package, [entry], sourceSurface, sourceSurfaceCacheHit: false);
 
             Assert.AreEqual(1, snapshot.ChartCount);
-            Assert.AreSame(chart, snapshot.RepresentativeChart);
+            Assert.AreEqual(chart.Path, snapshot.RepresentativeChart.Path);
+            Assert.AreEqual(chart.Kind, snapshot.RepresentativeChart.Kind);
             Assert.AreEqual(1, snapshot.DefinedResources.TotalReferenceCount);
             Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
             Assert.AreEqual("bmson", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
@@ -1201,12 +1202,25 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         entry.ApplyInstalledPath(installedPath);
 
         Assert.AreEqual(installedPath, file.path);
-        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
         Assert.AreEqual(installedPath, entry.Chart.Path);
         Assert.AreEqual(destinationDirectory, entry.Chart.InstallDestination);
         Assert.AreEqual("Resolved Title", entry.Chart.InstallDestinationTitle);
         Assert.AreEqual("Resolved Artist", entry.Chart.InstallDestinationArtist);
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
+    }
+
+    [TestMethod]
+    public void PackageChartEntry_BmsStorageOwnerProjectsPackageWarningsWithoutHidingStorageWarnings()
+    {
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+        file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
+
+        Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
+        Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
     [TestMethod]
@@ -1775,10 +1789,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
-        file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
 
-        service.ClearInstallDestinations([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file))]);
+        service.ClearInstallDestinations([entry]);
 
+        Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
         Assert.IsFalse(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
