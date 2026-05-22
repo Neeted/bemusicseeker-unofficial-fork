@@ -1130,7 +1130,9 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
 
-    internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
+    internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(
+        ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false),
+        ResolveChartInfoForChart);
 
     internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
 
@@ -4753,6 +4755,11 @@ completeFileEnumerationOnce,
         return null;
     }
 
+    private LR2SongDBExtended.chart_info ResolveChartInfoForChart(ChartFile chart)
+    {
+        return chart == null ? null : ResolveChartInfo(chart.Sha256, chart.Md5);
+    }
+
     private static bool IsSameChartInfoIdentity(LR2SongDBExtended.chart_info existing, LR2SongDBExtended.chart_info incoming)
     {
         if (existing == null || incoming == null)
@@ -7594,7 +7601,10 @@ reportProgress,
         {
             allCharts = ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false);
         }
-        ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(allCharts, (ex, message) => NLogWrapper.FileLogger?.Warn(ex, message));
+        ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(
+            allCharts,
+            (ex, message) => NLogWrapper.FileLogger?.Warn(ex, message),
+            ResolveChartInfoForChart);
         if (result.ChangedCount > 0)
         {
             RaisePropertyChanged(() => ChartFilesZeroNote);

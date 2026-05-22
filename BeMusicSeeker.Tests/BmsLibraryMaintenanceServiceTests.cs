@@ -565,6 +565,38 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void GetZeroNoteCharts_UsesResolverBeforeOwnerChartInfo()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetChartInfo(CreateChartInfo(file.hash, notes: 1200));
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+
+        List<ChartFile> result = service.GetZeroNoteCharts(
+            [chart],
+            candidate => ReferenceEquals(candidate.GetBmsStorageOwner(), file)
+                ? CreateChartInfo(file.hash, notes: 0)
+                : null);
+
+        CollectionAssert.AreEqual(new[] { chart }, result);
+    }
+
+    [TestMethod]
+    public void GetZeroNoteCharts_DoesNotFallbackToOwnerWhenResolverMisses()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetChartInfo(CreateChartInfo(file.hash, notes: 0));
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+
+        List<ChartFile> result = service.GetZeroNoteCharts([chart], _ => null);
+
+        Assert.AreEqual(0, result.Count);
+    }
+
+    [TestMethod]
     public void BmsonMaintenanceOperations_UseChartEntryPoints()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -687,6 +719,48 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, result.Total);
         Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.SkippedCount);
+        Assert.AreEqual(1, result.ChangedCount);
+        Assert.IsFalse(zeroNoteFile.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+    }
+
+    [TestMethod]
+    public void RecheckZeroNoteWarnings_UsesResolverBeforeOwnerChartInfo()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
+        zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
+        ChartFile chart = ChartFileProjection.FromBmsFile(zeroNoteFile);
+
+        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(
+            [chart],
+            chartInfoResolver: candidate => ReferenceEquals(candidate.GetBmsStorageOwner(), zeroNoteFile)
+                ? CreateChartInfo(zeroNoteFile.hash, notes: 1200)
+                : null);
+
+        Assert.AreEqual(0, result.Total);
+        Assert.AreEqual(1, result.ClearedCount);
+        Assert.AreEqual(1, result.ChangedCount);
+        Assert.IsFalse(zeroNoteFile.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+    }
+
+    [TestMethod]
+    public void RecheckZeroNoteWarnings_DoesNotFallbackToOwnerWhenResolverMisses()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
+        zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
+        ChartFile chart = ChartFileProjection.FromBmsFile(zeroNoteFile);
+
+        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(
+            [chart],
+            chartInfoResolver: _ => null);
+
+        Assert.AreEqual(0, result.Total);
+        Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.ChangedCount);
         Assert.IsFalse(zeroNoteFile.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
     }

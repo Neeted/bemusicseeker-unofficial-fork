@@ -333,9 +333,11 @@ internal sealed class BmsLibraryMaintenanceService
     /// </summary>
     /// <param name="charts">BMS / bmson を含む chart snapshot。</param>
     /// <returns>chart_info 上のノート数が 0 の BMS-format chart 一覧。</returns>
-    public List<ChartFile> GetZeroNoteCharts(IEnumerable<ChartFile> charts)
+    public List<ChartFile> GetZeroNoteCharts(
+        IEnumerable<ChartFile> charts,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoResolver = null)
     {
-        return [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms && chart.ChartInfo?.notes == 0)];
+        return [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms && ResolveChartInfo(chart, chartInfoResolver)?.notes == 0)];
     }
 
     public List<BMSFileMaintenanceInfo> SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset)
@@ -435,12 +437,15 @@ internal sealed class BmsLibraryMaintenanceService
             || !string.Equals(currentFile.genre ?? string.Empty, reloadedFile.genre ?? string.Empty, StringComparison.Ordinal);
     }
 
-    public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<ChartFile> charts, Action<Exception, string> logWarn = null)
+    public ZeroNoteRecheckResult RecheckZeroNoteWarnings(
+        IEnumerable<ChartFile> charts,
+        Action<Exception, string> logWarn = null,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoResolver = null)
     {
         List<ChartFile> bmsCharts = [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms && chart.GetBmsStorageOwner() != null)];
-        List<ChartFile> zeroNoteCharts = [.. bmsCharts.Where(chart => chart.ChartInfo?.notes == 0 && !string.IsNullOrWhiteSpace(chart.Path))];
+        List<ChartFile> zeroNoteCharts = [.. bmsCharts.Where(chart => ResolveChartInfo(chart, chartInfoResolver)?.notes == 0 && !string.IsNullOrWhiteSpace(chart.Path))];
         List<BMSFile> staleMismatchFiles = [.. bmsCharts
-            .Where(chart => chart.ChartInfo?.notes != 0)
+            .Where(chart => ResolveChartInfo(chart, chartInfoResolver)?.notes != 0)
             .Select(chart => chart.GetBmsStorageOwner())
             .Where(file => file != null && file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch))];
         var result = new ZeroNoteRecheckResult
@@ -490,6 +495,17 @@ internal sealed class BmsLibraryMaintenanceService
             }
         }
         return result;
+    }
+
+    private static LR2SongDBExtended.chart_info ResolveChartInfo(
+        ChartFile chart,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoResolver)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+        return chartInfoResolver == null ? chart.ChartInfo : chartInfoResolver.Invoke(chart);
     }
 
     private static bool SetZeroNoteMismatchWarning(BMSFile file)
