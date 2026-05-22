@@ -16352,7 +16352,7 @@ public class MainWindowViewModel : ViewModel
         {
             bool useLegacySortForMainView = false;
             bool isPlaylistDetailView = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
-            string columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
+            string columnName = nameof(LibraryChartRow.Title);
             ListSortDirection direction = ListSortDirection.Ascending;
             if (SortParameters != null)
             {
@@ -16361,7 +16361,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (string.IsNullOrWhiteSpace(columnName))
             {
-                columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
+                columnName = nameof(LibraryChartRow.Title);
             }
             if (string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal))
             {

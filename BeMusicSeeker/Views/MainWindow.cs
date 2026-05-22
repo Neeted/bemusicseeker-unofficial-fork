@@ -781,7 +781,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             viewModel.NotifyPlaylistCellEditStarted();
             return;
         }
-        if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
+        if (string.Equals(e.EditPropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
         {
             if (!GridRowResolver.TryGetFolderEditChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out _))
             {
@@ -892,7 +892,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("customTableView_CellEditEnded");
                 return;
             }
-            if (string.Equals(e.EditPropertyName, nameof(BMSFile.Folder), StringComparison.Ordinal))
+            if (string.Equals(e.EditPropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
             {
                 if (!GridRowResolver.TryGetFolderEditChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
                 {
