@@ -101,12 +101,12 @@ internal sealed class ChartInfoBuildService
         {
             throw new ArgumentNullException(nameof(chart));
         }
-        if (!ChartStorageOwnerMutator.HasSingleStorageOwner(chart))
+        if (!ChartInfoBuildTargetMapper.HasSingleStorageOwner(chart))
         {
             throw new ArgumentException("Exactly one chart model must be specified.");
         }
 
-        ChartInfoBuildTarget target = ChartInfoBuildTarget.FromChart(chart);
+        ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(chart);
         string md5 = string.IsNullOrWhiteSpace(snapshot.Md5) ? target.Md5 : snapshot.Md5;
         string sha256 = string.IsNullOrWhiteSpace(snapshot.Sha256) ? target.Sha256 : snapshot.Sha256;
         TimeSpan parseTimeout = ResolveParseTimeout();
@@ -649,11 +649,11 @@ internal sealed class ChartInfoBuildService
             }
             if (!string.IsNullOrWhiteSpace(chart.Sha256) && IsCurrent(existingRows, chart.Sha256))
             {
-                ChartInfoBuildTarget.FromChart(chart)?.ApplyChartInfo(existingRows[chart.Sha256]);
+                ChartInfoBuildTargetMapper.Create(chart)?.ApplyChartInfo(existingRows[chart.Sha256]);
                 result.CurrentRowSkippedCount++;
                 continue;
             }
-            if (chart.Kind == ChartFileKind.Bms && string.IsNullOrWhiteSpace(chart.Sha256) && string.IsNullOrWhiteSpace(chart.Md5))
+            if (ChartInfoBuildTargetMapper.ShouldSkipBackfillTarget(chart))
             {
                 continue;
             }
@@ -662,57 +662,22 @@ internal sealed class ChartInfoBuildService
                 result.FailureSkippedCount++;
                 continue;
             }
-            string key = BuildTargetKey(chart);
+            string key = ChartInfoBuildTargetMapper.BuildKey(chart);
             if (!targets.TryGetValue(key, out ChartInfoBuildTarget target))
             {
-                target = ChartInfoBuildTarget.FromChart(chart);
+                target = ChartInfoBuildTargetMapper.Create(chart);
                 targets[key] = target;
             }
             else
             {
                 target.AddChart(chart);
             }
-            if (ChartStorageOwnerMutator.HasMissingBmsSha256(chart))
+            if (ChartInfoBuildTargetMapper.IsDigestBackfillTarget(chart))
             {
                 result.DigestTargetCount++;
             }
         }
         return [.. targets.Values];
-    }
-
-    private static string BuildTargetKey(ChartFile chart)
-    {
-        if (chart?.Kind == ChartFileKind.Bms)
-        {
-            return BuildBmsTargetKey(chart.Sha256, chart.Md5, chart.Path);
-        }
-        return BuildTargetKey(chart?.Sha256, chart?.Md5, chart?.Path);
-    }
-
-    private static string BuildTargetKey(string sha256, string md5, string path)
-    {
-        if (!string.IsNullOrWhiteSpace(sha256))
-        {
-            return "sha256:" + sha256;
-        }
-        if (!string.IsNullOrWhiteSpace(md5))
-        {
-            return "md5:" + md5;
-        }
-        return "path:" + (path ?? string.Empty);
-    }
-
-    private static string BuildBmsTargetKey(string sha256, string md5, string path)
-    {
-        if (!string.IsNullOrWhiteSpace(md5))
-        {
-            return "md5:" + md5;
-        }
-        if (!string.IsNullOrWhiteSpace(sha256))
-        {
-            return "sha256:" + sha256;
-        }
-        return "path:" + (path ?? string.Empty);
     }
 
     private static bool IsCurrent(IDictionary<string, LR2SongDBExtended.chart_info> existingRows, string sha256)
@@ -961,7 +926,7 @@ internal sealed class ChartInfoBuildService
         return (int)milliseconds;
     }
 
-    private sealed class QueuedChartBytes(ChartInfoBuildService.ChartInfoBuildTarget target, byte[] bytes)
+    private sealed class QueuedChartBytes(ChartInfoBuildTarget target, byte[] bytes)
     {
         public ChartInfoBuildTarget Target { get; } = target;
 
@@ -1076,7 +1041,7 @@ internal sealed class ChartInfoBuildService
     }
 
     private sealed class ChartInfoBuildItemResult(
-ChartInfoBuildService.ChartInfoBuildTarget target,
+        ChartInfoBuildTarget target,
         string sha256,
         LR2SongDBExtended.chart_info row,
         bool reusedExistingRow,
@@ -1264,14 +1229,14 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
         public IReadOnlyList<string> ParseFailureDeleteMd5s { get; } = parseFailureDeleteMd5s ?? [];
     }
 
-    private sealed class PendingDigestApplication(ChartInfoBuildService.ChartInfoBuildTarget target, string sha256)
+    private sealed class PendingDigestApplication(ChartInfoBuildTarget target, string sha256)
     {
         public ChartInfoBuildTarget Target { get; } = target;
 
         public string Sha256 { get; } = sha256 ?? string.Empty;
     }
 
-    private sealed class PendingChartInfoApplication(ChartInfoBuildService.ChartInfoBuildTarget target, LR2SongDBExtended.chart_info row)
+    private sealed class PendingChartInfoApplication(ChartInfoBuildTarget target, LR2SongDBExtended.chart_info row)
     {
         public ChartInfoBuildTarget Target { get; } = target;
 
@@ -1293,77 +1258,4 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
         public string Sha256 { get; } = sha256 ?? string.Empty;
     }
 
-    private sealed class ChartInfoBuildTarget
-    {
-        private readonly List<ChartFile> charts = [];
-
-        private ChartInfoBuildTarget(string path, string md5, string sha256)
-        {
-            Path = path;
-            Md5 = md5;
-            Sha256 = sha256;
-        }
-
-        public string Path { get; }
-
-        public string Md5 { get; }
-
-        public string Sha256 { get; }
-
-        public bool NeedsDigest => charts.Any(chart =>
-            ChartStorageOwnerMutator.HasMissingBmsSha256(chart));
-
-        public int MissingDigestOwnerCount => charts.Count(chart =>
-            ChartStorageOwnerMutator.HasMissingBmsSha256(chart));
-
-        public int OwnerCount => charts.Count;
-
-        public static ChartInfoBuildTarget FromChart(ChartFile chart)
-        {
-            if (chart == null)
-            {
-                return null;
-            }
-            var target = new ChartInfoBuildTarget(
-                chart.Path,
-                chart.Md5,
-                chart.Sha256);
-            target.AddChart(chart);
-            return target;
-        }
-
-        public void AddChart(ChartFile chart)
-        {
-            if (chart != null)
-            {
-                charts.Add(chart);
-            }
-        }
-
-        public int ApplyDigest(string sha256, ICollection<BMSFile> completedDigestFiles)
-        {
-            if (string.IsNullOrWhiteSpace(sha256))
-            {
-                return 0;
-            }
-            int applied = 0;
-            foreach (ChartFile chart in charts)
-            {
-                applied += ChartStorageOwnerMutator.ApplyMissingBmsSha256(chart, sha256, completedDigestFiles);
-            }
-            return applied;
-        }
-
-        public void ApplyChartInfo(LR2SongDBExtended.chart_info row)
-        {
-            if (row == null)
-            {
-                return;
-            }
-            foreach (ChartFile chart in charts)
-            {
-                ChartStorageOwnerMutator.ApplyChartInfo(chart, row);
-            }
-        }
-    }
 }

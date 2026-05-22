@@ -2694,6 +2694,65 @@ createTempDirectory);
     }
 
     [TestMethod]
+    public void ChartInfoBuildTargetMapper_SeparatesBmsDigestAndBmsonIdentityRules()
+    {
+        string bmsMd5 = new string('a', 32);
+        string bmsSha256 = new string('b', 64);
+        string bmsonMd5 = new string('c', 32);
+        string bmsonSha256 = new string('d', 64);
+        var bmsFile = new TestableBmsFile { path = @"C:\Charts\a.bms" };
+        bmsFile.SetHash(bmsMd5);
+        bmsFile.SetSha256(bmsSha256);
+        LR2SongDBExtended.bmson_song bmsonSong = new()
+        {
+            path = @"C:\Charts\b.bmson",
+            md5 = bmsonMd5,
+            sha256 = bmsonSha256
+        };
+
+        ChartFile bmsChart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false);
+        ChartFile bmsonChart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false);
+
+        Assert.AreEqual("md5:" + bmsMd5, ChartInfoBuildTargetMapper.BuildKey(bmsChart));
+        Assert.AreEqual("sha256:" + bmsonSha256, ChartInfoBuildTargetMapper.BuildKey(bmsonChart));
+        Assert.IsFalse(ChartInfoBuildTargetMapper.ShouldSkipBackfillTarget(bmsChart));
+        Assert.IsFalse(ChartInfoBuildTargetMapper.IsDigestBackfillTarget(bmsChart));
+
+        var missingDigestBmsFile = new TestableBmsFile { path = @"C:\Charts\missing-digest.bms" };
+        missingDigestBmsFile.SetHash(new string('e', 32));
+        ChartFile missingDigestBmsChart = ChartFileProjection.FromBmsFile(missingDigestBmsFile, includeWarningSnapshot: false);
+        Assert.IsTrue(ChartInfoBuildTargetMapper.IsDigestBackfillTarget(missingDigestBmsChart));
+
+        var noHashBmsFile = new TestableBmsFile { path = @"C:\Charts\no-hash.bms" };
+        ChartFile noHashBmsChart = ChartFileProjection.FromBmsFile(noHashBmsFile, includeWarningSnapshot: false);
+        Assert.IsTrue(ChartInfoBuildTargetMapper.ShouldSkipBackfillTarget(noHashBmsChart));
+    }
+
+    [TestMethod]
+    public void ChartInfoBuildTarget_ApplyDigestUpdatesOnlyMissingBmsSha256()
+    {
+        string sharedDigest = new string('f', 64);
+        var bmsFile = new TestableBmsFile { path = @"C:\Charts\a.bms" };
+        bmsFile.SetHash(new string('a', 32));
+        LR2SongDBExtended.bmson_song bmsonSong = new()
+        {
+            path = @"C:\Charts\b.bmson",
+            md5 = new string('b', 32),
+            sha256 = new string('c', 64)
+        };
+        ChartInfoBuildTarget target = ChartInfoBuildTargetMapper.Create(ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false));
+        target.AddChart(ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false));
+        var completedDigestFiles = new List<BMSFile>();
+
+        int applied = target.ApplyDigest(sharedDigest, completedDigestFiles);
+
+        Assert.AreEqual(1, applied);
+        Assert.AreEqual(sharedDigest, bmsFile.sha256);
+        Assert.AreEqual(new string('c', 64), bmsonSong.sha256);
+        CollectionAssert.Contains(completedDigestFiles, bmsFile);
+    }
+
+    [TestMethod]
     public void BackfillChartInfos_AppliesChartInfoToBmsonStorageOwner()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
