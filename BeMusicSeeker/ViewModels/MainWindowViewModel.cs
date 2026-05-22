@@ -10733,7 +10733,8 @@ public class MainWindowViewModel : ViewModel
             bmsonSongs,
             includeWarningSnapshot: false,
             requireBmsonPath: true,
-            orderBmsonByPath: true);
+            orderBmsonByPath: true,
+            includeResourceReferences: false);
     }
 
     private static List<ChartFile> CreateStandardLibraryChartIdentitySnapshot(
@@ -16831,7 +16832,7 @@ public class MainWindowViewModel : ViewModel
 
     private void LogResourceHealthProjection(viewUpdateMode mode, int rowCount)
     {
-        ResourceHealthIndexSnapshot snapshot = files?.GetResourceHealthIndexSnapshotForView("view_projection_" + mode);
+        ResourceHealthIndexSnapshot snapshot = files?.TryGetCurrentResourceHealthIndexSnapshotForView();
         int overlayCount = 0;
         if (snapshot != null)
         {

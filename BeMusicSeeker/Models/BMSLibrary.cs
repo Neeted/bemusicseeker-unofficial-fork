@@ -6770,7 +6770,7 @@ reportProgress,
             }
             var stopwatch = Stopwatch.StartNew();
             List<BMSFile> bmsFilesSnapshot = [.. (BMSFiles ?? Enumerable.Empty<BMSFile>()).Where(file => file != null)];
-            List<ChartFile> installedCharts = CreateInstalledChartSnapshot(bmsFilesSnapshot, BmsonSongs);
+            List<ChartFile> installedCharts = CreateInstalledChartSnapshot(bmsFilesSnapshot, BmsonSongs, includeResourceReferences: false);
             InstalledChartDirectoryIndexSnapshot snapshot = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(installedCharts);
             RebuildInstalledDirectoryIndexCoreUnsafe(snapshot);
             stopwatch.Stop();
@@ -7286,6 +7286,14 @@ reportProgress,
     internal ResourceHealthIndexSnapshot GetResourceHealthIndexSnapshotForView(string reason)
     {
         return GetResourceHealthIndexSnapshot(reason);
+    }
+
+    internal ResourceHealthIndexSnapshot TryGetCurrentResourceHealthIndexSnapshotForView()
+    {
+        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
+        return Volatile.Read(ref resourceHealthIndexInvalidated)
+            ? ResourceHealthIndexSnapshot.Empty
+            : currentSnapshot ?? ResourceHealthIndexSnapshot.Empty;
     }
 
     private MaintenanceWorkflowResult setMaintenanceInfo(

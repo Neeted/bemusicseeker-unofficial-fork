@@ -175,7 +175,7 @@ internal sealed class ChartListSourceRow
         ?? (bmsonStorageOwner == null ? IdentityChart?.Mode : BmsonSongParser.ResolvePlaylistMode(bmsonStorageOwner.mode_hint));
 
     internal string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(
-        Chart,
+        CreateChartFile(includeWarningSnapshot: true, includeResourceReferences: false),
         GetResourceHealthProjection(),
         resourceHealthProjectionProvider != null,
         hideResourceHealthDigestWhenInstallDestinationSet);
@@ -202,23 +202,23 @@ internal sealed class ChartListSourceRow
         ?? IdentityChart?.Sha256
         ?? string.Empty;
 
-    internal string InstallDestination => CreateChartFile(includeWarningSnapshot: false)?.InstallDestination ?? string.Empty;
+    internal string InstallDestination => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false)?.InstallDestination ?? string.Empty;
 
-    internal string InstallDestinationTitle => CreateChartFile(includeWarningSnapshot: false)?.InstallDestinationTitle ?? string.Empty;
+    internal string InstallDestinationTitle => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false)?.InstallDestinationTitle ?? string.Empty;
 
-    internal string InstallDestinationArtist => CreateChartFile(includeWarningSnapshot: false)?.InstallDestinationArtist ?? string.Empty;
+    internal string InstallDestinationArtist => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false)?.InstallDestinationArtist ?? string.Empty;
 
     internal string RefTablesSymbols => GetPlaylistReferenceDisplay().Symbols;
 
     internal string RefTablesNames => GetPlaylistReferenceDisplay().Names;
 
-    internal int? WAVHealth => Chart?.WAVHealth;
+    internal int? WAVHealth => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false)?.WAVHealth;
 
-    internal int? BGAHealth => Chart?.BGAHealth;
+    internal int? BGAHealth => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false)?.BGAHealth;
 
-    internal int? MovieHealth => Chart?.MovieHealth;
+    internal int? MovieHealth => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false)?.MovieHealth;
 
-    internal string EncodingName => Chart?.EncodingName ?? string.Empty;
+    internal string EncodingName => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false)?.EncodingName ?? string.Empty;
 
     internal ClearType Clear => ScoreSnapshot.Clear;
 
