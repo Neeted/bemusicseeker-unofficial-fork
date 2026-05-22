@@ -147,13 +147,13 @@ internal sealed class LibraryChartRef
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            return ChartFileProjection.FromBmsFile(bmsFile);
+            return ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false);
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = GetBmsonStorageOwner();
         if (bmsonSong != null)
         {
-            return ChartFileProjection.FromBmsonSong(bmsonSong);
+            return ChartFileProjection.FromBmsonSong(bmsonSong, includeResourceReferences: false);
         }
 
         return null;
