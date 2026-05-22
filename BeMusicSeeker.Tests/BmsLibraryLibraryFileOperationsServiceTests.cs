@@ -210,8 +210,45 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CollectionAssert.AreEquivalent(
                 new[] { Path.Combine(destinationRoot, "Nested"), destinationRoot },
                 delta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
+            LibraryInstallDestinationChange libraryDestinationChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.GetBmsStorageOwner(), libraryFile));
+            ChartFile appliedLibraryChart = libraryDestinationChange.CreateAppliedChartSnapshot(delta.ChartPathChanges);
+            Assert.AreEqual(Path.Combine(destinationRoot, "Nested", "chart.bms"), appliedLibraryChart.Path);
+            Assert.AreEqual(destinationRoot, appliedLibraryChart.InstallDestination);
             Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), delta.UpdatedInstalledPackagePaths[0].NewPath);
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
+        });
+    }
+
+    [TestMethod]
+    public void FolderMoveAppliedInstallDestinationSnapshotDoesNotRewritePendingEntryByPathCollision()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
+            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
+            Directory.CreateDirectory(sourceRoot);
+            string collidingPath = Path.Combine(sourceRoot, "chart.bms");
+            TestableBmsFile libraryFile = CreateFile(collidingPath);
+            libraryFile.instl_dst = sourceRoot;
+            TestableBmsFile pendingFile = CreateFile(collidingPath);
+            pendingFile.instl_dst = sourceRoot;
+            var pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingFile));
+            var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
+
+            LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+                sourceRoot,
+                destinationRoot,
+                CreateLibraryChartRefs([libraryFile]),
+                [pendingPackage],
+                [],
+                unregister: false,
+                raiseLibraryChartsChanged: false);
+
+            LibraryInstallDestinationChange pendingChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.Entry, pendingEntry));
+            ChartFile pendingSnapshot = pendingChange.CreateAppliedChartSnapshot(delta.ChartPathChanges);
+            Assert.AreEqual(collidingPath, pendingSnapshot.Path);
+            Assert.AreEqual(destinationRoot, pendingSnapshot.InstallDestination);
         });
     }
 

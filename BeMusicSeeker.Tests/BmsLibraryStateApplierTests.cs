@@ -175,7 +175,7 @@ public sealed class BmsLibraryStateApplierTests
 
                 Assert.AreEqual(newChartPath, movedFile.path);
                 Assert.AreEqual(newDirectoryPath, installLinkedFile.instl_dst);
-                ChartFile appliedInstallDestinationChart = delta.UpdatedInstallDestinations.Single().CreateAppliedChartSnapshot();
+                ChartFile appliedInstallDestinationChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
                 Assert.AreSame(installLinkedFile, appliedInstallDestinationChart.GetBmsStorageOwner());
                 Assert.AreEqual(newDirectoryPath, appliedInstallDestinationChart.InstallDestination);
                 Assert.AreEqual("Old destination title", installLinkedFile.InstallDestinationTitle);
@@ -251,7 +251,7 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreEqual(0, file.InstallDestinationSuggestions.Count);
             Assert.IsFalse(file.IsInstallDestinationSuggestionPopupOpen);
             Assert.IsFalse(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            ChartFile appliedChart = delta.UpdatedInstallDestinations.Single().CreateAppliedChartSnapshot();
+            ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
             Assert.AreSame(file, appliedChart.GetBmsStorageOwner());
             Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
             Assert.AreEqual(string.Empty, appliedChart.InstallDestinationTitle);
@@ -302,13 +302,35 @@ public sealed class BmsLibraryStateApplierTests
             CollectionAssert.AreEqual(new[] { @"C:\Installed", @"C:\Other" }, file.InstallDestinationSuggestions.ToArray());
             Assert.IsTrue(file.IsInstallDestinationSuggestionPopupOpen);
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            ChartFile appliedChart = delta.UpdatedInstallDestinations.Single().CreateAppliedChartSnapshot();
+            ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
             Assert.AreSame(file, appliedChart.GetBmsStorageOwner());
             Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
             Assert.AreEqual("Candidate title", appliedChart.InstallDestinationTitle);
             Assert.AreEqual("Candidate artist", appliedChart.InstallDestinationArtist);
             CollectionAssert.AreEqual(new[] { @"C:\Installed", @"C:\Other" }, appliedChart.InstallDestinationSuggestions.ToArray());
         });
+    }
+
+    [TestMethod]
+    public void LibraryMutationDelta_CreateAppliedSnapshotsDoesNotRequireStateApplierWriteback()
+    {
+        var file = new TestableBmsFile
+        {
+            path = @"C:\Library\chart.bms",
+            instl_dst = @"C:\Old"
+        };
+        file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var delta = new LibraryMutationDelta();
+        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+        {
+            Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            NewInstallDestination = @"C:\New"
+        });
+
+        ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
+
+        Assert.AreEqual(@"C:\New", appliedChart.InstallDestination);
+        Assert.AreEqual(@"C:\Old", file.instl_dst);
     }
 
     [TestMethod]

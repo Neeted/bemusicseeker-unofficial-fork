@@ -10809,15 +10809,13 @@ reportProgress,
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
-        stateApplier.ApplyLibraryMutationDelta(delta);
         PublishInstallDestinationChangedCharts(delta);
+        stateApplier.ApplyLibraryMutationDelta(delta);
     }
 
     private void PublishInstallDestinationChangedCharts(LibraryMutationDelta delta)
     {
-        List<ChartFile> charts = [.. (delta?.UpdatedInstallDestinations ?? [])
-            .Select(change => change?.CreateAppliedChartSnapshot())
-            .Where(chart => chart != null)];
+        List<ChartFile> charts = delta?.CreateAppliedInstallDestinationChartSnapshots() ?? [];
         if (charts.Count == 0)
         {
             return;

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -35,6 +36,13 @@ internal sealed class LibraryMutationDelta
     public int SkippedCount { get; set; }
 
     public long TotalMs { get; set; }
+
+    public List<ChartFile> CreateAppliedInstallDestinationChartSnapshots()
+    {
+        return [.. UpdatedInstallDestinations
+            .Select(change => change?.CreateAppliedChartSnapshot(ChartPathChanges))
+            .Where(chart => chart != null)];
+    }
 
     public void Clear()
     {
@@ -105,42 +113,66 @@ internal sealed class LibraryInstallDestinationChange
         return Chart?.GetBmsStorageOwner();
     }
 
-    internal ChartFile CreateAppliedChartSnapshot()
+    internal ChartFile CreateAppliedChartSnapshot(IEnumerable<LibraryChartPathChange> pathChanges = null)
     {
-        if (Entry?.Chart != null)
-        {
-            return Entry.Chart;
-        }
-
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            return ChartFileProjection.FromBmsFile(bmsFile);
-        }
-
-        if (Chart == null)
+        ChartFile source = Entry?.Chart ?? Chart;
+        if (source == null)
         {
             return null;
         }
 
+        ChartFile appliedChart;
         if (ClearInstallDestinationState)
         {
-            return ChartFileProjection.WithPackageState(
-                Chart,
+            appliedChart = ChartFileProjection.WithPackageState(
+                source,
                 null,
                 string.Empty,
                 string.Empty,
                 [],
-                [.. (Chart.Warnings ?? []).Where(warning => warning?.Category != ChartWarningCategory.InstallEstimation)]);
+                [.. (source.Warnings ?? []).Where(warning => warning?.Category != ChartWarningCategory.InstallEstimation)]);
+        }
+        else
+        {
+            appliedChart = ChartFileProjection.WithPackageState(
+                source,
+                NewInstallDestination,
+                source.InstallDestinationTitle,
+                source.InstallDestinationArtist,
+                source.InstallDestinationSuggestions,
+                source.Warnings);
         }
 
-        return ChartFileProjection.WithPackageState(
-            Chart,
-            NewInstallDestination,
-            Chart.InstallDestinationTitle,
-            Chart.InstallDestinationArtist,
-            Chart.InstallDestinationSuggestions,
-            Chart.Warnings);
+        string newPath = Entry == null ? ResolveNewPath(source, pathChanges) : null;
+        return string.IsNullOrWhiteSpace(newPath)
+            ? appliedChart
+            : ChartFileProjection.WithPath(appliedChart, newPath);
+    }
+
+    private static string ResolveNewPath(ChartFile source, IEnumerable<LibraryChartPathChange> pathChanges)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsFile = source.GetBmsStorageOwner();
+        LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
+        foreach (LibraryChartPathChange pathChange in pathChanges ?? [])
+        {
+            ChartFile changedChart = pathChange?.Chart;
+            if (changedChart == null || string.IsNullOrWhiteSpace(pathChange.NewPath))
+            {
+                continue;
+            }
+            if (ReferenceEquals(changedChart, source)
+                || (bmsFile != null && ReferenceEquals(changedChart.GetBmsStorageOwner(), bmsFile))
+                || (bmsonSong != null && ReferenceEquals(changedChart.GetBmsonStorageOwner(), bmsonSong)))
+            {
+                return pathChange.NewPath;
+            }
+        }
+        return null;
     }
 }
 
