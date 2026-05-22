@@ -10486,7 +10486,7 @@ reportProgress,
                                 return false;
                             }
                             f.SetHealthStatusUsingLookupContext(lookupContext);
-                            return file.maintenanceInfo.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile;
+                            return f.maintenanceInfo.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile;
                         })
                             select f.hash).Distinct()];
                 }
