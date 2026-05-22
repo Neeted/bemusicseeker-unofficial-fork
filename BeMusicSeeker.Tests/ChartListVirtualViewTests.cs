@@ -967,8 +967,8 @@ public sealed class ChartListVirtualViewTests
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).GetBmsStorageOwner());
-        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).GetBmsonStorageOwner());
+        Assert.AreSame(bms, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.GetBmsStorageOwner());
+        Assert.AreSame(bmson, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.GetBmsonStorageOwner());
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
@@ -986,8 +986,8 @@ public sealed class ChartListVirtualViewTests
 
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).GetBmsStorageOwner());
-        Assert.AreSame(bmson, snapshot.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).GetBmsonStorageOwner());
+        Assert.AreSame(bms, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.GetBmsStorageOwner());
+        Assert.AreSame(bmson, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.GetBmsonStorageOwner());
     }
 
     [TestMethod]
@@ -997,7 +997,7 @@ public sealed class ChartListVirtualViewTests
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
         PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
-        List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(snapshot.Charts);
+        List<ChartListSourceRow> rows = ChartListSourceRow.BuildPackageRows(snapshot.Entries);
 
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, out _));
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.instl_dst), ListSortDirection.Ascending, out _));
@@ -1005,6 +1005,45 @@ public sealed class ChartListVirtualViewTests
 
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         Assert.AreSame(bmson, rows.Single().Chart.GetBmsonStorageOwner());
+    }
+
+    [TestMethod]
+    public void PackageChartSourceRows_ReadLiveEntryProjectionForPendingInstall()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        var maintenanceInfo = new BMSFileMaintenanceInfo
+        {
+            wav_files_defined = 4,
+            wav_files_existing = 1,
+            bga_files_defined = 2,
+            bga_files_existing = 1,
+            movie_files_defined = 1,
+            movie_files_existing = 0
+        };
+        entry.ApplyInstallDestination(@"D:\BMS\Installed", "Resolved", "Artist");
+        entry.ReplaceResourceHealthProjection(
+            maintenanceInfo,
+            [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "WAV missing")]);
+        ChartListSourceRow sourceRow = ChartListSourceRow.BuildPackageRows([entry]).Single();
+        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+
+        Assert.AreEqual(entry.Chart.InstallDestination, sourceRow.InstallDestination);
+        Assert.AreEqual(entry.Chart.WAVHealth, sourceRow.WAVHealth);
+        Assert.AreEqual(entry.Chart.BGAHealth, sourceRow.BGAHealth);
+        Assert.AreEqual(entry.Chart.MovieHealth, sourceRow.MovieHealth);
+        Assert.AreEqual(sourceRow.InstallDestination, row.instl_dst);
+        Assert.AreEqual(sourceRow.WAVHealth, row.WAVHealth);
+        Assert.AreEqual(sourceRow.BGAHealth, row.BGAHealth);
+        Assert.AreEqual(sourceRow.MovieHealth, row.MovieHealth);
+        StringAssert.Contains(sourceRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+        StringAssert.Contains(row.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+
+        entry.ApplyInstallDestination(@"D:\BMS\Next", "Next", "Artist");
+
+        Assert.AreEqual(@"D:\BMS\Next", sourceRow.InstallDestination);
+        Assert.AreEqual(@"D:\BMS\Next", row.instl_dst);
     }
 
     [TestMethod]
@@ -1594,7 +1633,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void SourceRow_UsesIdentitySnapshotAndCurrentMutableState()
+    public void SourceRow_UsesStorageOwnerStateAndCurrentMutableState()
     {
         var file = new TestableBmsFile();
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
@@ -1631,15 +1670,15 @@ public sealed class ChartListVirtualViewTests
         };
         playlistReferenceIndex.ReplaceTable(referenceTable, referenceTable.entries);
 
-        Assert.AreEqual("Old", sourceRows[0].Title);
-        Assert.AreEqual(string.Empty, sourceRows[0].Artist);
-        Assert.AreEqual(string.Empty, sourceRows[0].Genre);
-        Assert.AreEqual(@"folder-b\old.bms", sourceRows[0].Path);
-        Assert.AreEqual("folder-b", sourceRows[0].Folder);
-        Assert.IsNull(sourceRows[0].Mode);
-        Assert.AreEqual(string.Empty, sourceRows[0].Tag);
-        Assert.AreEqual("0123456789abcdef0123456789abcdef", sourceRows[0].Hash);
-        Assert.AreEqual(string.Empty, sourceRows[0].Sha256);
+        Assert.AreEqual("New", sourceRows[0].Title);
+        Assert.AreEqual("Artist", sourceRows[0].Artist);
+        Assert.AreEqual("Genre", sourceRows[0].Genre);
+        Assert.AreEqual(@"folder-a\new.bms", sourceRows[0].Path);
+        Assert.AreEqual("folder-a", sourceRows[0].Folder);
+        Assert.AreEqual(7, sourceRows[0].Mode);
+        Assert.AreEqual("Tag", sourceRows[0].Tag);
+        Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sourceRows[0].Hash);
+        Assert.AreEqual("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", sourceRows[0].Sha256);
         Assert.AreEqual("Destination", sourceRows[0].InstallDestination);
         Assert.AreEqual("Destination Title", sourceRows[0].InstallDestinationTitle);
         Assert.AreEqual("Destination Artist", sourceRows[0].InstallDestinationArtist);
@@ -1776,7 +1815,19 @@ public sealed class ChartListVirtualViewTests
     public void BmsonSortKeyChangeDetection_CoversVirtualRegistryColumns()
     {
         CollectionAssert.AreEquivalent(
-            ChartListOrder.GetVirtualSortColumnMetadata().Select(column => column.NormalizedColumnName).ToArray(),
+            new[]
+            {
+                nameof(LibraryChartRow.Title),
+                nameof(LibraryChartRow.Artist),
+                nameof(LibraryChartRow.genre),
+                nameof(LibraryChartRow.level),
+                nameof(LibraryChartRow.mode),
+                nameof(LibraryChartRow.Folder),
+                nameof(LibraryChartRow.path),
+                nameof(LibraryChartRow.tag),
+                nameof(LibraryChartRow.hash),
+                nameof(LibraryChartRow.sha256)
+            },
             MainWindowViewModel.GetBmsonLibrarySortKeySnapshotColumnNamesForTest().ToArray());
 
         AssertBmsonSortKeyChange(song => song.title = "ChangedTitle");
@@ -1788,8 +1839,42 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
         AssertBmsonSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
         AssertBmsonSortKeyChange(song => song.level = 10);
-        AssertBmsonSortKeyChange(song => song.MaintenanceInfo = CreateMaintenanceInfo(song.path, song.md5, 5));
-        AssertBmsonSortKeyChange(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
+        AssertBmsonSortKeyNotChanged(song => song.MaintenanceInfo = CreateMaintenanceInfo(song.path, song.md5, 5));
+        AssertBmsonSortKeyNotChanged(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
+    }
+
+    [TestMethod]
+    public void BmsonSourceIdentityChangeDetection_CoversOnlyCachedSourceRowIdentityColumns()
+    {
+        CollectionAssert.AreEquivalent(
+            new[]
+            {
+                nameof(LibraryChartRow.Title),
+                nameof(LibraryChartRow.Artist),
+                nameof(LibraryChartRow.genre),
+                nameof(LibraryChartRow.level),
+                nameof(LibraryChartRow.mode),
+                nameof(LibraryChartRow.Folder),
+                nameof(LibraryChartRow.path),
+                nameof(LibraryChartRow.tag),
+                nameof(LibraryChartRow.hash),
+                nameof(LibraryChartRow.sha256)
+            },
+            MainWindowViewModel.GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest().ToArray());
+
+        AssertBmsonSourceIdentityChange(song => song.title = "ChangedTitle");
+        AssertBmsonSourceIdentityChange(song => song.folder = "changed-folder");
+        AssertBmsonSourceIdentityChange(song => song.path = @"changed-folder\changed.bmson");
+        AssertBmsonSourceIdentityChange(song => song.artist = "ChangedArtist");
+        AssertBmsonSourceIdentityChange(song => song.genre = "ChangedGenre");
+        AssertBmsonSourceIdentityChange(song => song.mode_hint = "beat-5k");
+        AssertBmsonSourceIdentityChange(song => song.md5 = "33333333333333333333333333333333");
+        AssertBmsonSourceIdentityChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
+        AssertBmsonSourceIdentityChange(song => song.level = 10);
+
+        AssertBmsonSourceIdentityNotChanged(song => song.MaintenanceInfo = CreateMaintenanceInfo(song.path, song.md5, 5));
+        AssertBmsonSourceIdentityNotChanged(song => song.MaintenanceInfo.encoding = "utf-16");
+        AssertBmsonSourceIdentityNotChanged(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
     [TestMethod]
@@ -1804,9 +1889,9 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSameReferenceSortKeyChange(song => song.md5 = "33333333333333333333333333333333");
         AssertBmsonSameReferenceSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
         AssertBmsonSameReferenceSortKeyChange(song => song.level = 10);
-        AssertBmsonSameReferenceSortKeyChange(song => song.MaintenanceInfo.encoding = "utf-16");
-        AssertBmsonSameReferenceSortKeyChange(song => song.MaintenanceInfo.wav_files_existing = 1);
-        AssertBmsonSameReferenceSortKeyChange(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
+        AssertBmsonSameReferenceSortKeyNotChanged(song => song.MaintenanceInfo.encoding = "utf-16");
+        AssertBmsonSameReferenceSortKeyNotChanged(song => song.MaintenanceInfo.wav_files_existing = 1);
+        AssertBmsonSameReferenceSortKeyNotChanged(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
     private static ChartListVirtualView CreateView(out Func<int> getCreatedCount, int distinctFolderCount = -1)
@@ -2300,6 +2385,39 @@ public sealed class ChartListVirtualViewTests
             MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(row, next));
     }
 
+    private static void AssertBmsonSortKeyNotChanged(Action<LR2SongDBExtended.bmson_song> mutate)
+    {
+        LR2SongDBExtended.bmson_song original = CreateBmsonSong();
+        LR2SongDBExtended.bmson_song next = CreateBmsonSong();
+        mutate(next);
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
+
+        Assert.IsFalse(
+            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(row, next));
+    }
+
+    private static void AssertBmsonSourceIdentityChange(Action<LR2SongDBExtended.bmson_song> mutate)
+    {
+        LR2SongDBExtended.bmson_song original = CreateBmsonSong();
+        LR2SongDBExtended.bmson_song next = CreateBmsonSong();
+        mutate(next);
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
+
+        Assert.IsTrue(
+            MainWindowViewModel.HasBmsonLibrarySourceIdentityChangedForTest(row, next));
+    }
+
+    private static void AssertBmsonSourceIdentityNotChanged(Action<LR2SongDBExtended.bmson_song> mutate)
+    {
+        LR2SongDBExtended.bmson_song original = CreateBmsonSong();
+        LR2SongDBExtended.bmson_song next = CreateBmsonSong();
+        mutate(next);
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
+
+        Assert.IsFalse(
+            MainWindowViewModel.HasBmsonLibrarySourceIdentityChangedForTest(row, next));
+    }
+
     private static void AssertBmsonSameReferenceSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
     {
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(CreateBmsonSong());
@@ -2307,6 +2425,22 @@ public sealed class ChartListVirtualViewTests
         row.SetChartInfoProjectionProvider(chart => ResolveChartInfoByIdentity(chart, [projectedChartInfo]));
 
         Assert.IsTrue(
+            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(
+                row,
+                song =>
+                {
+                    mutate(song);
+                    projectedChartInfo = song.ChartInfo;
+                }));
+    }
+
+    private static void AssertBmsonSameReferenceSortKeyNotChanged(Action<LR2SongDBExtended.bmson_song> mutate)
+    {
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(CreateBmsonSong());
+        LR2SongDBExtended.chart_info projectedChartInfo = row.GetBmsonStorageOwner()?.ChartInfo ?? null!;
+        row.SetChartInfoProjectionProvider(chart => ResolveChartInfoByIdentity(chart, [projectedChartInfo]));
+
+        Assert.IsFalse(
             MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(
                 row,
                 song =>

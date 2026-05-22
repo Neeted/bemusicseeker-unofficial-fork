@@ -2105,10 +2105,33 @@ public sealed class CustomTableView : Grid
         return false;
     }
 
-    internal void NotifySurfaceRendered(int visibleRowCount, int visibleColumnCount, long renderWorkMs, double textCacheHitRate, string redrawReason)
+    internal void NotifySurfaceRendered(
+        int visibleRowCount,
+        int visibleColumnCount,
+        long renderWorkMs,
+        double textCacheHitRate,
+        string redrawReason,
+        long rowHighlightMs = 0L,
+        long cellValueMs = 0L,
+        long textLayoutMs = 0L,
+        long drawTextMs = 0L,
+        int textCacheHits = 0,
+        int textCacheMisses = 0)
     {
         int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
-        TryLogRenderMetrics(redrawReason, visibleRowCount, visibleColumnCount, visibleCellCount, renderWorkMs, textCacheHitRate);
+        TryLogRenderMetrics(
+            redrawReason,
+            visibleRowCount,
+            visibleColumnCount,
+            visibleCellCount,
+            renderWorkMs,
+            textCacheHitRate,
+            rowHighlightMs,
+            cellValueMs,
+            textLayoutMs,
+            drawTextMs,
+            textCacheHits,
+            textCacheMisses);
         if (firstRenderLogged || !IsVisible || itemsAppliedTimestamp <= 0L || suppressColumnRedrawUntilItemsSourceChanged)
         {
             return;
@@ -2130,7 +2153,19 @@ public sealed class CustomTableView : Grid
         FirstRenderCompleted?.Invoke(this, new CustomTableFirstRenderCompletedEventArgs(RowCount, visibleRowCount, visibleColumnCount, visibleCellCount, firstRenderMs, renderWorkMs, textCacheHitRate, isPreparationRender));
     }
 
-    private void TryLogRenderMetrics(string redrawReason, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long renderWorkMs, double textCacheHitRate)
+    private void TryLogRenderMetrics(
+        string redrawReason,
+        int visibleRowCount,
+        int visibleColumnCount,
+        int visibleCellCount,
+        long renderWorkMs,
+        double textCacheHitRate,
+        long rowHighlightMs,
+        long cellValueMs,
+        long textLayoutMs,
+        long drawTextMs,
+        int textCacheHits,
+        int textCacheMisses)
     {
         string reason = NormalizeRedrawReason(redrawReason);
         bool firstForReason = loggedRenderReasons.Add(reason);
@@ -2145,7 +2180,13 @@ public sealed class CustomTableView : Grid
             + " visibleColumnCount=" + visibleColumnCount
             + " visibleCellCount=" + visibleCellCount
             + " renderWorkMs=" + renderWorkMs
+            + " rowHighlightMs=" + rowHighlightMs
+            + " cellValueMs=" + cellValueMs
+            + " textLayoutMs=" + textLayoutMs
+            + " drawTextMs=" + drawTextMs
             + " textCacheHitRate=" + textCacheHitRate
+            + " textCacheHits=" + textCacheHits
+            + " textCacheMisses=" + textCacheMisses
             + " cellValueCacheCount=" + cellValueCache.Count);
     }
 
@@ -2265,6 +2306,10 @@ internal sealed class CustomTableSurface : FrameworkElement
     private readonly CustomTableTextLayoutCache textLayoutCache = new();
     private int renderTextCacheHits;
     private int renderTextCacheMisses;
+    private long renderRowHighlightTicks;
+    private long renderCellValueTicks;
+    private long renderTextLayoutTicks;
+    private long renderDrawTextTicks;
 
     internal CustomTableSurface(CustomTableView owner)
     {
@@ -2283,6 +2328,10 @@ internal sealed class CustomTableSurface : FrameworkElement
         var renderStopwatch = Stopwatch.StartNew();
         renderTextCacheHits = 0;
         renderTextCacheMisses = 0;
+        renderRowHighlightTicks = 0L;
+        renderCellValueTicks = 0L;
+        renderTextLayoutTicks = 0L;
+        renderDrawTextTicks = 0L;
         double width = ActualWidth;
         double height = ActualHeight;
         if (width <= 0d || height <= 0d)
@@ -2312,7 +2361,18 @@ internal sealed class CustomTableSurface : FrameworkElement
             layout.VisibleColumnCount,
             renderStopwatch.ElapsedMilliseconds,
             CustomTableTextLayoutCache.CalculateHitRate(renderTextCacheHits, renderTextCacheMisses),
-            redrawReason);
+            redrawReason,
+            StopwatchTicksToMilliseconds(renderRowHighlightTicks),
+            StopwatchTicksToMilliseconds(renderCellValueTicks),
+            StopwatchTicksToMilliseconds(renderTextLayoutTicks),
+            StopwatchTicksToMilliseconds(renderDrawTextTicks),
+            renderTextCacheHits,
+            renderTextCacheMisses);
+    }
+
+    private static long StopwatchTicksToMilliseconds(long ticks)
+    {
+        return ticks <= 0L ? 0L : (ticks * 1000L) / Stopwatch.Frequency;
     }
 
     private void DrawBackground(DrawingContext drawingContext, double width, double height)
@@ -2375,9 +2435,12 @@ internal sealed class CustomTableSurface : FrameworkElement
             object row = rows[rowIndex];
             bool selected = owner.IsRowSelected(rowIndex);
             CustomTablePalette palette = CustomTablePalette.Current;
+            long highlightStart = Stopwatch.GetTimestamp();
+            bool highlightedWarning = owner.HasHighlightedWarning(row);
+            renderRowHighlightTicks += Stopwatch.GetTimestamp() - highlightStart;
             Brush rowBackground = selected
                 ? palette.SelectedRowBackground
-                : owner.HasHighlightedWarning(row)
+                : highlightedWarning
                     ? palette.WarningRowBackground
                     : (rowIndex & 1) == 1
                         ? palette.AlternatingRowBackground
@@ -2404,7 +2467,9 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             Rect cellRect = entry.CreateContentRect(horizontalOffset, y, rowHeight);
             bool currentCell = owner.IsCurrentCell(rowIndex, column);
+            long cellValueStart = Stopwatch.GetTimestamp();
             CustomTableCellValue cellValue = owner.GetCellValue(row, column, out _);
+            renderCellValueTicks += Stopwatch.GetTimestamp() - cellValueStart;
             if (!owner.IsRowSelected(rowIndex) && cellValue.Background != null)
             {
                 drawingContext.DrawRectangle(cellValue.Background, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
@@ -2452,6 +2517,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         double maxTextWidth = Math.Max(1d, cellRect.Width - 4d);
         double maxTextHeight = Math.Max(Math.Max(1d, cellRect.Height), effectiveTextStyle.FontSize * 2d);
+        long layoutStart = Stopwatch.GetTimestamp();
         FormattedText formattedText = textLayoutCache.GetOrCreate(
             text,
             maxTextWidth,
@@ -2463,6 +2529,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             pixelsPerDip,
             CultureInfo.CurrentUICulture,
             out bool cacheHit);
+        renderTextLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
         if (cacheHit)
         {
             renderTextCacheHits++;
@@ -2473,9 +2540,11 @@ internal sealed class CustomTableSurface : FrameworkElement
         }
         double x = cellRect.X + 2d;
         double y = cellRect.Y + Math.Max(0d, (cellRect.Height - formattedText.Height) / 2d) + effectiveTextStyle.VerticalOffset;
+        long drawTextStart = Stopwatch.GetTimestamp();
         drawingContext.PushClip(new RectangleGeometry(cellRect));
         drawingContext.DrawText(formattedText, new Point(x, y));
         drawingContext.Pop();
+        renderDrawTextTicks += Stopwatch.GetTimestamp() - drawTextStart;
     }
 
     private static void DrawDownloadIcon(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground)

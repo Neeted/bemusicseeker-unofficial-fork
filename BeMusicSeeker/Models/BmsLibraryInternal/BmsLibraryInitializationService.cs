@@ -2381,8 +2381,7 @@ internal sealed class BmsLibraryInitializationService
                 }
                 else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
                 {
-                    IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
-                    entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
+                    IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
                     if (resourceWarnings.Count > 0)
                     {
                         result.StrictWarningCount++;

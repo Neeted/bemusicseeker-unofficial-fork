@@ -2924,7 +2924,7 @@ public sealed class PlaylistViewPipelineTests
                 ChartFileProjection.FromBmsonSong(skipBmson),
             ],
             MainWindowViewModel.NormalLibraryTreeFilter.Create(MainWindowViewModel.FolderFilterType.DirectoryFilter, "C:\\Keep"),
-            LibraryChartRow.FromChartFile,
+            chart => LibraryChartRow.FromChartFile(chart),
             null,
             out LibraryRowsBuildMetrics metrics);
 
@@ -2962,7 +2962,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, firstStats.MissCount);
         Assert.AreEqual(1, secondStats.HitCount);
         Assert.AreEqual(0, secondStats.MissCount);
-        Assert.AreEqual(1, cache.Prune([ChartFileProjection.FromBmsStorageOwnerIdentity(fileA)]));
+        Assert.AreEqual(1, cache.PruneBmsFiles([fileA]));
         Assert.AreEqual(1, cache.Count);
         fileB.SetTitle("B2");
         fileA.SetTitle("A2");
@@ -2991,6 +2991,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(firstRow, secondRow);
         Assert.IsFalse(secondResult.MembershipChanged);
         Assert.IsFalse(secondResult.SortKeyChanged);
+        Assert.IsFalse(secondResult.SourceIdentityChanged);
         Assert.IsTrue(secondResult.SourceReferenceChanged);
         Assert.AreSame(secondRow, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats()));
     }
@@ -3009,6 +3010,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(row, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(changed), new LibraryRowCacheBuildStats()));
         Assert.IsFalse(changedResult.MembershipChanged);
         Assert.IsTrue(changedResult.SortKeyChanged);
+        Assert.IsTrue(changedResult.SourceIdentityChanged);
         Assert.IsTrue(changedResult.SourceReferenceChanged);
         Assert.AreEqual("Changed", row.Title);
 
@@ -3016,8 +3018,27 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(removedResult.MembershipChanged);
         Assert.IsTrue(removedResult.SortKeyChanged);
+        Assert.IsTrue(removedResult.SourceIdentityChanged);
         Assert.IsFalse(removedResult.SourceReferenceChanged);
         Assert.AreEqual(0, cache.Count);
+    }
+
+    [TestMethod]
+    public void NormalLibraryRowCache_DoesNotReportSourceChangeForSameReferenceProjectionOnlyBmsonChange()
+    {
+        var cache = new NormalLibraryRowCache();
+        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
+        LR2SongDBExtended.chart_info projectedChartInfo = CreateChartInfo(original.sha256, original.md5, level: 4, notes: 1000, total: 250);
+        cache.SyncBmsonRows([original], row => row.SetChartInfoProjectionProvider(_ => projectedChartInfo));
+
+        projectedChartInfo = CreateChartInfo(original.sha256, original.md5, level: 12, notes: 3000, total: 700);
+        BmsonLibraryRowCacheSyncResult result = cache.SyncBmsonRows([original], row => row.SetChartInfoProjectionProvider(_ => projectedChartInfo));
+
+        Assert.IsFalse(result.MembershipChanged);
+        Assert.IsFalse(result.SortKeyChanged);
+        Assert.IsFalse(result.SourceIdentityChanged);
+        Assert.IsFalse(result.SourceReferenceChanged);
+        Assert.IsFalse(result.SourceChanged);
     }
 
     [TestMethod]

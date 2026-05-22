@@ -358,6 +358,14 @@ internal sealed class ChartWarningCollection
 
     internal static string BuildDigestText(IEnumerable<ChartWarning> sourceWarnings, string installDestination)
     {
+        return BuildDigestText(sourceWarnings, installDestination, hideResourceHealthDigestWhenInstallDestinationSet: true);
+    }
+
+    internal static string BuildDigestText(
+        IEnumerable<ChartWarning> sourceWarnings,
+        string installDestination,
+        bool hideResourceHealthDigestWhenInstallDestinationSet)
+    {
         List<ChartWarning> warnings = [.. EnumerateEffectiveWarnings(sourceWarnings)];
         if (warnings.Count == 0)
         {
@@ -365,7 +373,7 @@ internal sealed class ChartWarningCollection
         }
 
         string[] labels = [.. warnings
-            .Where(warning => warning.ShowInDigest && ShouldShowInDigest(warning, installDestination))
+            .Where(warning => warning.ShowInDigest && ShouldShowInDigest(warning, installDestination, hideResourceHealthDigestWhenInstallDestinationSet))
             .OrderBy(warning => warning.Priority)
             .Select(warning => warning.DigestLabel)
             .Where(label => !string.IsNullOrWhiteSpace(label))
@@ -422,9 +430,9 @@ internal sealed class ChartWarningCollection
         return EnumerateEffectiveWarnings(sourceWarnings).Any(warning => warning.HighlightRow);
     }
 
-    private static bool ShouldShowInDigest(ChartWarning warning, string installDestination)
+    private static bool ShouldShowInDigest(ChartWarning warning, string installDestination, bool hideResourceHealthDigestWhenInstallDestinationSet)
     {
-        if (warning.Category == ChartWarningCategory.ResourceHealth)
+        if (hideResourceHealthDigestWhenInstallDestinationSet && warning.Category == ChartWarningCategory.ResourceHealth)
         {
             return string.IsNullOrWhiteSpace(installDestination);
         }

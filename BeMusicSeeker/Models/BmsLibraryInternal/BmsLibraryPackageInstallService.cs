@@ -527,19 +527,27 @@ internal sealed class BmsLibraryPackageInstallService
             .Concat(resources.MovieRelativePaths);
     }
 
-    internal static IReadOnlyList<ChartWarning> BuildPendingResourceHealthWarnings(PackageChartEntry entry)
+    private static BMSFileMaintenanceInfo BuildPendingResourceHealthMaintenanceInfo(PackageChartEntry entry)
     {
         if (entry?.Chart == null || entry.ResourceSnapshot.TotalReferenceCount <= 0)
         {
-            return [];
+            return null;
         }
 
-        BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(entry.Chart);
+        return BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(entry.Chart);
+    }
+
+    internal static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry)
+    {
+        BMSFileMaintenanceInfo maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry);
         if (maintenanceInfo == null)
         {
+            entry?.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
             return [];
         }
-        return BmsLibraryMaintenanceService.BuildResourceHealthWarnings(maintenanceInfo);
+        IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(maintenanceInfo);
+        entry.ReplaceResourceHealthProjection(maintenanceInfo, warnings);
+        return warnings;
     }
 
     private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<PackageChartEntry> knownChartEntries)
@@ -1316,10 +1324,9 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     continue;
                 }
-                IReadOnlyList<ChartWarning> resourceWarnings = BuildPendingResourceHealthWarnings(entry);
+                IReadOnlyList<ChartWarning> resourceWarnings = ApplyPendingResourceHealthProjection(entry);
                 if (resourceWarnings.Count > 0)
                 {
-                    entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
                     pendingByPackage[pkg] = true;
                     break;
                 }

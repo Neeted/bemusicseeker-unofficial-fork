@@ -187,6 +187,11 @@ internal sealed class ResourceHealthIndexSnapshot
         return GetProjection(key);
     }
 
+    internal ResourceHealthWarningProjection GetProjection(ChartFileKind kind, string path, string md5)
+    {
+        return GetProjection(ResourceHealthChartKey.FromChartIdentity(kind, path, md5));
+    }
+
     private ResourceHealthWarningProjection GetProjection(ResourceHealthChartKey key)
     {
         if (!key.IsValid || !projectionsByKey.TryGetValue(key, out ResourceHealthWarningProjection projection))
@@ -217,10 +222,15 @@ internal sealed class ResourceHealthIndexSnapshot
             {
                 return default;
             }
+            return FromChartIdentity(chart.Kind, chart.Path, chart.Md5);
+        }
+
+        internal static ResourceHealthChartKey FromChartIdentity(ChartFileKind kind, string path, string md5)
+        {
             return new ResourceHealthChartKey(
-                chart.Kind == ChartFileKind.Bmson ? "bmson" : "bms",
-                chart.Path,
-                chart.Md5);
+                kind == ChartFileKind.Bmson ? "bmson" : "bms",
+                path,
+                md5);
         }
 
         public bool Equals(ResourceHealthChartKey other)

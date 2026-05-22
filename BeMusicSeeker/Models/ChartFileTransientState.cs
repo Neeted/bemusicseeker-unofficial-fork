@@ -139,4 +139,42 @@ internal sealed class ChartFileTransientState
                 || (includeWarningSnapshot && (chart.Warnings ?? []).Any(warning => warning?.Category == ChartWarningCategory.InstallEstimation))
         };
     }
+
+    internal static ChartFileTransientState FromResourceHealthMaintenanceInfo(BMSFileMaintenanceInfo maintenanceInfo)
+    {
+        if (maintenanceInfo == null)
+        {
+            return Empty;
+        }
+
+        return new ChartFileTransientState
+        {
+            WAVHealth = maintenanceInfo.WAVHealth,
+            BGAHealth = maintenanceInfo.BGAHealth,
+            MovieHealth = maintenanceInfo.MovieHealth,
+            StagefileHealth = maintenanceInfo.StagefileHealth,
+            BannerHealth = maintenanceInfo.BannerHealth,
+            BackbmpHealth = maintenanceInfo.BackbmpHealth,
+            EncodingName = maintenanceInfo.encoding
+        };
+    }
+
+    internal static ChartFileTransientState FromResourceHealthChart(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return Empty;
+        }
+
+        return new ChartFileTransientState
+        {
+            WAVHealth = chart.WAVHealth,
+            BGAHealth = chart.BGAHealth,
+            MovieHealth = chart.MovieHealth,
+            StagefileHealth = chart.StagefileHealth,
+            BannerHealth = chart.BannerHealth,
+            BackbmpHealth = chart.BackbmpHealth,
+            EncodingName = chart.EncodingName
+        };
+    }
 }

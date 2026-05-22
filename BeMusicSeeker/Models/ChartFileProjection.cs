@@ -361,8 +361,8 @@ internal static class ChartFileProjection
             file.genre,
             GetDisplayFolderFromPath(file.path),
             file.tag,
-            file.Level,
-            ParseNullableDouble(file.Level, levelParsing),
+            FormatBmsLevelText(file),
+            GetBmsLevelValue(file),
             file.mode,
             null,
             file,
@@ -513,8 +513,8 @@ internal static class ChartFileProjection
                 bmsFile.genre,
                 GetDisplayFolderFromPath(bmsFile.path),
                 bmsFile.tag,
-                bmsFile.Level,
-                ParseNullableDouble(bmsFile.Level, bmsLevelParsing),
+                FormatBmsLevelText(bmsFile),
+                GetBmsLevelValue(bmsFile),
                 bmsFile.mode,
                 null,
                 bmsFile,
@@ -607,8 +607,8 @@ internal static class ChartFileProjection
             file.genre,
             GetDisplayFolderFromPath(file.path),
             file.tag,
-            file.Level,
-            ParseNullableDouble(file.Level, ChartFileLevelParsing.Invariant),
+            FormatBmsLevelText(file),
+            GetBmsLevelValue(file),
             file.mode,
             null,
             file,
@@ -824,6 +824,20 @@ internal static class ChartFileProjection
 
         return double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out double invariantCultureValue)
             ? invariantCultureValue
+            : null;
+    }
+
+    private static string FormatBmsLevelText(BMSFile file)
+    {
+        return file?.level.HasValue == true
+            ? file.level.Value.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+    }
+
+    private static double? GetBmsLevelValue(BMSFile file)
+    {
+        return file?.level.HasValue == true
+            ? file.level.Value
             : null;
     }
 

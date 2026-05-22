@@ -10,11 +10,13 @@ internal static class ChartWarningProjectionFormatter
     internal static string BuildDigestText(
         ChartFile chart,
         ResourceHealthWarningProjection resourceHealthProjection,
-        bool hasResourceHealthProjection)
+        bool hasResourceHealthProjection,
+        bool hideResourceHealthDigestWhenInstallDestinationSet = true)
     {
         return ChartWarningCollection.BuildDigestText(
             EnumerateProjectedWarnings(chart?.Warnings, resourceHealthProjection, hasResourceHealthProjection),
-            chart?.InstallDestination);
+            chart?.InstallDestination,
+            hideResourceHealthDigestWhenInstallDestinationSet);
     }
 
     internal static string BuildDisplayText(

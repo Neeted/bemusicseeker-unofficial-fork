@@ -417,6 +417,7 @@ public sealed class BmsSortCompatibilityTests
                 "bms_title_changed",
                 "bms_path_changed",
                 "bmson_path_changed",
+                "bmson_source_identity_changed",
                 "bmson_sort_key_changed",
                 "chart_info_digest_backfilled",
                 "install_destination_changed",
@@ -425,6 +426,22 @@ public sealed class BmsSortCompatibilityTests
                 "warning_changed"
             },
             MainWindowViewModel.GetNormalLibrarySortKeyInvalidationReasonsForTest().ToArray());
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void NormalLibrarySortKeyInvalidationReasons_ClearSourceRowsOnlyForSourceIdentityChanges()
+    {
+        Assert.IsTrue(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("bms_title_changed"));
+        Assert.IsTrue(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("bms_path_changed"));
+        Assert.IsTrue(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("bmson_path_changed"));
+        Assert.IsTrue(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("bmson_source_identity_changed"));
+
+        Assert.IsFalse(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("bmson_sort_key_changed"));
+        Assert.IsFalse(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("maintenance_changed"));
+        Assert.IsFalse(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("warning_changed"));
+        Assert.IsFalse(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("chart_info_digest_backfilled"));
+        Assert.IsFalse(MainWindowViewModel.ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest("ref_tables_changed"));
     }
 
     [TestMethod]

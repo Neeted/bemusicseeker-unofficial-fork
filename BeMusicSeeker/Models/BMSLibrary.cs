@@ -6709,6 +6709,17 @@ reportProgress,
 
     private void PruneInstallDestinationRuntimeStatesToCurrentStorageRows()
     {
+        lock (installDestinationRuntimeStatesLock)
+        {
+            // Startup assigns the full storage row sets before any runtime install
+            // destination overlay exists. Avoid building 210k+ ChartFile projection
+            // keys for that empty-cache case.
+            if (installDestinationRuntimeStatesByKey.Count == 0)
+            {
+                return;
+            }
+        }
+
         var currentKeys = new HashSet<string>(
             (BMSFiles ?? [])
                 .SelectMany(file => EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsStorageOwnerIdentity(file)).Select(key => key.Key))
@@ -7245,9 +7256,20 @@ reportProgress,
         return true;
     }
 
-    internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(ChartFile chart)
+    internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFile chart)
     {
-        return GetResourceHealthIndexSnapshot("projection_read").GetProjection(chart);
+        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
+        return Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null
+            ? ResourceHealthWarningProjection.Empty
+            : currentSnapshot.GetProjection(chart);
+    }
+
+    internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFileKind kind, string path, string md5)
+    {
+        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
+        return Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null
+            ? ResourceHealthWarningProjection.Empty
+            : currentSnapshot.GetProjection(kind, path, md5);
     }
 
     internal ResourceHealthIndexSnapshot GetResourceHealthIndexSnapshotForView(string reason)
@@ -9541,8 +9563,7 @@ reportProgress,
             }
             else if (entry.ResourceSnapshot.TotalReferenceCount > 0)
             {
-                IReadOnlyList<ChartWarning> resourceWarnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
-                entry.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, resourceWarnings);
+                BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
             }
         }
         BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);

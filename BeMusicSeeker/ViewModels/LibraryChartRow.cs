@@ -23,6 +23,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private readonly ChartFile sourceTransientBaseline;
 
+    private readonly bool hideResourceHealthDigestWhenInstallDestinationSet;
+
     private BMSFile BmsFile { get; }
 
     private LR2SongDBExtended.bmson_song BmsonSong { get; set; }
@@ -37,11 +39,26 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
 
+    private ChartFile cachedChart;
+
+    private bool cachedChartValid;
+
     internal bool IsBmson => BmsonSong != null && BmsFile == null;
 
     internal bool IsBms => BmsFile != null;
 
-    internal ChartFile Chart => CreateChartFile();
+    internal ChartFile Chart
+    {
+        get
+        {
+            if (!cachedChartValid)
+            {
+                cachedChart = CreateChartFile();
+                cachedChartValid = true;
+            }
+            return cachedChart;
+        }
+    }
 
     internal ChartFile CreateChartFile()
     {
@@ -76,13 +93,15 @@ internal sealed class LibraryChartRow : NotificationObject
         ChartFile identityChart = ChartFileProjection.FromStorageOwner(
             storageOwnerSource,
             ChartFileLevelParsing.CurrentCultureThenInvariant,
-            includeWarningSnapshot: false);
+            includeWarningSnapshot: false,
+            includeResourceReferences: false);
         ChartFileTransientState transientState = GetChartTransientState(identityChart, includeWarningSnapshot: true);
         ChartFile currentChart = ChartFileProjection.FromStorageOwnerWithTransientState(
             storageOwnerSource,
             transientState,
             ChartFileLevelParsing.CurrentCultureThenInvariant,
-            includeWarningSnapshot: true);
+            includeWarningSnapshot: true,
+            includeResourceReferences: false);
         currentChart = sourceTransientBaseline != null
             ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
             : currentChart;
@@ -92,10 +111,16 @@ internal sealed class LibraryChartRow : NotificationObject
             : currentChart;
     }
 
-    private LibraryChartRow(ChartFile sourceChart, bool hasSourceChartProjection = false, Func<ChartFile> chartProvider = null, PackageChartEntry packageEntry = null)
+    private LibraryChartRow(
+        ChartFile sourceChart,
+        bool hasSourceChartProjection = false,
+        Func<ChartFile> chartProvider = null,
+        PackageChartEntry packageEntry = null,
+        bool hideResourceHealthDigestWhenInstallDestinationSet = true)
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
         this.hasSourceChartProjection = hasSourceChartProjection;
+        this.hideResourceHealthDigestWhenInstallDestinationSet = hideResourceHealthDigestWhenInstallDestinationSet;
         BmsFile = sourceChart.GetBmsStorageOwner();
         BmsonSong = sourceChart.GetBmsonStorageOwner();
         sourceTransientBaseline = CreateSourceTransientBaseline();
@@ -134,13 +159,16 @@ internal sealed class LibraryChartRow : NotificationObject
             : new LibraryChartRow(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
     }
 
-    internal static LibraryChartRow FromChartFile(ChartFile chart)
+    internal static LibraryChartRow FromChartFile(ChartFile chart, bool hideResourceHealthDigestWhenInstallDestinationSet = true)
     {
         if (chart == null)
         {
             return null;
         }
-        return new LibraryChartRow(chart, hasSourceChartProjection: true);
+        return new LibraryChartRow(
+            chart,
+            hasSourceChartProjection: true,
+            hideResourceHealthDigestWhenInstallDestinationSet: hideResourceHealthDigestWhenInstallDestinationSet);
     }
 
     internal static LibraryChartRow FromPackageChartEntry(PackageChartEntry entry)
@@ -150,7 +178,12 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             return null;
         }
-        return new LibraryChartRow(chart, hasSourceChartProjection: true, chartProvider: () => entry.Chart, packageEntry: entry);
+        return new LibraryChartRow(
+            chart,
+            hasSourceChartProjection: true,
+            chartProvider: () => entry.Chart,
+            packageEntry: entry,
+            hideResourceHealthDigestWhenInstallDestinationSet: false);
     }
 
     internal void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)
@@ -160,11 +193,16 @@ internal sealed class LibraryChartRow : NotificationObject
             return;
         }
         BmsonSong = song;
+        InvalidateChartCache();
         RaisePropertyChanged(string.Empty);
     }
 
     internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
     {
+        if (!ReferenceEquals(resourceHealthProjectionProvider, provider))
+        {
+            InvalidateChartCache();
+        }
         resourceHealthProjectionProvider = provider;
     }
 
@@ -175,11 +213,19 @@ internal sealed class LibraryChartRow : NotificationObject
 
     internal void SetChartTransientStateProvider(Func<ChartFile, bool, ChartFileTransientState> provider)
     {
+        if (!ReferenceEquals(chartTransientStateProvider, provider))
+        {
+            InvalidateChartCache();
+        }
         chartTransientStateProvider = provider;
     }
 
     internal void SetChartInfoProjectionProvider(Func<ChartFile, LR2SongDBExtended.chart_info> provider)
     {
+        if (!ReferenceEquals(chartInfoProjectionProvider, provider))
+        {
+            InvalidateChartCache();
+        }
         chartInfoProjectionProvider = provider;
     }
 
@@ -226,7 +272,11 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string DisplayWarning => ChartWarningProjectionFormatter.BuildDisplayText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
-    public string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
+    public string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(
+        Chart,
+        GetResourceHealthProjection(),
+        resourceHealthProjectionProvider != null,
+        hideResourceHealthDigestWhenInstallDestinationSet);
 
     public string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
@@ -386,6 +436,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private void OnSourcePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
+        InvalidateChartCache();
         RaisePropertyChanged(e.PropertyName);
         LibraryChartRowSourceNotificationGroups groups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(e.PropertyName);
         if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.WarningPresentation))
@@ -415,7 +466,14 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private void OnPackageEntryPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
+        InvalidateChartCache();
         RaisePropertyChanged(string.Empty);
+    }
+
+    private void InvalidateChartCache()
+    {
+        cachedChart = null;
+        cachedChartValid = false;
     }
 
     private void RaiseWarningPresentationPropertiesChanged()

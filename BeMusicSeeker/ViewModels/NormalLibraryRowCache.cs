@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
@@ -104,6 +106,7 @@ internal sealed class NormalLibraryRowCache
         var nextByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
         var nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
         var nextSortKeysByPath = new Dictionary<string, BmsonLibrarySortKeySnapshot>(StringComparer.OrdinalIgnoreCase);
+        bool sourceIdentityChanged = membershipChanged;
         foreach (LR2SongDBExtended.bmson_song song in snapshot)
         {
             bool foundBySameReference = rowsByBmsonSong.TryGetValue(song, out LibraryChartRow row);
@@ -131,16 +134,18 @@ internal sealed class NormalLibraryRowCache
                 bool hasPreviousSortKeys = bmsonSortKeysByPath.TryGetValue(song.path, out BmsonLibrarySortKeySnapshot previousSortKeys);
                 row.UpdateFromBmsonSong(song);
                 configureRow?.Invoke(row);
-                if (!hasPreviousSortKeys || previousSortKeys.HasChanged(row))
+                BmsonLibrarySortKeySnapshot nextSortKeys = BmsonLibrarySortKeySnapshot.Capture(song);
+                if (!hasPreviousSortKeys || previousSortKeys.HasChanged(nextSortKeys))
                 {
                     sortKeyChanged = true;
+                    sourceIdentityChanged |= !hasPreviousSortKeys || previousSortKeys.HasSourceIdentityChanged(nextSortKeys);
                 }
             }
             if (row != null)
             {
                 nextByPath[song.path] = row;
                 nextBySong[song] = row;
-                nextSortKeysByPath[song.path] = BmsonLibrarySortKeySnapshot.Capture(row);
+                nextSortKeysByPath[song.path] = BmsonLibrarySortKeySnapshot.Capture(song);
             }
         }
         rowsByBmsonPath.Clear();
@@ -158,13 +163,17 @@ internal sealed class NormalLibraryRowCache
         {
             bmsonSortKeysByPath[item.Key] = item.Value;
         }
-        return new BmsonLibraryRowCacheSyncResult(membershipChanged, sortKeyChanged, sourceReferenceChanged);
+        return new BmsonLibraryRowCacheSyncResult(membershipChanged, sortKeyChanged, sourceIdentityChanged, sourceReferenceChanged);
     }
 
-    internal int Prune(IEnumerable<ChartFile> currentCharts)
+    internal int PruneBmsFiles(IEnumerable<BMSFile> currentFiles)
     {
+        if (rowsByFile.Count == 0)
+        {
+            return 0;
+        }
         var current = new HashSet<BMSFile>(
-            GetBmsStorageOwners(currentCharts),
+            (currentFiles ?? []).Where(file => file != null),
             BmsFileReferenceComparer.Instance);
         List<BMSFile> removed = [.. rowsByFile.Keys.Where(file => !current.Contains(file))];
         foreach (BMSFile file in removed)
@@ -188,9 +197,9 @@ internal sealed class NormalLibraryRowCache
         {
             return nextSong != null;
         }
-        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
+        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row.GetBmsonStorageOwner());
         row.UpdateFromBmsonSong(nextSong);
-        return previousSortKeys.HasChanged(row);
+        return previousSortKeys.HasChanged(BmsonLibrarySortKeySnapshot.Capture(nextSong));
     }
 
     internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
@@ -200,9 +209,32 @@ internal sealed class NormalLibraryRowCache
         {
             return false;
         }
-        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row);
+        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(bmsonSong);
         mutateCurrentSong(bmsonSong);
-        return previousSortKeys.HasChanged(row);
+        return previousSortKeys.HasChanged(BmsonLibrarySortKeySnapshot.Capture(bmsonSong));
+    }
+
+    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
+    {
+        if (row == null)
+        {
+            return nextSong != null;
+        }
+        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(row.GetBmsonStorageOwner());
+        row.UpdateFromBmsonSong(nextSong);
+        return previousSortKeys.HasSourceIdentityChanged(BmsonLibrarySortKeySnapshot.Capture(nextSong));
+    }
+
+    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
+    {
+        LR2SongDBExtended.bmson_song bmsonSong = row?.GetBmsonStorageOwner();
+        if (bmsonSong == null || mutateCurrentSong == null)
+        {
+            return false;
+        }
+        var previousSortKeys = BmsonLibrarySortKeySnapshot.Capture(bmsonSong);
+        mutateCurrentSong(bmsonSong);
+        return previousSortKeys.HasSourceIdentityChanged(BmsonLibrarySortKeySnapshot.Capture(bmsonSong));
     }
 
     internal static IReadOnlyList<string> GetBmsonLibrarySortKeySnapshotColumnNamesForTest()
@@ -210,11 +242,9 @@ internal sealed class NormalLibraryRowCache
         return BmsonLibrarySortKeySnapshot.ColumnNames;
     }
 
-    private static IEnumerable<BMSFile> GetBmsStorageOwners(IEnumerable<ChartFile> charts)
+    internal static IReadOnlyList<string> GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest()
     {
-        return (charts ?? [])
-            .Select(chart => chart?.GetBmsStorageOwner())
-            .Where(file => file != null);
+        return BmsonLibrarySortKeySnapshot.SourceIdentityColumnNames;
     }
 
     private readonly struct BmsonLibrarySortKeySnapshot
@@ -226,46 +256,25 @@ internal sealed class NormalLibraryRowCache
             nameof(LibraryChartRow.genre),
             nameof(LibraryChartRow.level),
             nameof(LibraryChartRow.mode),
-            nameof(LibraryChartRow.WarningDigestText),
             nameof(LibraryChartRow.Folder),
             nameof(LibraryChartRow.path),
             nameof(LibraryChartRow.tag),
             nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256),
-            nameof(LibraryChartRow.instl_dst),
-            nameof(LibraryChartRow.InstallDestinationTitle),
-            nameof(LibraryChartRow.InstallDestinationArtist),
-            nameof(LibraryChartRow.RefTablesSymbols),
-            nameof(LibraryChartRow.WAVHealth),
-            nameof(LibraryChartRow.BGAHealth),
-            nameof(LibraryChartRow.MovieHealth),
-            nameof(LibraryChartRow.encoding),
-            nameof(LibraryChartRow.clear),
-            nameof(LibraryChartRow.rateDouble),
-            nameof(LibraryChartRow.score),
-            nameof(LibraryChartRow.maxcombo),
-            nameof(LibraryChartRow.minbp),
-            nameof(LibraryChartRow.rankingString),
-            nameof(LibraryChartRow.rankingLastupdate),
-            nameof(LibraryChartRow.stddevVal),
-            nameof(LibraryChartRow.scoreDifficulty),
-            nameof(LibraryChartRow.ChartLevelSortKey),
-            nameof(LibraryChartRow.ChartDifficultySortKey),
-            nameof(LibraryChartRow.ChartMainBpmSortKey),
-            nameof(LibraryChartRow.ChartMaxBpmSortKey),
-            nameof(LibraryChartRow.ChartMinBpmSortKey),
-            nameof(LibraryChartRow.ChartDurationSortKey),
-            nameof(LibraryChartRow.ChartJudgeSortKey),
-            nameof(LibraryChartRow.ChartFeatureSortKey),
-            nameof(LibraryChartRow.ChartNotes),
-            nameof(LibraryChartRow.ChartLongNotes),
-            nameof(LibraryChartRow.ChartScratchNotes),
-            nameof(LibraryChartRow.ChartTotalSortKey),
-            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
-            nameof(LibraryChartRow.ChartDensitySortKey),
-            nameof(LibraryChartRow.ChartPeakDensitySortKey),
-            nameof(LibraryChartRow.ChartEndDensitySortKey),
-            nameof(LibraryChartRow.ChartSoflanCount)
+            nameof(LibraryChartRow.sha256)
+        ];
+
+        internal static readonly IReadOnlyList<string> SourceIdentityColumnNames =
+        [
+            nameof(LibraryChartRow.Title),
+            nameof(LibraryChartRow.Artist),
+            nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.level),
+            nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.Folder),
+            nameof(LibraryChartRow.path),
+            nameof(LibraryChartRow.tag),
+            nameof(LibraryChartRow.hash),
+            nameof(LibraryChartRow.sha256)
         ];
 
         private readonly string title;
@@ -274,151 +283,52 @@ internal sealed class NormalLibraryRowCache
         private readonly string levelText;
         private readonly double? levelValue;
         private readonly int? mode;
-        private readonly string warningDigestText;
         private readonly string folder;
         private readonly string path;
         private readonly string tag;
         private readonly string hash;
         private readonly string sha256;
-        private readonly string installDestination;
-        private readonly string installDestinationTitle;
-        private readonly string installDestinationArtist;
-        private readonly string refTablesSymbols;
-        private readonly int? wavHealth;
-        private readonly int? bgaHealth;
-        private readonly int? movieHealth;
-        private readonly string encoding;
-        private readonly ClearType clear;
-        private readonly double? rateDouble;
-        private readonly int? score;
-        private readonly int? maxCombo;
-        private readonly int? minBp;
-        private readonly string rankingString;
-        private readonly DateTime? rankingLastUpdate;
-        private readonly double? stdDevVal;
-        private readonly double? scoreDifficulty;
-        private readonly double? chartLevelSortKey;
-        private readonly int? chartDifficultySortKey;
-        private readonly double? chartMainBpmSortKey;
-        private readonly double? chartMaxBpmSortKey;
-        private readonly double? chartMinBpmSortKey;
-        private readonly int? chartDurationSortKey;
-        private readonly int? chartJudgeSortKey;
-        private readonly int? chartFeatureSortKey;
-        private readonly int? chartNotes;
-        private readonly int? chartLongNotes;
-        private readonly int? chartScratchNotes;
-        private readonly double? chartTotalSortKey;
-        private readonly double? chartTotalPerNoteSortKey;
-        private readonly double? chartDensitySortKey;
-        private readonly double? chartPeakDensitySortKey;
-        private readonly double? chartEndDensitySortKey;
-        private readonly int? chartSoflanCount;
 
-        private BmsonLibrarySortKeySnapshot(LibraryChartRow row)
+        private BmsonLibrarySortKeySnapshot(LR2SongDBExtended.bmson_song song)
         {
-            title = row?.Title ?? string.Empty;
-            artist = row?.Artist ?? string.Empty;
-            genre = row?.genre ?? string.Empty;
-            levelText = row?.Level ?? string.Empty;
-            levelValue = row?.level;
-            mode = row?.mode;
-            warningDigestText = row?.WarningDigestText ?? string.Empty;
-            folder = row?.Folder ?? string.Empty;
-            path = row?.path ?? string.Empty;
-            tag = row?.tag ?? string.Empty;
-            hash = row?.hash ?? string.Empty;
-            sha256 = row?.sha256 ?? string.Empty;
-            installDestination = row?.instl_dst ?? string.Empty;
-            installDestinationTitle = row?.InstallDestinationTitle ?? string.Empty;
-            installDestinationArtist = row?.InstallDestinationArtist ?? string.Empty;
-            refTablesSymbols = row?.RefTablesSymbols ?? string.Empty;
-            wavHealth = row?.WAVHealth;
-            bgaHealth = row?.BGAHealth;
-            movieHealth = row?.MovieHealth;
-            encoding = row?.encoding ?? string.Empty;
-            clear = row?.clear ?? ClearType.NO_SONG;
-            rateDouble = row?.rateDouble;
-            score = row?.score;
-            maxCombo = row?.maxcombo;
-            minBp = row?.minbp;
-            rankingString = row?.rankingString ?? string.Empty;
-            rankingLastUpdate = row?.rankingLastupdate;
-            stdDevVal = row?.stddevVal;
-            scoreDifficulty = row?.scoreDifficulty;
-            chartLevelSortKey = row?.ChartLevelSortKey;
-            chartDifficultySortKey = row?.ChartDifficultySortKey;
-            chartMainBpmSortKey = row?.ChartMainBpmSortKey;
-            chartMaxBpmSortKey = row?.ChartMaxBpmSortKey;
-            chartMinBpmSortKey = row?.ChartMinBpmSortKey;
-            chartDurationSortKey = row?.ChartDurationSortKey;
-            chartJudgeSortKey = row?.ChartJudgeSortKey;
-            chartFeatureSortKey = row?.ChartFeatureSortKey;
-            chartNotes = row?.ChartNotes;
-            chartLongNotes = row?.ChartLongNotes;
-            chartScratchNotes = row?.ChartScratchNotes;
-            chartTotalSortKey = row?.ChartTotalSortKey;
-            chartTotalPerNoteSortKey = row?.ChartTotalPerNoteSortKey;
-            chartDensitySortKey = row?.ChartDensitySortKey;
-            chartPeakDensitySortKey = row?.ChartPeakDensitySortKey;
-            chartEndDensitySortKey = row?.ChartEndDensitySortKey;
-            chartSoflanCount = row?.ChartSoflanCount;
+            title = song == null ? string.Empty : BmsonSongParser.ComposeDisplayTitle(song);
+            artist = song?.artist ?? string.Empty;
+            genre = song?.genre ?? string.Empty;
+            levelText = song?.level.HasValue == true ? song.level.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
+            levelValue = song?.level;
+            mode = song == null ? null : BmsonSongParser.ResolvePlaylistMode(song.mode_hint);
+            folder = song == null ? string.Empty : BmsonSongParser.ComposeDisplayFolder(song);
+            path = song?.path ?? string.Empty;
+            tag = string.Empty;
+            hash = song?.md5 ?? string.Empty;
+            sha256 = song?.sha256 ?? string.Empty;
         }
 
-        internal static BmsonLibrarySortKeySnapshot Capture(LibraryChartRow row)
+        internal static BmsonLibrarySortKeySnapshot Capture(LR2SongDBExtended.bmson_song song)
         {
-            return new BmsonLibrarySortKeySnapshot(row);
+            return new BmsonLibrarySortKeySnapshot(song);
         }
 
-        internal bool HasChanged(LibraryChartRow row)
+        internal bool HasChanged(BmsonLibrarySortKeySnapshot next)
         {
-            return !string.Equals(title, row?.Title ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(artist, row?.Artist ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(genre, row?.genre ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(levelText, row?.Level ?? string.Empty, StringComparison.Ordinal)
-                || !object.Equals(levelValue, row?.level)
-                || mode != row?.mode
-                || !string.Equals(warningDigestText, row?.WarningDigestText ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(folder, row?.Folder ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(path, row?.path ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(tag, row?.tag ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(hash, row?.hash ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(sha256, row?.sha256 ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(installDestination, row?.instl_dst ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(installDestinationTitle, row?.InstallDestinationTitle ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(installDestinationArtist, row?.InstallDestinationArtist ?? string.Empty, StringComparison.Ordinal)
-                || !string.Equals(refTablesSymbols, row?.RefTablesSymbols ?? string.Empty, StringComparison.Ordinal)
-                || wavHealth != row?.WAVHealth
-                || bgaHealth != row?.BGAHealth
-                || movieHealth != row?.MovieHealth
-                || !string.Equals(encoding, row?.encoding ?? string.Empty, StringComparison.Ordinal)
-                || clear != (row?.clear ?? ClearType.NO_SONG)
-                || !object.Equals(rateDouble, row?.rateDouble)
-                || score != row?.score
-                || maxCombo != row?.maxcombo
-                || minBp != row?.minbp
-                || !string.Equals(rankingString, row?.rankingString ?? string.Empty, StringComparison.Ordinal)
-                || !object.Equals(rankingLastUpdate, row?.rankingLastupdate)
-                || !object.Equals(stdDevVal, row?.stddevVal)
-                || !object.Equals(scoreDifficulty, row?.scoreDifficulty)
-                || !object.Equals(chartLevelSortKey, row?.ChartLevelSortKey)
-                || chartDifficultySortKey != row?.ChartDifficultySortKey
-                || !object.Equals(chartMainBpmSortKey, row?.ChartMainBpmSortKey)
-                || !object.Equals(chartMaxBpmSortKey, row?.ChartMaxBpmSortKey)
-                || !object.Equals(chartMinBpmSortKey, row?.ChartMinBpmSortKey)
-                || chartDurationSortKey != row?.ChartDurationSortKey
-                || chartJudgeSortKey != row?.ChartJudgeSortKey
-                || chartFeatureSortKey != row?.ChartFeatureSortKey
-                || chartNotes != row?.ChartNotes
-                || chartLongNotes != row?.ChartLongNotes
-                || chartScratchNotes != row?.ChartScratchNotes
-                || !object.Equals(chartTotalSortKey, row?.ChartTotalSortKey)
-                || !object.Equals(chartTotalPerNoteSortKey, row?.ChartTotalPerNoteSortKey)
-                || !object.Equals(chartDensitySortKey, row?.ChartDensitySortKey)
-                || !object.Equals(chartPeakDensitySortKey, row?.ChartPeakDensitySortKey)
-                || !object.Equals(chartEndDensitySortKey, row?.ChartEndDensitySortKey)
-                || chartSoflanCount != row?.ChartSoflanCount;
+            return HasSourceIdentityChanged(next);
         }
+
+        internal bool HasSourceIdentityChanged(BmsonLibrarySortKeySnapshot next)
+        {
+            return !string.Equals(title, next.title, StringComparison.Ordinal)
+                || !string.Equals(artist, next.artist, StringComparison.Ordinal)
+                || !string.Equals(genre, next.genre, StringComparison.Ordinal)
+                || !string.Equals(levelText, next.levelText, StringComparison.Ordinal)
+                || !object.Equals(levelValue, next.levelValue)
+                || mode != next.mode
+                || !string.Equals(folder, next.folder, StringComparison.Ordinal)
+                || !string.Equals(path, next.path, StringComparison.Ordinal)
+                || !string.Equals(tag, next.tag, StringComparison.Ordinal)
+                || !string.Equals(hash, next.hash, StringComparison.Ordinal)
+                || !string.Equals(sha256, next.sha256, StringComparison.Ordinal);
+        }
+
     }
 
     private sealed class BmsFileReferenceComparer : IEqualityComparer<BMSFile>

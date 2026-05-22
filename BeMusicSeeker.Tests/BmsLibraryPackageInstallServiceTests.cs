@@ -511,7 +511,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void BuildPendingResourceHealthWarnings_BmsonUsesChartResourceSnapshot()
+    public void ApplyPendingResourceHealthProjection_BmsonUsesChartResourceSnapshot()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -527,7 +527,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
             PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
-            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
+            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
 
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.IsNull(entry.GetBmsOwnerForTest());
@@ -535,7 +535,36 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void BuildPendingResourceHealthWarnings_BmsUsesChartProjectionWithoutMutatingMaintenance()
+    public void ApplyPendingResourceHealthProjection_StoresWarningsAndHealthOnPackageEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string chartPath = Path.Combine(tempDirectoryPath, "chart.bmson");
+            var song = new LR2SongDBExtended.bmson_song
+            {
+                path = chartPath,
+                folder = tempDirectoryPath,
+                title = "BMSON",
+                artist = "Artist",
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                wav_files = ["missing.wav"],
+                bga_files = ["missing.png"]
+            };
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+
+            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
+
+            Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+            Assert.IsTrue(entry.Chart.WAVHealth.HasValue);
+            Assert.IsTrue(entry.Chart.BGAHealth.HasValue);
+            Assert.IsNull(entry.GetBmsOwnerForTest());
+        });
+    }
+
+    [TestMethod]
+    public void ApplyPendingResourceHealthProjection_BmsUsesChartProjectionWithoutMutatingMaintenance()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -550,7 +579,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
             PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
-            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
+            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
 
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);

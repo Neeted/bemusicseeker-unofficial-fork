@@ -25,6 +25,12 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private bool hasInstallDestinationProjection;
 
+    private ChartFileTransientState resourceHealthProjectionState = ChartFileTransientState.Empty;
+
+    private bool hasResourceHealthProjection;
+
+    private int projectionVersion;
+
     private bool? searchingStatusProjection;
 
     public event PropertyChangedEventHandler PropertyChanged;
@@ -34,6 +40,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
         ReplacePendingInstallDestination(chart.InstallDestination, chart.InstallDestinationTitle, chart.InstallDestinationArtist, chart.InstallDestinationSuggestions);
         ReplacePendingWarnings(chart.Warnings);
+        ReplacePendingResourceHealth(chart);
     }
 
     internal ChartFile Chart
@@ -50,6 +57,12 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                     hasInstallDestinationProjection ? installDestinationSuggestions : currentChart.InstallDestinationSuggestions,
                     projectedWarningCategories.Count > 0 ? BuildProjectedWarnings(currentChart.Warnings) : currentChart.Warnings)
                 : currentChart;
+            if (hasResourceHealthProjection)
+            {
+                projectedChart = ChartFileProjection.WithTransientState(
+                    projectedChart,
+                    resourceHealthProjectionState);
+            }
             return searchingStatusProjection.HasValue
                 ? ChartFileProjection.WithStatus(projectedChart, ApplySearchingStatusProjection(projectedChart.Status, searchingStatusProjection.Value))
                 : projectedChart;
@@ -57,6 +70,8 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     }
 
     internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
+
+    internal int ProjectionVersion => projectionVersion;
 
     internal object GetStorageMutationSyncRoot()
     {
@@ -233,6 +248,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
+        ClearResourceHealthProjection();
         ReplacePendingInstallDestination(Chart.InstallDestination, Chart.InstallDestinationTitle, Chart.InstallDestinationArtist, [], forceProjection: true);
     }
 
@@ -240,6 +256,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         pendingWarnings.Clear();
         projectedWarningCategories.Clear();
+        ClearResourceHealthProjectionCore();
         foreach (ChartWarningCategory category in GetStructuredWarningClearCategories())
         {
             projectedWarningCategories.Add(category);
@@ -249,11 +266,12 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {
-        foreach (ChartWarningKind kind in pendingWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
-        {
-            pendingWarnings.Remove(kind);
-        }
+        ClearWarningsByCategoryCore(category);
         projectedWarningCategories.Add(category);
+        if (category == ChartWarningCategory.ResourceHealth)
+        {
+            ClearResourceHealthProjectionCore();
+        }
         RaiseChartChanged();
     }
 
@@ -267,10 +285,57 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void ReplaceWarningsByCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
     {
+        ReplaceWarningsByCategoryCore(category, warnings);
+        projectedWarningCategories.Add(category);
+        if (category == ChartWarningCategory.ResourceHealth)
+        {
+            ClearResourceHealthProjectionCore();
+        }
+        RaiseChartChanged();
+    }
+
+    internal void ReplaceResourceHealthProjection(BMSFileMaintenanceInfo maintenanceInfo, IEnumerable<ChartWarning> warnings)
+    {
+        ReplaceWarningsByCategoryCore(ChartWarningCategory.ResourceHealth, warnings);
+        projectedWarningCategories.Add(ChartWarningCategory.ResourceHealth);
+        resourceHealthProjectionState = ChartFileTransientState.FromResourceHealthMaintenanceInfo(maintenanceInfo);
+        hasResourceHealthProjection = resourceHealthProjectionState.HasState;
+        RaiseChartChanged();
+    }
+
+    private void ClearResourceHealthProjection()
+    {
+        if (!hasResourceHealthProjection && resourceHealthProjectionState?.HasState != true)
+        {
+            return;
+        }
+        ClearResourceHealthProjectionCore();
+        RaiseChartChanged();
+    }
+
+    private void ClearResourceHealthProjectionCore()
+    {
+        resourceHealthProjectionState = ChartFileTransientState.Empty;
+        hasResourceHealthProjection = false;
+    }
+
+    private void ReplacePendingResourceHealth(ChartFile chart)
+    {
+        resourceHealthProjectionState = ChartFileTransientState.FromResourceHealthChart(chart);
+        hasResourceHealthProjection = resourceHealthProjectionState.HasState;
+    }
+
+    private void ClearWarningsByCategoryCore(ChartWarningCategory category)
+    {
         foreach (ChartWarningKind kind in pendingWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
         {
             pendingWarnings.Remove(kind);
         }
+    }
+
+    private void ReplaceWarningsByCategoryCore(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
+    {
+        ClearWarningsByCategoryCore(category);
         foreach (ChartWarning warning in warnings ?? [])
         {
             if (warning != null && warning.Category == category)
@@ -278,8 +343,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 pendingWarnings[warning.Kind] = warning;
             }
         }
-        projectedWarningCategories.Add(category);
-        RaiseChartChanged();
     }
 
     private void ReplacePendingWarnings(IEnumerable<ChartWarning> warnings)
@@ -399,6 +462,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private void RaiseChartChanged()
     {
+        projectionVersion++;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Chart)));
     }
 

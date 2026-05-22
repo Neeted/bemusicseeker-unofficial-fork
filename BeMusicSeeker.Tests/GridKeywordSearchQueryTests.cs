@@ -164,7 +164,7 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
-    public void ChartListSourceRow_IdentitySnapshotIsStableButChartInfoFollowsProvider()
+    public void ChartListSourceRow_StorageOwnerStateAndChartInfoFollowCurrentProvider()
     {
         TestableBmsFile file = CreateFile();
         LR2SongDBExtended.chart_info bmsChartInfo = CreateChartInfo(level: 10, sha256: file.sha256, md5: file.hash);
@@ -177,11 +177,11 @@ public sealed class GridKeywordSearchQueryTests
         file.SetHashForTest("ffffffffffffffffffffffffffffffff");
         file.SetChartInfo(bmsChartInfo);
 
-        Assert.AreEqual("Alpha Title", bmsSourceRow.Title);
-        Assert.AreEqual("GenreX", bmsSourceRow.Genre);
-        Assert.AreEqual("TagX", bmsSourceRow.Tag);
-        Assert.AreEqual(@"C:\Songs\Alpha\chart.bms", bmsSourceRow.Path);
-        Assert.AreEqual("abcdefabcdefabcdefabcdefabcdefab", bmsSourceRow.Hash);
+        Assert.AreEqual("Changed Title", bmsSourceRow.Title);
+        Assert.AreEqual("Changed Genre", bmsSourceRow.Genre);
+        Assert.AreEqual("Changed Tag", bmsSourceRow.Tag);
+        Assert.AreEqual(@"C:\Songs\Changed\chart.bms", bmsSourceRow.Path);
+        Assert.AreEqual("ffffffffffffffffffffffffffffffff", bmsSourceRow.Hash);
         Assert.AreSame(bmsChartInfo, bmsSourceRow.ChartInfo);
         Assert.AreSame(bmsChartInfo, bmsSourceRow.Chart.ChartInfo);
         Assert.AreEqual(10, bmsSourceRow.ChartLevelSortKey);
@@ -207,12 +207,12 @@ public sealed class GridKeywordSearchQueryTests
         song.md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
         song.ChartInfo = bmsonChartInfo;
 
-        Assert.AreEqual("BmsonTitle", bmsonSourceRow.Title);
-        Assert.AreEqual(string.Empty, bmsonSourceRow.Genre);
-        Assert.AreEqual("7", bmsonSourceRow.Level);
-        Assert.AreEqual(7, bmsonSourceRow.Mode);
-        Assert.AreEqual(@"C:\Songs\Bmson\chart.bmson", bmsonSourceRow.Path);
-        Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bmsonSourceRow.Hash);
+        Assert.AreEqual("Changed Bmson", bmsonSourceRow.Title);
+        Assert.AreEqual("Changed Genre", bmsonSourceRow.Genre);
+        Assert.AreEqual("9", bmsonSourceRow.Level);
+        Assert.AreEqual(5, bmsonSourceRow.Mode);
+        Assert.AreEqual(@"C:\Songs\Changed\chart.bmson", bmsonSourceRow.Path);
+        Assert.AreEqual("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", bmsonSourceRow.Hash);
         Assert.AreSame(bmsonChartInfo, bmsonSourceRow.ChartInfo);
         Assert.AreSame(bmsonChartInfo, bmsonSourceRow.Chart.ChartInfo);
         Assert.AreEqual(11, bmsonSourceRow.ChartLevelSortKey);

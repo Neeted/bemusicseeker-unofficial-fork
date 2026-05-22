@@ -115,26 +115,27 @@ internal readonly struct LibraryRowsBuildMetrics
 internal sealed class PackageChartSourceSnapshot
 {
     /// <summary>
-    /// Initializes a snapshot whose chart list maps directly to the virtual row factory input.
+    /// Initializes a snapshot whose package entries are the live virtual row factory input.
     /// </summary>
-    /// <param name="charts">Package chart sources.</param>
-    internal PackageChartSourceSnapshot(IReadOnlyList<ChartFile> charts)
+    /// <param name="entries">Package chart entries.</param>
+    internal PackageChartSourceSnapshot(IReadOnlyList<PackageChartEntry> entries)
     {
-        Charts = charts ?? [];
+        Entries = entries ?? [];
     }
 
     /// <summary>
-    /// Gets package chart sources.
+    /// Gets live package chart entries used by the virtual package subset.
     /// </summary>
-    internal IReadOnlyList<ChartFile> Charts { get; }
+    internal IReadOnlyList<PackageChartEntry> Entries { get; }
 }
 
 internal readonly struct BmsonLibraryRowCacheSyncResult
 {
-    internal BmsonLibraryRowCacheSyncResult(bool membershipChanged, bool sortKeyChanged, bool sourceReferenceChanged = false)
+    internal BmsonLibraryRowCacheSyncResult(bool membershipChanged, bool sortKeyChanged, bool sourceIdentityChanged = false, bool sourceReferenceChanged = false)
     {
         MembershipChanged = membershipChanged;
         SortKeyChanged = sortKeyChanged;
+        SourceIdentityChanged = sourceIdentityChanged;
         SourceReferenceChanged = sourceReferenceChanged;
     }
 
@@ -142,9 +143,11 @@ internal readonly struct BmsonLibraryRowCacheSyncResult
 
     internal bool SortKeyChanged { get; }
 
+    internal bool SourceIdentityChanged { get; }
+
     internal bool SourceReferenceChanged { get; }
 
-    internal bool SourceChanged => MembershipChanged || SourceReferenceChanged;
+    internal bool SourceChanged => MembershipChanged || SourceIdentityChanged || SourceReferenceChanged;
 }
 
 internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySortCacheKey>
@@ -5719,8 +5722,6 @@ public class MainWindowViewModel : ViewModel
 
     private long virtualNormalLibrarySourceRowCacheSourceGeneration;
 
-    private long virtualNormalLibrarySourceRowCacheSortKeyGeneration;
-
     private bool virtualNormalLibrarySourceRowCacheIncludeBmsonRows;
 
     private int virtualNormalLibrarySourceRowCacheRowCount;
@@ -6938,7 +6939,7 @@ public class MainWindowViewModel : ViewModel
             AddPlaylistLibraryIndexChart(
                 chartsByMd5,
                 chartsBySha256,
-                ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false));
+                ChartFileProjection.FromBmsStorageOwnerIdentity(file));
         }
         foreach (LR2SongDBExtended.bmson_song song in files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
         {
@@ -6950,7 +6951,7 @@ public class MainWindowViewModel : ViewModel
             AddPlaylistLibraryIndexChart(
                 chartsByMd5,
                 chartsBySha256,
-                ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
+                ChartFileProjection.FromBmsonStorageOwnerIdentity(song));
         }
         cancellationToken.ThrowIfCancellationRequested();
         var newSnapshot = new PlaylistLibraryIndexSnapshot
@@ -8615,11 +8616,11 @@ public class MainWindowViewModel : ViewModel
             : MainViewDataDependency.ChartInfo;
         if (bmsonSyncResult.SortKeyChanged)
         {
-            InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
+            InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSyncResult);
         }
         if (bmsonSyncResult.SourceChanged)
         {
-            IncrementNormalLibrarySourceGeneration(bmsonSyncResult.MembershipChanged ? "bmson_membership_changed" : "bmson_source_changed");
+            IncrementNormalLibrarySourceGeneration(ResolveBmsonSourceGenerationReason(bmsonSyncResult, "bmson"));
         }
         ResetRegularDerivedViewCaches();
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
@@ -9875,12 +9876,17 @@ public class MainWindowViewModel : ViewModel
     private void OnNormalLibrarySortKeyChanged(string propertyName)
     {
         int cacheCount;
+        bool clearSourceRows = ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(propertyName);
         lock (normalLibrarySortCacheLock)
         {
             normalLibrarySortKeyGeneration++;
             cacheCount = GetNormalLibraryCacheCountLocked();
             normalLibrarySortCache.Clear();
-            ClearVirtualNormalLibraryCachesLocked();
+            ClearVirtualNormalLibraryOrderCachesLocked();
+            if (clearSourceRows)
+            {
+                ClearVirtualNormalLibrarySourceRowsLocked();
+            }
         }
         ClearMainSummaryFolderCountCache();
         LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
@@ -9893,6 +9899,18 @@ public class MainWindowViewModel : ViewModel
             NotifyBmsonPlaylistReferenceDisplayChanged();
         }
         OnNormalLibrarySortKeyChanged(reason ?? string.Empty);
+    }
+
+    private void InvalidateNormalLibrarySortKeysForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reason = null)
+    {
+        if (!result.SortKeyChanged)
+        {
+            return;
+        }
+
+        InvalidateNormalLibrarySortKeys(result.SourceIdentityChanged
+            ? NormalLibraryBmsonSourceIdentityChangedReason
+            : (string.IsNullOrWhiteSpace(reason) ? NormalLibraryBmsonSortKeyChangedReason : reason));
     }
 
     private const string NormalLibraryBmsPathChangedReason = "bms_path_changed";
@@ -9939,6 +9957,7 @@ public class MainWindowViewModel : ViewModel
             NormalLibraryBmsTitleChangedReason,
             NormalLibraryBmsPathChangedReason,
             NormalLibraryBmsonPathChangedReason,
+            NormalLibraryBmsonSourceIdentityChangedReason,
             NormalLibraryBmsonSortKeyChangedReason,
             NormalLibraryChartInfoDigestBackfilledReason,
             NormalLibraryInstallDestinationChangedReason,
@@ -9947,6 +9966,8 @@ public class MainWindowViewModel : ViewModel
             NormalLibraryWarningChangedReason
         ];
     }
+
+    private const string NormalLibraryBmsonSourceIdentityChangedReason = "bmson_source_identity_changed";
 
     private void InvalidateNormalLibrarySortKeysAfterPathMutation(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
@@ -10022,11 +10043,39 @@ public class MainWindowViewModel : ViewModel
 
     private void ClearVirtualNormalLibraryCachesLocked()
     {
+        ClearVirtualNormalLibraryOrderCachesLocked();
+        ClearVirtualNormalLibrarySourceRowsLocked();
+    }
+
+    private void ClearVirtualNormalLibraryOrderCachesLocked()
+    {
         virtualNormalLibraryOrderCache.Clear();
         virtualChartSubsetOrderCache.Clear();
+    }
+
+    private void ClearVirtualNormalLibrarySourceRowsLocked()
+    {
         virtualNormalLibrarySourceRowCache = null;
         virtualNormalLibrarySourceRowCacheAvailable = false;
         virtualNormalLibrarySourceRowCacheRowCount = 0;
+    }
+
+    private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return false;
+        }
+
+        return reason.IndexOf(NormalLibraryBmsPathChangedReason, StringComparison.Ordinal) >= 0
+            || reason.IndexOf(NormalLibraryBmsTitleChangedReason, StringComparison.Ordinal) >= 0
+            || reason.IndexOf(NormalLibraryBmsonPathChangedReason, StringComparison.Ordinal) >= 0
+            || reason.IndexOf(NormalLibraryBmsonSourceIdentityChangedReason, StringComparison.Ordinal) >= 0;
+    }
+
+    internal static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest(string reason)
+    {
+        return ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(reason);
     }
 
     private void LogNormalLibrarySortCacheInvalidation(string reason, string detail, int cacheCountBefore)
@@ -10038,13 +10087,13 @@ public class MainWindowViewModel : ViewModel
             + " sortKeyGeneration=" + normalLibrarySortKeyGeneration);
     }
 
-    private int PruneRegularBmsLibraryRowCache(IEnumerable<ChartFile> currentCharts)
+    private int PruneRegularBmsLibraryRowCacheByBmsFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
     {
-        if (regularBmsLibraryRowCache == null)
+        if (regularBmsLibraryRowCache == null || regularBmsLibraryRowCache.Count == 0)
         {
             return 0;
         }
-        int pruned = regularBmsLibraryRowCache.Prune(currentCharts);
+        int pruned = regularBmsLibraryRowCache.PruneBmsFiles(currentFiles);
         pendingRegularBmsRowCachePrunedCount += pruned;
         return pruned;
     }
@@ -10117,14 +10166,19 @@ public class MainWindowViewModel : ViewModel
 
     private void PruneSharedChartTransientStateCache(IEnumerable<ChartFile> currentCharts)
     {
-        var currentKeys = new HashSet<string>(
-            (currentCharts ?? [])
-                .Select(GetSharedChartStateKey)
-                .Where(key => !string.IsNullOrWhiteSpace(key)),
-            StringComparer.OrdinalIgnoreCase);
+        var currentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in currentCharts ?? [])
+        {
+            AddSharedChartStateKey(currentKeys, GetSharedChartStateKey(chart));
+        }
+        PruneSharedChartTransientStateCache(currentKeys);
+    }
+
+    private void PruneSharedChartTransientStateCache(ISet<string> currentKeys)
+    {
         foreach (string key in chartTransientStatesByKey.Keys.ToList())
         {
-            if (!currentKeys.Contains(key))
+            if (currentKeys?.Contains(key) != true)
             {
                 chartTransientStatesByKey.Remove(key);
             }
@@ -10144,7 +10198,24 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        PruneSharedChartTransientStateCache(CreateStandardLibraryChartIdentitySnapshot(bmsFiles, bmsonSongs));
+        var currentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles ?? [])
+        {
+            AddSharedChartStateKey(currentKeys, ChartFileRuntimeStateKey.Create(file));
+        }
+        foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
+        {
+            AddSharedChartStateKey(currentKeys, ChartFileRuntimeStateKey.Create(song));
+        }
+        PruneSharedChartTransientStateCache(currentKeys);
+    }
+
+    private static void AddSharedChartStateKey(ISet<string> keys, string key)
+    {
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            keys?.Add(key);
+        }
     }
 
     private void UpdateSharedChartTransientStates(IEnumerable<ChartFile> charts, bool forceInstallDestinationProjection = false)
@@ -10189,7 +10260,9 @@ public class MainWindowViewModel : ViewModel
 
     private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForSourceRow(ChartListSourceRow row)
     {
-        return GetPlaylistReferenceDisplayForChart(row?.Chart);
+        return row == null
+            ? PlaylistReferenceDisplay.Empty
+            : files?.GetPlaylistReferenceDisplay(row.Hash, row.Sha256) ?? PlaylistReferenceDisplay.Empty;
     }
 
     private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForChart(ChartFile chart)
@@ -10233,6 +10306,7 @@ public class MainWindowViewModel : ViewModel
             out bool sourceRowsCacheHit,
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
+        long sourceRowsMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         var keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
         NormalLibraryTreeFilter effectiveTreeFilter = ShouldApplyVirtualNormalLibraryFolderFilter(treeViewFilterTypeSelected) ? virtualNormalLibraryTreeFilter : null;
         Func<ChartListSourceRow, bool> effectiveFolderFilter = effectiveTreeFilter == null ? null : new Func<ChartListSourceRow, bool>(effectiveTreeFilter.Matches);
@@ -10340,6 +10414,7 @@ public class MainWindowViewModel : ViewModel
             + " sortProfile=" + order.SortProfile + (sortCacheHit ? "_reuse" : string.Empty)
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
+            + " sourceRowsMs=" + sourceRowsMs
             + " columnMs=" + columnStageMs
             + " prepareSwapMs=" + prepareSwapMs
             + " columnSettingMs=" + columnSettingMs
@@ -10372,6 +10447,7 @@ public class MainWindowViewModel : ViewModel
                 treeMode,
                 subsetParameter,
                 out IEnumerable<ChartFile> subsetCharts,
+                out IEnumerable<PackageChartEntry> subsetEntries,
                 out ChartListSourceProjectionMode subsetProjectionMode,
                 out string subsetName))
         {
@@ -10395,14 +10471,22 @@ public class MainWindowViewModel : ViewModel
 
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
-            subsetCharts,
-            subsetProjectionMode,
-            applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-            GetPlaylistReferenceDisplayForSourceRow,
-            TryGetSharedChartTransientState,
-            ResolveChartInfoForProjection);
-        long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        List<ChartListSourceRow> sourceRows = subsetEntries != null
+            ? ChartListSourceRow.BuildPackageRows(
+                subsetEntries,
+                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
+                GetPlaylistReferenceDisplayForSourceRow,
+                TryGetSharedChartTransientState,
+                ResolveChartInfoForProjection)
+            : ChartListSourceRow.BuildStandardLibraryRows(
+                subsetCharts,
+                subsetProjectionMode,
+                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
+                GetPlaylistReferenceDisplayForSourceRow,
+                TryGetSharedChartTransientState,
+                ResolveChartInfoForProjection);
+        long sourceRowsMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        long folderStageMs = sourceRowsMs;
         int folderCount = sourceRows.Count;
         long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
 
@@ -10500,6 +10584,7 @@ public class MainWindowViewModel : ViewModel
             + " sortProfile=" + order.SortProfile + (sortCacheHit ? "_reuse" : string.Empty)
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
+            + " sourceRowsMs=" + sourceRowsMs
             + " columnMs=" + columnStageMs
             + " prepareSwapMs=" + prepareSwapMs
             + " columnSettingMs=" + columnSettingMs
@@ -10543,14 +10628,14 @@ public class MainWindowViewModel : ViewModel
             return null;
         }
         LibraryChartRow row;
-        ChartFile chart = sourceRow.Chart;
-        if (sourceRow.HasSourceChartProjection)
+        if (sourceRow.PackageEntry != null)
         {
-            row = LibraryChartRow.FromChartFile(chart);
+            row = LibraryChartRow.FromPackageChartEntry(sourceRow.PackageEntry);
         }
         else
         {
-            row = LibraryChartRow.FromChartFile(chart);
+            ChartFile chart = sourceRow.Chart;
+            row = LibraryChartRow.FromChartFile(chart, sourceRow.HideResourceHealthDigestWhenInstallDestinationSet);
         }
 
         if (applyResourceHealthProjection)
@@ -10612,7 +10697,6 @@ public class MainWindowViewModel : ViewModel
             if (virtualNormalLibrarySourceRowCacheAvailable
                 && virtualNormalLibrarySourceRowCache != null
                 && virtualNormalLibrarySourceRowCacheSourceGeneration == sourceGenerationAtLookup
-                && virtualNormalLibrarySourceRowCacheSortKeyGeneration == sortKeyGenerationAtLookup
                 && virtualNormalLibrarySourceRowCacheIncludeBmsonRows == includeBmsonRows
                 && (expectedRowCount < 0 || virtualNormalLibrarySourceRowCacheRowCount == expectedRowCount))
             {
@@ -10623,13 +10707,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
-            CreateStandardLibraryChartIdentitySnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
-            ChartListSourceProjectionMode.OwnerBacked,
-            GetResourceHealthProjectionForSourceRow,
-            GetPlaylistReferenceDisplayForSourceRow,
-            TryGetSharedChartTransientState,
-            ResolveChartInfoForProjection);
+        List<ChartListSourceRow> sourceRows = BuildVirtualNormalLibrarySourceRows(includeBmsonRows, expectedRowCount);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -10638,7 +10716,6 @@ public class MainWindowViewModel : ViewModel
                 virtualNormalLibrarySourceRowCache = sourceRows;
                 virtualNormalLibrarySourceRowCacheAvailable = true;
                 virtualNormalLibrarySourceRowCacheSourceGeneration = sourceGenerationAtLookup;
-                virtualNormalLibrarySourceRowCacheSortKeyGeneration = sortKeyGenerationAtLookup;
                 virtualNormalLibrarySourceRowCacheIncludeBmsonRows = includeBmsonRows;
                 virtualNormalLibrarySourceRowCacheRowCount = sourceRows.Count;
             }
@@ -10647,6 +10724,65 @@ public class MainWindowViewModel : ViewModel
         sourceGeneration = sourceGenerationAtLookup;
         sortKeyGeneration = sortKeyGenerationAtLookup;
         return sourceRows;
+    }
+
+    private List<ChartListSourceRow> BuildVirtualNormalLibrarySourceRows(bool includeBmsonRows, int expectedRowCount)
+    {
+        var sourceRows = expectedRowCount > 0
+            ? new List<ChartListSourceRow>(expectedRowCount)
+            : [];
+        AppendVirtualNormalLibrarySourceRows(BMSFiles, sourceRows);
+        if (includeBmsonRows)
+        {
+            AppendVirtualNormalLibrarySourceRows(files?.BmsonSongs, sourceRows);
+        }
+        return sourceRows;
+    }
+
+    private void AppendVirtualNormalLibrarySourceRows(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, ICollection<ChartListSourceRow> sourceRows)
+    {
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = GetResourceHealthProjectionForSourceRow;
+        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = GetPlaylistReferenceDisplayForSourceRow;
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = TryGetSharedChartTransientState;
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = ResolveChartInfoForProjection;
+        foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles ?? [])
+        {
+            if (file == null)
+            {
+                continue;
+            }
+            ChartListSourceRow row = ChartListSourceRow.FromBmsStorageOwner(
+                file,
+                resourceHealthProjectionProvider,
+                playlistReferenceDisplayProvider,
+                chartTransientStateProvider,
+                chartInfoProjectionProvider);
+            if (row != null)
+            {
+                sourceRows.Add(row);
+            }
+        }
+    }
+
+    private void AppendVirtualNormalLibrarySourceRows(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs, ICollection<ChartListSourceRow> sourceRows)
+    {
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = GetResourceHealthProjectionForSourceRow;
+        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = GetPlaylistReferenceDisplayForSourceRow;
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = TryGetSharedChartTransientState;
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = ResolveChartInfoForProjection;
+        foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)).OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase))
+        {
+            ChartListSourceRow row = ChartListSourceRow.FromBmsonStorageOwner(
+                song,
+                resourceHealthProjectionProvider,
+                playlistReferenceDisplayProvider,
+                chartTransientStateProvider,
+                chartInfoProjectionProvider);
+            if (row != null)
+            {
+                sourceRows.Add(row);
+            }
+        }
     }
 
     private ChartListOrder GetOrCreateVirtualNormalLibraryOrder(
@@ -10913,6 +11049,7 @@ public class MainWindowViewModel : ViewModel
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Path ?? string.Empty);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Hash ?? string.Empty);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Sha256 ?? string.Empty);
+                hash = (hash * 397L) ^ (row?.PackageEntry?.ProjectionVersion ?? 0);
             }
             return hash;
         }
@@ -11405,10 +11542,12 @@ public class MainWindowViewModel : ViewModel
         viewUpdateMode treeMode,
         object parameter,
         out IEnumerable<ChartFile> sourceCharts,
+        out IEnumerable<PackageChartEntry> sourceEntries,
         out ChartListSourceProjectionMode sourceProjectionMode,
         out string subsetName)
     {
         sourceCharts = null;
+        sourceEntries = null;
         sourceProjectionMode = ChartListSourceProjectionMode.PreserveSourceProjection;
         switch (treeMode)
         {
@@ -11453,6 +11592,7 @@ public class MainWindowViewModel : ViewModel
                     "newly_installed_all",
                     "newly_installed_package",
                     out sourceCharts,
+                    out sourceEntries,
                     out subsetName);
             case viewUpdateMode.PendingInstallFolderSelected:
                 return TryGetVirtualPackageSourceFiles(
@@ -11461,9 +11601,11 @@ public class MainWindowViewModel : ViewModel
                     "pending_install_all",
                     "pending_install_package",
                     out sourceCharts,
+                    out sourceEntries,
                     out subsetName);
             default:
                 sourceCharts = null;
+                sourceEntries = null;
                 subsetName = string.Empty;
                 return false;
         }
@@ -11475,24 +11617,28 @@ public class MainWindowViewModel : ViewModel
         string allSubsetName,
         string packageSubsetName,
         out IEnumerable<ChartFile> sourceCharts,
+        out IEnumerable<PackageChartEntry> sourceEntries,
         out string subsetName)
     {
         if (packages == null)
         {
             sourceCharts = [];
+            sourceEntries = [];
             subsetName = allSubsetName;
             return true;
         }
         if (parameter is ChartPackage package)
         {
             PackageChartSourceSnapshot packageSnapshot = CreatePackageChartSourceSnapshot(package);
-            sourceCharts = packageSnapshot.Charts;
+            sourceCharts = [];
+            sourceEntries = packageSnapshot.Entries;
             subsetName = packageSubsetName;
             return true;
         }
 
         PackageChartSourceSnapshot snapshot = CreatePackageChartSourceSnapshot(packages);
-        sourceCharts = snapshot.Charts;
+        sourceCharts = [];
+        sourceEntries = snapshot.Entries;
         subsetName = allSubsetName;
         return true;
     }
@@ -11525,40 +11671,40 @@ public class MainWindowViewModel : ViewModel
 
     private static PackageChartSourceSnapshot CreatePackageChartSourceSnapshotCore(IEnumerable<ChartPackage> packages)
     {
-        List<ChartFile> charts = [];
+        List<PackageChartEntry> entries = [];
         foreach (ChartPackage package in packages ?? [])
         {
             try
             {
                 if (package != null)
                 {
-                    AppendPackageChartSourceEntries(package.ChartEntries, charts);
+                    AppendPackageChartSourceEntries(package.ChartEntries, entries);
                 }
             }
             catch
             {
             }
         }
-        return new PackageChartSourceSnapshot(charts);
+        return new PackageChartSourceSnapshot(entries);
     }
 
     private static PackageChartSourceSnapshot CreatePackageChartSourceSnapshotFromEntries(IEnumerable<PackageChartEntry> entries)
     {
-        List<ChartFile> charts = [];
-        AppendPackageChartSourceEntries(entries, charts);
-        return new PackageChartSourceSnapshot(charts);
+        List<PackageChartEntry> chartEntries = [];
+        AppendPackageChartSourceEntries(entries, chartEntries);
+        return new PackageChartSourceSnapshot(chartEntries);
     }
 
     private static void AppendPackageChartSourceEntries(
         IEnumerable<PackageChartEntry> entries,
-        ICollection<ChartFile> charts)
+        ICollection<PackageChartEntry> chartEntries)
     {
         foreach (PackageChartEntry entry in entries ?? [])
         {
             ChartFile chart = entry?.Chart;
             if (chart != null)
             {
-                charts.Add(chart);
+                chartEntries.Add(entry);
             }
         }
     }
@@ -11776,17 +11922,16 @@ public class MainWindowViewModel : ViewModel
         {
             return ResourceHealthWarningProjection.Empty;
         }
-        return files.GetResourceHealthWarningProjection(chart);
+        return files.TryGetCurrentResourceHealthWarningProjection(chart);
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForSourceRow(ChartListSourceRow row)
     {
-        ChartFile chart = row?.Chart;
-        if (files == null || chart == null)
+        if (files == null || row == null)
         {
             return ResourceHealthWarningProjection.Empty;
         }
-        return files.GetResourceHealthWarningProjection(chart);
+        return files.TryGetCurrentResourceHealthWarningProjection(row.Kind, row.Path, row.Hash);
     }
 
     /// <summary>
@@ -14153,7 +14298,7 @@ public class MainWindowViewModel : ViewModel
         {
             UpdateSharedChartTransientStates(files?.ConsumeLatestInstallDestinationChangedCharts(), forceInstallDestinationProjection: true);
             InvalidatePlaylistLibraryIndexSnapshot("library_charts_changed");
-            PruneRegularBmsLibraryRowCache(ChartFileProjection.FromBmsStorageOwnerIdentities(files?.BMSFiles));
+            PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
             IncrementNormalLibrarySourceGeneration("library_charts_changed");
             ResetRegularDerivedViewCaches();
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -14187,7 +14332,7 @@ public class MainWindowViewModel : ViewModel
             BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (syncResult.SortKeyChanged)
             {
-                InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
+                InvalidateNormalLibrarySortKeysForBmsonSync(syncResult);
             }
             RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -14210,7 +14355,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (syncResult.SourceChanged)
             {
-                IncrementNormalLibrarySourceGeneration(syncResult.MembershipChanged ? "library_bmsons_membership_changed" : "library_bmsons_source_changed");
+                IncrementNormalLibrarySourceGeneration(ResolveBmsonSourceGenerationReason(syncResult, "library_bmsons"));
                 ResetRegularDerivedViewCaches();
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
@@ -16120,11 +16265,11 @@ public class MainWindowViewModel : ViewModel
             BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (bmsonSyncResult.SortKeyChanged)
             {
-                InvalidateNormalLibrarySortKeys(NormalLibraryBmsonSortKeyChangedReason);
+                InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSyncResult);
             }
             if (bmsonSyncResult.SourceChanged)
             {
-                IncrementNormalLibrarySourceGeneration(bmsonSyncResult.MembershipChanged ? "bmson_membership_changed" : "bmson_source_changed");
+                IncrementNormalLibrarySourceGeneration(ResolveBmsonSourceGenerationReason(bmsonSyncResult, "bmson"));
             }
         }
         if (TryApplyVirtualDefaultNormalLibraryView(mode, requestedMode, parameter, includeBmsonRows, viewBuildStopwatch))
@@ -16530,12 +16675,12 @@ public class MainWindowViewModel : ViewModel
         }
 
         var materializeStopwatch = Stopwatch.StartNew();
-        List<LibraryChartRow> regularLibraryRows = MaterializeLibraryChartRows(regularCharts, rowFactory ?? LibraryChartRow.FromChartFile);
+        List<LibraryChartRow> regularLibraryRows = MaterializeLibraryChartRows(regularCharts, rowFactory ?? (chart => LibraryChartRow.FromChartFile(chart)));
         materializeStopwatch.Stop();
         regularRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
         materializeStopwatch.Restart();
-        List<LibraryChartRow> bmsonLibraryRows = MaterializeLibraryChartRows(bmsonCharts, rowFactory ?? LibraryChartRow.FromChartFile);
+        List<LibraryChartRow> bmsonLibraryRows = MaterializeLibraryChartRows(bmsonCharts, rowFactory ?? (chart => LibraryChartRow.FromChartFile(chart)));
         materializeStopwatch.Stop();
         bmsonRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
@@ -16729,7 +16874,7 @@ public class MainWindowViewModel : ViewModel
     private List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts)
     {
         List<LibraryChartRow> rows = [.. (charts ?? [])
-            .Select(LibraryChartRow.FromChartFile)
+            .Select(chart => LibraryChartRow.FromChartFile(chart))
             .Where(row => row != null)];
         ApplyLibraryChartRowProviders(rows);
         return rows;
@@ -16745,7 +16890,7 @@ public class MainWindowViewModel : ViewModel
     private static List<LibraryChartRow> MaterializeLibraryChartRows(IEnumerable<ChartFile> charts, Func<ChartFile, LibraryChartRow> rowFactory)
     {
         return [.. (charts ?? [])
-            .Select(rowFactory ?? LibraryChartRow.FromChartFile)
+            .Select(rowFactory ?? (chart => LibraryChartRow.FromChartFile(chart)))
             .Where(row => row != null)];
     }
 
@@ -16849,9 +16994,24 @@ public class MainWindowViewModel : ViewModel
         return NormalLibraryRowCache.HasBmsonLibrarySortKeyChangedForTest(row, mutateCurrentSong);
     }
 
+    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
+    {
+        return NormalLibraryRowCache.HasBmsonLibrarySourceIdentityChangedForTest(row, nextSong);
+    }
+
+    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
+    {
+        return NormalLibraryRowCache.HasBmsonLibrarySourceIdentityChangedForTest(row, mutateCurrentSong);
+    }
+
     internal static IReadOnlyList<string> GetBmsonLibrarySortKeySnapshotColumnNamesForTest()
     {
         return NormalLibraryRowCache.GetBmsonLibrarySortKeySnapshotColumnNamesForTest();
+    }
+
+    internal static IReadOnlyList<string> GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest()
+    {
+        return NormalLibraryRowCache.GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest();
     }
 
     internal static bool IsNormalLibraryVirtualSortKeyPropertyForTest(string propertyName)
@@ -16864,19 +17024,37 @@ public class MainWindowViewModel : ViewModel
         BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache(files?.BmsonSongs);
         if (result.SortKeyChanged)
         {
-            InvalidateNormalLibrarySortKeys(reason + "_sort_key_changed");
+            InvalidateNormalLibrarySortKeysForBmsonSync(result, reason + "_sort_key_changed");
         }
         if (result.SourceChanged)
         {
-            IncrementNormalLibrarySourceGeneration(reason + (result.MembershipChanged ? "_membership_changed" : "_source_changed"));
+            string sourceReason = result.MembershipChanged
+                ? reason + "_membership_changed"
+                : (result.SourceIdentityChanged ? NormalLibraryBmsonSourceIdentityChangedReason : reason + "_source_reference_changed");
+            IncrementNormalLibrarySourceGeneration(sourceReason);
         }
         if (result.SortKeyChanged || result.SourceChanged)
         {
             LogMainViewBuild("normal_library_bmson_sync reason=" + (reason ?? string.Empty)
                 + " membershipChanged=" + result.MembershipChanged
+                + " sourceIdentityChanged=" + result.SourceIdentityChanged
                 + " sourceReferenceChanged=" + result.SourceReferenceChanged
                 + " sortKeyChanged=" + result.SortKeyChanged);
         }
+    }
+
+    private static string ResolveBmsonSourceGenerationReason(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
+    {
+        string prefix = string.IsNullOrWhiteSpace(reasonPrefix) ? "bmson" : reasonPrefix;
+        if (result.MembershipChanged)
+        {
+            return prefix + "_membership_changed";
+        }
+        if (result.SourceIdentityChanged)
+        {
+            return NormalLibraryBmsonSourceIdentityChangedReason;
+        }
+        return prefix + "_source_reference_changed";
     }
 
     public void LoadColumnSetting()
