@@ -176,7 +176,6 @@ public class BMSFile : LR2SongDB.song
         FORWARD = 8,
         BACKWARD = 0x10,
         PLAYALL = 0x1F,
-        SEARCHING = 0x400,
         SCORE_UNSENT = 0x800
     }
 

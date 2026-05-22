@@ -116,6 +116,10 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             PropertyChangedEventManager.AddHandler(propertyChangedSource, OnSourcePropertyChanged, string.Empty);
         }
+        if (packageEntry is INotifyPropertyChanged propertyChangedPackageEntry)
+        {
+            PropertyChangedEventManager.AddHandler(propertyChangedPackageEntry, OnPackageEntryPropertyChanged, string.Empty);
+        }
     }
 
     internal static LibraryChartRow FromBmsFile(BMSFile file)
@@ -405,6 +409,11 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             RaiseMaintenanceDisplayPropertiesChanged();
         }
+    }
+
+    private void OnPackageEntryPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        RaisePropertyChanged(string.Empty);
     }
 
     private void RaiseWarningPresentationPropertiesChanged()

@@ -1210,6 +1210,55 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void PackageChartEntry_SetSearchingStatus_ProjectsBmsStatusWithoutMutatingStorageOwner()
+    {
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"));
+        file.status = BMSFile.BMSFileStatus.PLAY;
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+
+        entry.SetSearchingStatus(isSearching: true);
+
+        Assert.AreEqual(BMSFile.BMSFileStatus.PLAY, file.status);
+        Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.PLAY));
+        Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+
+        file.status |= BMSFile.BMSFileStatus.PAUSE;
+
+        Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.PAUSE));
+        Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+
+        entry.SetSearchingStatus(isSearching: false);
+
+        Assert.AreEqual(BMSFile.BMSFileStatus.PLAY | BMSFile.BMSFileStatus.PAUSE, file.status);
+        Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.PLAY));
+        Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.PAUSE));
+        Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+    }
+
+    [TestMethod]
+    public void PackageChartEntry_SetSearchingStatus_ProjectsAdapterlessBmsonStatus()
+    {
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\Pending", "chart.bmson"),
+            title = "BMSON",
+            artist = "Artist",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
+
+        entry.SetSearchingStatus(isSearching: true);
+
+        Assert.IsNull(entry.GetBmsOwnerForTest());
+        Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+
+        entry.SetSearchingStatus(isSearching: false);
+
+        Assert.IsNull(entry.GetBmsOwnerForTest());
+        Assert.AreEqual(ChartFileStatus.NONE, entry.Chart.Status);
+    }
+
+    [TestMethod]
     public void ChartPackage_GetOrBuildInstallEstimationSnapshot_ResolvesPathMatchedBmsonTargetToPackageEntry()
     {
         TestResourceInitializer.EnsureJapaneseResources();

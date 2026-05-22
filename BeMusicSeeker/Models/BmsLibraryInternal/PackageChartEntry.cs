@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class PackageChartEntry
+internal sealed class PackageChartEntry : INotifyPropertyChanged
 {
     private ChartFile chart;
 
@@ -24,6 +25,10 @@ internal sealed class PackageChartEntry
 
     private bool hasInstallDestinationProjection;
 
+    private bool? searchingStatusProjection;
+
+    public event PropertyChangedEventHandler PropertyChanged;
+
     internal PackageChartEntry(ChartFile chart)
     {
         this.chart = chart ?? throw new ArgumentNullException(nameof(chart));
@@ -40,7 +45,7 @@ internal sealed class PackageChartEntry
         {
             BMSFile bmsFile = GetBmsStorageOwner();
             ChartFile currentChart = bmsFile != null ? ChartFileProjection.FromBmsFile(bmsFile) : chart;
-            return hasPendingWarningProjection || hasInstallDestinationProjection
+            ChartFile projectedChart = hasPendingWarningProjection || hasInstallDestinationProjection
                 ? ChartFileProjection.WithPackageState(
                     currentChart,
                     hasInstallDestinationProjection ? installDestination : currentChart.InstallDestination,
@@ -49,6 +54,9 @@ internal sealed class PackageChartEntry
                     hasInstallDestinationProjection ? installDestinationSuggestions : currentChart.InstallDestinationSuggestions,
                     hasPendingWarningProjection ? [.. pendingWarnings.Values] : currentChart.Warnings)
                 : currentChart;
+            return searchingStatusProjection.HasValue
+                ? ChartFileProjection.WithStatus(projectedChart, ApplySearchingStatusProjection(projectedChart.Status, searchingStatusProjection.Value))
+                : projectedChart;
         }
     }
 
@@ -126,19 +134,12 @@ internal sealed class PackageChartEntry
 
     internal void SetSearchingStatus(bool isSearching)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile == null)
+        if (searchingStatusProjection == isSearching)
         {
             return;
         }
-        if (isSearching)
-        {
-            bmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
-        }
-        else
-        {
-            bmsFile.status &= ~BMSFile.BMSFileStatus.SEARCHING;
-        }
+        searchingStatusProjection = isSearching;
+        RaiseChartChanged();
     }
 
     internal void ApplyInstalledPath(string installedPath)
@@ -154,6 +155,7 @@ internal sealed class PackageChartEntry
             bmsFile.path = installedPath;
             ClearInstalledBmsMetadata(bmsFile);
             chart = ChartFileProjection.FromBmsFile(bmsFile);
+            RaiseChartChanged();
             return;
         }
 
@@ -164,6 +166,7 @@ internal sealed class PackageChartEntry
             bmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
             bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
             chart = ChartFileProjection.FromBmsonSong(bmsonSong);
+            RaiseChartChanged();
         }
     }
 
@@ -284,6 +287,7 @@ internal sealed class PackageChartEntry
         }
         pendingWarnings.Clear();
         hasPendingWarningProjection = true;
+        RaiseChartChanged();
     }
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
@@ -299,6 +303,7 @@ internal sealed class PackageChartEntry
             pendingWarnings.Remove(kind);
         }
         hasPendingWarningProjection = true;
+        RaiseChartChanged();
     }
 
     internal void SetWarning(ChartWarningKind kind, string message)
@@ -312,6 +317,7 @@ internal sealed class PackageChartEntry
         ChartWarning warning = ChartWarning.Create(kind, message);
         pendingWarnings[warning.Kind] = warning;
         hasPendingWarningProjection = true;
+        RaiseChartChanged();
     }
 
     internal void ReplaceWarningsByCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
@@ -335,6 +341,7 @@ internal sealed class PackageChartEntry
             }
         }
         hasPendingWarningProjection = true;
+        RaiseChartChanged();
     }
 
     private void ReplacePendingWarnings(IEnumerable<ChartWarning> warnings)
@@ -348,6 +355,7 @@ internal sealed class PackageChartEntry
             }
         }
         hasPendingWarningProjection = pendingWarnings.Count > 0;
+        RaiseChartChanged();
     }
 
     private void ApplyInstallEstimationWarnings(InstallEstimationResult result)
@@ -404,6 +412,7 @@ internal sealed class PackageChartEntry
             || !string.IsNullOrWhiteSpace(installDestinationTitle)
             || !string.IsNullOrWhiteSpace(installDestinationArtist)
             || installDestinationSuggestions.Count > 0;
+        RaiseChartChanged();
     }
 
     private void ReplaceInstallDestinationState(string destinationDirectory, string title, string artist, IReadOnlyList<string> suggestions)
@@ -415,6 +424,18 @@ internal sealed class PackageChartEntry
             return;
         }
         ReplacePendingInstallDestination(destinationDirectory, title, artist, suggestions, forceProjection: true);
+    }
+
+    private static ChartFileStatus ApplySearchingStatusProjection(ChartFileStatus status, bool isSearching)
+    {
+        return isSearching
+            ? status | ChartFileStatus.SEARCHING
+            : status & ~ChartFileStatus.SEARCHING;
+    }
+
+    private void RaiseChartChanged()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Chart)));
     }
 
     private BMSFile GetBmsStorageOwner()

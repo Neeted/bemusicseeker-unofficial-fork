@@ -931,6 +931,28 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PackageChartEntryDisplayRow_NotifiesWhenSearchingStatusChanges()
+    {
+        LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+        var propertyNames = new List<string>();
+        row.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+
+        entry.SetSearchingStatus(isSearching: true);
+
+        Assert.IsTrue(row.status.HasFlag(ChartFileStatus.SEARCHING));
+        CollectionAssert.Contains(propertyNames, string.Empty);
+
+        propertyNames.Clear();
+
+        entry.SetSearchingStatus(isSearching: false);
+
+        Assert.IsFalse(row.status.HasFlag(ChartFileStatus.SEARCHING));
+        CollectionAssert.Contains(propertyNames, string.Empty);
+    }
+
+    [TestMethod]
     public void PackageChartSourceSnapshot_UsesChartSourcesWithoutMaterializingBmson()
     {
         var bms = new TestableBmsFile();
