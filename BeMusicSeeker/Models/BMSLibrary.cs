@@ -5229,7 +5229,7 @@ completeFileEnumerationOnce,
             List<ChartFile> chartSnapshot;
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                chartSnapshot = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs);
+                chartSnapshot = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false);
             }
             int snapshotCount = chartSnapshot.Count;
             bool completedLatestRequest = false;
@@ -6476,7 +6476,7 @@ reportProgress,
     private List<ChartFile> CreateInstalledChartSnapshot(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
-        bool includeResourceReferences = true)
+        bool includeResourceReferences)
     {
         return OverlayInstallDestinationRuntimeStates(ChartFileProjection.FromStorageRows(
             bmsFiles,
@@ -7263,7 +7263,7 @@ reportProgress,
 
     private List<ChartFile> CreateOwnedResourceMaintenanceCharts()
     {
-        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs);
+        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: true);
     }
 
     private void InvalidateResourceHealthIndex(string reason)
@@ -7802,7 +7802,7 @@ reportProgress,
                     }
                     List<BMSFile> bmsSnapshot = [.. BMSFiles.Where(f => f != null)];
                     List<LR2SongDBExtended.bmson_song> bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
-                    List<ChartFile> installedChartSnapshot = CreateInstalledChartSnapshot(bmsSnapshot, bmsonSnapshot);
+                    List<ChartFile> installedChartSnapshot = CreateInstalledChartSnapshot(bmsSnapshot, bmsonSnapshot, includeResourceReferences: false);
                     duplicateService.ClearDuplicateState(installedChartSnapshot);
                     List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(installedChartSnapshot);
                     var swNew = System.Diagnostics.Stopwatch.StartNew();
@@ -9256,7 +9256,7 @@ reportProgress,
         {
             return null;
         }
-        List<PackageChartEntry> entries = [.. CreateInstalledChartSnapshot(BMSFiles, BmsonSongs).Where(delegate (ChartFile chart)
+        List<PackageChartEntry> entries = [.. CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false).Where(delegate (ChartFile chart)
         {
             if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
             {
@@ -9309,7 +9309,7 @@ reportProgress,
                         PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
                             packages,
                             ChartPackagesPending,
-                            CreateInstalledChartSnapshot(BMSFiles, BmsonSongs),
+                            CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false),
                             deletePendingPackageSourceAfterInstall,
                             CountComponentMoveTargetsForPackage);
                         if (installPlan.SelectedPendingPackages.Count == 0)
@@ -10976,7 +10976,7 @@ reportProgress,
 
     private IEnumerable<LibraryChartRef> CreateLibraryChartRefSnapshotUnsafe()
     {
-        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs)
+        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false)
             .Select(LibraryChartRef.FromChartFile)
             .Where(chart => chart != null);
     }
