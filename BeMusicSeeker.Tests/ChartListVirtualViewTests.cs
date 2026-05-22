@@ -391,6 +391,25 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void ChartListSourceRow_FromChartFile_PreservesExplicitSourceScoreWithoutProvider()
+    {
+        BMSFile file = CreateFile(
+            @"folder-a\score.bms",
+            "Score",
+            "folder-a",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            scoreSeed: 2);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeScoreSnapshot: true);
+
+        ChartListSourceRow row = ChartListSourceRow.FromChartFile(chart, ChartListSourceProjectionMode.OwnerBacked);
+
+        Assert.AreEqual(chart.Score.Clear, row.Clear);
+        Assert.AreEqual(chart.Score.Score, row.Score);
+        Assert.AreEqual(chart.Score.Clear, row.Chart.Score.Clear);
+        Assert.AreEqual(chart.Score.Score, row.Chart.Score.Score);
+    }
+
+    [TestMethod]
     public void Constructor_DoesNotReadFolderCountFromSourceRows()
     {
         var file = new ThrowingFolderBmsFile();
@@ -2345,7 +2364,7 @@ public sealed class ChartListVirtualViewTests
         [
             .. (files ?? [])
                 .Where(file => file != null)
-                .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)),
+                .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeScoreSnapshot: true)),
             .. (bmsonSongs ?? [])
                 .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
                 .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)

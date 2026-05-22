@@ -638,7 +638,7 @@ public sealed class GridKeywordSearchQueryTests
     private static ChartListSourceRow CreateSourceRow(BMSFile file, Func<ChartListSourceRow, PlaylistReferenceDisplay>? playlistReferenceDisplayProvider = null, LR2SongDBExtended.chart_info? chartInfo = null)
     {
         return ChartListSourceRow.FromChartFile(
-            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeScoreSnapshot: true),
             ChartListSourceProjectionMode.OwnerBacked,
             playlistReferenceDisplayProvider: playlistReferenceDisplayProvider,
             chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));

@@ -321,7 +321,7 @@ internal sealed class ChartListSourceRow
                     transientState,
                     includeWarningSnapshot: includeWarningSnapshot,
                     includeResourceReferences: includeResourceReferences,
-                    includeScoreSnapshot: ShouldIncludeStorageOwnerScoreSnapshot(includeScoreSnapshot));
+                    includeScoreSnapshot: false);
                 return ApplyScoreProjection(ApplySourceProjectionWarnings(ApplyChartInfoProjection(currentChart), transientState, includeWarningSnapshot, currentSource), includeScoreSnapshot);
             }
             return ApplyScoreProjection(ApplyChartInfoProjection(includeWarningSnapshot ? currentSource : ChartFileProjection.WithWarnings(currentSource, [])), includeScoreSnapshot);
@@ -343,7 +343,7 @@ internal sealed class ChartListSourceRow
             transientState,
             includeWarningSnapshot: includeWarningSnapshot,
             includeResourceReferences: includeResourceReferences,
-            includeScoreSnapshot: ShouldIncludeStorageOwnerScoreSnapshot(includeScoreSnapshot));
+            includeScoreSnapshot: false);
         return ApplyScoreProjection(ApplySourceProjectionWarnings(ApplyChartInfoProjection(currentChart), transientState, includeWarningSnapshot, ownerIdentityChart), includeScoreSnapshot: includeScoreSnapshot);
     }
 
@@ -388,7 +388,7 @@ internal sealed class ChartListSourceRow
     {
         if (packageEntry != null)
         {
-            return Chart?.Score ?? ChartScoreSnapshot.MissingChart;
+            return packageEntry.Chart?.Score ?? ChartScoreSnapshot.MissingChart;
         }
 
         ChartScoreSnapshot resolved = scoreSnapshotProjectionProvider?.Invoke(this);
@@ -396,29 +396,63 @@ internal sealed class ChartListSourceRow
         {
             return resolved;
         }
-        if (bmsStorageOwner != null)
+        ChartScoreSnapshot sourceScore = sourceChart?.Score;
+        if (sourceScore != null)
         {
-            return ChartScoreSnapshot.FromBmsFile(bmsStorageOwner);
+            return sourceScore;
         }
         if (bmsonStorageOwner != null)
         {
             return ChartScoreSnapshot.NoScore(bmsonStorageOwner.path);
         }
-        return Chart?.Score ?? ChartScoreSnapshot.MissingChart;
+        if (bmsStorageOwner != null)
+        {
+            return ChartScoreSnapshot.NoScore(bmsStorageOwner.path);
+        }
+        return ChartScoreSnapshot.MissingChart;
     }
 
     private ChartFile ApplyScoreProjection(ChartFile chart, bool includeScoreSnapshot)
     {
-        if (!includeScoreSnapshot || chart == null || scoreSnapshotProjectionProvider == null)
+        if (!includeScoreSnapshot || chart == null)
         {
             return chart;
         }
-        return ChartFileProjection.WithScore(chart, GetScoreSnapshot());
+        if (packageEntry != null && scoreSnapshotProjectionProvider == null)
+        {
+            return chart;
+        }
+        ChartScoreSnapshot score = GetScoreSnapshot();
+        return AreEquivalentScoreSnapshots(score, chart.Score)
+            ? chart
+            : ChartFileProjection.WithScore(chart, score);
     }
 
-    private bool ShouldIncludeStorageOwnerScoreSnapshot(bool includeScoreSnapshot)
+    private static bool AreEquivalentScoreSnapshots(ChartScoreSnapshot left, ChartScoreSnapshot right)
     {
-        return includeScoreSnapshot && scoreSnapshotProjectionProvider == null;
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+        if (left == null || right == null)
+        {
+            return false;
+        }
+        return left.Clear == right.Clear
+            && left.Rank == right.Rank
+            && left.Score == right.Score
+            && left.Rate == right.Rate
+            && left.RateDouble == right.RateDouble
+            && left.TotalNotes == right.TotalNotes
+            && left.MinBp == right.MinBp
+            && left.MaxCombo == right.MaxCombo
+            && left.Ranking == right.Ranking
+            && left.RankingNum == right.RankingNum
+            && string.Equals(left.RankingString, right.RankingString, StringComparison.Ordinal)
+            && left.RankingLastUpdate == right.RankingLastUpdate
+            && left.StdDevVal == right.StdDevVal
+            && left.ScoreDifficulty == right.ScoreDifficulty
+            && left.IsLr2IrScoreUnsent == right.IsLr2IrScoreUnsent;
     }
 
     private static bool HasWarningProjection(ChartFileTransientState state)
