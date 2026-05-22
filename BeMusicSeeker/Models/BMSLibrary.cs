@@ -4354,6 +4354,7 @@ public class BMSLibrary : NotificationObject
 
         bool inlineChartInfoApplied = false;
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
+        List<ChartFile> currentInstallDestinationCharts = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs);
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             options,
@@ -4405,7 +4406,8 @@ completeFileEnumerationOnce,
                     return;
                 }
                 committedInlineChartInfoRows.AddRange(rows.Where(row => row != null));
-            });
+            },
+            currentInstallDestinationCharts);
         completeFileEnumerationOnce();
         using (rwlockBMSFiles.GetWriterGuard())
         {

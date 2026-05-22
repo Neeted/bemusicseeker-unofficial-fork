@@ -490,13 +490,17 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("Folder", columns["Folder"].EditPropertyName);
         Assert.AreEqual("instl_dst", columns["InstallDst"].EditPropertyName);
 
-        var bmsFile = new BMSFile
-        {
-            InstallDestinationSuggestions = ["C:\\BMS\\A", "", "C:\\BMS\\B"]
-        };
+        var bmsFile = new BMSFile();
+        var bmsRow = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(bmsFile),
+            null,
+            string.Empty,
+            string.Empty,
+            ["C:\\BMS\\A", "", "C:\\BMS\\B"],
+            []));
         CollectionAssert.AreEqual(
             new[] { "C:\\BMS\\A", "C:\\BMS\\B" },
-            columns["InstallDst"].GetEditSuggestions(LibraryChartRow.FromBmsFile(bmsFile)).ToArray());
+            columns["InstallDst"].GetEditSuggestions(bmsRow).ToArray());
 
         var adapterlessBmsonRow = LibraryChartRow.FromChartFile(ChartFileProjection.WithPackageState(
             ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song

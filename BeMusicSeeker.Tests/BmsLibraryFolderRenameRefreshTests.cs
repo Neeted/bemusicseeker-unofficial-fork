@@ -314,17 +314,21 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
                 var file = new TestableBmsFile
                 {
-                    path = sourceChartPath,
-                    instl_dst = destinationDirectoryPath
+                    path = sourceChartPath
                 };
                 file.SetHash("cccccccccccccccccccccccccccccccc");
                 SetLibraryFilesWithoutNotification(library, [file]);
-                ChartFile repairTarget = ChartFileProjection.FromBmsFile(file);
+                ChartFile repairTarget = ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsFile(file),
+                    destinationDirectoryPath,
+                    string.Empty,
+                    string.Empty,
+                    []);
 
                 library.FixInstallationDirectoryCharts([repairTarget]);
 
                 Assert.AreEqual(destinationChartPath, file.path);
-                Assert.AreEqual(destinationDirectoryPath, file.instl_dst);
+                Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
                 ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
                 Assert.AreEqual(destinationChartPath, changedChart.Path);
                 Assert.AreEqual(string.Empty, changedChart.InstallDestination);
@@ -443,8 +447,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             var replacementFile = new TestableBmsFile
             {
-                path = originalFile.path,
-                instl_dst = @"C:\Replacement"
+                path = originalFile.path
             };
             replacementFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             library.BMSFiles = [replacementFile];
@@ -452,7 +455,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ChartFile installedChart = InvokeCreateInstalledChartSnapshot(library).Single();
 
             Assert.AreSame(replacementFile, installedChart.GetBmsStorageOwner());
-            Assert.AreEqual(@"C:\Replacement", installedChart.InstallDestination);
+            Assert.AreEqual(string.Empty, installedChart.InstallDestination);
         });
     }
 

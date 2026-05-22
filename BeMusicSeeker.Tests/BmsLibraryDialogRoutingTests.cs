@@ -28,10 +28,10 @@ public sealed class BmsLibraryDialogRoutingTests
             var library = new BMSLibrary(songDbPath, null!, null, null!, dialogService);
             var pendingFile = new TestableBmsFile
             {
-                path = "C:\\Pending\\Pkg\\chart.bms",
-                instl_dst = "C:\\Installed\\Pkg"
+                path = "C:\\Pending\\Pkg\\chart.bms"
             };
-            var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+            var pendingPackage = ChartPackage.FromChartEntries(
+                [ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Installed\\Pkg")]);
             pendingPackage.path = "C:\\Pending\\Pkg";
             pendingPackage.delete_parent = false;
             library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);

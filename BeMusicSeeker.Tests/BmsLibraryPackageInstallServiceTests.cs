@@ -187,15 +187,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Lib\\a.bms");
         TestableBmsFile cleanupInstalledFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Lib\\c.bms");
         TestableBmsFile alreadyInstalledInPackage = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
-        alreadyInstalledInPackage.instl_dst = destinationDirectory;
         TestableBmsFile newFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\b.bms");
-        newFile.instl_dst = destinationDirectory;
         TestableBmsFile cleanupOnlyFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\c.bms");
-        cleanupOnlyFile.instl_dst = destinationDirectory;
-        var mixedPackage = ChartPackageTestExtensions.CreatePackage([alreadyInstalledInPackage, newFile]);
+        var mixedPackage = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(alreadyInstalledInPackage, destinationDirectory),
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(newFile, destinationDirectory));
         mixedPackage.path = "C:\\Pending\\Pkg1";
         mixedPackage.delete_parent = false;
-        var cleanupOnlyPackage = ChartPackageTestExtensions.CreatePackage([cleanupOnlyFile]);
+        var cleanupOnlyPackage = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(cleanupOnlyFile, destinationDirectory));
         cleanupOnlyPackage.path = "C:\\Pending\\Pkg2";
         cleanupOnlyPackage.delete_parent = false;
 
@@ -237,8 +237,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         installedFile.SetSha256(new string('b', 64));
         TestableBmsFile pendingFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg1\\a.bms");
         pendingFile.SetSha256(new string('b', 64));
-        pendingFile.instl_dst = destinationDirectory;
-        var pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
+        var pendingPackage = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, destinationDirectory));
         pendingPackage.path = "C:\\Pending\\Pkg1";
         pendingPackage.delete_parent = false;
 
@@ -328,15 +328,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Lib\\a.bms");
         TestableBmsFile cleanupInstalledFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Lib\\c.bms");
         TestableBmsFile alreadyInstalledInPackage = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
-        alreadyInstalledInPackage.instl_dst = destinationDirectory;
         TestableBmsFile newFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\b.bms");
-        newFile.instl_dst = destinationDirectory;
         TestableBmsFile cleanupOnlyFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg2\\c.bms");
-        cleanupOnlyFile.instl_dst = destinationDirectory;
-        var mixedPackage = ChartPackageTestExtensions.CreatePackage([alreadyInstalledInPackage, newFile]);
+        var mixedPackage = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(alreadyInstalledInPackage, destinationDirectory),
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(newFile, destinationDirectory));
         mixedPackage.path = "C:\\Pending\\Pkg1";
         mixedPackage.delete_parent = false;
-        var cleanupOnlyPackage = ChartPackageTestExtensions.CreatePackage([cleanupOnlyFile]);
+        var cleanupOnlyPackage = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(cleanupOnlyFile, destinationDirectory));
         cleanupOnlyPackage.path = "C:\\Pending\\Pkg2";
         cleanupOnlyPackage.delete_parent = false;
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(

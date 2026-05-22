@@ -316,7 +316,8 @@ internal sealed class BmsLibraryInitializationService
         Action fileDiffStarted = null,
         Action<int, int, string> reportParseProgress = null,
         Action<string> logInstallPerformanceWarn = null,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted = null)
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted = null,
+        IEnumerable<ChartFile> currentInstallDestinationCharts = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -484,7 +485,11 @@ internal sealed class BmsLibraryInitializationService
         var directoryKeys = new HashSet<string>(result.NextDirectoryResourceLookupCache?.Keys ?? [], StringComparer.OrdinalIgnoreCase);
         var stopwatchInstlDstCleanup = Stopwatch.StartNew();
         int clearedInstallDestinationCountBefore = result.MutationDelta.UpdatedInstallDestinations.Count;
-        foreach (ChartFile chart in ChartFileProjection.FromBmsFiles(result.NextFiles, includeWarningSnapshot: false)
+        List<BMSFile> nextFileOwners = [.. result.NextFiles.Where(file => file != null)];
+        IEnumerable<ChartFile> installDestinationCleanupCharts = currentInstallDestinationCharts
+            ?? ChartFileProjection.FromBmsFiles(result.NextFiles, includeWarningSnapshot: false);
+        foreach (ChartFile chart in installDestinationCleanupCharts
+            .Where(chart => nextFileOwners.Any(file => ReferenceEquals(file, chart?.GetBmsStorageOwner())))
             .Where(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination)))
         {
             if (!directoryKeys.Contains(chart.InstallDestination))

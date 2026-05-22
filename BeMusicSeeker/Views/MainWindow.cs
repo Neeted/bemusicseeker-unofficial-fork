@@ -790,7 +790,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             return;
         }
-        if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
+        if (string.Equals(e.EditPropertyName, "instl_dst", StringComparison.Ordinal))
         {
             if (!CanEditInstallDestinationInCurrentSection()
                 || !GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
@@ -921,7 +921,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("customTableView_CellEditEnded");
                 return;
             }
-            if (string.Equals(e.EditPropertyName, nameof(BMSFile.instl_dst), StringComparison.Ordinal))
+            if (string.Equals(e.EditPropertyName, "instl_dst", StringComparison.Ordinal))
             {
                 if (!GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
                     || !target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))

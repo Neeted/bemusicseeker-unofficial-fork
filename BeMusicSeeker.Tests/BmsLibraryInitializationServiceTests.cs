@@ -474,8 +474,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             var keepFile = new TestableBmsFile
             {
-                path = Path.Combine(keepDirectoryPath, "keep.bms"),
-                instl_dst = staleDirectoryPath
+                path = Path.Combine(keepDirectoryPath, "keep.bms")
             };
             keepFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             var deletedFile = new TestableBmsFile
@@ -517,7 +516,13 @@ public sealed class BmsLibraryInitializationServiceTests
                     Interlocked.Increment(ref executeScanCount);
                     return null;
                 },
-                null);
+                null,
+                currentInstallDestinationCharts: [ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
+                    staleDirectoryPath,
+                    string.Empty,
+                    string.Empty,
+                    [])]);
 
             Assert.AreEqual(0, executeScanCount);
             Assert.IsTrue(result.PrefetchedScanUsed);
@@ -534,7 +539,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreSame(keepFile, installDestinationChange.Chart.GetBmsStorageOwner());
             Assert.IsNull(installDestinationChange.NewInstallDestination);
             Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
-            Assert.AreEqual(staleDirectoryPath, keepFile.instl_dst);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(keepFile.instl_dst));
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), keepDirectoryPath);
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), newDirectoryPath);
 

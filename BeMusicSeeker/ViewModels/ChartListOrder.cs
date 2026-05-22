@@ -86,7 +86,7 @@ internal sealed class ChartListOrder
             MainViewDataDependency.IdentitySortKey,
             prewarmByDefault: false,
             null,
-            nameof(BMSFile.instl_dst)),
+            "instl_dst"),
         ChartListOrderColumnDefinition.String(
             nameof(LibraryChartRow.InstallDestinationTitle),
             row => row?.InstallDestinationTitle ?? string.Empty,

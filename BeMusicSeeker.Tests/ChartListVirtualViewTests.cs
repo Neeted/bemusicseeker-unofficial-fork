@@ -1579,9 +1579,11 @@ public sealed class ChartListVirtualViewTests
         var file = new TestableBmsFile();
         file.Apply(@"folder-b\old.bms", "Old", "folder-b");
         PlaylistReferenceIndex playlistReferenceIndex = PlaylistReferenceIndex.Empty;
+        ChartFileTransientState installDestinationState = ChartFileTransientState.Empty;
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
             [file],
-            playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart));
+            playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart),
+            chartTransientStateProvider: (_, _) => installDestinationState);
 
         file.Apply(
             @"folder-a\new.bms",
@@ -1593,9 +1595,14 @@ public sealed class ChartListVirtualViewTests
             tagText: "Tag",
             md5: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
             sha256Text: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
-        file.instl_dst = "Destination";
-        file.InstallDestinationTitle = "Destination Title";
-        file.InstallDestinationArtist = "Destination Artist";
+        installDestinationState = ChartFileTransientState.FromInstallDestinationState(
+            ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsFile(file),
+                "Destination",
+                "Destination Title",
+                "Destination Artist",
+                []),
+            forceInstallDestinationProjection: true);
         var referenceTable = new BMSTable
         {
             symbol = "REF",
@@ -1666,9 +1673,13 @@ public sealed class ChartListVirtualViewTests
         file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: 7, difficulty: 3, mainBpm: 150.5, total: 340.0));
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file.path, file.hash, 3), suppressPropertyChanged: true);
         file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
-        file.instl_dst = "Installed";
-        file.InstallDestinationTitle = "Installed Title";
-        file.InstallDestinationArtist = "Installed Artist";
+        ChartFile bmsInstallDestinationChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+            "Installed",
+            "Installed Title",
+            "Installed Artist",
+            [],
+            file.Warnings.ToStructuredList());
         var bmsTable = new BMSTable
         {
             symbol = "BMS",
@@ -1677,6 +1688,12 @@ public sealed class ChartListVirtualViewTests
         };
         PlaylistReferenceIndex playlistReferenceIndex = PlaylistReferenceIndex.Empty;
         playlistReferenceIndex.ReplaceTable(bmsTable, bmsTable.entries);
+        ChartFileTransientState ResolveTransientState(ChartFile chart, bool includeWarningSnapshot)
+        {
+            return ReferenceEquals(chart?.GetBmsStorageOwner(), file)
+                ? ChartFileTransientState.FromInstallDestinationState(bmsInstallDestinationChart, includeWarningSnapshot, forceInstallDestinationProjection: true)
+                : ChartFileTransientState.Empty;
+        }
         var bmson = new LR2SongDBExtended.bmson_song
         {
             path = @"folder-b\bmson.bmson",
@@ -1695,8 +1712,10 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
             [file],
             [bmson],
-            playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart));
+            playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart),
+            chartTransientStateProvider: ResolveTransientState);
         LibraryChartRow bmsRow = LibraryChartRow.FromBmsFile(file);
+        bmsRow.SetChartTransientStateProvider(ResolveTransientState);
         bmsRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
         LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(bmson);
         bmsonRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
@@ -1809,7 +1828,15 @@ public sealed class ChartListVirtualViewTests
     {
         List<BMSFile> files = CreateSampleSortFiles();
         List<LR2SongDBExtended.bmson_song> bmsons = CreateSampleSortBmsons();
-        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files, bmsons);
+        Dictionary<string, ChartFileTransientState> bmsInstallDestinationStates = CreateSampleSortInstallDestinationStates(files);
+        ChartFileTransientState ResolveTransientState(ChartFile chart, bool includeWarningSnapshot)
+        {
+            return chart != null
+                && bmsInstallDestinationStates.TryGetValue(chart.Path ?? string.Empty, out ChartFileTransientState state)
+                    ? state
+                    : ChartFileTransientState.Empty;
+        }
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files, bmsons, chartTransientStateProvider: ResolveTransientState);
         bool created = ChartListOrder.TryCreate(sourceRows, columnName, direction, out ChartListOrder order);
         Assert.IsTrue(created);
         var view = new ChartListVirtualView(
@@ -1822,8 +1849,14 @@ public sealed class ChartListVirtualViewTests
             Direction = direction
         };
 
+        IEnumerable<LibraryChartRow> bmsRows = files.Select(file =>
+        {
+            LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+            row.SetChartTransientStateProvider(ResolveTransientState);
+            return row;
+        });
         List<LibraryChartRow> legacySorted = LibraryChartRowSortEngine.SortForMainView(
-            files.Select(LibraryChartRow.FromBmsFile).Concat(bmsons.Select(LibraryChartRow.FromBmsonSong)),
+            bmsRows.Concat(bmsons.Select(LibraryChartRow.FromBmsonSong)),
             sortParameters,
             isPlaylistDetailView: false,
             useLegacySortForDataGrid: false,
@@ -1850,9 +1883,6 @@ public sealed class ChartListVirtualViewTests
                 tag: "TagC",
                 hash: "cccccccccccccccccccccccccccccccc",
                 sha256: "3333333333333333333333333333333333333333333333333333333333333333",
-                installDestination: "InstallC",
-                installDestinationTitle: "InstallTitleC",
-                installDestinationArtist: "InstallArtistC",
                 scoreSeed: 3,
                 chartSeed: 3,
                 maintenanceSeed: 3,
@@ -1868,9 +1898,6 @@ public sealed class ChartListVirtualViewTests
                 tag: "TagB",
                 hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 sha256: "1111111111111111111111111111111111111111111111111111111111111111",
-                installDestination: "InstallA",
-                installDestinationTitle: "InstallTitleA",
-                installDestinationArtist: "InstallArtistA",
                 scoreSeed: 1,
                 chartSeed: 1,
                 maintenanceSeed: 1,
@@ -1886,14 +1913,36 @@ public sealed class ChartListVirtualViewTests
                 tag: "TagA",
                 hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 sha256: "2222222222222222222222222222222222222222222222222222222222222222",
-                installDestination: "InstallB",
-                installDestinationTitle: "InstallTitleB",
-                installDestinationArtist: "InstallArtistB",
                 scoreSeed: 2,
                 chartSeed: 2,
                 maintenanceSeed: 2,
                 warningSeed: 2)
         ];
+    }
+
+    private static Dictionary<string, ChartFileTransientState> CreateSampleSortInstallDestinationStates(IEnumerable<BMSFile> files)
+    {
+        var states = new Dictionary<string, ChartFileTransientState>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile file in files ?? [])
+        {
+            string suffix = file.hash?.StartsWith("a", StringComparison.OrdinalIgnoreCase) == true
+                ? "A"
+                : file.hash?.StartsWith("b", StringComparison.OrdinalIgnoreCase) == true
+                    ? "B"
+                    : "C";
+            ChartFile chart = ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                "Install" + suffix,
+                "InstallTitle" + suffix,
+                "InstallArtist" + suffix,
+                [],
+                file.Warnings.ToStructuredList());
+            states[file.path] = ChartFileTransientState.FromInstallDestinationState(
+                chart,
+                includeWarningSnapshot: false,
+                forceInstallDestinationProjection: true);
+        }
+        return states;
     }
 
     private static List<LR2SongDBExtended.bmson_song> CreateSampleSortBmsons()
@@ -1942,9 +1991,6 @@ public sealed class ChartListVirtualViewTests
         string tag = "",
         string hash = "0123456789abcdef0123456789abcdef",
         string sha256 = "",
-        string installDestination = "",
-        string installDestinationTitle = "",
-        string installDestinationArtist = "",
         int? scoreSeed = null,
         int? chartSeed = null,
         int? maintenanceSeed = null,
@@ -1952,9 +1998,6 @@ public sealed class ChartListVirtualViewTests
     {
         var file = new TestableBmsFile();
         file.Apply(path, title, folder, artist, genre, level, mode, tag, hash, sha256);
-        file.instl_dst = installDestination;
-        file.InstallDestinationTitle = installDestinationTitle;
-        file.InstallDestinationArtist = installDestinationArtist;
         if (scoreSeed.HasValue)
         {
             int seed = scoreSeed.Value;

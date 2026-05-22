@@ -380,7 +380,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsFalse(row.WarningTooltipText.Contains("stale resource warning"));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
 
-        file.instl_dst = @"C:\Installed";
+        row.SetChartTransientStateProvider((chart, _) => ChartFileTransientState.FromInstallDestinationState(
+            ChartFileProjection.WithPackageState(
+                chart,
+                @"C:\Installed",
+                string.Empty,
+                string.Empty,
+                []),
+            forceInstallDestinationProjection: true));
         Assert.IsFalse(row.WarningDigestText.Contains(Resources.WarningDigest_ResourceMissing));
         StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_DuplicateChart);
         StringAssert.Contains(row.WarningTooltipText, "BGA");

@@ -289,7 +289,13 @@ public sealed class BmsLibraryStateApplierTests
             var delta = new LibraryMutationDelta();
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {
-                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                Chart = ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+                    file.instl_dst,
+                    file.InstallDestinationTitle,
+                    file.InstallDestinationArtist,
+                    file.InstallDestinationSuggestions,
+                    file.Warnings.ToStructuredList()),
                 NewInstallDestination = null,
                 ClearInstallDestinationState = false
             });
