@@ -10124,10 +10124,10 @@ reportProgress,
         int appliedPendingCharts = 0;
         PlaylistReferenceApplyStats songApplyStats = default;
         var stopwatchApplySong = Stopwatch.StartNew();
-        List<ChartFile> libraryChartsSnapshot = null;
+        List<LibraryChartRef> libraryChartsSnapshot = null;
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
         {
-            libraryChartsSnapshot = SnapshotLibraryChartsForPlaylistReferenceApply();
+            libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply();
         }
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
         {
@@ -10176,7 +10176,7 @@ reportProgress,
         if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
         {
             var stopwatchApplySong = Stopwatch.StartNew();
-            List<ChartFile> libraryChartsSnapshot = SnapshotLibraryChartsForPlaylistReferenceApply();
+            List<LibraryChartRef> libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply();
             if (libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
             {
                 appliedLibraryCharts = playlistReferenceService.ApplyReferenceMap(libraryChartsSnapshot, referenceMaps, out matchedLibraryCharts, out songApplyStats);
@@ -10241,18 +10241,18 @@ reportProgress,
         LogInstallPerformance("playlist_ref_package_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applyPackageMs=" + applyPackageMs + " applyPackageChunks=" + packageApplyStats.Chunks + " applyPackageChunkMaxMs=" + packageApplyStats.MaxChunkMs + " applyPackageYieldCount=" + packageApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + tableList.Count + " packageCount=" + packageList.Count + " matchedPackageFiles=" + matchedPackageFiles + " appliedPackageCharts=" + appliedPackageCharts);
     }
 
-    private List<ChartFile> SnapshotLibraryChartsForPlaylistReferenceApply()
+    private List<LibraryChartRef> SnapshotLibraryChartRefsForPlaylistReferenceApply()
     {
         if ((BMSFiles == null || BMSFiles.Count == 0) && (BmsonSongs == null || BmsonSongs.Count == 0))
         {
             return null;
         }
-        var charts = new List<ChartFile>();
+        var charts = new List<LibraryChartRef>();
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            charts.AddRange(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false, includeScoreSnapshot: false));
+            charts.AddRange((BMSFiles ?? []).Select(LibraryChartRef.FromBmsFile).Where(chart => chart != null));
         }
-        charts.AddRange(ChartFileProjection.FromBmsonSongs(BmsonSongs, includeWarningSnapshot: false));
+        charts.AddRange((BmsonSongs ?? []).Select(LibraryChartRef.FromBmsonSong).Where(chart => chart != null));
         return charts.Count == 0 ? null : charts;
     }
 
@@ -10296,9 +10296,10 @@ reportProgress,
         List<BMSTableEntry> newEntriesSnapshot = SnapshotPlaylistReferenceEntries(newTable, newEntries);
         BuildPlaylistReferenceHashSets(oldEntriesSnapshot, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
         BuildPlaylistReferenceHashSets(newEntriesSnapshot, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
-        List<ChartFile> oldLibraryCharts = FilterPlaylistReferenceTargets(SnapshotLibraryChartsForPlaylistReferenceApply(), oldMd5Hashes, oldSha256Hashes);
+        List<LibraryChartRef> libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply();
+        List<LibraryChartRef> oldLibraryCharts = FilterPlaylistReferenceTargets(libraryChartsSnapshot, oldMd5Hashes, oldSha256Hashes);
         List<PackageChartEntry> oldPendingEntries = FilterPendingPlaylistReferenceTargetEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply(), oldMd5Hashes, oldSha256Hashes);
-        List<ChartFile> newLibraryCharts = FilterPlaylistReferenceTargets(SnapshotLibraryChartsForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
+        List<LibraryChartRef> newLibraryCharts = FilterPlaylistReferenceTargets(libraryChartsSnapshot, newMd5Hashes, newSha256Hashes);
         List<PackageChartEntry> newPendingEntries = FilterPendingPlaylistReferenceTargetEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
         LogInstallPerformance("playlist_ref_replace targetsOldLibraryCharts=" + oldLibraryCharts.Count + " targetsOldPending=" + oldPendingEntries.Count + " targetsNewLibraryCharts=" + newLibraryCharts.Count + " targetsNewPending=" + newPendingEntries.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
         if (oldTable != null)
@@ -10339,13 +10340,13 @@ reportProgress,
         }
     }
 
-    private static List<ChartFile> FilterPlaylistReferenceTargets(IEnumerable<ChartFile> charts, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
+    private static List<LibraryChartRef> FilterPlaylistReferenceTargets(IEnumerable<LibraryChartRef> charts, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
     {
         if (charts == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
         {
             return [];
         }
-        return [.. charts.Where(delegate (ChartFile chart)
+        return [.. charts.Where(delegate (LibraryChartRef chart)
         {
             if (chart == null)
             {

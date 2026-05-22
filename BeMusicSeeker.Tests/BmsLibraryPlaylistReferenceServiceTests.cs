@@ -27,7 +27,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         ];
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap(ToCharts(files), maps, out int matchedFiles, out PlaylistReferenceApplyStats stats);
+        int appliedCharts = service.ApplyReferenceMap(ToChartRefs(files), maps, out int matchedFiles, out PlaylistReferenceApplyStats stats);
 
         Assert.AreEqual(2, maps.Md5ToTablesMap.Count);
         Assert.AreEqual(0, maps.Sha256ToTablesMap.Count);
@@ -44,7 +44,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap(ToCharts([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        int appliedCharts = service.ApplyReferenceMap(ToChartRefs([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(0, maps.Md5ToTablesMap.Count);
         Assert.AreEqual(1, maps.Sha256ToTablesMap.Count);
@@ -63,7 +63,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64));
 
         PlaylistReferenceMaps maps = service.BuildReferenceMaps([md5Table, shaTable]);
-        int appliedCharts = service.ApplyReferenceMap(ToCharts([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        int appliedCharts = service.ApplyReferenceMap(ToChartRefs([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedFiles);
         Assert.AreEqual(1, appliedCharts);
@@ -75,7 +75,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         var service = new BmsLibraryPlaylistReferenceService(2);
         string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         BMSTable table = CreateTable(CreateEntry(md5));
-        ChartFile chart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
+        LibraryChartRef chart = LibraryChartRef.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Library\chart.bmson",
             md5 = md5,
@@ -300,9 +300,9 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         return file;
     }
 
-    private static List<ChartFile> ToCharts(IEnumerable<BMSFile> files)
+    private static List<LibraryChartRef> ToChartRefs(IEnumerable<BMSFile> files)
     {
-        return [.. files.Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))];
+        return [.. files.Select(LibraryChartRef.FromBmsFile).Where(chart => chart != null)];
     }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry

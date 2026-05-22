@@ -50,7 +50,7 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         };
     }
 
-    public int ApplyReferenceMap(IEnumerable<ChartFile> charts, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats)
+    public int ApplyReferenceMap(IEnumerable<LibraryChartRef> charts, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats)
     {
         matchedCharts = 0;
         applyStats = default;
@@ -60,7 +60,7 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         }
         int processed = 0;
         var chunkStopwatch = Stopwatch.StartNew();
-        foreach (ChartFile chart in charts)
+        foreach (LibraryChartRef chart in charts)
         {
             if (TryGetReferenceTables(chart, referenceMaps))
             {
@@ -169,6 +169,22 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
     }
 
     private static bool TryGetReferenceTables(ChartFile chart, PlaylistReferenceMaps referenceMaps)
+    {
+        if (chart == null || referenceMaps == null)
+        {
+            return false;
+        }
+
+        BMSTable[] tables = null;
+        bool matched = !string.IsNullOrWhiteSpace(chart.Md5) && referenceMaps.Md5ToTablesMap != null && referenceMaps.Md5ToTablesMap.TryGetValue(chart.Md5, out tables);
+        if (!matched && !string.IsNullOrWhiteSpace(chart.Sha256) && referenceMaps.Sha256ToTablesMap != null)
+        {
+            matched = referenceMaps.Sha256ToTablesMap.TryGetValue(chart.Sha256, out tables);
+        }
+        return matched && tables != null;
+    }
+
+    private static bool TryGetReferenceTables(LibraryChartRef chart, PlaylistReferenceMaps referenceMaps)
     {
         if (chart == null || referenceMaps == null)
         {

@@ -2566,20 +2566,20 @@ public sealed class PlaylistViewPipelineTests
             sha256 = entry.sha256
         };
 
-        ChartFile laterChart = ChartFileProjection.FromBmsonSong(laterPath);
-        ChartFile earlierChart = ChartFileProjection.FromBmsonSong(earlierPath);
-        ChartFile bmsLaterChart = ChartFileProjection.FromBmsFile(bmsMd5LaterPath);
-        ChartFile preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+        LibraryChartRef laterChart = LibraryChartRef.FromBmsonSong(laterPath);
+        LibraryChartRef earlierChart = LibraryChartRef.FromBmsonSong(earlierPath);
+        LibraryChartRef bmsLaterChart = LibraryChartRef.FromBmsFile(bmsMd5LaterPath);
+        LibraryChartRef preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
             MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(laterChart, earlierChart),
             bmsLaterChart);
-        ChartFile resolvedMd5First = MainWindowViewModel.ResolveChartForPlaylistEntry(
+        LibraryChartRef resolvedMd5First = MainWindowViewModel.ResolveChartForPlaylistEntry(
             entry,
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, bmsLaterChart } });
-        ChartFile resolvedBmson = MainWindowViewModel.ResolveChartForPlaylistEntry(
+            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
+            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, bmsLaterChart } });
+        LibraryChartRef resolvedBmson = MainWindowViewModel.ResolveChartForPlaylistEntry(
             entry,
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, ChartFileProjection.FromBmsonSong(shaOnly) } });
+            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, LibraryChartRef.FromBmsonSong(shaOnly) } });
 
         Assert.AreSame(earlierPath, preferred.GetBmsonStorageOwner());
         Assert.AreSame(earlierPath, resolvedMd5First.GetBmsonStorageOwner());
@@ -2602,13 +2602,13 @@ public sealed class PlaylistViewPipelineTests
             sha256 = entry.sha256
         };
 
-        ChartFile preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
-            ChartFileProjection.FromBmsFile(laterBms),
-            ChartFileProjection.FromBmsonSong(earlierBmson));
-        ChartFile resolved = MainWindowViewModel.ResolveChartForPlaylistEntry(
+        LibraryChartRef preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+            LibraryChartRef.FromBmsFile(laterBms),
+            LibraryChartRef.FromBmsonSong(earlierBmson));
+        LibraryChartRef resolved = MainWindowViewModel.ResolveChartForPlaylistEntry(
             entry,
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, preferred } });
+            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, preferred } });
 
         Assert.AreSame(earlierBmson, preferred.GetBmsonStorageOwner());
         Assert.AreSame(earlierBmson, resolved.GetBmsonStorageOwner());
@@ -2628,9 +2628,10 @@ public sealed class PlaylistViewPipelineTests
             md5 = entry.md5,
             sha256 = new string('2', 64)
         };
-        ChartFile representative = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
-            ChartFileProjection.FromBmsFile(laterBms),
-            ChartFileProjection.FromBmsonSong(earlierBmson));
+        LibraryChartRef representativeRef = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+            LibraryChartRef.FromBmsFile(laterBms),
+            LibraryChartRef.FromBmsonSong(earlierBmson));
+        ChartFile representative = representativeRef.ToChartFileIdentity();
         var bmsonScore = new BMSScore
         {
             hash = earlierBmson.sha256,

@@ -15,12 +15,13 @@ internal sealed class LibraryChartRef
     private readonly BMSFile bmsFile;
     private readonly LR2SongDBExtended.bmson_song bmsonSong;
     private readonly ChartFile chartSnapshot;
+    private string directory;
 
     public LibraryChartKind Kind { get; }
 
     public string Path { get; }
 
-    public string Directory { get; }
+    public string Directory => directory ??= string.IsNullOrWhiteSpace(Path) ? null : System.IO.Path.GetDirectoryName(Path);
 
     public string Md5 { get; }
 
@@ -37,7 +38,6 @@ internal sealed class LibraryChartRef
     {
         Kind = kind;
         Path = string.IsNullOrWhiteSpace(path) ? null : path;
-        Directory = string.IsNullOrWhiteSpace(Path) ? null : System.IO.Path.GetDirectoryName(Path);
         Md5 = string.IsNullOrWhiteSpace(md5) ? null : md5.Trim();
         Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
         this.bmsFile = bmsFile;
@@ -154,6 +154,28 @@ internal sealed class LibraryChartRef
         if (bmsonSong != null)
         {
             return ChartFileProjection.FromBmsonSong(bmsonSong);
+        }
+
+        return null;
+    }
+
+    internal ChartFile ToChartFileIdentity()
+    {
+        if (chartSnapshot != null)
+        {
+            return ChartFileProjection.FromStorageOwnerListIdentity(chartSnapshot) ?? chartSnapshot;
+        }
+
+        BMSFile bmsFile = GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return ChartFileProjection.FromBmsStorageOwnerIdentity(bmsFile);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonStorageOwner();
+        if (bmsonSong != null)
+        {
+            return ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonSong);
         }
 
         return null;
