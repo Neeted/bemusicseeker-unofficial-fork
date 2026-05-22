@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using BeMusicSeeker.Models;
@@ -2960,6 +2961,74 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void NormalLibraryRowCache_ReusesSyncedBmsonRowsByReferenceAndPath()
+    {
+        var cache = new NormalLibraryRowCache();
+        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
+
+        BmsonLibraryRowCacheSyncResult firstResult = cache.SyncBmsonRows([original], null);
+        LibraryChartRow firstRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats());
+
+        Assert.IsTrue(firstResult.MembershipChanged);
+        Assert.IsTrue(firstResult.SortKeyChanged);
+        Assert.IsFalse(firstResult.SourceReferenceChanged);
+        Assert.AreEqual(1, cache.Count);
+        Assert.AreEqual(1, cache.SnapshotRows().Count);
+
+        LR2SongDBExtended.bmson_song samePathNext = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
+        BmsonLibraryRowCacheSyncResult secondResult = cache.SyncBmsonRows([samePathNext], null);
+        LibraryChartRow secondRow = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(samePathNext), new LibraryRowCacheBuildStats());
+
+        Assert.AreSame(firstRow, secondRow);
+        Assert.IsFalse(secondResult.MembershipChanged);
+        Assert.IsFalse(secondResult.SortKeyChanged);
+        Assert.IsTrue(secondResult.SourceReferenceChanged);
+        Assert.AreSame(secondRow, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats()));
+    }
+
+    [TestMethod]
+    public void NormalLibraryRowCache_DetectsBmsonSortKeyAndMembershipChanges()
+    {
+        var cache = new NormalLibraryRowCache();
+        LR2SongDBExtended.bmson_song original = CreateBmsonCacheSong(@"folder\chart.bmson", "Original");
+        cache.SyncBmsonRows([original], null);
+        LibraryChartRow row = cache.GetOrCreate(ChartFileProjection.FromBmsonSong(original), new LibraryRowCacheBuildStats());
+
+        LR2SongDBExtended.bmson_song changed = CreateBmsonCacheSong(@"folder\chart.bmson", "Changed");
+        BmsonLibraryRowCacheSyncResult changedResult = cache.SyncBmsonRows([changed], null);
+
+        Assert.AreSame(row, cache.GetOrCreate(ChartFileProjection.FromBmsonSong(changed), new LibraryRowCacheBuildStats()));
+        Assert.IsFalse(changedResult.MembershipChanged);
+        Assert.IsTrue(changedResult.SortKeyChanged);
+        Assert.IsTrue(changedResult.SourceReferenceChanged);
+        Assert.AreEqual("Changed", row.Title);
+
+        BmsonLibraryRowCacheSyncResult removedResult = cache.SyncBmsonRows([], null);
+
+        Assert.IsTrue(removedResult.MembershipChanged);
+        Assert.IsTrue(removedResult.SortKeyChanged);
+        Assert.IsFalse(removedResult.SourceReferenceChanged);
+        Assert.AreEqual(0, cache.Count);
+    }
+
+    [TestMethod]
+    public void NormalLibraryRowCache_DoesNotAttachUnsyncedBmsonRows()
+    {
+        var cache = new NormalLibraryRowCache();
+        var stats = new LibraryRowCacheBuildStats();
+
+        LibraryChartRow row = cache.GetOrCreate(
+            ChartFileProjection.FromBmsonSong(CreateBmsonCacheSong(@"folder\detached.bmson", "Detached")),
+            stats);
+
+        Assert.IsNotNull(row);
+        Assert.AreEqual(0, cache.Count);
+        Assert.AreEqual(0, cache.SnapshotRows().Count);
+        Assert.AreEqual(0, stats.HitCount);
+        Assert.AreEqual(0, stats.MissCount);
+    }
+
+    [TestMethod]
     public void BuildStandardLibraryRowsForView_UsesProvidedBmsRowFactoryAndReportsCacheMetrics()
     {
         var file = new TestableBmsFile();
@@ -2983,6 +3052,22 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, metrics.RegularRowCacheHitCount);
         Assert.AreEqual(0, metrics.RegularRowCacheMissCount);
         Assert.AreEqual(2, metrics.RegularRowCachePrunedCount);
+    }
+
+    private static LR2SongDBExtended.bmson_song CreateBmsonCacheSong(string path, string title)
+    {
+        return new LR2SongDBExtended.bmson_song
+        {
+            path = path,
+            folder = Path.GetDirectoryName(path) ?? string.Empty,
+            title = title,
+            artist = "Artist",
+            genre = "Genre",
+            mode_hint = "beat-7k",
+            level = 7,
+            md5 = "22222222222222222222222222222222",
+            sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+        };
     }
 
     [TestMethod]
