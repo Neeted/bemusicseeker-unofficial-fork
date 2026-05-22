@@ -1131,7 +1131,7 @@ public class BMSLibrary : NotificationObject
     public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
 
     internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(
-        ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false),
+        ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false, includeResourceReferences: false),
         ResolveChartInfoForChart);
 
     internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
@@ -6391,7 +6391,7 @@ reportProgress,
         lock (lockInstalledChartKeyIndex)
         {
             installedChartKeyIndex.Clear();
-            foreach (ChartFile installedChart in CreateInstalledChartSnapshot(BMSFiles, BmsonSongs))
+            foreach (InstalledChartLookupEntry installedChart in EnumerateInstalledChartLookupEntriesUnsafe())
             {
                 string key = installedChart.PrimaryLookupHash;
                 if (!string.IsNullOrWhiteSpace(key))
@@ -6913,6 +6913,24 @@ reportProgress,
         return knownChartDirectories;
     }
 
+    private IEnumerable<InstalledChartLookupEntry> EnumerateInstalledChartLookupEntriesUnsafe()
+    {
+        foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            if (bmsFile != null)
+            {
+                yield return new InstalledChartLookupEntry(bmsFile.path, bmsFile.hash, bmsFile.sha256);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            if (bmsonSong != null)
+            {
+                yield return new InstalledChartLookupEntry(bmsonSong.path, bmsonSong.md5, bmsonSong.sha256);
+            }
+        }
+    }
+
     private HashSet<string> CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
     {
         var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -6928,7 +6946,7 @@ reportProgress,
             }
         }
         var installedKeyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile installedChart in CreateInstalledChartSnapshot(BMSFiles, BmsonSongs))
+        foreach (InstalledChartLookupEntry installedChart in EnumerateInstalledChartLookupEntriesUnsafe())
         {
             string key2 = installedChart.PrimaryLookupHash;
             if (!string.IsNullOrWhiteSpace(key2))
@@ -7806,6 +7824,21 @@ reportProgress,
         internal string Artist { get; set; }
 
         internal string Path { get; set; }
+    }
+
+    private readonly struct InstalledChartLookupEntry
+    {
+        internal InstalledChartLookupEntry(string path, string md5, string sha256)
+        {
+            Path = path;
+            PrimaryLookupHash = !string.IsNullOrWhiteSpace(md5)
+                ? md5
+                : string.IsNullOrWhiteSpace(sha256) ? null : sha256;
+        }
+
+        internal string Path { get; }
+
+        internal string PrimaryLookupHash { get; }
     }
 
     private static bool IsChartPathWithinDestinationDirectory(string destinationDirectory, string chartPath)
@@ -10732,9 +10765,8 @@ reportProgress,
         {
             return [];
         }
-        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs)
-            .Where(installedChart => installedChart != null
-                && !string.Equals(installedChart.Path, chart.Path, StringComparison.OrdinalIgnoreCase)
+        return EnumerateInstalledChartLookupEntriesUnsafe()
+            .Where(installedChart => !string.Equals(installedChart.Path, chart.Path, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(installedChart.PrimaryLookupHash, lookupHash, StringComparison.OrdinalIgnoreCase))
             .Select(installedChart => installedChart.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path));
