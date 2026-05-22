@@ -191,7 +191,7 @@ internal sealed class BmsLibraryMaintenanceService
         bool forceUpdate = false,
         bool clearResourceReferences = false)
     {
-        if (!ChartFileKindResolver.IsBmsChartFile(file))
+        if (!ChartFileKindResolver.IsBmsChartFile(file) || !File.Exists(file.path))
         {
             return null;
         }
@@ -208,7 +208,7 @@ internal sealed class BmsLibraryMaintenanceService
         {
             if (clearResourceReferences)
             {
-                file.ClearResourceReferenceCache(clearComponentCollections: true);
+                file.ClearResourceReferenceCollections();
             }
         }
     }
@@ -242,7 +242,7 @@ internal sealed class BmsLibraryMaintenanceService
         {
             if (clearResourceReferences)
             {
-                file.ClearResourceReferenceCache(clearComponentCollections: true);
+                file.ClearResourceReferenceCollections();
             }
         }
     }
@@ -328,7 +328,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static bool ExistsOptionalImageResource(string chartDirectory, string file, ResourceHealthLookupContext lookupContext)
     {
-        string normalizedPath = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(file);
+        string normalizedPath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(file);
         if (string.IsNullOrWhiteSpace(normalizedPath))
         {
             return false;

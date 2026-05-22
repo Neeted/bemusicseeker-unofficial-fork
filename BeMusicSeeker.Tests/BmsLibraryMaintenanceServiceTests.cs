@@ -196,7 +196,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetHealthStatusUsingLookupContext_RootReferenceDoesNotMatchNestedResource()
+    public void BuildBmsResourceHealthMaintenanceInfo_RootReferenceDoesNotMatchNestedResource()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -215,10 +215,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 [],
                 []);
 
-            file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, new ResourceHealthLookupContext(cache), forceUpdate: true);
 
-            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, info.wav_files_defined);
+            Assert.AreEqual(0, info.wav_files_existing);
         }
         finally
         {
@@ -230,7 +230,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetHealthStatusUsingLookupContext_NestedReferenceDoesNotMatchRootResource()
+    public void BuildBmsResourceHealthMaintenanceInfo_NestedReferenceDoesNotMatchRootResource()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -249,10 +249,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 [],
                 []);
 
-            file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, new ResourceHealthLookupContext(cache), forceUpdate: true);
 
-            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, info.wav_files_defined);
+            Assert.AreEqual(0, info.wav_files_existing);
         }
         finally
         {
@@ -264,7 +264,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetHealthStatusUsingLookupContext_RootReferenceMatchesRootRelativeResource()
+    public void BuildBmsResourceHealthMaintenanceInfo_RootReferenceMatchesRootRelativeResource()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -283,10 +283,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 [],
                 []);
 
-            file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, new ResourceHealthLookupContext(cache), forceUpdate: true);
 
-            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(1, file.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, info.wav_files_defined);
+            Assert.AreEqual(1, info.wav_files_existing);
         }
         finally
         {
@@ -298,7 +298,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetHealthStatusWithoutLookupContext_RootReferenceDoesNotMatchNestedResource()
+    public void BuildBmsResourceHealthMaintenanceInfo_WithoutLookupContextRootReferenceDoesNotMatchNestedResource()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         string soundDirectoryPath = Path.Combine(tempDirectoryPath, "sound");
@@ -313,10 +313,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
 
-            file.SetHealthStatus(forceUpdate: true);
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, null, forceUpdate: true);
 
-            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, info.wav_files_defined);
+            Assert.AreEqual(0, info.wav_files_existing);
         }
         finally
         {
@@ -328,7 +328,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void SetHealthStatusWithoutLookupContext_NestedReferenceDoesNotMatchRootResource()
+    public void BuildBmsResourceHealthMaintenanceInfo_WithoutLookupContextNestedReferenceDoesNotMatchRootResource()
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -342,10 +342,41 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
 
-            file.SetHealthStatus(forceUpdate: true);
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, null, forceUpdate: true);
 
-            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, info.wav_files_defined);
+            Assert.AreEqual(0, info.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void BuildBmsResourceHealthMaintenanceInfo_MissingBmsFileReturnsNull()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n"
+            + "#WAV01 hit.wav\r\n"
+            + "#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            File.Delete(bmsFilePath);
+            file.ClearResourceReferenceCollections();
+
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, null, forceUpdate: true);
+
+            Assert.IsNull(info);
         }
         finally
         {
@@ -1719,11 +1750,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             var legacyFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             var cacheAwareFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            var legacyInfo = new BMSFileMaintenanceInfo(legacyFile)
-            {
-                hash = legacyFile.hash
-            };
-            legacyFile.SetHealthStatus(forceUpdate: false, memClear: false, legacyInfo);
+            BMSFileMaintenanceInfo legacyInfo = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(legacyFile, null, forceUpdate: false);
 
             var directoryLookupCache = new DirectoryResourceLookupCache();
             string[] relativeResources =
@@ -1736,11 +1763,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ];
             directoryLookupCache.AddDir(tempDirectoryPath, relativeResources);
             var lookupContext = new ResourceHealthLookupContext(directoryLookupCache);
-            var cacheInfo = new BMSFileMaintenanceInfo(cacheAwareFile)
-            {
-                hash = cacheAwareFile.hash
-            };
-            cacheAwareFile.SetHealthStatusUsingLookupContext(lookupContext, forceUpdate: false, memClear: false, cacheInfo);
+            BMSFileMaintenanceInfo cacheInfo = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(cacheAwareFile, lookupContext, forceUpdate: false);
 
             Assert.AreEqual(legacyInfo.wav_files_defined, cacheInfo.wav_files_defined);
             Assert.AreEqual(legacyInfo.wav_files_existing, cacheInfo.wav_files_existing);
@@ -1784,12 +1807,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             var file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             var lookupContext = new ResourceHealthLookupContext(null);
-            var info = new BMSFileMaintenanceInfo(file)
-            {
-                hash = file.hash
-            };
-
-            file.SetHealthStatusUsingLookupContext(lookupContext, forceUpdate: false, memClear: false, info);
+            BMSFileMaintenanceInfo info = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, lookupContext, forceUpdate: false);
 
             Assert.IsTrue(lookupContext.FileExistsFallbackCount >= 4);
             Assert.IsTrue(lookupContext.AudioFileExistsFallbackCount >= 1);
