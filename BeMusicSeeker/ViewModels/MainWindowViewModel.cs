@@ -10130,15 +10130,11 @@ public class MainWindowViewModel : ViewModel
         return includeWarningSnapshot ? state : state.WithoutWarnings();
     }
 
-    private void PruneSharedChartTransientStateCache(
-        IEnumerable<BeMusicSeeker.Models.BMSFile> currentBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentSongs)
+    private void PruneSharedChartTransientStateCache(IEnumerable<ChartFile> currentCharts)
     {
         var currentKeys = new HashSet<string>(
-            (currentBmsFiles ?? [])
-                .Select(file => GetSharedChartStateKey(ChartFileProjection.FromBmsStorageOwnerIdentity(file)))
-                .Concat((currentSongs ?? [])
-                    .Select(song => GetSharedChartStateKey(ChartFileProjection.FromBmsonStorageOwnerIdentity(song))))
+            (currentCharts ?? [])
+                .Select(GetSharedChartStateKey)
                 .Where(key => !string.IsNullOrWhiteSpace(key)),
             StringComparer.OrdinalIgnoreCase);
         foreach (string key in chartTransientStatesByKey.Keys.ToList())
@@ -16822,7 +16818,7 @@ public class MainWindowViewModel : ViewModel
         List<LR2SongDBExtended.bmson_song> snapshot = [.. (bmsonSongs ?? [])
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-        PruneSharedChartTransientStateCache(BMSFiles, snapshot);
+        PruneSharedChartTransientStateCache(CreateStandardLibraryChartSnapshot(BMSFiles, snapshot));
         var nextPaths = new HashSet<string>(snapshot.Select(song => song.path), StringComparer.OrdinalIgnoreCase);
         bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any(path => !nextPaths.Contains(path));
         bool sourceReferenceChanged = false;
