@@ -40,8 +40,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     {
         get
         {
-            BMSFile bmsFile = GetBmsStorageOwner();
-            ChartFile currentChart = bmsFile != null ? ChartFileProjection.FromBmsFile(bmsFile) : chart;
+            ChartFile currentChart = CreateCurrentChartFromStorageOwner();
             ChartFile projectedChart = projectedWarningCategories.Count > 0 || hasInstallDestinationProjection
                 ? ChartFileProjection.WithPackageState(
                     currentChart,
@@ -58,6 +57,13 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     }
 
     internal ChartResourceSnapshot ResourceSnapshot => ChartResourceSnapshot.Create(Chart);
+
+    internal object GetStorageMutationSyncRoot()
+    {
+        return (object)chart.GetBmsStorageOwner()
+            ?? (object)chart.GetBmsonStorageOwner()
+            ?? this;
+    }
 
     internal PackageChartEntry ToChartEntrySnapshot()
     {
@@ -169,21 +175,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void ApplyInstallDestination(string destinationDirectory, string title, string artist, bool preserveAmbiguousInstallContext = false)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            ReplacePendingInstallDestination(
-                destinationDirectory,
-                title,
-                artist,
-                preserveAmbiguousInstallContext ? installDestinationSuggestions : [],
-                forceProjection: true);
-            if (!preserveAmbiguousInstallContext)
-            {
-                ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
-            }
-            return;
-        }
         ReplacePendingInstallDestination(
             destinationDirectory,
             title,
@@ -198,12 +189,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     internal void ApplyInstallDestinationMetadata(string destinationDirectory, string title, string artist)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            ReplacePendingInstallDestination(destinationDirectory, title, artist, installDestinationSuggestions, forceProjection: true);
-            return;
-        }
         ReplacePendingInstallDestination(
             destinationDirectory,
             title,
@@ -402,12 +387,6 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
 
     private void ReplaceInstallDestinationState(string destinationDirectory, string title, string artist, IReadOnlyList<string> suggestions)
     {
-        BMSFile bmsFile = GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            ReplacePendingInstallDestination(destinationDirectory, title, artist, suggestions, forceProjection: true);
-            return;
-        }
         ReplacePendingInstallDestination(destinationDirectory, title, artist, suggestions, forceProjection: true);
     }
 
@@ -426,6 +405,23 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
     private BMSFile GetBmsStorageOwner()
     {
         return chart?.GetBmsStorageOwner();
+    }
+
+    private ChartFile CreateCurrentChartFromStorageOwner()
+    {
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return ChartFileProjection.FromBmsFile(bmsFile);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        if (bmsonSong != null)
+        {
+            return ChartFileProjection.FromBmsonSong(bmsonSong);
+        }
+
+        return chart;
     }
 
     internal static PackageChartEntry FromPath(string filePath)
