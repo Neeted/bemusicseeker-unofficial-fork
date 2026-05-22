@@ -35,6 +35,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
     private Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
+    private Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
+
     internal bool IsBmson => BmsonSong != null && BmsFile == null;
 
     internal bool IsBms => BmsFile != null;
@@ -46,7 +48,7 @@ internal sealed class LibraryChartRow : NotificationObject
         ChartFile providedChart = chartProvider?.Invoke();
         if (providedChart != null)
         {
-            return providedChart;
+            return ApplyChartInfoProjection(providedChart);
         }
         if (hasSourceChartProjection)
         {
@@ -84,6 +86,7 @@ internal sealed class LibraryChartRow : NotificationObject
         currentChart = sourceTransientBaseline != null
             ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
             : currentChart;
+        currentChart = ApplyChartInfoProjection(currentChart);
         return HasWarningProjection(transientState)
             ? ChartFileProjection.WithTransientState(currentChart, transientState)
             : currentChart;
@@ -173,6 +176,11 @@ internal sealed class LibraryChartRow : NotificationObject
     internal void SetChartTransientStateProvider(Func<ChartFile, bool, ChartFileTransientState> provider)
     {
         chartTransientStateProvider = provider;
+    }
+
+    internal void SetChartInfoProjectionProvider(Func<ChartFile, LR2SongDBExtended.chart_info> provider)
+    {
+        chartInfoProjectionProvider = provider;
     }
 
     internal BMSFile GetBmsStorageOwner()
@@ -535,6 +543,16 @@ internal sealed class LibraryChartRow : NotificationObject
             return providerState;
         }
         return ChartFileTransientState.Empty;
+    }
+
+    private ChartFile ApplyChartInfoProjection(ChartFile chart)
+    {
+        LR2SongDBExtended.chart_info resolved = chartInfoProjectionProvider?.Invoke(chart);
+        if (chart == null || resolved == null || ReferenceEquals(resolved, chart.ChartInfo))
+        {
+            return chart;
+        }
+        return ChartFileProjection.WithChartInfo(chart, resolved);
     }
 
     private static bool HasWarningProjection(ChartFileTransientState state)

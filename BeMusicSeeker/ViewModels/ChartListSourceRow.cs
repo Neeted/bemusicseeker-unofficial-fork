@@ -21,6 +21,8 @@ internal sealed class ChartListSourceRow
 
     private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
+    private readonly Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
+
     private readonly ChartFile identityChart;
 
     private readonly ChartFile sourceChart;
@@ -32,13 +34,15 @@ internal sealed class ChartListSourceRow
         bool hasSourceChartProjection,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider,
-        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider)
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider)
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
         this.hasSourceChartProjection = hasSourceChartProjection;
         this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.chartTransientStateProvider = chartTransientStateProvider;
+        this.chartInfoProjectionProvider = chartInfoProjectionProvider;
         identityChart = CreateChartFile(includeWarningSnapshot: false);
     }
 
@@ -169,16 +173,17 @@ internal sealed class ChartListSourceRow
                     sourceChart,
                     transientState,
                     includeWarningSnapshot: includeWarningSnapshot);
-                return ApplySourceProjectionWarnings(currentChart, transientState, includeWarningSnapshot);
+                return ApplySourceProjectionWarnings(ApplyChartInfoProjection(currentChart), transientState, includeWarningSnapshot);
             }
-            return includeWarningSnapshot ? sourceChart : ChartFileProjection.WithWarnings(sourceChart, []);
+            return ApplyChartInfoProjection(includeWarningSnapshot ? sourceChart : ChartFileProjection.WithWarnings(sourceChart, []));
         }
         return null;
     }
 
     private LR2SongDBExtended.chart_info ResolveChartInfoProjection()
     {
-        return ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(sourceChart);
+        return ResolveChartInfoFromProvider(sourceChart)
+            ?? ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(sourceChart);
     }
 
     private static bool HasWarningProjection(ChartFileTransientState state)
@@ -260,28 +265,32 @@ internal sealed class ChartListSourceRow
         ChartListSourceProjectionMode projectionMode = ChartListSourceProjectionMode.PreserveSourceProjection,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null)
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
     {
         return chart == null ? null : new ChartListSourceRow(
             chart,
             projectionMode == ChartListSourceProjectionMode.PreserveSourceProjection,
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
-            chartTransientStateProvider);
+            chartTransientStateProvider,
+            chartInfoProjectionProvider);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(
         IEnumerable<ChartFile> charts,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null)
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
     {
         return BuildStandardLibraryRows(
             charts,
             ChartListSourceProjectionMode.PreserveSourceProjection,
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
-            chartTransientStateProvider);
+            chartTransientStateProvider,
+            chartInfoProjectionProvider);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(
@@ -289,11 +298,27 @@ internal sealed class ChartListSourceRow
         ChartListSourceProjectionMode projectionMode,
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null)
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
     {
         return [.. (charts ?? [])
-            .Select(chart => FromChartFile(chart, projectionMode, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider))
+            .Select(chart => FromChartFile(chart, projectionMode, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider, chartInfoProjectionProvider))
             .Where(row => row != null)];
+    }
+
+    private ChartFile ApplyChartInfoProjection(ChartFile chart)
+    {
+        LR2SongDBExtended.chart_info resolved = ResolveChartInfoFromProvider(chart);
+        if (chart == null || resolved == null || ReferenceEquals(resolved, chart.ChartInfo))
+        {
+            return chart;
+        }
+        return ChartFileProjection.WithChartInfo(chart, resolved);
+    }
+
+    private LR2SongDBExtended.chart_info ResolveChartInfoFromProvider(ChartFile chart)
+    {
+        return chart == null ? null : chartInfoProjectionProvider?.Invoke(chart);
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjection()

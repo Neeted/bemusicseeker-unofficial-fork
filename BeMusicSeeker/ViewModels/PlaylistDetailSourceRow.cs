@@ -28,6 +28,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
+    private readonly Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
+
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
@@ -215,13 +217,15 @@ internal sealed class PlaylistDetailSourceRow
         BMSScore scoreSnapshot = null,
         LR2SongDBExtended.chart_info entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
-        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null)
+        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
         resolvedBmson = resolvedChart?.GetBmsonStorageOwner();
         EntryChartInfo = entryChartInfo;
         this.chartTransientStateProvider = chartTransientStateProvider;
+        this.chartInfoProjectionProvider = chartInfoProjectionProvider;
         Chart = CreateChartFile();
         ChartFile chart = Chart;
         ChartScoreSnapshot effectiveScore = ResolveEffectiveScore(chart, scoreSnapshot);
@@ -330,6 +334,7 @@ internal sealed class PlaylistDetailSourceRow
         if (bmsOwner != null)
         {
             ChartFile currentChart = ChartFileProjection.FromStorageOwner(resolvedChartSnapshot);
+            currentChart = ApplyChartInfoProjection(currentChart, resolvedChartSnapshot);
             return ChartFileProjection.WithTransientState(
                 currentChart,
                 GetChartTransientState(currentChart, includeWarningSnapshot: true));
@@ -340,6 +345,7 @@ internal sealed class PlaylistDetailSourceRow
             {
                 ChartFile ownerSource = ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
                 ChartFile projectedChart = ChartFileProjection.WithCurrentStorageOwnerChartInfo(resolvedChartSnapshot, ownerSource);
+                projectedChart = ApplyChartInfoProjection(projectedChart, ownerSource);
                 return ChartFileProjection.WithTransientState(
                     projectedChart,
                     GetChartTransientState(ChartFileProjection.FromStorageOwner(ownerSource, includeWarningSnapshot: false), includeWarningSnapshot: true));
@@ -372,18 +378,35 @@ internal sealed class PlaylistDetailSourceRow
         BMSFile bmsOwner = resolvedChartSnapshot?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
-            return ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(resolvedChartSnapshot);
+            return ResolveChartInfoFromProvider(resolvedChartSnapshot)
+                ?? ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(resolvedChartSnapshot);
         }
         if (resolvedBmson != null)
         {
             ChartFile ownerSource = resolvedChartSnapshot ?? ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
-            return ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(ownerSource);
+            return ResolveChartInfoFromProvider(ownerSource)
+                ?? ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(ownerSource);
         }
         if (resolvedChartSnapshot != null && EntryChartInfo == null)
         {
             return resolvedChartSnapshot.ChartInfo;
         }
         return EntryChartInfo;
+    }
+
+    private ChartFile ApplyChartInfoProjection(ChartFile chart, ChartFile identitySource)
+    {
+        LR2SongDBExtended.chart_info resolved = ResolveChartInfoFromProvider(identitySource ?? chart);
+        if (chart == null || resolved == null || ReferenceEquals(resolved, chart.ChartInfo))
+        {
+            return chart;
+        }
+        return ChartFileProjection.WithChartInfo(chart, resolved);
+    }
+
+    private LR2SongDBExtended.chart_info ResolveChartInfoFromProvider(ChartFile chart)
+    {
+        return chart == null ? null : chartInfoProjectionProvider?.Invoke(chart);
     }
 
     private ChartFileTransientState GetChartTransientState(ChartFile chart, bool includeWarningSnapshot)

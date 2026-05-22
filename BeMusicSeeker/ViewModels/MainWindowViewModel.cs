@@ -10090,6 +10090,7 @@ public class MainWindowViewModel : ViewModel
     private void ApplyLibraryChartRowProviders(LibraryChartRow row)
     {
         row?.SetChartTransientStateProvider(TryGetSharedChartTransientState);
+        row?.SetChartInfoProjectionProvider(ResolveChartInfoForProjection);
         ApplyResourceHealthProjectionProvider(row);
         ApplyPlaylistReferenceDisplayProvider(row);
     }
@@ -10183,6 +10184,15 @@ public class MainWindowViewModel : ViewModel
     private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForChart(ChartFile chart)
     {
         return files?.GetPlaylistReferenceDisplay(chart) ?? PlaylistReferenceDisplay.Empty;
+    }
+
+    private LR2SongDBExtended.chart_info ResolveChartInfoForProjection(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+        return files?.ResolveChartInfo(chart.Sha256, chart.Md5);
     }
 
     private LibraryChartRow CreateVirtualNormalLibraryRow(ChartListSourceRow sourceRow)
@@ -10379,7 +10389,8 @@ public class MainWindowViewModel : ViewModel
             subsetProjectionMode,
             applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
             GetPlaylistReferenceDisplayForSourceRow,
-            TryGetSharedChartTransientState);
+            TryGetSharedChartTransientState,
+            ResolveChartInfoForProjection);
         long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         int folderCount = sourceRows.Count;
         long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
@@ -10535,6 +10546,7 @@ public class MainWindowViewModel : ViewModel
         {
             ApplyResourceHealthProjectionProvider(row);
         }
+        row?.SetChartInfoProjectionProvider(ResolveChartInfoForProjection);
         ApplyPlaylistReferenceDisplayProvider(row);
         return row;
     }
@@ -10590,7 +10602,8 @@ public class MainWindowViewModel : ViewModel
             ChartListSourceProjectionMode.OwnerBacked,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
-            TryGetSharedChartTransientState);
+            TryGetSharedChartTransientState,
+            ResolveChartInfoForProjection);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -15503,7 +15516,8 @@ public class MainWindowViewModel : ViewModel
                 scoreSnapshotForRow,
                 entryChartInfo,
                 GetPlaylistReferenceDisplayForChart,
-                TryGetSharedChartTransientState));
+                TryGetSharedChartTransientState,
+                ResolveChartInfoForProjection));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
