@@ -125,7 +125,7 @@ internal sealed class ChartListSourceRow
 
     internal double? ScoreDifficulty => Chart?.Score?.ScoreDifficulty;
 
-    internal LR2SongDBExtended.chart_info ChartInfo => bmsFile?.ChartInfo ?? bmsonSong?.ChartInfo ?? sourceChart?.ChartInfo;
+    internal LR2SongDBExtended.chart_info ChartInfo => ResolveChartInfoProjection();
 
     private ChartInfoDisplaySnapshot ChartInfoDisplay => ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
 
@@ -187,6 +187,19 @@ internal sealed class ChartListSourceRow
             return includeWarningSnapshot ? sourceChart : ChartFileProjection.WithWarnings(sourceChart, []);
         }
         return null;
+    }
+
+    private LR2SongDBExtended.chart_info ResolveChartInfoProjection()
+    {
+        if (bmsFile != null)
+        {
+            return ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)?.ChartInfo;
+        }
+        if (bmsonSong != null)
+        {
+            return ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false)?.ChartInfo;
+        }
+        return sourceChart?.ChartInfo;
     }
 
     private static bool HasWarningProjection(ChartFileTransientState state)

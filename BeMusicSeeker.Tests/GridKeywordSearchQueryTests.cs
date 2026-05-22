@@ -182,6 +182,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(@"C:\Songs\Alpha\chart.bms", bmsSourceRow.Path);
         Assert.AreEqual("abcdefabcdefabcdefabcdefabcdefab", bmsSourceRow.Hash);
         Assert.AreSame(bmsChartInfo, bmsSourceRow.ChartInfo);
+        Assert.AreSame(bmsChartInfo, bmsSourceRow.Chart.ChartInfo);
         Assert.AreEqual(10, bmsSourceRow.ChartLevelSortKey);
 
         var song = new LR2SongDBExtended.bmson_song
@@ -212,6 +213,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(@"C:\Songs\Bmson\chart.bmson", bmsonSourceRow.Path);
         Assert.AreEqual("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", bmsonSourceRow.Hash);
         Assert.AreSame(bmsonChartInfo, bmsonSourceRow.ChartInfo);
+        Assert.AreSame(bmsonChartInfo, bmsonSourceRow.Chart.ChartInfo);
         Assert.AreEqual(11, bmsonSourceRow.ChartLevelSortKey);
     }
 

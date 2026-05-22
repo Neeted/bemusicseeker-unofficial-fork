@@ -814,6 +814,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("C:\\Installed\\Bmson", row.instl_dst);
         Assert.AreEqual("projected warning", row.DisplayWarning);
         Assert.IsTrue(row.HasHighlightedWarning);
+        Assert.AreSame(projectedChart, sourceRow.Chart);
         Assert.AreSame(projectedChart, row.Chart);
     }
 
@@ -2352,6 +2353,113 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("12", viewRow.ChartLevelText);
         Assert.AreEqual(2500, viewRow.ChartNotes);
         Assert.AreEqual("500", viewRow.ChartTotalText);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_OwnedBmsChartInfoFollowsOwnerProjectionAfterHydration()
+    {
+        var file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
+        var sourceRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(file), ChartFileProjection.FromBmsFile(file));
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('b', 64), file.hash, level: 13, notes: 3333, total: 700);
+
+        file.SetChartInfo(chartInfo);
+
+        Assert.AreSame(chartInfo, sourceRow.ChartInfo);
+        Assert.AreEqual(13, sourceRow.ChartLevelSortKey);
+        Assert.AreEqual(3333, sourceRow.ChartNotes);
+        PlaylistDetailRow viewRow = sourceRow.CreateViewRow();
+        Assert.AreSame(chartInfo, viewRow.Chart.ChartInfo);
+        Assert.AreEqual("13", viewRow.ChartLevelText);
+        Assert.AreEqual(3333, viewRow.ChartNotes);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_OwnedBmsonChartInfoFollowsOwnerProjectionAfterHydration()
+    {
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\OwnedBmson\chart.bmson",
+            title = "Owned Bmson",
+            artist = "Bmson Artist",
+            mode_hint = "beat-7k",
+            level = 7,
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('c', 64)
+        };
+        var entry = new TestablePlaylistEntry();
+        entry.SetTitle(song.title);
+        entry.SetMd5(song.md5);
+        entry.SetSha256(song.sha256);
+        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(song));
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('d', 64), song.md5, level: 14, notes: 4444, total: 800);
+
+        song.ChartInfo = chartInfo;
+
+        Assert.AreSame(chartInfo, sourceRow.ChartInfo);
+        Assert.AreEqual(14, sourceRow.ChartLevelSortKey);
+        Assert.AreEqual(4444, sourceRow.ChartNotes);
+        PlaylistDetailRow viewRow = sourceRow.CreateViewRow();
+        Assert.AreSame(chartInfo, viewRow.Chart.ChartInfo);
+        Assert.AreEqual("14", viewRow.ChartLevelText);
+        Assert.AreEqual(4444, viewRow.ChartNotes);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_OwnedBmsonProjectionPreservesMetadataWithTransientProvider()
+    {
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\OwnedBmsonProjection\chart.bmson",
+            title = "Storage Title",
+            artist = "Storage Artist",
+            mode_hint = "beat-7k",
+            level = 7,
+            md5 = "cccccccccccccccccccccccccccccccc",
+            sha256 = new string('e', 64)
+        };
+        ChartFile projectedChart = new(
+            ChartFileKind.Bmson,
+            song.path,
+            song.md5,
+            song.sha256,
+            "Projected Title",
+            "Projected Raw Title",
+            "Projected Artist",
+            "Projected Genre",
+            "Projected Folder",
+            "Projected Tag",
+            "12",
+            12d,
+            14,
+            chartInfo: null,
+            bmsFile: null,
+            bmsonSong: song,
+            installDestination: @"C:\Installed\Projected",
+            warnings: [ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "projected warning")]);
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5(song.md5);
+        entry.SetSha256(song.sha256);
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('f', 64), song.md5, level: 15, notes: 5555, total: 900);
+        song.ChartInfo = chartInfo;
+
+        var sourceRow = new PlaylistDetailSourceRow(
+            entry,
+            projectedChart,
+            chartTransientStateProvider: (_, _) => ChartFileTransientState.Empty);
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+
+        Assert.AreEqual("Projected Title", row.Title);
+        Assert.AreEqual("Projected Artist", row.Artist);
+        Assert.AreEqual("Projected Genre", row.genre);
+        Assert.AreEqual("Projected Tag", row.tag);
+        Assert.AreEqual(14, row.mode);
+        Assert.AreEqual("12", row.Level);
+        Assert.AreEqual(@"C:\Installed\Projected", row.instl_dst);
+        Assert.AreEqual("projected warning", row.DisplayWarning);
+        Assert.AreSame(chartInfo, row.Chart.ChartInfo);
+        Assert.AreEqual("15", row.ChartLevelText);
+        Assert.AreEqual(5555, row.ChartNotes);
     }
 
     [TestMethod]

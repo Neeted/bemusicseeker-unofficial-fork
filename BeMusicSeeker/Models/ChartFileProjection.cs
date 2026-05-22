@@ -74,6 +74,52 @@ internal static class ChartFileProjection
             source.Status);
     }
 
+    internal static ChartFile WithChartInfo(ChartFile source, LR2SongDBExtended.chart_info chartInfo)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            source.Kind,
+            source.Path,
+            source.Md5,
+            source.Sha256,
+            source.Title,
+            source.RawTitle,
+            source.Artist,
+            source.Genre,
+            source.Folder,
+            source.Tag,
+            source.LevelText,
+            source.Level,
+            source.Mode,
+            chartInfo,
+            source.GetBmsStorageOwner(),
+            source.GetBmsonStorageOwner(),
+            source.Subtitle,
+            source.AudioResourcePaths,
+            source.VisualResourcePaths,
+            source.Stagefile,
+            source.Backbmp,
+            source.Banner,
+            source.InstallDestination,
+            source.InstallDestinationTitle,
+            source.InstallDestinationArtist,
+            source.InstallDestinationSuggestions,
+            source.Warnings,
+            source.WAVHealth,
+            source.BGAHealth,
+            source.MovieHealth,
+            source.StagefileHealth,
+            source.BannerHealth,
+            source.BackbmpHealth,
+            source.EncodingName,
+            source.Score,
+            source.Status);
+    }
+
     internal static ChartFile WithPackageState(
         ChartFile source,
         string installDestination,
