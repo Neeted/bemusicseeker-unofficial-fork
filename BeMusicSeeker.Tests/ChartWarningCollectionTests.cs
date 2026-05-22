@@ -207,19 +207,19 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
-    public void CopyStructuredWarningsFrom_CopiesStructuredWarningsToSnapshot()
+    public void ReplaceAll_CopiesStructuredWarningsToSnapshot()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var source = new BMSFile();
-        source.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
-        source.SetWarning(ChartWarningKind.ResourceWavMissing, "wav missing");
-        var copy = new BMSFile();
+        var source = new ChartWarningCollection(() => { }, () => string.Empty);
+        source.Set(ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage));
+        source.Set(ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "wav missing"));
+        var copy = new ChartWarningCollection(() => { }, () => string.Empty);
 
-        copy.CopyStructuredWarningsFrom(source);
+        copy.ReplaceAll(source.ToStructuredList());
 
-        Assert.IsTrue(copy.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
-        Assert.IsTrue(copy.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
-        Assert.AreEqual(source.Warnings.BuildDigestText(), copy.Warnings.BuildDigestText());
+        Assert.IsTrue(copy.Contains(ChartWarningKind.NestedChartFileInPackage));
+        Assert.IsTrue(copy.Contains(ChartWarningKind.ResourceWavMissing));
+        Assert.AreEqual(source.BuildDigestText(), copy.BuildDigestText());
     }
 
     [TestMethod]

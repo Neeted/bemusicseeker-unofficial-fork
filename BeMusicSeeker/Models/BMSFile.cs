@@ -494,16 +494,6 @@ public class BMSFile : LR2SongDB.song
         Warnings.ReplaceCategory(category, warnings);
     }
 
-    internal void CopyStructuredWarningsFrom(BMSFile source)
-    {
-        Warnings.ReplaceAll(source?.Warnings.ToStructuredList() ?? Enumerable.Empty<ChartWarning>());
-    }
-
-    internal void ReplaceStructuredWarnings(IEnumerable<ChartWarning> warnings)
-    {
-        Warnings.ReplaceAll(warnings);
-    }
-
     internal void RaiseWarningPresentationChanged()
     {
         RaisePropertyChanged(() => Warnings);
