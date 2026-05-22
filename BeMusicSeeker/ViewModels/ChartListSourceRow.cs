@@ -24,6 +24,12 @@ internal sealed class ChartListSourceRow
 
     private readonly Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
 
+    private readonly Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider;
+
+    private readonly Func<int> chartInfoProjectionVersionProvider;
+
+    private readonly Func<int> scoreSnapshotVersionProvider;
+
     private readonly ChartFile identityChart;
 
     private readonly ChartFile sourceChart;
@@ -44,6 +50,18 @@ internal sealed class ChartListSourceRow
 
     private int cachedChartPackageProjectionVersion;
 
+    private ChartInfoDisplaySnapshot cachedChartInfoDisplay;
+
+    private bool cachedChartInfoDisplayValid;
+
+    private int cachedChartInfoDisplayVersion;
+
+    private ChartScoreSnapshot cachedScoreSnapshot;
+
+    private bool cachedScoreSnapshotValid;
+
+    private int cachedScoreSnapshotVersion;
+
     private ChartListSourceRow(
         ChartFile sourceChart,
         bool hasSourceChartProjection,
@@ -51,6 +69,9 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider,
         Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null,
         PackageChartEntry packageEntry = null,
         bool hideResourceHealthDigestWhenInstallDestinationSet = true)
     {
@@ -60,6 +81,9 @@ internal sealed class ChartListSourceRow
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.chartTransientStateProvider = chartTransientStateProvider;
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
+        this.chartInfoRowProjectionProvider = chartInfoRowProjectionProvider;
+        this.chartInfoProjectionVersionProvider = chartInfoProjectionVersionProvider;
+        this.scoreSnapshotVersionProvider = scoreSnapshotVersionProvider;
         this.packageEntry = packageEntry;
         this.hideResourceHealthDigestWhenInstallDestinationSet = hideResourceHealthDigestWhenInstallDestinationSet;
         bmsStorageOwner = sourceChart.GetBmsStorageOwner();
@@ -73,7 +97,10 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null)
     {
         this.bmsStorageOwner = bmsStorageOwner;
         this.bmsonStorageOwner = bmsonStorageOwner;
@@ -81,6 +108,9 @@ internal sealed class ChartListSourceRow
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.chartTransientStateProvider = chartTransientStateProvider;
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
+        this.chartInfoRowProjectionProvider = chartInfoRowProjectionProvider;
+        this.chartInfoProjectionVersionProvider = chartInfoProjectionVersionProvider;
+        this.scoreSnapshotVersionProvider = scoreSnapshotVersionProvider;
         hideResourceHealthDigestWhenInstallDestinationSet = true;
     }
 
@@ -190,37 +220,39 @@ internal sealed class ChartListSourceRow
 
     internal string EncodingName => Chart?.EncodingName ?? string.Empty;
 
-    internal ClearType Clear => Chart?.Score?.Clear ?? ChartScoreSnapshot.MissingChart.Clear;
+    internal ClearType Clear => ScoreSnapshot.Clear;
 
-    internal RankType Rank => Chart?.Score?.Rank ?? RankType.INVALID;
+    internal RankType Rank => ScoreSnapshot.Rank;
 
-    internal double? RateDouble => Chart?.Score?.RateDouble;
+    internal double? RateDouble => ScoreSnapshot.RateDouble;
 
-    internal int? Rate => Chart?.Score?.Rate;
+    internal int? Rate => ScoreSnapshot.Rate;
 
-    internal int? Score => Chart?.Score?.Score;
+    internal int? Score => ScoreSnapshot.Score;
 
-    internal int? TotalNotes => Chart?.Score?.TotalNotes;
+    internal int? TotalNotes => ScoreSnapshot.TotalNotes;
 
-    internal int? MaxCombo => Chart?.Score?.MaxCombo;
+    internal int? MaxCombo => ScoreSnapshot.MaxCombo;
 
-    internal int? MinBp => Chart?.Score?.MinBp;
+    internal int? MinBp => ScoreSnapshot.MinBp;
 
-    internal int? Ranking => Chart?.Score?.Ranking;
+    internal int? Ranking => ScoreSnapshot.Ranking;
 
-    internal int? RankingNum => Chart?.Score?.RankingNum;
+    internal int? RankingNum => ScoreSnapshot.RankingNum;
 
-    internal string RankingString => Chart?.Score?.RankingString ?? string.Empty;
+    internal string RankingString => ScoreSnapshot.RankingString;
 
-    internal DateTime? RankingLastUpdate => Chart?.Score?.RankingLastUpdate;
+    internal DateTime? RankingLastUpdate => ScoreSnapshot.RankingLastUpdate;
 
-    internal double? StdDevVal => Chart?.Score?.StdDevVal;
+    internal double? StdDevVal => ScoreSnapshot.StdDevVal;
 
-    internal double? ScoreDifficulty => Chart?.Score?.ScoreDifficulty;
+    internal double? ScoreDifficulty => ScoreSnapshot.ScoreDifficulty;
+
+    private ChartScoreSnapshot ScoreSnapshot => GetScoreSnapshot();
 
     internal LR2SongDBExtended.chart_info ChartInfo => ResolveChartInfoProjection();
 
-    private ChartInfoDisplaySnapshot ChartInfoDisplay => ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
+    private ChartInfoDisplaySnapshot ChartInfoDisplay => GetChartInfoDisplay();
 
     internal double? ChartLevelSortKey => ChartInfoDisplay.ChartLevelSortKey;
 
@@ -332,9 +364,28 @@ internal sealed class ChartListSourceRow
 
     private LR2SongDBExtended.chart_info ResolveChartInfoProjection()
     {
+        LR2SongDBExtended.chart_info rowResolved = chartInfoRowProjectionProvider?.Invoke(this);
+        if (rowResolved != null)
+        {
+            return rowResolved;
+        }
+
         ChartFile chart = sourceChart ?? CreateStorageOwnerIdentityChart();
         return ResolveChartInfoFromProvider(chart)
             ?? ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(chart);
+    }
+
+    private ChartScoreSnapshot ResolveScoreSnapshot()
+    {
+        if (bmsStorageOwner != null)
+        {
+            return ChartScoreSnapshot.FromBmsFile(bmsStorageOwner);
+        }
+        if (bmsonStorageOwner != null)
+        {
+            return ChartScoreSnapshot.NoScore(bmsonStorageOwner.path);
+        }
+        return Chart?.Score ?? ChartScoreSnapshot.MissingChart;
     }
 
     private static bool HasWarningProjection(ChartFileTransientState state)
@@ -424,6 +475,9 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
         Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null,
         bool hideResourceHealthDigestWhenInstallDestinationSet = true)
     {
         return chart == null ? null : new ChartListSourceRow(
@@ -433,6 +487,9 @@ internal sealed class ChartListSourceRow
             playlistReferenceDisplayProvider,
             chartTransientStateProvider,
             chartInfoProjectionProvider,
+            chartInfoRowProjectionProvider,
+            chartInfoProjectionVersionProvider,
+            scoreSnapshotVersionProvider,
             hideResourceHealthDigestWhenInstallDestinationSet: hideResourceHealthDigestWhenInstallDestinationSet);
     }
 
@@ -441,7 +498,10 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null)
     {
         return file == null ? null : new ChartListSourceRow(
             file,
@@ -449,7 +509,10 @@ internal sealed class ChartListSourceRow
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
             chartTransientStateProvider,
-            chartInfoProjectionProvider);
+            chartInfoProjectionProvider,
+            chartInfoRowProjectionProvider,
+            chartInfoProjectionVersionProvider,
+            scoreSnapshotVersionProvider);
     }
 
     internal static ChartListSourceRow FromBmsonStorageOwner(
@@ -457,7 +520,10 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null)
     {
         return song == null ? null : new ChartListSourceRow(
             null,
@@ -465,7 +531,10 @@ internal sealed class ChartListSourceRow
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
             chartTransientStateProvider,
-            chartInfoProjectionProvider);
+            chartInfoProjectionProvider,
+            chartInfoRowProjectionProvider,
+            chartInfoProjectionVersionProvider,
+            scoreSnapshotVersionProvider);
     }
 
     internal static ChartListSourceRow FromPackageChartEntry(
@@ -473,7 +542,10 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null)
     {
         ChartFile chart = entry?.Chart;
         return chart == null ? null : new ChartListSourceRow(
@@ -483,6 +555,9 @@ internal sealed class ChartListSourceRow
             playlistReferenceDisplayProvider,
             chartTransientStateProvider,
             chartInfoProjectionProvider,
+            chartInfoRowProjectionProvider,
+            chartInfoProjectionVersionProvider,
+            scoreSnapshotVersionProvider,
             entry,
             hideResourceHealthDigestWhenInstallDestinationSet: false);
     }
@@ -492,7 +567,10 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null)
     {
         return BuildStandardLibraryRows(
             charts,
@@ -500,7 +578,10 @@ internal sealed class ChartListSourceRow
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
             chartTransientStateProvider,
-            chartInfoProjectionProvider);
+            chartInfoProjectionProvider,
+            chartInfoRowProjectionProvider,
+            chartInfoProjectionVersionProvider,
+            scoreSnapshotVersionProvider);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(
@@ -509,10 +590,13 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null)
     {
         return [.. (charts ?? [])
-            .Select(chart => FromChartFile(chart, projectionMode, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider, chartInfoProjectionProvider))
+            .Select(chart => FromChartFile(chart, projectionMode, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider, chartInfoProjectionProvider, chartInfoRowProjectionProvider, chartInfoProjectionVersionProvider, scoreSnapshotVersionProvider))
             .Where(row => row != null)];
     }
 
@@ -521,11 +605,78 @@ internal sealed class ChartListSourceRow
         Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null)
+        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = null,
+        Func<int> chartInfoProjectionVersionProvider = null,
+        Func<int> scoreSnapshotVersionProvider = null)
     {
         return [.. (entries ?? [])
-            .Select(entry => FromPackageChartEntry(entry, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider, chartInfoProjectionProvider))
+            .Select(entry => FromPackageChartEntry(entry, resourceHealthProjectionProvider, playlistReferenceDisplayProvider, chartTransientStateProvider, chartInfoProjectionProvider, chartInfoRowProjectionProvider, chartInfoProjectionVersionProvider, scoreSnapshotVersionProvider))
             .Where(row => row != null)];
+    }
+
+    private ChartInfoDisplaySnapshot GetChartInfoDisplay()
+    {
+        if (chartInfoProjectionVersionProvider == null && packageEntry == null)
+        {
+            return ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
+        }
+
+        int version = GetChartInfoDisplayCacheVersion();
+        if (cachedChartInfoDisplayValid && cachedChartInfoDisplayVersion == version)
+        {
+            return cachedChartInfoDisplay ?? ChartInfoDisplaySnapshot.Empty;
+        }
+
+        cachedChartInfoDisplay = ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
+        cachedChartInfoDisplayVersion = version;
+        cachedChartInfoDisplayValid = true;
+        return cachedChartInfoDisplay ?? ChartInfoDisplaySnapshot.Empty;
+    }
+
+    private ChartScoreSnapshot GetScoreSnapshot()
+    {
+        if (scoreSnapshotVersionProvider == null && packageEntry == null)
+        {
+            return ResolveScoreSnapshot();
+        }
+
+        int version = GetScoreSnapshotCacheVersion();
+        if (cachedScoreSnapshotValid && cachedScoreSnapshotVersion == version)
+        {
+            return cachedScoreSnapshot ?? ChartScoreSnapshot.MissingChart;
+        }
+
+        cachedScoreSnapshot = ResolveScoreSnapshot();
+        cachedScoreSnapshotVersion = version;
+        cachedScoreSnapshotValid = true;
+        return cachedScoreSnapshot ?? ChartScoreSnapshot.MissingChart;
+    }
+
+    private int GetChartInfoDisplayCacheVersion()
+    {
+        unchecked
+        {
+            int version = chartInfoProjectionVersionProvider?.Invoke() ?? 0;
+            if (packageEntry != null)
+            {
+                version = (version * 397) ^ packageEntry.ProjectionVersion;
+            }
+            return version;
+        }
+    }
+
+    private int GetScoreSnapshotCacheVersion()
+    {
+        unchecked
+        {
+            int version = scoreSnapshotVersionProvider?.Invoke() ?? 0;
+            if (packageEntry != null)
+            {
+                version = (version * 397) ^ packageEntry.ProjectionVersion;
+            }
+            return version;
+        }
     }
 
     private ChartFile ApplyChartInfoProjection(ChartFile chart)

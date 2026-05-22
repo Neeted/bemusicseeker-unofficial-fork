@@ -5732,6 +5732,12 @@ public class MainWindowViewModel : ViewModel
 
     private int virtualNormalLibraryOrderPrewarmRunId;
 
+    private const int StartupVirtualNormalLibraryOrderPrewarmMaxPriority = 1;
+
+    private int chartInfoProjectionVersionCache;
+
+    private int scoreSnapshotProjectionVersionCache;
+
     private long normalLibrarySourceGeneration;
 
     private long normalLibrarySortKeyGeneration;
@@ -8610,6 +8616,7 @@ public class MainWindowViewModel : ViewModel
 
     private void RefreshChartInfoDependentViews()
     {
+        UpdateChartInfoProjectionVersionCache();
         BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
         MainViewDataDependency libraryDependency = bmsonSyncResult.SourceChanged
             ? MainViewDataDependency.SourceMembership
@@ -10279,6 +10286,31 @@ public class MainWindowViewModel : ViewModel
         return files?.ResolveChartInfo(chart.Sha256, chart.Md5);
     }
 
+    private LR2SongDBExtended.chart_info ResolveChartInfoForSourceRow(ChartListSourceRow row)
+    {
+        return row == null ? null : files?.ResolveChartInfo(row.Sha256, row.Hash);
+    }
+
+    private int GetChartInfoProjectionVersion()
+    {
+        return Volatile.Read(ref chartInfoProjectionVersionCache);
+    }
+
+    private int GetScoreSnapshotProjectionVersion()
+    {
+        return Volatile.Read(ref scoreSnapshotProjectionVersionCache);
+    }
+
+    private void UpdateChartInfoProjectionVersionCache()
+    {
+        Volatile.Write(ref chartInfoProjectionVersionCache, files?.ChartInfoIndexVersion ?? 0);
+    }
+
+    private void UpdateScoreSnapshotProjectionVersionCache()
+    {
+        Volatile.Write(ref scoreSnapshotProjectionVersionCache, files?.ScoreSnapshotVersion ?? 0);
+    }
+
     private LibraryChartRow CreateVirtualNormalLibraryRow(ChartListSourceRow sourceRow)
     {
         if (sourceRow == null)
@@ -10299,6 +10331,8 @@ public class MainWindowViewModel : ViewModel
             return false;
         }
         ResetRegularDerivedViewCaches();
+        UpdateChartInfoProjectionVersionCache();
+        UpdateScoreSnapshotProjectionVersionCache();
 
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
@@ -10314,8 +10348,8 @@ public class MainWindowViewModel : ViewModel
             effectiveTreeFilter?.Identity,
             KeywordFilter,
             ModeFilter,
-            files?.ScoreSnapshotVersion ?? 0,
-            files?.ChartInfoIndexVersion ?? 0);
+            GetScoreSnapshotProjectionVersion(),
+            GetChartInfoProjectionVersion());
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         ChartListOrder fullOrder = GetOrCreateVirtualNormalLibraryOrder(
             sourceRows,
@@ -10460,6 +10494,8 @@ public class MainWindowViewModel : ViewModel
         }
 
         ResetRegularDerivedViewCaches();
+        UpdateChartInfoProjectionVersionCache();
+        UpdateScoreSnapshotProjectionVersionCache();
 
         long sourceGenerationAtLookup;
         long sortKeyGenerationAtLookup;
@@ -10477,14 +10513,20 @@ public class MainWindowViewModel : ViewModel
                 applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
                 GetPlaylistReferenceDisplayForSourceRow,
                 TryGetSharedChartTransientState,
-                ResolveChartInfoForProjection)
+                ResolveChartInfoForProjection,
+                ResolveChartInfoForSourceRow,
+                GetChartInfoProjectionVersion,
+                GetScoreSnapshotProjectionVersion)
             : ChartListSourceRow.BuildStandardLibraryRows(
                 subsetCharts,
                 subsetProjectionMode,
                 applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
                 GetPlaylistReferenceDisplayForSourceRow,
                 TryGetSharedChartTransientState,
-                ResolveChartInfoForProjection);
+                ResolveChartInfoForProjection,
+                ResolveChartInfoForSourceRow,
+                GetChartInfoProjectionVersion,
+                GetScoreSnapshotProjectionVersion);
         long sourceRowsMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         long folderStageMs = sourceRowsMs;
         int folderCount = sourceRows.Count;
@@ -10745,6 +10787,9 @@ public class MainWindowViewModel : ViewModel
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = GetPlaylistReferenceDisplayForSourceRow;
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = TryGetSharedChartTransientState;
         Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = ResolveChartInfoForProjection;
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = ResolveChartInfoForSourceRow;
+        Func<int> chartInfoProjectionVersionProvider = GetChartInfoProjectionVersion;
+        Func<int> scoreSnapshotVersionProvider = GetScoreSnapshotProjectionVersion;
         foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles ?? [])
         {
             if (file == null)
@@ -10756,7 +10801,10 @@ public class MainWindowViewModel : ViewModel
                 resourceHealthProjectionProvider,
                 playlistReferenceDisplayProvider,
                 chartTransientStateProvider,
-                chartInfoProjectionProvider);
+                chartInfoProjectionProvider,
+                chartInfoRowProjectionProvider,
+                chartInfoProjectionVersionProvider,
+                scoreSnapshotVersionProvider);
             if (row != null)
             {
                 sourceRows.Add(row);
@@ -10770,6 +10818,9 @@ public class MainWindowViewModel : ViewModel
         Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = GetPlaylistReferenceDisplayForSourceRow;
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = TryGetSharedChartTransientState;
         Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = ResolveChartInfoForProjection;
+        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = ResolveChartInfoForSourceRow;
+        Func<int> chartInfoProjectionVersionProvider = GetChartInfoProjectionVersion;
+        Func<int> scoreSnapshotVersionProvider = GetScoreSnapshotProjectionVersion;
         foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)).OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase))
         {
             ChartListSourceRow row = ChartListSourceRow.FromBmsonStorageOwner(
@@ -10777,7 +10828,10 @@ public class MainWindowViewModel : ViewModel
                 resourceHealthProjectionProvider,
                 playlistReferenceDisplayProvider,
                 chartTransientStateProvider,
-                chartInfoProjectionProvider);
+                chartInfoProjectionProvider,
+                chartInfoRowProjectionProvider,
+                chartInfoProjectionVersionProvider,
+                scoreSnapshotVersionProvider);
             if (row != null)
             {
                 sourceRows.Add(row);
@@ -11057,38 +11111,15 @@ public class MainWindowViewModel : ViewModel
 
     private IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()
     {
-        return CreateVirtualNormalLibrarySortPrewarmDescriptors(GetVisibleNormalLibraryVirtualSortColumnsForPrewarm());
+        return CreateVirtualNormalLibrarySortPrewarmDescriptors(StartupVirtualNormalLibraryOrderPrewarmMaxPriority);
     }
 
-    private HashSet<string> GetVisibleNormalLibraryVirtualSortColumnsForPrewarm()
+    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualNormalLibrarySortPrewarmDescriptors(int maxPrewarmPriority)
     {
-        return GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(ColumnsSettingsChartRowsView);
-    }
-
-    private static HashSet<string> GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(CustomTableColumnSettings settings)
-    {
-        var columns = new HashSet<string>(StringComparer.Ordinal);
-        foreach (CustomTableColumn column in CustomTableColumnFactory.CreateMainColumns(settings ?? new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)))
-        {
-            if (string.IsNullOrWhiteSpace(column?.SortMemberPath))
-            {
-                continue;
-            }
-            if (ChartListOrder.TryNormalizeVirtualSortColumn(column.SortMemberPath, out string normalizedColumnName))
-            {
-                columns.Add(normalizedColumnName);
-            }
-        }
-        return columns;
-    }
-
-    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualNormalLibrarySortPrewarmDescriptors(ISet<string> visibleColumnNames)
-    {
-        ISet<string> safeVisibleColumnNames = visibleColumnNames ?? new HashSet<string>(StringComparer.Ordinal);
         return [.. ChartListOrder.GetVirtualSortColumnMetadata()
             .Select((column, index) => new { Column = column, Index = index })
             .Where(item => item.Column.PrewarmPriority > 0)
-            .Where(item => item.Column.PrewarmPriority == 1 || safeVisibleColumnNames.Contains(item.Column.NormalizedColumnName))
+            .Where(item => item.Column.PrewarmPriority <= maxPrewarmPriority)
             .OrderBy(item => item.Column.PrewarmPriority)
             .ThenBy(item => GetVirtualNormalLibraryPrewarmOrder(item.Column.NormalizedColumnName))
             .ThenBy(item => item.Index)
@@ -11130,12 +11161,13 @@ public class MainWindowViewModel : ViewModel
 
     internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest()
     {
-        return CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD));
+        return CreateVirtualNormalLibrarySortPrewarmDescriptors(StartupVirtualNormalLibraryOrderPrewarmMaxPriority);
     }
 
     internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(CustomTableColumnSettings settings)
     {
-        return CreateVirtualNormalLibrarySortPrewarmDescriptors(GetVisibleNormalLibraryVirtualSortColumnsForPrewarm(settings));
+        _ = settings;
+        return CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();
     }
 
     internal static int ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(int descriptorCount)
@@ -14413,6 +14445,7 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreSnapshotVersion, delegate
         {
+            UpdateScoreSnapshotProjectionVersionCache();
             if (!IsPlaylistDetailViewActive)
             {
                 return;

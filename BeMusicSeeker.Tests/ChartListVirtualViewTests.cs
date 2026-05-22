@@ -778,7 +778,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void DefaultVirtualOrderPrewarmDescriptors_FollowVisibleColumnsAndPriorities()
+    public void DefaultVirtualOrderPrewarmDescriptors_LimitStartupWorkToIdentityPriority()
     {
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
@@ -787,9 +787,12 @@ public sealed class ChartListVirtualViewTests
             .Select(descriptor => descriptor.ColumnName)];
 
         CollectionAssert.Contains(columns, nameof(LibraryChartRow.Title));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.rateDouble));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartTotalSortKey));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartFeatureSortKey));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.Folder));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.path));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.Artist));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.rateDouble));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.ChartTotalSortKey));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.ChartFeatureSortKey));
         CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.hash));
         CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.score));
         CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.maxcombo));
@@ -799,7 +802,7 @@ public sealed class ChartListVirtualViewTests
             .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
             .Select(descriptor => descriptor.ColumnName)];
 
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.maxcombo));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.maxcombo));
     }
 
     [TestMethod]
@@ -2178,30 +2181,7 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.Title),
             nameof(LibraryChartRow.Folder),
             nameof(LibraryChartRow.path),
-            nameof(LibraryChartRow.Artist),
-            nameof(LibraryChartRow.clear),
-            nameof(LibraryChartRow.rateDouble),
-            nameof(LibraryChartRow.minbp),
-            nameof(LibraryChartRow.ChartJudgeSortKey),
-            nameof(LibraryChartRow.ChartNotes),
-            nameof(LibraryChartRow.ChartLongNotes),
-            nameof(LibraryChartRow.ChartScratchNotes),
-            nameof(LibraryChartRow.ChartMainBpmSortKey),
-            nameof(LibraryChartRow.ChartMinBpmSortKey),
-            nameof(LibraryChartRow.ChartMaxBpmSortKey),
-            nameof(LibraryChartRow.ChartSoflanCount),
-            nameof(LibraryChartRow.ChartTotalSortKey),
-            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
-            nameof(LibraryChartRow.ChartDurationSortKey),
-            nameof(LibraryChartRow.ChartDensitySortKey),
-            nameof(LibraryChartRow.ChartPeakDensitySortKey),
-            nameof(LibraryChartRow.ChartEndDensitySortKey),
-            nameof(LibraryChartRow.genre),
-            nameof(LibraryChartRow.mode),
-            nameof(LibraryChartRow.RefTablesSymbols),
-            nameof(LibraryChartRow.ChartLevelSortKey),
-            nameof(LibraryChartRow.ChartDifficultySortKey),
-            nameof(LibraryChartRow.ChartFeatureSortKey)
+            nameof(LibraryChartRow.Artist)
         ];
     }
 
