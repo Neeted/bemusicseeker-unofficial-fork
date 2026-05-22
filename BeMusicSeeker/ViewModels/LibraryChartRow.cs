@@ -216,17 +216,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string tag => Chart?.Tag ?? string.Empty;
 
-    public string Level
-    {
-        get => Chart?.LevelText ?? string.Empty;
-        set
-        {
-            if (BmsFile != null)
-            {
-                BmsFile.Level = value;
-            }
-        }
-    }
+    public string Level => Chart?.LevelText ?? string.Empty;
 
     public double? level => Chart?.Level;
 
@@ -246,17 +236,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string sha256 => Chart?.Sha256 ?? string.Empty;
 
-    public string Folder
-    {
-        get => BmsFile?.Folder ?? (BmsonSong != null ? BmsonSongParser.ComposeDisplayFolder(BmsonSong) : Chart?.Folder ?? string.Empty);
-        set
-        {
-            if (BmsFile != null)
-            {
-                BmsFile.Folder = value;
-            }
-        }
-    }
+    public string Folder => BmsFile?.Folder ?? (BmsonSong != null ? BmsonSongParser.ComposeDisplayFolder(BmsonSong) : Chart?.Folder ?? string.Empty);
 
     public string path => BmsFile?.path ?? BmsonSong?.path ?? Chart?.Path ?? string.Empty;
 

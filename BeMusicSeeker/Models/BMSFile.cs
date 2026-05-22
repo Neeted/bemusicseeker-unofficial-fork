@@ -410,27 +410,11 @@ public class BMSFile : LR2SongDB.song
         return _cachedComposedTitle;
     }
 
-    public int? notes
-    {
-        get
-        {
-            return base.karinotes;
-        }
-        protected set
-        {
-            base.karinotes = value;
-        }
-    }
-
     public virtual string Level
     {
         get
         {
             return base.level.ToString();
-        }
-        set
-        {
-            throw new NotImplementedException();
         }
     }
 
@@ -439,10 +423,6 @@ public class BMSFile : LR2SongDB.song
         get
         {
             return Path.GetFileName(Path.GetDirectoryName(path));
-        }
-        set
-        {
-            throw new NotImplementedException();
         }
     }
 

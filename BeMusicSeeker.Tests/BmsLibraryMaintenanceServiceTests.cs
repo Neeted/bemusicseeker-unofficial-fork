@@ -1786,11 +1786,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         return song;
     }
 
-    private static void SetNotes(BMSFile file, int? value)
-    {
-        typeof(BMSFile).GetProperty(nameof(BMSFile.notes))!.GetSetMethod(nonPublic: true)!.Invoke(file, [value]);
-    }
-
     private static LR2SongDBExtended.chart_info CreateChartInfo(string md5, int notes)
     {
         return new LR2SongDBExtended.chart_info
@@ -1811,7 +1806,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         public void SetNotes(int? value)
         {
-            notes = value;
+            karinotes = value;
         }
 
         public void SetTitle(string value)

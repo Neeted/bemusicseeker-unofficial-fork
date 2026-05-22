@@ -125,7 +125,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
         internal void SetNotes(int? value)
         {
-            notes = value;
+            karinotes = value;
         }
     }
 

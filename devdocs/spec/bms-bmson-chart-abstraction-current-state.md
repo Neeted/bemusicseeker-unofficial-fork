@@ -52,6 +52,10 @@ BMS の所持譜面の正本は `BMSLibrary.BMSFiles` であり、要素は `BMS
 
 `BMSFile` は LR2 score row の attachment と listener lifecycle を持つが、clear / rank / rate / ranking などの一覧表示・sort 用 getter は持たない。score 表示値は `ChartScoreSnapshot` を介して `ChartFile` / row read model 側で解決する。
 
+LR2 song の provisional note count は base `LR2SongDB.song.karinotes` 列として残す。`BMSFile.notes` のような chart_info / 表示語彙に見える alias は production 参照がなく、BMS storage row と chart_info の境界を曖昧にするため残さない。譜面メタデータの notes 表示・検索は `ChartInfo` / `ChartInfoDisplaySnapshot` を通す。
+
+`BMSFile.Level` / `BMSFile.Folder` は LR2 song row 由来の表示値を読むだけの getter として残す。手動編集可能な chart-common mutable property ではないため setter は持たない。FOLDER セル編集は `GridRowResolver.TryGetFolderEditChartOperationTarget(...)` から `RenameChartFolder(...)` へ入る chart operation として扱い、LEVEL 編集は playlist detail row の entry-level 編集に限定する。
+
 playlist reference の mutable cache は `BMSFile` には残さない。表示列の `RefTablesSymbols` / `RefTablesNames` は歴史的な UI / column 名として残るが、実データは `PlaylistReferenceIndex` と chart identity から解決する。
 
 `BMSFile` は BMS storage owner に紐付く structured warning collection と BMS 専用 producer からの mutation helper（重複、zero-note、LR2 path encoding など）を持つ。ただし warning の digest / tooltip / display text は `BMSFile` の表示 alias としては持たず、`ChartWarningCollection` / `ChartWarningProjectionFormatter` と row read model 側で解決する。production から使われない copy / replace-all 用の `BMSFile` 互換 wrapper は残さず、collection 全体の検証は `ChartWarningCollection` を直接対象にする。

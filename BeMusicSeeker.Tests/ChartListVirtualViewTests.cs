@@ -2513,7 +2513,6 @@ public sealed class ChartListVirtualViewTests
         public override string Folder
         {
             get => throw new InvalidOperationException("Folder should not be read while constructing the virtual view.");
-            set => throw new NotSupportedException();
         }
 
         internal void Apply(string filePath, string fileTitle)

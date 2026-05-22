@@ -1003,12 +1003,11 @@ public sealed class BmsSortCompatibilityTests
         public override string Folder
         {
             get => string.IsNullOrEmpty(testFolder) ? base.Folder : testFolder;
-            set => testFolder = value ?? string.Empty;
         }
 
         public void SetFolder(string folderName)
         {
-            Folder = folderName;
+            testFolder = folderName ?? string.Empty;
         }
 
         public void ApplySnapshot(SongSnapshotRow row)
