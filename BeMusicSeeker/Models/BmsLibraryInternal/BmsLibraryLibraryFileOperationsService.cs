@@ -132,7 +132,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 if (!result.Failures.Any(failure => failure.IsDirectory && string.Equals(failure.Path, folderGroup.Key, StringComparison.OrdinalIgnoreCase)))
                 {
                     result.ResourceIndexMutation = result.ResourceIndexMutation.Combine(CleanupDeletedFolderIndexes(folderGroup.Key, directoryLookupCache));
-                    ClearInstallDestinationsUnderDeletedFolder(folderGroup.Key, pendingPackages, currentLibraryCharts);
+                    CollectInstallDestinationClearsUnderDeletedFolder(result, folderGroup.Key, pendingPackages, currentLibraryCharts);
                 }
                 continue;
             }
@@ -300,14 +300,15 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    private static void ClearInstallDestinationsUnderDeletedFolder(string folderPath, IEnumerable<ChartPackage> pendingPackages, IEnumerable<LibraryChartRef> currentLibraryCharts)
+    private static void CollectInstallDestinationClearsUnderDeletedFolder(LibraryRemovalResult result, string folderPath, IEnumerable<ChartPackage> pendingPackages, IEnumerable<LibraryChartRef> currentLibraryCharts)
     {
-        if (string.IsNullOrWhiteSpace(folderPath))
+        if (result == null || string.IsNullOrWhiteSpace(folderPath))
         {
             return;
         }
         try
         {
+            int installDestinationChangeCountBefore = result.MutationDelta.UpdatedInstallDestinations.Count;
             foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, currentLibraryCharts, folderPath))
             {
                 if (target.Entry != null)
@@ -316,27 +317,24 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 }
                 else
                 {
-                    ClearBmsInstallDestination(target.GetBmsStorageOwner());
+                    result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                    {
+                        Chart = target.Chart,
+                        NewInstallDestination = null,
+                        ClearInstallDestinationState = true
+                    });
                 }
+            }
+            if (result.MutationDelta.UpdatedInstallDestinations.Count > installDestinationChangeCountBefore)
+            {
+                result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
+                result.MutationDelta.ClearDuplicatedCache = true;
+                result.MutationDelta.RaiseLibraryChartsChanged = true;
             }
         }
         catch
         {
         }
-    }
-
-    private static void ClearBmsInstallDestination(BMSFile file)
-    {
-        if (file == null)
-        {
-            return;
-        }
-        file.instl_dst = null;
-        file.InstallDestinationTitle = string.Empty;
-        file.InstallDestinationArtist = string.Empty;
-        file.InstallDestinationSuggestions = [];
-        file.IsInstallDestinationSuggestionPopupOpen = false;
-        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
     private static void AddRemovedCharts(LibraryRemovalResult result, IEnumerable<LibraryChartRef> charts)

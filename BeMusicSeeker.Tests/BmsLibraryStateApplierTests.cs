@@ -88,7 +88,10 @@ public sealed class BmsLibraryStateApplierTests
                 var installLinkedFile = new TestableBmsFile
                 {
                     path = Path.Combine(tempRootPath, "pending_chart.bms"),
-                    instl_dst = oldDirectoryPath
+                    instl_dst = oldDirectoryPath,
+                    InstallDestinationTitle = "Old destination title",
+                    InstallDestinationArtist = "Old destination artist",
+                    InstallDestinationSuggestions = [Path.Combine(tempRootPath, "Candidate")]
                 };
                 var installedPackage = ChartPackageTestExtensions.CreatePackage([movedFile]);
                 installedPackage.path = oldDirectoryPath;
@@ -172,6 +175,9 @@ public sealed class BmsLibraryStateApplierTests
 
                 Assert.AreEqual(newChartPath, movedFile.path);
                 Assert.AreEqual(newDirectoryPath, installLinkedFile.instl_dst);
+                Assert.AreEqual("Old destination title", installLinkedFile.InstallDestinationTitle);
+                Assert.AreEqual("Old destination artist", installLinkedFile.InstallDestinationArtist);
+                CollectionAssert.AreEqual(new[] { Path.Combine(tempRootPath, "Candidate") }, installLinkedFile.InstallDestinationSuggestions.ToArray());
                 Assert.AreEqual(newDirectoryPath, installedPackage.path);
                 Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
                 Assert.IsTrue(callbacks.ParentFolderInvalidationCount >= 1);
@@ -196,6 +202,96 @@ public sealed class BmsLibraryStateApplierTests
                     Directory.Delete(tempRootPath, recursive: true);
                 }
             }
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_FullClearsInstallDestinationState()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms",
+                instl_dst = @"C:\Deleted",
+                InstallDestinationTitle = "Deleted title",
+                InstallDestinationArtist = "Deleted artist",
+                InstallDestinationSuggestions = [@"C:\Deleted", @"C:\Other"]
+            };
+            file.IsInstallDestinationSuggestionPopupOpen = true;
+            file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
+            List<BMSFile> libraryFiles = [file];
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+            var callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+            var delta = new LibraryMutationDelta
+            {
+                InvalidateInstalledDirectoryIndex = true,
+                ClearDuplicatedCache = true,
+                RaiseLibraryChartsChanged = true
+            };
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                NewInstallDestination = null,
+                ClearInstallDestinationState = true
+            });
+
+            applier.ApplyLibraryMutationDelta(delta);
+
+            Assert.IsNull(file.instl_dst);
+            Assert.AreEqual(string.Empty, file.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, file.InstallDestinationArtist);
+            Assert.AreEqual(0, file.InstallDestinationSuggestions.Count);
+            Assert.IsFalse(file.IsInstallDestinationSuggestionPopupOpen);
+            Assert.IsFalse(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
+            Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
+            Assert.AreEqual(1, callbacks.LibraryChartsChangedCount);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_PathOnlyNullPreservesInstallDestinationMetadata()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms",
+                instl_dst = @"C:\Installed",
+                InstallDestinationTitle = "Candidate title",
+                InstallDestinationArtist = "Candidate artist",
+                InstallDestinationSuggestions = [@"C:\Installed", @"C:\Other"]
+            };
+            file.IsInstallDestinationSuggestionPopupOpen = true;
+            file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
+            List<BMSFile> libraryFiles = [file];
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+            var callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+            var delta = new LibraryMutationDelta();
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                NewInstallDestination = null,
+                ClearInstallDestinationState = false
+            });
+
+            applier.ApplyLibraryMutationDelta(delta);
+
+            Assert.IsNull(file.instl_dst);
+            Assert.AreEqual("Candidate title", file.InstallDestinationTitle);
+            Assert.AreEqual("Candidate artist", file.InstallDestinationArtist);
+            CollectionAssert.AreEqual(new[] { @"C:\Installed", @"C:\Other" }, file.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(file.IsInstallDestinationSuggestionPopupOpen);
+            Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
         });
     }
 

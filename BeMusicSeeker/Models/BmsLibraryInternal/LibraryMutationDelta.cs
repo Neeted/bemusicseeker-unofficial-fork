@@ -72,6 +72,8 @@ internal sealed class LibraryInstallDestinationChange
 
     public string NewInstallDestination { get; set; }
 
+    public bool ClearInstallDestinationState { get; set; }
+
     internal string GetCurrentInstallDestination()
     {
         return Entry?.Chart?.InstallDestination

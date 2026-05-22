@@ -115,14 +115,28 @@ internal sealed class BmsLibraryStateApplier(
         {
             if (installDestinationChange?.Entry != null)
             {
-                installDestinationChange.Entry.SetInstallDestinationPathOnly(installDestinationChange.NewInstallDestination);
+                if (installDestinationChange.ClearInstallDestinationState)
+                {
+                    installDestinationChange.Entry.ClearInstallDestination();
+                }
+                else
+                {
+                    installDestinationChange.Entry.SetInstallDestinationPathOnly(installDestinationChange.NewInstallDestination);
+                }
             }
             else
             {
                 BMSFile bmsFile = installDestinationChange?.GetBmsStorageOwner();
                 if (bmsFile != null)
                 {
-                    bmsFile.instl_dst = installDestinationChange.NewInstallDestination;
+                    if (installDestinationChange.ClearInstallDestinationState)
+                    {
+                        ClearBmsInstallDestinationState(bmsFile);
+                    }
+                    else
+                    {
+                        SetBmsInstallDestinationPathOnly(bmsFile, installDestinationChange.NewInstallDestination);
+                    }
                 }
             }
         }
@@ -164,6 +178,37 @@ internal sealed class BmsLibraryStateApplier(
         {
             raiseLibraryChartsChanged();
         }
+    }
+
+    private static void SetBmsInstallDestinationPathOnly(BMSFile file, string installDestination)
+    {
+        if (file == null)
+        {
+            return;
+        }
+        string title = file.InstallDestinationTitle;
+        string artist = file.InstallDestinationArtist;
+        IReadOnlyList<string> suggestions = file.InstallDestinationSuggestions;
+        bool isPopupOpen = file.IsInstallDestinationSuggestionPopupOpen;
+        file.instl_dst = installDestination;
+        file.InstallDestinationTitle = title;
+        file.InstallDestinationArtist = artist;
+        file.InstallDestinationSuggestions = suggestions;
+        file.IsInstallDestinationSuggestionPopupOpen = isPopupOpen;
+    }
+
+    private static void ClearBmsInstallDestinationState(BMSFile file)
+    {
+        if (file == null)
+        {
+            return;
+        }
+        file.instl_dst = null;
+        file.InstallDestinationTitle = string.Empty;
+        file.InstallDestinationArtist = string.Empty;
+        file.InstallDestinationSuggestions = [];
+        file.IsInstallDestinationSuggestionPopupOpen = false;
+        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
     }
 
     public void UnregisterCharts(IEnumerable<ChartFile> charts)

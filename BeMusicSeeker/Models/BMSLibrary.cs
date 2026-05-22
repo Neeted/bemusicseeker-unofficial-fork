@@ -10709,6 +10709,7 @@ reportProgress,
                         + " folderDeletes=" + result.FolderDeleteCount
                         + " fileDeletes=" + result.FileDeleteCount);
                     LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", result.ResourceIndexMutation);
+                    ApplyLibraryMutationDelta(result.MutationDelta);
                     foreach (LibraryDeleteFailure failure in result.Failures)
                     {
                         if (failure.IsDirectory)
