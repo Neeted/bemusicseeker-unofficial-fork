@@ -1024,6 +1024,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     /// <summary>
+    /// 現在の行集合を維持したまま、可視セルの値だけを再描画します。
+    /// sort/filter に影響しない hydration 反映で全件 ItemsSource swap を避けるために使います。
+    /// </summary>
+    public void RefreshMainTableDisplay()
+    {
+        RefreshCustomTableViewDisplay();
+    }
+
+    /// <summary>
     /// 現在 ViewModel で再生対象になっている BMS ファイルの情報で、プレイヤー UI を更新します。
     /// LivetCallMethodAction から引数なしで呼ばれる entrypoint です。
     /// </summary>

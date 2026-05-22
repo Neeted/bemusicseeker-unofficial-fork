@@ -250,6 +250,30 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(RefTablesNames));
     }
 
+    internal void RefreshDisplayForDataDependency(MainViewDataDependency dependency)
+    {
+        InvalidateChartCache();
+        switch (dependency)
+        {
+            case MainViewDataDependency.ChartInfo:
+                RaiseChartInfoDisplayPropertiesChanged();
+                break;
+            case MainViewDataDependency.Score:
+                RaiseScoreDisplayPropertiesChanged();
+                break;
+            case MainViewDataDependency.Maintenance:
+                RaiseMaintenanceDisplayPropertiesChanged();
+                RaiseWarningPresentationPropertiesChanged();
+                break;
+            case MainViewDataDependency.Warning:
+                RaiseWarningPresentationPropertiesChanged();
+                break;
+            default:
+                RaisePropertyChanged(string.Empty);
+                break;
+        }
+    }
+
     public string Title => Chart?.Title ?? string.Empty;
 
     public string Artist => Chart?.Artist ?? string.Empty;

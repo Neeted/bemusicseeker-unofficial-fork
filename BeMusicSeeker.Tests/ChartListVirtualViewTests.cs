@@ -1790,6 +1790,27 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void LibraryChartRow_DisplayRefreshInvalidatesProviderBackedChartCache()
+    {
+        BMSFile file = CreateFile(
+            @"folder-a\chart-info.bms",
+            "ChartInfo",
+            "folder-a",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        LR2SongDBExtended.chart_info currentChartInfo = CreateChartInfo(file.sha256, file.hash, level: 3, difficulty: 1, mainBpm: 120.0, total: 240.0);
+        var row = LibraryChartRow.FromBmsFile(file);
+        row.SetChartInfoProjectionProvider(_ => currentChartInfo);
+
+        Assert.AreEqual(3.0, row.ChartLevelSortKey);
+
+        currentChartInfo = CreateChartInfo(file.sha256, file.hash, level: 9, difficulty: 4, mainBpm: 180.0, total: 360.0);
+        row.RefreshDisplayForDataDependency(MainViewDataDependency.ChartInfo);
+
+        Assert.AreEqual(9.0, row.ChartLevelSortKey);
+    }
+
+    [TestMethod]
     public void SourceRow_WarningDigestMatchesLibraryChartRowWithResourceProjection()
     {
         BMSFile file = CreateFile(

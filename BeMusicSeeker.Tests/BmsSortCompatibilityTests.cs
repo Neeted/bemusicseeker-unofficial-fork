@@ -462,25 +462,29 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void MainViewRefreshDecision_SkipsScoreUpdateWhenFullNormalLibrarySortIsUnaffected()
+    public void MainViewRefreshDecision_UsesDisplayRefreshWhenFullNormalLibrarySortIsUnaffected()
     {
-        foreach (string columnName in ChartListOrder.GetVirtualSortColumnMetadata()
-            .Where(column => column.Dependency != MainViewDataDependency.Score)
-            .Select(column => column.NormalizedColumnName))
+        foreach (MainViewDataDependency dependency in new[]
+        {
+            MainViewDataDependency.Score,
+            MainViewDataDependency.ChartInfo,
+            MainViewDataDependency.Maintenance,
+            MainViewDataDependency.Warning
+        })
         {
             MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
                 MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
                 folderFilterApplied: false,
                 keywordFilter: string.Empty,
                 modeFilter: MainWindowViewModel.ModeFilterType.All,
-                sortColumnName: columnName,
+                sortColumnName: nameof(LibraryChartRow.Title),
                 isPlaylistDetailView: false,
-                dependency: MainViewDataDependency.Score,
-                reason: "score_hydration_completed");
+                dependency: dependency,
+                reason: "hydration_completed");
 
-            Assert.AreEqual(MainViewRefreshAction.SkipMainViewRefresh, decision.Action, columnName);
-            Assert.AreEqual(MainViewDataDependency.Score, decision.Dependency, columnName);
-            Assert.AreNotEqual(MainViewDataDependency.Score, decision.SortDependency, columnName);
+            Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, decision.Action, dependency.ToString());
+            Assert.AreEqual(dependency, decision.Dependency, dependency.ToString());
+            Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency, dependency.ToString());
         }
     }
 
@@ -519,6 +523,76 @@ public sealed class BmsSortCompatibilityTests
         Assert.AreEqual(MainViewRefreshAction.Refresh, scoreSortDecision.Action);
         Assert.AreEqual(MainViewRefreshAction.Refresh, keywordDecision.Action);
         Assert.AreEqual(MainViewRefreshAction.Refresh, unknownSortDecision.Action);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenDependencyMatchesCurrentSort()
+    {
+        (MainViewDataDependency dependency, string sortColumnName)[] cases =
+        [
+            (MainViewDataDependency.Score, nameof(LibraryChartRow.rateDouble)),
+            (MainViewDataDependency.ChartInfo, nameof(LibraryChartRow.ChartTotalSortKey)),
+            (MainViewDataDependency.Maintenance, nameof(LibraryChartRow.WAVHealth)),
+            (MainViewDataDependency.Warning, nameof(LibraryChartRow.WarningDigestText))
+        ];
+
+        foreach ((MainViewDataDependency dependency, string sortColumnName) in cases)
+        {
+            MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+                MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+                folderFilterApplied: false,
+                keywordFilter: string.Empty,
+                modeFilter: MainWindowViewModel.ModeFilterType.All,
+                sortColumnName: sortColumnName,
+                isPlaylistDetailView: false,
+                dependency: dependency,
+                reason: "dependency_changed");
+
+            Assert.AreEqual(MainViewRefreshAction.Refresh, decision.Action, dependency.ToString());
+            Assert.AreEqual(dependency, decision.Dependency, dependency.ToString());
+            Assert.AreEqual(dependency, decision.SortDependency, dependency.ToString());
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesForUnknownChangedDependency()
+    {
+        MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Unknown,
+            reason: "unknown_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, decision.Action);
+        Assert.AreEqual(MainViewDataDependency.Unknown, decision.Dependency);
+        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenMembershipOrIdentityCanAffectCurrentView()
+    {
+        foreach (MainViewDataDependency dependency in new[] { MainViewDataDependency.SourceMembership, MainViewDataDependency.IdentitySortKey })
+        {
+            MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+                MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+                folderFilterApplied: false,
+                keywordFilter: string.Empty,
+                modeFilter: MainWindowViewModel.ModeFilterType.All,
+                sortColumnName: nameof(LibraryChartRow.rateDouble),
+                isPlaylistDetailView: false,
+                dependency: dependency,
+                reason: "library_identity_changed");
+
+            Assert.AreEqual(MainViewRefreshAction.Refresh, decision.Action, dependency.ToString());
+            Assert.AreEqual(dependency, decision.Dependency, dependency.ToString());
+        }
     }
 
     [TestMethod]

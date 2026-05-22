@@ -411,6 +411,7 @@ internal enum MainViewDataDependency
 internal enum MainViewRefreshAction
 {
     Refresh,
+    RefreshDisplay,
     SkipMainViewRefresh
 }
 
@@ -441,6 +442,8 @@ internal readonly struct MainViewRefreshDecision
     internal string Detail { get; }
 
     internal bool ShouldRefresh => Action == MainViewRefreshAction.Refresh;
+
+    internal bool ShouldRefreshDisplay => Action == MainViewRefreshAction.RefreshDisplay;
 }
 
 /// <summary>
@@ -8463,6 +8466,17 @@ public class MainWindowViewModel : ViewModel
             + " isPlaylistDetailView=" + IsPlaylistDetailViewActive.ToString().ToLowerInvariant());
         if (!decision.ShouldRefresh)
         {
+            if (decision.ShouldRefreshDisplay)
+            {
+                if (!TryRefreshMainViewDisplayForDataDependency(dependency))
+                {
+                    if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, reason))
+                    {
+                        return;
+                    }
+                    RefreshLibraryMainViewForCurrentFilter();
+                }
+            }
             return;
         }
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, reason))
@@ -8470,6 +8484,17 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         RefreshLibraryMainViewForCurrentFilter();
+    }
+
+    private bool TryRefreshMainViewDisplayForDataDependency(MainViewDataDependency dependency)
+    {
+        if (ChartRowsView is not ChartListVirtualView virtualView)
+        {
+            return false;
+        }
+        virtualView.ForEachRealizedRow(row => row.RefreshDisplayForDataDependency(dependency));
+        base.Messenger.Raise(new InteractionMessage("RefreshMainTableDisplay"));
+        return true;
     }
 
     internal static MainViewRefreshDecision BuildMainViewRefreshDecisionForTest(
@@ -8505,24 +8530,34 @@ public class MainWindowViewModel : ViewModel
         {
             return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "not_full_normal_library");
         }
-        if (dependency == MainViewDataDependency.Score && IsSortUnaffectedByDependency(sortDependency, dependency))
+        if (IsMainViewDisplayRefreshEnough(sortDependency, dependency))
         {
-            return new MainViewRefreshDecision(MainViewRefreshAction.SkipMainViewRefresh, dependency, sortDependency, reason, "score_update_does_not_affect_current_sort_or_filter");
+            return new MainViewRefreshDecision(MainViewRefreshAction.RefreshDisplay, dependency, sortDependency, reason, "dependency_update_does_not_affect_current_sort_or_filter");
         }
         return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "dependency_affects_current_view");
     }
 
-    private static bool IsSortUnaffectedByDependency(MainViewDataDependency sortDependency, MainViewDataDependency changedDependency)
+    private static bool IsMainViewDisplayRefreshEnough(MainViewDataDependency sortDependency, MainViewDataDependency changedDependency)
     {
         if (sortDependency == MainViewDataDependency.Unknown || sortDependency == changedDependency)
         {
             return false;
         }
-        return changedDependency == MainViewDataDependency.Score
-            && (sortDependency == MainViewDataDependency.IdentitySortKey
-                || sortDependency == MainViewDataDependency.ChartInfo
-                || sortDependency == MainViewDataDependency.Maintenance
-                || sortDependency == MainViewDataDependency.Warning);
+        switch (changedDependency)
+        {
+            case MainViewDataDependency.ChartInfo:
+            case MainViewDataDependency.Score:
+            case MainViewDataDependency.Maintenance:
+            case MainViewDataDependency.Warning:
+                break;
+            default:
+                return false;
+        }
+        return sortDependency == MainViewDataDependency.IdentitySortKey
+            || sortDependency == MainViewDataDependency.ChartInfo
+            || sortDependency == MainViewDataDependency.Score
+            || sortDependency == MainViewDataDependency.Maintenance
+            || sortDependency == MainViewDataDependency.Warning;
     }
 
     internal static MainViewDataDependency GetMainViewSortColumnDependencyForTest(string columnName)
@@ -17536,14 +17571,14 @@ public class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryMaintenanceChangedReason);
         Action refresh = delegate
         {
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "maintenance_hydration_completed"))
-            {
-                return;
-            }
             if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected
                 || treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected
                 || treeViewFilterTypeSelected == viewUpdateMode.FullScanAllChartsFilterSelected)
             {
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "maintenance_hydration_completed"))
+                {
+                    return;
+                }
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
                 return;
             }

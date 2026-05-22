@@ -1790,6 +1790,9 @@
               <l:InteractionMessageTrigger MessageKey="PrepareMainTableSwap" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="PrepareMainTableSwap" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
               </l:InteractionMessageTrigger>
+              <l:InteractionMessageTrigger MessageKey="RefreshMainTableDisplay" Messenger="{Binding Messenger}">
+                <l:LivetCallMethodAction MethodName="RefreshMainTableDisplay" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
+              </l:InteractionMessageTrigger>
             </i:Interaction.Triggers>
           </v:CustomTableView>
           <v:CustomTableView x:Name="customTablePlaylistSummary" Grid.Row="2" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" ItemsSource="{Binding PlaylistSummaryView, Mode=OneWay}" PlaylistSummaryColumnsSettings="{Binding PlaylistSummaryColumnsSettings, Mode=OneWay}" SortColumnName="{Binding PlaylistSummarySortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding PlaylistSummarySortParameters.Direction, Mode=OneWay}" SortRequested="customTablePlaylistSummary_SortRequested" RowActivated="customTablePlaylistSummary_RowActivated" RowContextMenuRequested="customTablePlaylistSummary_RowContextMenuRequested" HeaderContextMenuRequested="customTablePlaylistSummary_HeaderContextMenuRequested" CellActionRequested="customTablePlaylistSummary_CellActionRequested" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
