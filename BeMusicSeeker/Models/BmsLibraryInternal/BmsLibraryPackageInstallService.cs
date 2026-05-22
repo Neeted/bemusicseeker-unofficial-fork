@@ -486,14 +486,6 @@ internal sealed class BmsLibraryPackageInstallService
         try
         {
             BMSFile entry = BMSFile.CreateBMSFileFromFile(filePath);
-            if (entry == null)
-            {
-                return null;
-            }
-            if (ChartFileKindResolver.IsBmsChartFile(entry))
-            {
-                entry.SetHealthStatus(forceUpdate: false, memClear: false);
-            }
             return entry;
         }
         catch
@@ -517,22 +509,10 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return false;
         }
-        BMSFile file = entry.Chart.GetBmsStorageOwner();
-        if (file != null)
-        {
-            return file.maintenanceInfo.wav_files_existing > 0
-                || file.maintenanceInfo.bga_files_existing > 0
-                || file.maintenanceInfo.movie_files_existing > 0;
-        }
-        string chartDirectory = DirectoryExt.GetDirectoryNameSimple(entry.Chart.Path);
-        if (string.IsNullOrWhiteSpace(chartDirectory))
-        {
-            return false;
-        }
-        ChartResourceSnapshot resources = entry.ResourceSnapshot;
-        return HasExistingResourceFile(chartDirectory, resources.AudioReferences, ChartResourceExtensions.AudioExtensions)
-            || HasExistingResourceFile(chartDirectory, resources.VisualReferences, ChartResourceExtensions.ImageExtensions)
-            || HasExistingResourceFile(chartDirectory, resources.MovieReferences, ChartResourceExtensions.MovieExtensions);
+        BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(entry.Chart);
+        return maintenanceInfo?.wav_files_existing > 0
+            || maintenanceInfo?.bga_files_existing > 0
+            || maintenanceInfo?.movie_files_existing > 0;
     }
 
     private static IEnumerable<string> EnumeratePackageGroupingResourcePaths(PackageChartEntry entry)
@@ -554,43 +534,12 @@ internal sealed class BmsLibraryPackageInstallService
             return [];
         }
 
-        ChartFile chart = entry.Chart;
-        BMSFile file = chart.GetBmsStorageOwner();
-        if (file != null)
-        {
-            file.SetHealthStatus(forceUpdate: false, memClear: false);
-            return BmsLibraryMaintenanceService.BuildResourceHealthWarnings(file.maintenanceInfo);
-        }
-        BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.GetResourceHealthMaintenanceInfo(chart);
+        BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(entry.Chart);
         if (maintenanceInfo == null)
         {
             return [];
         }
         return BmsLibraryMaintenanceService.BuildResourceHealthWarnings(maintenanceInfo);
-    }
-
-    private static bool HasExistingResourceFile(string chartDirectory, IEnumerable<ChartResourceSnapshot.ResourceReference> references, IEnumerable<string> extensions)
-    {
-        foreach (ChartResourceSnapshot.ResourceReference reference in references ?? [])
-        {
-            if (string.IsNullOrWhiteSpace(reference.NormalizedPath))
-            {
-                continue;
-            }
-            if (File.Exists(Path.Combine(chartDirectory, reference.NormalizedPath)))
-            {
-                return true;
-            }
-            foreach (string extension in extensions ?? [])
-            {
-                if (!string.IsNullOrWhiteSpace(extension)
-                    && File.Exists(Path.Combine(chartDirectory, Path.ChangeExtension(reference.NormalizedPath, extension))))
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<PackageChartEntry> knownChartEntries)

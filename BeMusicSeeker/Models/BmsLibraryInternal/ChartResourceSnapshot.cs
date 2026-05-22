@@ -131,11 +131,17 @@ internal sealed class ChartResourceSnapshot
         {
             throw new ArgumentNullException(nameof(chart));
         }
+        ChartResourceSnapshot snapshot = CreateFromChartFields(chart);
         BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null)
+        if (bmsFile != null && snapshot.TotalReferenceCount == 0)
         {
             return Create(bmsFile);
         }
+        return snapshot;
+    }
+
+    private static ChartResourceSnapshot CreateFromChartFields(ChartFile chart)
+    {
         var snapshot = new ChartResourceSnapshot();
         foreach (string audioPath in chart.AudioResourcePaths ?? Enumerable.Empty<string>())
         {

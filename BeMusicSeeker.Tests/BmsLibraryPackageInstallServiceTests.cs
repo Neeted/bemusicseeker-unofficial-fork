@@ -534,6 +534,63 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void BuildPendingResourceHealthWarnings_BmsUsesChartProjectionWithoutMutatingMaintenance()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                + "#TITLE BMS\r\n"
+                + "#WAVAA missing.wav\r\n"
+                + "#00111:AA\r\n");
+            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+
+            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.BuildPendingResourceHealthWarnings(entry);
+
+            Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
+            Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_ClassifiesBmsResourcesWithoutMutatingMaintenance()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsMissingResource");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsFilePath = Path.Combine(packageDirectoryPath, "chart.bms");
+            File.WriteAllText(
+                bmsFilePath,
+                "#PLAYER 1\r\n"
+                + "#TITLE BMS\r\n"
+                + "#WAVAA missing.wav\r\n"
+                + "#00111:AA\r\n");
+            var service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                [packageDirectoryPath],
+                [],
+                [],
+                _ => false,
+                0.6);
+
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
+            BMSFile file = chartEntry.Chart.GetBmsStorageOwner();
+            Assert.IsNotNull(file);
+            Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
+            Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    [TestMethod]
     public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -827,10 +884,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
             BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
             Assert.IsNotNull(chart);
-            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
-            Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
-            Assert.AreEqual(1, chart.maintenanceInfo.movie_files_defined);
-            Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
+            Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
+            Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
             Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
             Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
         });
@@ -870,8 +925,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
             BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
             Assert.IsNotNull(chart);
-            Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
-            Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
+            Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
+            Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
             Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
             Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
         });
@@ -912,8 +967,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
             BMSFile chart = chartEntry.Chart.GetBmsStorageOwner();
             Assert.IsNotNull(chart);
-            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
-            Assert.AreEqual(1, chart.maintenanceInfo.movie_files_existing);
+            Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
+            Assert.AreEqual(1, chartEntry.ResourceSnapshot.MovieReferenceCount);
             Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
             Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
         });

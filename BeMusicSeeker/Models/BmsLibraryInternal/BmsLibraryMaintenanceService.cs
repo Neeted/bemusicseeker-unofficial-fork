@@ -154,7 +154,7 @@ internal sealed class BmsLibraryMaintenanceService
             maintenanceInfo.movie_files_existing = CountExistingResourceReferences(
                 chartDirectory,
                 resources.MovieReferences,
-                [],
+                ChartResourceExtensions.MovieExtensions,
                 ChartResourceKind.Movie,
                 lookupContext);
         }
