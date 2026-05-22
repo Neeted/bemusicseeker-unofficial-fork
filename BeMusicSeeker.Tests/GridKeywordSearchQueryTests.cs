@@ -175,7 +175,6 @@ public sealed class GridKeywordSearchQueryTests
         file.tag = "Changed Tag";
         file.path = @"C:\Songs\Changed\chart.bms";
         file.SetHashForTest("ffffffffffffffffffffffffffffffff");
-        file.SetChartInfo(bmsChartInfo);
 
         Assert.AreEqual("Changed Title", bmsSourceRow.Title);
         Assert.AreEqual("Changed Genre", bmsSourceRow.Genre);
@@ -205,7 +204,6 @@ public sealed class GridKeywordSearchQueryTests
         song.mode_hint = "beat-5k";
         song.path = @"C:\Songs\Changed\chart.bmson";
         song.md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-        song.ChartInfo = bmsonChartInfo;
 
         Assert.AreEqual("Changed Bmson", bmsonSourceRow.Title);
         Assert.AreEqual("Changed Genre", bmsonSourceRow.Genre);
@@ -223,7 +221,6 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(sha256: file.sha256, md5: file.hash);
-        file.SetChartInfo(chartInfo);
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
         var sourceRow = CreateSourceRow(file, chartInfo: chartInfo);
         var libraryRow = LibraryChartRow.FromBmsFile(file);
@@ -240,7 +237,6 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(sha256: file.sha256, md5: file.hash);
-        file.SetChartInfo(chartInfo);
         file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
         var sourceRow = CreateSourceRow(file, chartInfo: chartInfo);
         var libraryRow = LibraryChartRow.FromBmsFile(file);
@@ -381,7 +377,6 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(sha256: file.sha256, md5: file.hash);
-        file.SetChartInfo(chartInfo);
         LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
@@ -397,7 +392,6 @@ public sealed class GridKeywordSearchQueryTests
     {
         TestableBmsFile file = CreateFile();
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(level: null, difficultyDefined: false, totalDefined: false, sha256: file.sha256, md5: file.hash);
-        file.SetChartInfo(chartInfo);
         LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
@@ -459,8 +453,7 @@ public sealed class GridKeywordSearchQueryTests
             folder = "Alpha",
             mode_hint = "beat-7k",
             md5 = chartInfo.md5,
-            sha256 = chartInfo.sha256,
-            ChartInfo = chartInfo
+            sha256 = chartInfo.sha256
         };
 
         var row = LibraryChartRow.FromBmsonSong(song);

@@ -170,6 +170,8 @@ startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask
 
 `startup_presentation_flush` は、初期一覧そのものを初めて出す境界ではなく、`score`、`ranking`、`chart_info`、`maintenance`、`playlist_entries`、playlist reference apply に依存する未反映 presentation をまとめて流す境界である。ユーザーが起動中に `path:` など基本列だけの keyword filter を入力した場合も、この basic presentation と同じ扱いで表示できる。score / chart_info / maintenance / warning 依存の sort、filter、表示列は background hydration 完了後の依存更新で反映する。
 
+startup performance は background tail だけで判定しない。抽象化作業では `startup_background_summary` に加えて、`startup_ready_operable` とその前段の `init_library phase1_min_load_ms` / `phase2_scan_maint_ms`、`song_tbl_load_projection`、`song_tbl_load_breakdown`、`song_tbl_file_check_breakdown`、`everything_scan`、`main_view_build`、`ui_suppress flush_*` を同時に見る。通常起動では Everything scan が 20 秒前後、その後数秒で `startup_ready_operable` に達することを期待値にする。`song_tbl_load_breakdown` は `bmsfiles_assign_ms` に加えて BMS / bmson setter 別の `bmsfiles_assign_bms_ms` / `bmsfiles_assign_bmson_ms` も出し、catalog assignment が UI projection や index rebuild を巻き込んでいないかを確認できるようにする。file diff 前に作る installed chart snapshot は install destination cleanup 用の identity/runtime state だけを持てばよいため、resource reference 配列はコピーしない。
+
 通常ライブラリの default 表示では、presentation flush 後も全件 `LibraryChartRow` を作らない。`BMSFile` / bmson の軽量 source row と `ChartListOrder` だけを全件分作り、`ChartRowsView` は仮想 `IList` として公開する。初回描画、クリック、tooltip、右クリックなどの表示系操作では `CustomTableView` が参照した index の行だけを `LibraryChartRow` に実体化する。default 表示から registry 対応列の Asc / Desc へ sort しても仮想 `IList` を維持し、source row は generation / row count が一致する範囲で再利用する。現行 registry は identity / install destination / ref-table 系に加えて、warning digest (`WarningDigestText`)、score 系 (`clear`, `rateDouble`, `score`, `maxcombo`, `minbp`, `rankingString`, `rankingLastupdate`, `stddevVal`, `scoreDifficulty`)、chart_info 系 (`ChartLevelSortKey`, BPM, duration, judge, feature, notes, TOTAL, density, soflan count など)、maintenance 直読列 (`WAVHealth`, `BGAHealth`, `MovieHealth`, `encoding`) を含む。
 
 通常ライブラリの folder filter、keyword filter、mode filter は、全件 source row に対する現在 sort order を先に取得し、その order index を source row predicate で絞り込む。filter 変更時に同じ sort column / direction の全件 order cache が有効なら、filter subset に対して再 sort しない。keyword filter は score / chart info field も source row から直接読むため、summary cache の filter identity には score snapshot version と chart info index version を含める。source row の title / artist / path / mode / hash など identity 系 sort key は、source row 生成時の `ChartFile` snapshot に固定する。identity 変更時は source generation または sort-key generation を進めて source row / order cache を作り直す。score / chart_info / maintenance / warning など hydration や後段 attach で変わる列は対応する owner / projection から読むため、未実体化行でも dependency generation と sort-key invalidation によって更新を反映する。order cache は `sourceGeneration + sortKeyGeneration + dependency generation + column + direction + rowCount` を正当性契約にする。`IdentitySortKey` は追加 generation なし、`Score` は `ScoreSnapshotVersion`、`ChartInfo` は `ChartInfoIndexVersion`、`Maintenance` は maintenance hydration generation を使う。maintenance 直読列 (`WAVHealth`, `BGAHealth`, `MovieHealth`, `encoding`) の変更時は `maintenance_changed` で通常 sort key も進め、現在 sort が maintenance dependency の場合は通常ライブラリ view を更新する。`WarningDigestText` は source warning と resource health projection の合成値なので、resource warning ignore/unignore、duplicate、zero-note、chart-info parse failure など warning 変更経路で `warning_changed` による sort-key invalidation を行う。fingerprint 再走査は行わない。sort 対象値を変更する処理は、row cache の実体化状態に依存せず mutation source 側で必ず `sortKeyGeneration` を進める。`main_view_build` は `virtual=True`、`sourceRows`、`orderedRows`、`viewRowsCreated`、`sortProfile=virtual_*_order` を出し、`viewRowsCreated` は初回 build 直後は 0、描画後も可視行 + overscan 程度に留まる。summary の folder count は仮想 view 作成時に同期計算せず、未計算時は曲数だけを即時表示し、background の `main_summary_folder_count` が current generation と一致した場合だけフォルダ数を補完する。
@@ -189,7 +191,7 @@ startup hydration の主要 read phase は `OpenSongDbReadOnly()` / `OpenScoreDb
 read-only hydration loader のルール:
 
 - loader 内で `CreateTable`、schema ensure、app schema repair を行わない。
-- DB read phase は row / DTO / dictionary を返すだけにし、DB connection を閉じてから memory owner attach を行う。
+- DB read phase は row / DTO / dictionary を返すだけにし、DB connection を閉じてから session index 更新や owner runtime state 反映を行う。
 - cleanup、backfill、metadata update、`ir_score` replace、`ir_data` upsert、file diff commit は短い write-capable transaction path として明示する。
 - loader log は `readOnly=true` と `dbLockWaitMs` を出す。
 
@@ -211,7 +213,7 @@ read-only hydration loader のルール:
 | `playlist_entries_hydration` | `playlist_id IS NOT NULL` の playlist entries を raw reader / bulk factory で materialize し、`BMSTable.entries` setter で table に attach する |
 | `playlist_ref_apply` | playlist entries 完了後に library item と playlist reference を結び直す |
 | `playlist_url_completion` / `external_playlist_sync` | playlist entries 完了後に URL 補完・外部 playlist 同期を行う |
-| `chart_info_hydration` | DB の current `chart_info` と current parse failure を memory owner / session index へ適用する |
+| `chart_info_hydration` | DB の current `chart_info` と current parse failure を session index へ適用する |
 | `chart_info_backfill` | 不足がある場合だけ補完する。全 owner が current の場合は `reason=hydration_all_current` で skip する |
 | `maintenance_hydration` | DB の persisted maintenance snapshot を owner へ attach し、resource health index を valid snapshot から rebuild する |
 | `installable_maintenance` | `chart_info_hydration` と `maintenance_hydration` 完了後に missing/stale maintenance を補完する |
@@ -220,7 +222,7 @@ read-only hydration loader のルール:
 
 background hydration 完了時の通常ライブラリ一覧更新は、起動中と起動後で扱いを分ける。`Startup` 中でも basic presentation 済みの通常ライブラリは表示されたままにし、`Score` / `Ranking` / `ChartInfo` / `Maintenance` / `PlaylistEntries` の完了は現在の表示条件と sort/filter の依存関係に基づいて扱う。`Score` / `Ranking` のように現在の通常ライブラリ全体表示へ影響しない更新は、起動中でも全件 `main_view_build` を行わない。`ChartInfo` / `Maintenance` / playlist reference apply など、表示列や warning、playlist reference 表示へ影響しうる更新は `startup_initialization_complete` 後の `startup_presentation_flush` へ遅延できる。起動後の reload / score-only update でも、同じく現在の表示条件と sort/filter が依存するデータ種別に基づいて更新を判定する。`Score` / `Ranking` 完了は score 系列 (`Clear`、`Rank`、`Rate`、`Score`、`BP`、`Ranking` など) の値を更新するが、`Title`、`Folder`、`path` などの identity sort key には影響しない。このため、通常ライブラリ全体表示で keyword/filter が空、かつ現在の sort が score 系列に依存しない場合は、全件 `main_view_build` を行わず、既存 row の property change による表示更新に任せる。
 
-`ChartInfo` hydration は `Level`、BPM、notes、TOTAL、density など chart info 系列に影響するが、`Title`、`Folder`、`path` には影響しない。通常ライブラリの sort cache は、所持譜面 membership 変更や identity sort key 変更で無効化し、chart info / score / maintenance の完了だけで identity sort cache を落とさない。ChartInfo hydrate は大量 owner へ silent attach するため、起動後に表示中の chart info 列を反映する main view refresh は維持するが、その refresh で identity sort cache を破棄しない。
+`ChartInfo` hydration は `Level`、BPM、notes、TOTAL、density など chart info 系列に影響するが、`Title`、`Folder`、`path` には影響しない。通常ライブラリの sort cache は、所持譜面 membership 変更や identity sort key 変更で無効化し、chart info / score / maintenance の完了だけで identity sort cache を落とさない。ChartInfo hydrate は storage owner へ silent attach せず、session `ChartInfoIndex` と projection provider を更新する。起動後に表示中の chart info 列を反映する main view refresh は維持するが、その refresh で identity sort cache を破棄しない。
 
 `playlist_url_completion` は、MD5-URL mapping TSV と Stella Uploader Full (`score_upload_full.json`) を process-local snapshot として保持する。同じ起動中の playlist reload / external sync / reset では再 download せず、保持済み snapshot を再適用する。設定画面で TSV URI または Stella Uploader Full 補完設定が変わった場合だけ、次回 schedule で必要な source を再取得してよい。候補適用時は TSV を優先し、TSV に同じ MD5 がない場合だけ Stella Full の `url` / `url_diff` を URL1/URL2 補完に使う。
 
@@ -309,7 +311,7 @@ ScoreOnly
 - app schema version を `chart_info` backfill の副作用として書かない。
 - startup hydration worker 内で schema ensure、app schema repair、hidden write を行わない。
 - read-only loader と write-capable transaction path を同じ phase に混ぜない。
-- DB connection を保持したまま、大量の memory owner attach や UI notification を行わない。
+- DB connection を保持したまま、大量の runtime state 反映、index publish、UI notification を行わない。
 - 導入可能 readiness を、playlist hydration、score/ranking refresh、chart_info hydration、maintenance hydration の完了に依存させない。
 - score DB 設定変更では `ScoreOnly` を使い、playlist/table reload や external playlist sync を起動しない。
 - startup background task を expected phase から外して初期化完了を短く見せない。必要な task は `startup_background_summary` に残す。

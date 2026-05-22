@@ -1008,7 +1008,6 @@ public sealed class BmsSortCompatibilityTests
                 mainbpm = chartMainBpm,
                 parser_version = 1
             };
-            file.SetChartInfo(chartInfo);
         }
         if (rateScorePerfect.HasValue)
         {

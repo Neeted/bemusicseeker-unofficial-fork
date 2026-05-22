@@ -510,7 +510,6 @@ public sealed class PlaylistViewPipelineTests
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "ChartInfoSha", 7);
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('d', 64), file.hash);
-        file.SetChartInfo(chartInfo);
         LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
         row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
@@ -2369,8 +2368,6 @@ public sealed class PlaylistViewPipelineTests
             ChartFileProjection.FromBmsFile(file),
             chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
 
-        file.SetChartInfo(chartInfo);
-
         Assert.AreSame(chartInfo, sourceRow.ChartInfo);
         Assert.AreEqual(13, sourceRow.ChartLevelSortKey);
         Assert.AreEqual(3333, sourceRow.ChartNotes);
@@ -2402,8 +2399,6 @@ public sealed class PlaylistViewPipelineTests
             entry,
             ChartFileProjection.FromBmsonSong(song),
             chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
-
-        song.ChartInfo = chartInfo;
 
         Assert.AreSame(chartInfo, sourceRow.ChartInfo);
         Assert.AreEqual(14, sourceRow.ChartLevelSortKey);
@@ -2450,7 +2445,6 @@ public sealed class PlaylistViewPipelineTests
         entry.SetMd5(song.md5);
         entry.SetSha256(song.sha256);
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('f', 64), song.md5, level: 15, notes: 5555, total: 900);
-        song.ChartInfo = chartInfo;
 
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
@@ -3065,16 +3059,12 @@ public sealed class PlaylistViewPipelineTests
         LibraryChartRowSourceNotificationGroups nullGroups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(null);
 
         Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.WarningPresentation));
-        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.ChartInfoDisplay));
         Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.ScoreDisplay));
         Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.MaintenanceDisplay));
         Assert.AreEqual(allGroups, nullGroups);
         Assert.AreEqual(
             LibraryChartRowSourceNotificationGroups.WarningPresentation,
             LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.Warnings)));
-        Assert.AreEqual(
-            LibraryChartRowSourceNotificationGroups.ChartInfoDisplay,
-            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.ChartInfo)));
         Assert.AreEqual(
             LibraryChartRowSourceNotificationGroups.ScoreDisplay,
             LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.bmsScore)));

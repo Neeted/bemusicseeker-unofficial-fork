@@ -467,10 +467,6 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             RaiseWarningPresentationPropertiesChanged();
         }
-        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.ChartInfoDisplay))
-        {
-            RaiseChartInfoDisplayPropertiesChanged();
-        }
         if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.ScoreDisplay))
         {
             RaiseScoreDisplayPropertiesChanged();

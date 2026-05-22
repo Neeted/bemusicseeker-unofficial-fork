@@ -372,7 +372,7 @@ internal sealed class ChartListSourceRow
 
         ChartFile chart = sourceChart ?? CreateStorageOwnerIdentityChart();
         return ResolveChartInfoFromProvider(chart)
-            ?? ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(chart);
+            ?? chart?.ChartInfo;
     }
 
     private ChartScoreSnapshot ResolveScoreSnapshot()

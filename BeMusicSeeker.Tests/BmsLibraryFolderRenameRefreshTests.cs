@@ -1046,7 +1046,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     {
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        return (List<ChartFile>)methodInfo.Invoke(library, [library.BMSFiles, library.BmsonSongs]);
+        return (List<ChartFile>)methodInfo.Invoke(library, [library.BMSFiles, library.BmsonSongs, true]);
     }
 
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)

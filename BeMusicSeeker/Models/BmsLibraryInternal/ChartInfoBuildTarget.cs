@@ -74,16 +74,4 @@ internal sealed class ChartInfoBuildTarget
         return applied;
     }
 
-    internal void ApplyChartInfo(LR2SongDBExtended.chart_info row)
-    {
-        if (row == null)
-        {
-            return;
-        }
-
-        foreach (ChartFile chart in charts)
-        {
-            ChartStorageOwnerMutator.ApplyChartInfo(chart, row);
-        }
-    }
 }

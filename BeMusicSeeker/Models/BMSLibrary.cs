@@ -4141,11 +4141,15 @@ public class BMSLibrary : NotificationObject
                     LogInstallPerformance,
                     message => NLogWrapper.DebuggerLogger?.Trace(message));
                 var stopwatchBmsFilesAssign = Stopwatch.StartNew();
+                var stopwatchBmsOnlyAssign = Stopwatch.StartNew();
                 BMSFiles = songTableLoadResult.LoadedFiles;
+                stopwatchBmsOnlyAssign.Stop();
+                var stopwatchBmsonAssign = Stopwatch.StartNew();
                 BmsonSongs = songTableLoadResult.LoadedBmsonSongs;
+                stopwatchBmsonAssign.Stop();
                 stopwatchBmsFilesAssign.Stop();
                 songTableLoadResult.BmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
-                LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " bmsfiles_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " commit_ms=" + songTableLoadResult.CommitMs);
+                LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " bmsfiles_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " bmsfiles_assign_bms_ms=" + stopwatchBmsOnlyAssign.ElapsedMilliseconds + " bmsfiles_assign_bmson_ms=" + stopwatchBmsonAssign.ElapsedMilliseconds + " commit_ms=" + songTableLoadResult.CommitMs);
             }
             stopwatchSongTblLoad.Stop();
             songTblLoadMs = stopwatchSongTblLoad.ElapsedMilliseconds;
@@ -4356,7 +4360,7 @@ public class BMSLibrary : NotificationObject
 
         bool inlineChartInfoApplied = false;
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
-        List<ChartFile> currentInstallDestinationCharts = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs);
+        List<ChartFile> currentInstallDestinationCharts = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false);
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             options,
@@ -6427,9 +6431,16 @@ reportProgress,
         RebuildInstalledChartKeyIndexUnsafe();
     }
 
-    private List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private List<ChartFile> CreateInstalledChartSnapshot(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        bool includeResourceReferences = true)
     {
-        return OverlayInstallDestinationRuntimeStates(ChartFileProjection.FromStorageRows(bmsFiles, bmsonSongs, includeWarningSnapshot: false));
+        return OverlayInstallDestinationRuntimeStates(ChartFileProjection.FromStorageRows(
+            bmsFiles,
+            bmsonSongs,
+            includeWarningSnapshot: false,
+            includeResourceReferences: includeResourceReferences));
     }
 
     private List<ChartFile> OverlayInstallDestinationRuntimeStates(IEnumerable<ChartFile> charts)

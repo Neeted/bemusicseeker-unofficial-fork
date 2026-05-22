@@ -2527,8 +2527,6 @@ createTempDirectory);
             Assert.AreEqual("full", first.Mode);
             Assert.AreEqual(1, first.FileReadCount);
             Assert.AreEqual(new FileInfo(chartPath).Length, first.FileReadBytes);
-            Assert.IsNotNull(file.ChartInfo);
-            Assert.AreEqual(file.sha256, file.ChartInfo.sha256);
             Assert.AreEqual(1L, CountChartInfoRows(songDbPath, file.sha256));
             Assert.AreEqual(1, progress.Last().Item1);
             Assert.AreEqual(1, progress.Last().Item2);
@@ -2598,7 +2596,6 @@ createTempDirectory);
             Assert.AreEqual(1, result.FileReadCount);
             Assert.AreEqual(new FileInfo(chartPath).Length, result.FileReadBytes);
             Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
-            Assert.IsNotNull(file.ChartInfo);
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + file.sha256 + "';"));
@@ -2644,8 +2641,6 @@ createTempDirectory);
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.BackfilledCount);
-            Assert.IsNotNull(file.ChartInfo);
-            Assert.AreEqual(1, file.ChartInfo.level);
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.chart_info row = verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", file.sha256).Single();
             Assert.AreEqual(1, row.level);
@@ -2687,8 +2682,7 @@ createTempDirectory);
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(1, readCount);
             Assert.AreEqual(fileA.sha256, fileB.sha256);
-            Assert.IsNotNull(fileA.ChartInfo);
-            Assert.AreSame(fileA.ChartInfo, fileB.ChartInfo);
+            Assert.AreEqual(1L, CountChartInfoRows(songDbPath, fileA.sha256));
         });
     }
 
@@ -2780,12 +2774,11 @@ createTempDirectory);
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.DigestTargetCount);
             Assert.AreEqual(0, result.DigestBackfilledCount);
-            Assert.IsNotNull(song.ChartInfo);
-            Assert.AreEqual(song.md5, song.ChartInfo.md5);
-            Assert.AreEqual(song.sha256, song.ChartInfo.sha256);
-            Assert.AreEqual(6, song.ChartInfo.level);
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", song.sha256));
+            LR2SongDBExtended.chart_info row = verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", song.sha256).Single();
+            Assert.AreEqual(song.md5, row.md5);
+            Assert.AreEqual(song.sha256, row.sha256);
+            Assert.AreEqual(6, row.level);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
         });
     }
@@ -2817,8 +2810,8 @@ createTempDirectory);
             Assert.AreEqual(1, result.SuccessCount);
             Assert.AreEqual(1, result.ChartInfoRows.Count);
             Assert.AreEqual(1, result.AppliedRows.Count);
-            Assert.IsNotNull(targetFile.ChartInfo);
-            Assert.IsNull(untouchedFile.ChartInfo);
+            Assert.AreEqual(targetFile.hash, result.AppliedRows[0].md5);
+            Assert.AreEqual(0, untouchedFile.sha256?.Length ?? 0);
         });
     }
 
@@ -2850,9 +2843,8 @@ createTempDirectory);
             Assert.AreEqual(0, result.SuccessCount);
             Assert.AreEqual(1, result.CurrentSkippedCount);
             Assert.AreEqual(1, result.AppliedRows.Count);
-            Assert.IsNotNull(file.ChartInfo);
-            Assert.AreEqual(expected.sha256, file.ChartInfo.sha256);
-            Assert.AreEqual(expected.md5, file.ChartInfo.md5);
+            Assert.AreEqual(expected.sha256, result.AppliedRows[0].sha256);
+            Assert.AreEqual(expected.md5, result.AppliedRows[0].md5);
         });
     }
 
@@ -2931,14 +2923,6 @@ createTempDirectory);
                 BMSFiles = [file],
                 BmsonSongs = [bmsonSong]
             };
-            int chartInfoPropertyChangedCount = 0;
-            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == nameof(BMSFile.ChartInfo))
-                {
-                    chartInfoPropertyChangedCount++;
-                }
-            };
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
 
@@ -2946,8 +2930,6 @@ createTempDirectory);
             Assert.IsFalse(library.ChartInfoHydrationRunning);
             Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
             Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
-            Assert.IsNull(file.ChartInfo);
-            Assert.IsNull(bmsonSong.ChartInfo);
             LR2SongDBExtended.chart_info resolvedBmsRow = library.ResolveChartInfo(file.sha256, file.hash);
             LR2SongDBExtended.chart_info resolvedBmsonRow = library.ResolveChartInfo(bmsonSong.sha256, bmsonSong.md5);
             Assert.IsNotNull(resolvedBmsRow);
@@ -2955,14 +2937,12 @@ createTempDirectory);
             Assert.IsNotNull(resolvedBmsonRow);
             Assert.AreEqual(bmsonSha, resolvedBmsonRow.sha256);
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
-            Assert.AreEqual(0, chartInfoPropertyChangedCount);
 
             InvokeDeferredChartInfoHydration(library, "unit_test_repeat", queueFullBackfillAfterHydration: false);
 
             Assert.IsTrue(WaitForChartInfoHydration(library), "second chart_info hydration did not complete.");
             Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
             Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
-            Assert.AreEqual(0, chartInfoPropertyChangedCount);
         });
     }
 
@@ -3051,7 +3031,6 @@ createTempDirectory);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             BMSFile installedFile = library.BMSFiles.Single();
-            Assert.IsNotNull(installedFile.ChartInfo);
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + installedFile.path.Replace("'", "''") + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + installedFile.hash + "' AND sha256 = '" + installedFile.sha256 + "';"));
@@ -3089,7 +3068,6 @@ createTempDirectory);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             LR2SongDBExtended.bmson_song installedSong = library.BmsonSongs.Single();
-            Assert.IsNotNull(installedSong.ChartInfo);
             Assert.IsNotNull(library.ResolveChartInfo(installedSong.sha256, installedSong.md5));
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE path = '" + installedSong.path.Replace("'", "''") + "';"));
@@ -3119,7 +3097,6 @@ createTempDirectory);
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             BMSFile installedFile = library.BMSFiles.Single();
-            Assert.IsNull(installedFile.ChartInfo);
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + installedFile.path.Replace("'", "''") + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
@@ -3394,7 +3371,6 @@ createTempDirectory);
             Assert.AreEqual(1, result.FailureSkippedCount);
             Assert.AreEqual(0, result.ParseFailedCount);
             Assert.AreEqual(0, result.SuccessCount);
-            Assert.IsNull(file.ChartInfo);
         });
     }
 

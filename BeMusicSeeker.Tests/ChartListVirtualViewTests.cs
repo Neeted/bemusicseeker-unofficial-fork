@@ -1732,7 +1732,7 @@ public sealed class ChartListVirtualViewTests
             hash: "11111111111111111111111111111111",
             sha256: "1111111111111111111111111111111111111111111111111111111111111111");
         file.bmsScore = CreateScore(file.hash, ClearType.HARD, RankType.AA, perfect: 800, great: 200, totalNotes: 1200, maxCombo: 999, minBp: 12, ranking: 42, rankingNum: 500, rankingLastUpdate: new DateTime(2026, 5, 15, 1, 2, 3, DateTimeKind.Local), stdDevVal: 51.5, scoreDifficulty: 78.25);
-        file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: 7, difficulty: 3, mainBpm: 150.5, total: 340.0));
+        LR2SongDBExtended.chart_info bmsChartInfo = CreateChartInfo(file.sha256, file.hash, level: 7, difficulty: 3, mainBpm: 150.5, total: 340.0);
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file.path, file.hash, 3), suppressPropertyChanged: true);
         file.SetWarning(ChartWarningKind.DuplicateChart, "duplicate warning");
         ChartFile bmsInstallDestinationChart = ChartFileProjection.WithPackageState(
@@ -1768,22 +1768,22 @@ public sealed class ChartListVirtualViewTests
             level = 9,
             md5 = "22222222222222222222222222222222",
             sha256 = "2222222222222222222222222222222222222222222222222222222222222222",
-            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0),
             MaintenanceInfo = CreateMaintenanceInfo(@"folder-b\bmson.bmson", "22222222222222222222222222222222", 4)
         };
+        LR2SongDBExtended.chart_info bmsonChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 4, difficulty: 1, mainBpm: 99.5, total: 240.0);
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
             [file],
             [bmson],
             playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart),
             chartTransientStateProvider: ResolveTransientState,
-            chartInfoProjectionProvider: CreateChartInfoProvider(file.ChartInfo, bmson.ChartInfo));
+            chartInfoProjectionProvider: CreateChartInfoProvider(bmsChartInfo, bmsonChartInfo));
         LibraryChartRow bmsRow = LibraryChartRow.FromBmsFile(file);
         bmsRow.SetChartTransientStateProvider(ResolveTransientState);
         bmsRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
-        bmsRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(file.ChartInfo));
+        bmsRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(bmsChartInfo));
         LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(bmson);
         bmsonRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
-        bmsonRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(bmson.ChartInfo));
+        bmsonRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(bmsonChartInfo));
 
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsStorageOwner() != null), bmsRow);
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsonStorageOwner() != null), bmsonRow);
@@ -1864,7 +1864,6 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSortKeyChange(song => song.sha256 = "3333333333333333333333333333333333333333333333333333333333333333");
         AssertBmsonSortKeyChange(song => song.level = 10);
         AssertBmsonSortKeyNotChanged(song => song.MaintenanceInfo = CreateMaintenanceInfo(song.path, song.md5, 5));
-        AssertBmsonSortKeyNotChanged(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
     [TestMethod]
@@ -1898,7 +1897,6 @@ public sealed class ChartListVirtualViewTests
 
         AssertBmsonSourceIdentityNotChanged(song => song.MaintenanceInfo = CreateMaintenanceInfo(song.path, song.md5, 5));
         AssertBmsonSourceIdentityNotChanged(song => song.MaintenanceInfo.encoding = "utf-16");
-        AssertBmsonSourceIdentityNotChanged(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
     [TestMethod]
@@ -1915,7 +1913,6 @@ public sealed class ChartListVirtualViewTests
         AssertBmsonSameReferenceSortKeyChange(song => song.level = 10);
         AssertBmsonSameReferenceSortKeyNotChanged(song => song.MaintenanceInfo.encoding = "utf-16");
         AssertBmsonSameReferenceSortKeyNotChanged(song => song.MaintenanceInfo.wav_files_existing = 1);
-        AssertBmsonSameReferenceSortKeyNotChanged(song => song.ChartInfo = CreateChartInfo(song.sha256, song.md5, level: 12, difficulty: 4, mainBpm: 180.0, total: 360.0));
     }
 
     private static ChartListVirtualView CreateView(out Func<int> getCreatedCount, int distinctFolderCount = -1)
@@ -2096,7 +2093,6 @@ public sealed class ChartListVirtualViewTests
                 level = 8,
                 md5 = "dddddddddddddddddddddddddddddddd",
                 sha256 = "4444444444444444444444444444444444444444444444444444444444444444",
-                ChartInfo = CreateChartInfo("4444444444444444444444444444444444444444444444444444444444444444", "dddddddddddddddddddddddddddddddd", level: 6, difficulty: 2, mainBpm: 133.0, total: 270.0),
                 MaintenanceInfo = CreateMaintenanceInfo(@"folder-c\bmson-beta.bmson", "dddddddddddddddddddddddddddddddd", 4)
             },
             new LR2SongDBExtended.bmson_song
@@ -2110,7 +2106,6 @@ public sealed class ChartListVirtualViewTests
                 level = 3,
                 md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                 sha256 = "5555555555555555555555555555555555555555555555555555555555555555",
-                ChartInfo = CreateChartInfo("5555555555555555555555555555555555555555555555555555555555555555", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 2, difficulty: 0, mainBpm: 90.0, total: 180.0),
                 MaintenanceInfo = CreateMaintenanceInfo(@"folder-d\bmson-alpha.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", 5)
             }
         ];
@@ -2151,11 +2146,6 @@ public sealed class ChartListVirtualViewTests
                 rankingLastUpdate: new DateTime(2026, 5, 15, seed, 0, 0, DateTimeKind.Local),
                 stdDevVal: 40.0 + seed,
                 scoreDifficulty: 70.0 + seed);
-        }
-        if (chartSeed.HasValue)
-        {
-            int seed = chartSeed.Value;
-            file.SetChartInfo(CreateChartInfo(file.sha256, file.hash, level: seed + 2, difficulty: seed, mainBpm: 100.0 + seed * 25.0, total: 200.0 + seed * 10.0));
         }
         if (maintenanceSeed.HasValue)
         {
@@ -2376,11 +2366,6 @@ public sealed class ChartListVirtualViewTests
         LR2SongDBExtended.bmson_song next = CreateBmsonSong();
         mutate(next);
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
-        LR2SongDBExtended.chart_info originalChartInfo = original.ChartInfo;
-        LR2SongDBExtended.chart_info nextChartInfo = next.ChartInfo;
-        row.SetChartInfoProjectionProvider(chart => ReferenceEquals(row.GetBmsonStorageOwner(), next)
-            ? ResolveChartInfoByIdentity(chart, [nextChartInfo])
-            : ResolveChartInfoByIdentity(chart, [originalChartInfo]));
 
         Assert.IsTrue(
             MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(row, next));
@@ -2422,8 +2407,6 @@ public sealed class ChartListVirtualViewTests
     private static void AssertBmsonSameReferenceSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
     {
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(CreateBmsonSong());
-        LR2SongDBExtended.chart_info projectedChartInfo = row.GetBmsonStorageOwner()?.ChartInfo ?? null!;
-        row.SetChartInfoProjectionProvider(chart => ResolveChartInfoByIdentity(chart, [projectedChartInfo]));
 
         Assert.IsTrue(
             MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(
@@ -2431,15 +2414,12 @@ public sealed class ChartListVirtualViewTests
                 song =>
                 {
                     mutate(song);
-                    projectedChartInfo = song.ChartInfo;
                 }));
     }
 
     private static void AssertBmsonSameReferenceSortKeyNotChanged(Action<LR2SongDBExtended.bmson_song> mutate)
     {
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(CreateBmsonSong());
-        LR2SongDBExtended.chart_info projectedChartInfo = row.GetBmsonStorageOwner()?.ChartInfo ?? null!;
-        row.SetChartInfoProjectionProvider(chart => ResolveChartInfoByIdentity(chart, [projectedChartInfo]));
 
         Assert.IsFalse(
             MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(
@@ -2447,7 +2427,6 @@ public sealed class ChartListVirtualViewTests
                 song =>
                 {
                     mutate(song);
-                    projectedChartInfo = song.ChartInfo;
                 }));
     }
 
@@ -2465,7 +2444,6 @@ public sealed class ChartListVirtualViewTests
             level = 6,
             md5 = "22222222222222222222222222222222",
             sha256 = "2222222222222222222222222222222222222222222222222222222222222222",
-            ChartInfo = CreateChartInfo("2222222222222222222222222222222222222222222222222222222222222222", "22222222222222222222222222222222", level: 5, difficulty: 2, mainBpm: 120.0, total: 300.0),
             MaintenanceInfo = CreateMaintenanceInfo(@"folder-b\bmson.bmson", "22222222222222222222222222222222", 3)
         };
     }

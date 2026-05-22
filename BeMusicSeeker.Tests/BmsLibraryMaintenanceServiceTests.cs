@@ -547,19 +547,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(1200);
         LR2SongDBExtended.chart_info zeroNoteInfo = CreateChartInfo(zeroNoteFile.hash, notes: 0);
-        zeroNoteFile.SetChartInfo(zeroNoteInfo);
         ChartFile zeroNoteChart = ChartFileProjection.FromBmsFile(zeroNoteFile);
         TestableBmsFile normalFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         normalFile.SetNotes(0);
         LR2SongDBExtended.chart_info normalInfo = CreateChartInfo(normalFile.hash, notes: 1200);
-        normalFile.SetChartInfo(normalInfo);
         ChartFile normalChart = ChartFileProjection.FromBmsFile(normalFile);
         TestableBmsFile missingChartInfoFile = CreateFile("dddddddddddddddddddddddddddddddd");
         missingChartInfoFile.SetNotes(0);
         ChartFile missingChartInfoChart = ChartFileProjection.FromBmsFile(missingChartInfoFile);
         LR2SongDBExtended.bmson_song zeroNoteBmson = CreateBmsonSong("C:\\Library\\chart.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         LR2SongDBExtended.chart_info zeroNoteBmsonInfo = CreateChartInfo(zeroNoteBmson.md5, notes: 0);
-        zeroNoteBmson.ChartInfo = zeroNoteBmsonInfo;
         ChartFile zeroNoteBmsonChart = ChartFileProjection.FromBmsonSong(zeroNoteBmson);
 
         List<ChartFile> result = service.GetZeroNoteCharts(
@@ -570,12 +567,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void GetZeroNoteCharts_UsesResolverBeforeOwnerChartInfo()
+    public void GetZeroNoteCharts_UsesResolverChartInfo()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file.SetChartInfo(CreateChartInfo(file.hash, notes: 1200));
         ChartFile chart = ChartFileProjection.FromBmsFile(file);
 
         List<ChartFile> result = service.GetZeroNoteCharts(
@@ -588,12 +584,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void GetZeroNoteCharts_DoesNotFallbackToOwnerWhenResolverMisses()
+    public void GetZeroNoteCharts_DoesNotFallbackWhenResolverMisses()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        file.SetChartInfo(CreateChartInfo(file.hash, notes: 0));
         ChartFile chart = ChartFileProjection.FromBmsFile(file);
 
         List<ChartFile> result = service.GetZeroNoteCharts([chart], _ => null);
@@ -716,7 +711,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(0);
         LR2SongDBExtended.chart_info zeroNoteInfo = CreateChartInfo(zeroNoteFile.hash, notes: 0);
-        zeroNoteFile.SetChartInfo(zeroNoteInfo);
         zeroNoteFile.path = "C:\\missing\\chart.bms";
         zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
 
@@ -732,12 +726,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void RecheckZeroNoteWarnings_UsesResolverBeforeOwnerChartInfo()
+    public void RecheckZeroNoteWarnings_UsesResolverChartInfo()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
         zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
         ChartFile chart = ChartFileProjection.FromBmsFile(zeroNoteFile);
 
@@ -754,12 +747,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void RecheckZeroNoteWarnings_DoesNotFallbackToOwnerWhenResolverMisses()
+    public void RecheckZeroNoteWarnings_DoesNotFallbackWhenResolverMisses()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
         zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
         ChartFile chart = ChartFileProjection.FromBmsFile(zeroNoteFile);
 

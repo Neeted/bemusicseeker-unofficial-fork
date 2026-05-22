@@ -973,12 +973,6 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public bool HasFreshResourceReferences { get; set; }
 
         /// <summary>
-        /// sha256 で照合した譜面解析メタデータです。
-        /// </summary>
-        [Ignore]
-        public chart_info ChartInfo { get; set; }
-
-        /// <summary>
         /// maintenance table から読み込んだ bmson 用の構成ファイル検査結果です。
         /// bmson_song table には保存せず、既存 maintenance table の row を参照します。
         /// </summary>

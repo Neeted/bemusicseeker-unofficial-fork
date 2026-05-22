@@ -194,8 +194,6 @@ public class BMSFile : LR2SongDB.song
 
     private string _sha256;
 
-    private LR2SongDBExtended.chart_info _chartInfo;
-
     private readonly object lockObject = new();
 
     private PropertyChangedEventListener listenerForBMSScore;
@@ -300,52 +298,6 @@ public class BMSFile : LR2SongDB.song
                 RaisePropertyChanged("sha256");
             }
         }
-    }
-
-    /// <summary>
-    /// sha256 で照合した譜面解析メタデータです。
-    /// song テーブルの列ではないため SQLite の永続化対象から除外します。
-    /// </summary>
-    [Ignore]
-    public virtual LR2SongDBExtended.chart_info ChartInfo
-    {
-        get
-        {
-            return _chartInfo;
-        }
-        private set
-        {
-            if (!ReferenceEquals(_chartInfo, value))
-            {
-                _chartInfo = value;
-                RaisePropertyChanged(() => ChartInfo);
-            }
-        }
-    }
-
-    /// <summary>
-    /// DB から読み込んだ、またはバックグラウンド解析で生成した譜面解析メタデータを関連付けます。
-    /// </summary>
-    /// <param name="chartInfo">関連付ける解析メタデータ。</param>
-    internal void SetChartInfo(LR2SongDBExtended.chart_info chartInfo)
-    {
-        ChartInfo = chartInfo;
-    }
-
-    /// <summary>
-    /// full hydration 用に chart_info を関連付けます。
-    /// 一覧全行へ大量通知を流さず、表示中 view の batch refresh に任せます。
-    /// </summary>
-    /// <param name="chartInfo">関連付ける解析メタデータ。</param>
-    /// <returns>値が差し替わった場合は <see langword="true"/>。</returns>
-    internal bool SetChartInfoSilently(LR2SongDBExtended.chart_info chartInfo)
-    {
-        if (ReferenceEquals(_chartInfo, chartInfo))
-        {
-            return false;
-        }
-        _chartInfo = chartInfo;
-        return true;
     }
 
     public virtual string Title

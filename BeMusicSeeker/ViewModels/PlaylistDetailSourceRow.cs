@@ -344,7 +344,7 @@ internal sealed class PlaylistDetailSourceRow
             if (resolvedChartSnapshot != null)
             {
                 ChartFile ownerSource = ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
-                ChartFile projectedChart = ChartFileProjection.WithCurrentStorageOwnerChartInfo(resolvedChartSnapshot, ownerSource);
+                ChartFile projectedChart = resolvedChartSnapshot;
                 projectedChart = ApplyChartInfoProjection(projectedChart, ownerSource);
                 return ChartFileProjection.WithTransientState(
                     projectedChart,
@@ -379,13 +379,13 @@ internal sealed class PlaylistDetailSourceRow
         if (bmsOwner != null)
         {
             return ResolveChartInfoFromProvider(resolvedChartSnapshot)
-                ?? ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(resolvedChartSnapshot);
+                ?? resolvedChartSnapshot.ChartInfo;
         }
         if (resolvedBmson != null)
         {
             ChartFile ownerSource = resolvedChartSnapshot ?? ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
             return ResolveChartInfoFromProvider(ownerSource)
-                ?? ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(ownerSource);
+                ?? ownerSource?.ChartInfo;
         }
         if (resolvedChartSnapshot != null && EntryChartInfo == null)
         {

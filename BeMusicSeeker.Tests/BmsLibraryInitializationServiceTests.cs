@@ -993,7 +993,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(0, result.InlineChartInfoParseFailedCount);
             Assert.AreEqual(1, result.InlineChartInfoRows.Count);
             Assert.AreEqual(1, result.InlineChartInfoAppliedRows.Count);
-            Assert.IsNotNull(result.AddedFiles[0].ChartInfo);
+            Assert.AreEqual(result.AddedFiles[0].sha256, result.InlineChartInfoAppliedRows[0].sha256);
+            Assert.AreEqual(result.AddedFiles[0].hash, result.InlineChartInfoAppliedRows[0].md5);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
@@ -1508,7 +1509,6 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(0, result.InlineChartInfoAppliedRows.Count);
             Assert.AreEqual(1, callbackRows.Count);
             Assert.AreEqual(result.AddedFiles[0].sha256, callbackRows[0].sha256);
-            Assert.IsNotNull(result.AddedFiles[0].ChartInfo);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", result.AddedFiles[0].sha256, result.AddedFiles[0].hash));
@@ -1613,7 +1613,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.InlineChartInfoFailureSkippedCount);
             Assert.AreEqual(0, result.InlineChartInfoSuccessCount);
             Assert.AreEqual(0, result.InlineChartInfoRows.Count);
-            Assert.IsNull(result.AddedFiles[0].ChartInfo);
+            Assert.AreEqual(0, result.InlineChartInfoAppliedRows.Count);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
@@ -1623,7 +1623,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_CurrentInlineChartInfoRowSkipsParseAndAppliesToModel()
+    public void ApplyFileScanDiff_CurrentInlineChartInfoRowSkipsParseAndReturnsAppliedRow()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -1667,8 +1667,9 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(0, result.InlineChartInfoSuccessCount);
             Assert.AreEqual(0, result.InlineChartInfoRows.Count);
             Assert.AreEqual(1, result.InlineChartInfoAppliedRows.Count);
-            Assert.IsNotNull(result.AddedFiles[0].ChartInfo);
-            Assert.AreEqual(7, result.AddedFiles[0].ChartInfo.level);
+            Assert.AreEqual(result.AddedFiles[0].sha256, result.InlineChartInfoAppliedRows[0].sha256);
+            Assert.AreEqual(result.AddedFiles[0].hash, result.InlineChartInfoAppliedRows[0].md5);
+            Assert.AreEqual(7, result.InlineChartInfoAppliedRows[0].level);
         });
     }
 
@@ -1726,8 +1727,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(0, result.InlineChartInfoSuccessCount);
             Assert.AreEqual(0, result.InlineChartInfoIndexPublishedCount);
             Assert.AreEqual(0, callbackRows.Count);
-            Assert.IsTrue(result.AddedFiles.All(file => file.ChartInfo != null));
-            Assert.IsTrue(result.AddedFiles.All(file => file.ChartInfo.level == 7));
+            Assert.AreEqual(0, result.InlineChartInfoRows.Count);
+            Assert.AreEqual(0, result.InlineChartInfoAppliedRows.Count);
         });
     }
 
@@ -2291,7 +2292,6 @@ public sealed class BmsLibraryInitializationServiceTests
 
             Assert.AreEqual(1, result.LoadedFiles.Count);
             Assert.AreEqual(sha256, result.LoadedFiles[0].sha256);
-            Assert.IsNull(result.LoadedFiles[0].ChartInfo);
         });
     }
 

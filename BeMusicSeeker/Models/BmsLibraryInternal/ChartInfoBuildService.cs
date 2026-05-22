@@ -114,7 +114,6 @@ internal sealed class ChartInfoBuildService
         if (IsCurrent(existingRows, sha256))
         {
             LR2SongDBExtended.chart_info row = existingRows[sha256];
-            target.ApplyChartInfo(row);
             return InlineChartInfoBuildResult.CreateCurrentRowSkipped(row, snapshot.Length);
         }
         if (IsCurrentParseFailure(currentFailures, md5))
@@ -137,7 +136,6 @@ internal sealed class ChartInfoBuildService
             stopwatch.Stop();
             LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
             LR2SongDBExtended.chart_info row = parseResult.Row;
-            target.ApplyChartInfo(row);
             return InlineChartInfoBuildResult.CreateSuccess(row, md5, stopwatch.ElapsedMilliseconds, snapshot.Length);
         }
         catch (Exception ex)
@@ -472,11 +470,7 @@ internal sealed class ChartInfoBuildService
         if (itemResult.Row != null)
         {
             parseSucceededCount++;
-            if (itemResult.ReusedExistingRow)
-            {
-                itemResult.Target.ApplyChartInfo(itemResult.Row);
-            }
-            else
+            if (!itemResult.ReusedExistingRow)
             {
                 commitBuffer.AddChartInfo(itemResult.Target, itemResult.Row);
             }
@@ -557,7 +551,6 @@ internal sealed class ChartInfoBuildService
         }
         foreach (PendingChartInfoApplication application in commitChunk.ChartInfoApplications)
         {
-            application.Target.ApplyChartInfo(application.Row);
             result.BackfilledCount++;
         }
         result.FailurePersistedCount += commitChunk.ParseFailureRows.Count;
@@ -649,7 +642,6 @@ internal sealed class ChartInfoBuildService
             }
             if (!string.IsNullOrWhiteSpace(chart.Sha256) && IsCurrent(existingRows, chart.Sha256))
             {
-                ChartInfoBuildTargetMapper.Create(chart)?.ApplyChartInfo(existingRows[chart.Sha256]);
                 result.CurrentRowSkippedCount++;
                 continue;
             }

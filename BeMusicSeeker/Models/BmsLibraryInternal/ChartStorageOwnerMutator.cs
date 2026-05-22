@@ -67,24 +67,4 @@ internal static class ChartStorageOwnerMutator
         return true;
     }
 
-    internal static void ApplyChartInfo(ChartFile chart, LR2SongDBExtended.chart_info row)
-    {
-        if (chart == null || row == null)
-        {
-            return;
-        }
-
-        BMSFile file = chart.GetBmsStorageOwner();
-        if (file != null)
-        {
-            file.SetChartInfo(row);
-            return;
-        }
-
-        LR2SongDBExtended.bmson_song song = chart.GetBmsonStorageOwner();
-        if (song != null)
-        {
-            song.ChartInfo = row;
-        }
-    }
 }

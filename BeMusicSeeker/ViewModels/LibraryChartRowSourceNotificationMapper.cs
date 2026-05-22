@@ -21,24 +21,19 @@ internal enum LibraryChartRowSourceNotificationGroups
     WarningPresentation = 1,
 
     /// <summary>
-    /// chart_info 表示列に関係する通知です。
-    /// </summary>
-    ChartInfoDisplay = 2,
-
-    /// <summary>
     /// score / ranking 表示列に関係する通知です。
     /// </summary>
-    ScoreDisplay = 4,
+    ScoreDisplay = 2,
 
     /// <summary>
     /// maintenance / resource health 表示列に関係する通知です。
     /// </summary>
-    MaintenanceDisplay = 8,
+    MaintenanceDisplay = 4,
 
     /// <summary>
     /// 全表示 group を再通知する必要がある通知です。
     /// </summary>
-    All = WarningPresentation | ChartInfoDisplay | ScoreDisplay | MaintenanceDisplay
+    All = WarningPresentation | ScoreDisplay | MaintenanceDisplay
 }
 
 /// <summary>
@@ -60,10 +55,6 @@ internal static class LibraryChartRowSourceNotificationMapper
         if (string.Equals(propertyName, nameof(BMSFile.Warnings), StringComparison.Ordinal))
         {
             return LibraryChartRowSourceNotificationGroups.WarningPresentation;
-        }
-        if (string.Equals(propertyName, nameof(BMSFile.ChartInfo), StringComparison.Ordinal))
-        {
-            return LibraryChartRowSourceNotificationGroups.ChartInfoDisplay;
         }
         if (string.Equals(propertyName, nameof(BMSFile.bmsScore), StringComparison.Ordinal))
         {

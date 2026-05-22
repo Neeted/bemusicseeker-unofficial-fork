@@ -548,44 +548,27 @@ internal static class ChartFileProjection
             bmsonSong.subtitle);
     }
 
-    internal static LR2SongDBExtended.chart_info ResolveCurrentStorageOwnerChartInfo(ChartFile source)
-    {
-        ChartFile currentChart = FromStorageOwner(source, includeWarningSnapshot: false);
-        return currentChart != null ? currentChart.ChartInfo : source?.ChartInfo;
-    }
-
-    internal static ChartFile WithCurrentStorageOwnerChartInfo(ChartFile source)
-    {
-        return WithCurrentStorageOwnerChartInfo(source, source);
-    }
-
-    internal static ChartFile WithCurrentStorageOwnerChartInfo(ChartFile source, ChartFile ownerSource)
-    {
-        ChartFile currentChart = FromStorageOwner(ownerSource, includeWarningSnapshot: false);
-        if (currentChart == null || ReferenceEquals(currentChart.ChartInfo, source?.ChartInfo))
-        {
-            return source;
-        }
-        return WithChartInfo(source, currentChart.ChartInfo);
-    }
-
     internal static List<ChartFile> FromStorageRows(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         bool includeWarningSnapshot = false,
         bool requireBmsonPath = false,
-        bool orderBmsonByPath = false)
+        bool orderBmsonByPath = false,
+        bool includeResourceReferences = true)
     {
-        List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot);
-        charts.AddRange(FromBmsonSongs(bmsonSongs, includeWarningSnapshot, requireBmsonPath, orderBmsonByPath));
+        List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot, includeResourceReferences);
+        charts.AddRange(FromBmsonSongs(bmsonSongs, includeWarningSnapshot, requireBmsonPath, orderBmsonByPath, includeResourceReferences));
         return charts;
     }
 
-    internal static List<ChartFile> FromBmsFiles(IEnumerable<BMSFile> files, bool includeWarningSnapshot = false)
+    internal static List<ChartFile> FromBmsFiles(
+        IEnumerable<BMSFile> files,
+        bool includeWarningSnapshot = false,
+        bool includeResourceReferences = true)
     {
         return [.. (files ?? [])
             .Where(file => file != null)
-            .Select(file => FromBmsFile(file, includeWarningSnapshot: includeWarningSnapshot))
+            .Select(file => FromBmsFile(file, includeWarningSnapshot: includeWarningSnapshot, includeResourceReferences: includeResourceReferences))
             .Where(chart => chart != null)];
     }
 
@@ -663,7 +646,8 @@ internal static class ChartFileProjection
         IEnumerable<LR2SongDBExtended.bmson_song> songs,
         bool includeWarningSnapshot = false,
         bool requirePath = false,
-        bool orderByPath = false)
+        bool orderByPath = false,
+        bool includeResourceReferences = true)
     {
         IEnumerable<LR2SongDBExtended.bmson_song> source = (songs ?? []).Where(song => song != null);
         if (requirePath)
@@ -675,7 +659,7 @@ internal static class ChartFileProjection
             source = source.OrderBy(song => song.path, System.StringComparer.OrdinalIgnoreCase);
         }
         return [.. source
-            .Select(song => FromBmsonSong(song, includeWarningSnapshot))
+            .Select(song => FromBmsonSong(song, includeWarningSnapshot, includeResourceReferences))
             .Where(chart => chart != null)];
     }
 
