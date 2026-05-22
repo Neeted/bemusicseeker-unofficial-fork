@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -102,6 +103,44 @@ internal sealed class LibraryInstallDestinationChange
     internal BMSFile GetBmsStorageOwner()
     {
         return Chart?.GetBmsStorageOwner();
+    }
+
+    internal ChartFile CreateAppliedChartSnapshot()
+    {
+        if (Entry?.Chart != null)
+        {
+            return Entry.Chart;
+        }
+
+        BMSFile bmsFile = GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return ChartFileProjection.FromBmsFile(bmsFile);
+        }
+
+        if (Chart == null)
+        {
+            return null;
+        }
+
+        if (ClearInstallDestinationState)
+        {
+            return ChartFileProjection.WithPackageState(
+                Chart,
+                null,
+                string.Empty,
+                string.Empty,
+                [],
+                [.. (Chart.Warnings ?? []).Where(warning => warning?.Category != ChartWarningCategory.InstallEstimation)]);
+        }
+
+        return ChartFileProjection.WithPackageState(
+            Chart,
+            NewInstallDestination,
+            Chart.InstallDestinationTitle,
+            Chart.InstallDestinationArtist,
+            Chart.InstallDestinationSuggestions,
+            Chart.Warnings);
     }
 }
 

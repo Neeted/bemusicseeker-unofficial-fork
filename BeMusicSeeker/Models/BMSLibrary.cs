@@ -877,6 +877,10 @@ public class BMSLibrary : NotificationObject
 
     private List<LR2SongDBExtended.bmson_song> _BmsonSongs = [];
 
+    private IReadOnlyList<ChartFile> latestInstallDestinationChangedCharts = [];
+
+    private readonly object latestInstallDestinationChangedChartsLock = new();
+
     private readonly object resourceHealthIndexLock = new();
 
     private ResourceHealthIndexSnapshot resourceHealthIndexSnapshot = ResourceHealthIndexSnapshot.Empty;
@@ -1045,6 +1049,16 @@ public class BMSLibrary : NotificationObject
     }
 
     public List<BMSFile> BMSFilesUnregistered => [.. BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent))];
+
+    internal IReadOnlyList<ChartFile> ConsumeLatestInstallDestinationChangedCharts()
+    {
+        lock (latestInstallDestinationChangedChartsLock)
+        {
+            IReadOnlyList<ChartFile> charts = latestInstallDestinationChangedCharts;
+            latestInstallDestinationChangedCharts = [];
+            return charts;
+        }
+    }
 
     internal IEnumerable<ChartFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
 
@@ -10796,6 +10810,22 @@ reportProgress,
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
         stateApplier.ApplyLibraryMutationDelta(delta);
+        PublishInstallDestinationChangedCharts(delta);
+    }
+
+    private void PublishInstallDestinationChangedCharts(LibraryMutationDelta delta)
+    {
+        List<ChartFile> charts = [.. (delta?.UpdatedInstallDestinations ?? [])
+            .Select(change => change?.CreateAppliedChartSnapshot())
+            .Where(chart => chart != null)];
+        if (charts.Count == 0)
+        {
+            return;
+        }
+        lock (latestInstallDestinationChangedChartsLock)
+        {
+            latestInstallDestinationChangedCharts = charts;
+        }
     }
 
     /// <summary>

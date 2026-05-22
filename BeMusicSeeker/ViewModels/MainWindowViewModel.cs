@@ -14154,6 +14154,7 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
+            UpdateSharedChartTransientStates(files?.ConsumeLatestInstallDestinationChangedCharts(), forceInstallDestinationProjection: true);
             InvalidatePlaylistLibraryIndexSnapshot("library_charts_changed");
             PruneRegularBmsLibraryRowCache(ChartFileProjection.FromBmsStorageOwnerIdentities(files?.BMSFiles));
             IncrementNormalLibrarySourceGeneration("library_charts_changed");
@@ -14184,6 +14185,7 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {
+            UpdateSharedChartTransientStates(files?.ConsumeLatestInstallDestinationChangedCharts(), forceInstallDestinationProjection: true);
             InvalidatePlaylistLibraryIndexSnapshot("library_bmsons_changed");
             BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (syncResult.SortKeyChanged)
