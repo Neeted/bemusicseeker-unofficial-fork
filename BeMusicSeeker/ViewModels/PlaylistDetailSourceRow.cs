@@ -224,10 +224,7 @@ internal sealed class PlaylistDetailSourceRow
         this.chartTransientStateProvider = chartTransientStateProvider;
         Chart = CreateChartFile();
         ChartFile chart = Chart;
-        bool isBmsOwned = HasOwnedBmsChart(chart);
-        bool isBmsonOwned = !isBmsOwned && HasOwnedBmsonChart(chart);
-        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
-        BMSScore effectiveScore = scoreSnapshot ?? bmsOwner?.bmsScore;
+        ChartScoreSnapshot effectiveScore = ResolveEffectiveScore(chart, scoreSnapshot);
         Title = FirstNonEmpty(chart?.Title, entry.title);
         Artist = FirstNonEmpty(chart?.Artist, entry.artist);
         genre = FirstNonEmpty(chart?.Genre);
@@ -259,17 +256,17 @@ internal sealed class PlaylistDetailSourceRow
         encoding = Chart?.EncodingName ?? string.Empty;
         RefTablesSymbols = playlistReferenceDisplay.Symbols;
         RefTablesNames = playlistReferenceDisplay.Names;
-        clear = ResolveClear(isBmsOwned || isBmsonOwned, effectiveScore);
-        rank = ResolveRank(effectiveScore);
-        rate = effectiveScore?.rate;
-        score = effectiveScore?.score;
-        totalnotes = effectiveScore?.totalnotes;
-        maxcombo = effectiveScore?.maxcombo;
-        minbp = ResolveMinBp(effectiveScore);
-        rankingString = BuildRankingString(effectiveScore) ?? string.Empty;
-        rankingLastupdate = effectiveScore?.rankingLastupdate;
-        stddevVal = effectiveScore?.stddevVal;
-        scoreDifficulty = effectiveScore?.scoreDifficulty;
+        clear = effectiveScore.Clear;
+        rank = effectiveScore.Rank;
+        rate = effectiveScore.Rate;
+        score = effectiveScore.Score;
+        totalnotes = effectiveScore.TotalNotes;
+        maxcombo = effectiveScore.MaxCombo;
+        minbp = effectiveScore.MinBp;
+        rankingString = effectiveScore.RankingString;
+        rankingLastupdate = effectiveScore.RankingLastUpdate;
+        stddevVal = effectiveScore.StdDevVal;
+        scoreDifficulty = effectiveScore.ScoreDifficulty;
         status = Chart?.Status ?? ChartFileStatus.NONE;
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
@@ -400,6 +397,13 @@ internal sealed class PlaylistDetailSourceRow
             ?? ChartFileTransientState.Empty;
     }
 
+    private static ChartScoreSnapshot ResolveEffectiveScore(ChartFile chart, BMSScore scoreSnapshot)
+    {
+        return scoreSnapshot != null
+            ? ChartScoreSnapshot.FromBmsScore(scoreSnapshot, chart?.Path)
+            : chart?.Score ?? ChartScoreSnapshot.MissingChart;
+    }
+
     private static bool HasProjectedWarning(ChartFile chart)
     {
         return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
@@ -407,19 +411,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private static bool HasOwnedChart(ChartFile chart)
     {
-        return HasOwnedBmsChart(chart) || HasOwnedBmsonChart(chart);
-    }
-
-    private static bool HasOwnedBmsChart(ChartFile chart)
-    {
-        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
-        return bmsOwner != null && !string.IsNullOrWhiteSpace(bmsOwner.path);
-    }
-
-    private static bool HasOwnedBmsonChart(ChartFile chart)
-    {
-        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
-        return bmsonOwner != null && !string.IsNullOrWhiteSpace(bmsonOwner.path);
+        return !string.IsNullOrWhiteSpace(chart?.GetBmsStorageOwner()?.path)
+            || !string.IsNullOrWhiteSpace(chart?.GetBmsonStorageOwner()?.path);
     }
 
     private static string BuildLevelText(BMSTableEntry entry, ChartFile chart)
@@ -471,42 +464,6 @@ internal sealed class PlaylistDetailSourceRow
             }
         }
         return string.Empty;
-    }
-
-    private static ClearType ResolveClear(bool isOwned, BMSScore effectiveScore)
-    {
-        if (effectiveScore != null)
-        {
-            return effectiveScore.clear;
-        }
-        return isOwned ? ClearType.NO_PLAY : ClearType.NO_SONG;
-    }
-
-    private static RankType ResolveRank(BMSScore effectiveScore)
-    {
-        if (effectiveScore == null)
-        {
-            return RankType.INVALID;
-        }
-        return (effectiveScore.rank != RankType.INVALID) ? effectiveScore.rank : RankType.F;
-    }
-
-    private static int? ResolveMinBp(BMSScore effectiveScore)
-    {
-        if (effectiveScore != null)
-        {
-            return (effectiveScore.minbp == -1) ? effectiveScore.totalnotes : effectiveScore.minbp;
-        }
-        return null;
-    }
-
-    private static string BuildRankingString(BMSScore effectiveScore)
-    {
-        if (effectiveScore == null || effectiveScore.ranking == 0 || effectiveScore.ranking == -1 || effectiveScore.rankingNum == 0)
-        {
-            return string.Empty;
-        }
-        return effectiveScore.ranking.ToString().PadLeft(effectiveScore.rankingNum.ToString().Length) + "/" + effectiveScore.rankingNum;
     }
 
     private string BuildSearchText()

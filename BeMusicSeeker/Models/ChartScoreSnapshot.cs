@@ -85,10 +85,14 @@ internal sealed class ChartScoreSnapshot
             return MissingChart;
         }
 
-        BMSScore score = file.bmsScore;
+        return FromBmsScore(file.bmsScore, file.path);
+    }
+
+    internal static ChartScoreSnapshot FromBmsScore(BMSScore score, string chartPath)
+    {
         if (score == null)
         {
-            return NoScore(file.path);
+            return NoScore(chartPath);
         }
 
         RankType rank = score.rank != RankType.INVALID ? score.rank : RankType.F;
