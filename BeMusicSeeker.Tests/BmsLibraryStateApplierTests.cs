@@ -174,7 +174,7 @@ public sealed class BmsLibraryStateApplierTests
                 applier.ApplyLibraryMutationDelta(delta);
 
                 Assert.AreEqual(newChartPath, movedFile.path);
-                Assert.AreEqual(newDirectoryPath, installLinkedFile.instl_dst);
+                Assert.AreEqual(oldDirectoryPath, installLinkedFile.instl_dst);
                 ChartFile appliedInstallDestinationChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
                 Assert.AreSame(installLinkedFile, appliedInstallDestinationChart.GetBmsStorageOwner());
                 Assert.AreEqual(newDirectoryPath, appliedInstallDestinationChart.InstallDestination);
@@ -209,7 +209,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_FullClearsInstallDestinationState()
+    public void ApplyLibraryMutationDelta_FullClearBuildsChartSnapshotWithoutMutatingBmsOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -245,12 +245,12 @@ public sealed class BmsLibraryStateApplierTests
 
             applier.ApplyLibraryMutationDelta(delta);
 
-            Assert.IsNull(file.instl_dst);
-            Assert.AreEqual(string.Empty, file.InstallDestinationTitle);
-            Assert.AreEqual(string.Empty, file.InstallDestinationArtist);
-            Assert.AreEqual(0, file.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(file.IsInstallDestinationSuggestionPopupOpen);
-            Assert.IsFalse(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            Assert.AreEqual(@"C:\Deleted", file.instl_dst);
+            Assert.AreEqual("Deleted title", file.InstallDestinationTitle);
+            Assert.AreEqual("Deleted artist", file.InstallDestinationArtist);
+            CollectionAssert.AreEqual(new[] { @"C:\Deleted", @"C:\Other" }, file.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(file.IsInstallDestinationSuggestionPopupOpen);
+            Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
             Assert.AreSame(file, appliedChart.GetBmsStorageOwner());
             Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
@@ -265,7 +265,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_PathOnlyNullPreservesInstallDestinationMetadata()
+    public void ApplyLibraryMutationDelta_PathOnlyNullBuildsChartSnapshotWithoutMutatingBmsOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -296,7 +296,7 @@ public sealed class BmsLibraryStateApplierTests
 
             applier.ApplyLibraryMutationDelta(delta);
 
-            Assert.IsNull(file.instl_dst);
+            Assert.AreEqual(@"C:\Installed", file.instl_dst);
             Assert.AreEqual("Candidate title", file.InstallDestinationTitle);
             Assert.AreEqual("Candidate artist", file.InstallDestinationArtist);
             CollectionAssert.AreEqual(new[] { @"C:\Installed", @"C:\Other" }, file.InstallDestinationSuggestions.ToArray());

@@ -296,7 +296,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void FixInstallationDirectoryCharts_BmsChartClearsInstallDestinationAfterApply()
+    public void FixInstallationDirectoryCharts_BmsChartClearsInstallDestinationOverlayAfterApply()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -317,13 +317,20 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     path = sourceChartPath,
                     instl_dst = destinationDirectoryPath
                 };
+                file.SetHash("cccccccccccccccccccccccccccccccc");
                 SetLibraryFilesWithoutNotification(library, [file]);
                 ChartFile repairTarget = ChartFileProjection.FromBmsFile(file);
 
                 library.FixInstallationDirectoryCharts([repairTarget]);
 
                 Assert.AreEqual(destinationChartPath, file.path);
-                Assert.IsNull(file.instl_dst);
+                Assert.AreEqual(destinationDirectoryPath, file.instl_dst);
+                ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+                Assert.AreEqual(destinationChartPath, changedChart.Path);
+                Assert.AreEqual(string.Empty, changedChart.InstallDestination);
+                ChartFile installedChart = InvokeCreateInstalledChartSnapshot(library).Single();
+                Assert.AreEqual(destinationChartPath, installedChart.Path);
+                Assert.AreEqual(string.Empty, installedChart.InstallDestination);
                 Assert.IsFalse(File.Exists(sourceChartPath));
                 Assert.IsTrue(File.Exists(destinationChartPath));
             }
@@ -334,6 +341,118 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Directory.Delete(tempRootPath, recursive: true);
                 }
             }
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_BmsInstallDestinationUsesModelOverlayWithoutMutatingOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms",
+                instl_dst = @"C:\Old"
+            };
+            file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            SetLibraryFilesWithoutNotification(library, [file]);
+
+            var delta = new LibraryMutationDelta();
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                NewInstallDestination = @"C:\New"
+            });
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            Assert.AreEqual(@"C:\Old", file.instl_dst);
+            ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+            Assert.AreEqual(@"C:\New", changedChart.InstallDestination);
+            ChartFile installedChart = InvokeCreateInstalledChartSnapshot(library).Single();
+            Assert.AreEqual(@"C:\New", installedChart.InstallDestination);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_BmsInstallDestinationClearHidesStaleOwnerWarningThroughModelOverlay()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms",
+                instl_dst = @"C:\Deleted",
+                InstallDestinationTitle = "Deleted title",
+                InstallDestinationArtist = "Deleted artist",
+                InstallDestinationSuggestions = [@"C:\Deleted", @"C:\Other"]
+            };
+            file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            file.IsInstallDestinationSuggestionPopupOpen = true;
+            file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
+            SetLibraryFilesWithoutNotification(library, [file]);
+
+            var delta = new LibraryMutationDelta();
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+                ClearInstallDestinationState = true
+            });
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            Assert.AreEqual(@"C:\Deleted", file.instl_dst);
+            Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+            Assert.AreEqual(string.Empty, changedChart.InstallDestination);
+            Assert.IsFalse(changedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            ChartFile installedChart = InvokeCreateInstalledChartSnapshot(library).Single();
+            Assert.AreEqual(string.Empty, installedChart.InstallDestination);
+            Assert.IsFalse(installedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
+            Assert.AreEqual(
+                string.Empty,
+                ChartWarningProjectionFormatter.BuildDigestText(installedChart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_PathFallbackOverlayDoesNotLeakToDifferentOwnerAtSamePath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var originalFile = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms",
+                instl_dst = @"C:\Old"
+            };
+            originalFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            library.BMSFiles = [originalFile];
+            var delta = new LibraryMutationDelta();
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(originalFile, includeWarningSnapshot: false),
+                NewInstallDestination = @"C:\Overlay"
+            });
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            var replacementFile = new TestableBmsFile
+            {
+                path = originalFile.path,
+                instl_dst = @"C:\Replacement"
+            };
+            replacementFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            library.BMSFiles = [replacementFile];
+
+            ChartFile installedChart = InvokeCreateInstalledChartSnapshot(library).Single();
+
+            Assert.AreSame(replacementFile, installedChart.GetBmsStorageOwner());
+            Assert.AreEqual(@"C:\Replacement", installedChart.InstallDestination);
         });
     }
 
@@ -922,6 +1041,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [delta]);
+    }
+
+    private static List<ChartFile> InvokeCreateInstalledChartSnapshot(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (List<ChartFile>)methodInfo.Invoke(library, [library.BMSFiles, library.BmsonSongs]);
     }
 
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)

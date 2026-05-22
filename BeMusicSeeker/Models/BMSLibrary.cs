@@ -883,7 +883,7 @@ public class BMSLibrary : NotificationObject
 
     private readonly object installDestinationRuntimeStatesLock = new();
 
-    private readonly Dictionary<string, ChartFileTransientState> installDestinationRuntimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> installDestinationRuntimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly object resourceHealthIndexLock = new();
 
@@ -6481,20 +6481,18 @@ reportProgress,
 
     private ChartFile OverlayInstallDestinationRuntimeState(ChartFile chart)
     {
-        string key = ChartFileRuntimeStateKey.Create(chart);
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return chart;
-        }
-
-        ChartFileTransientState state;
         lock (installDestinationRuntimeStatesLock)
         {
-            installDestinationRuntimeStatesByKey.TryGetValue(key, out state);
+            foreach (InstallDestinationRuntimeStateKey key in EnumerateChartRuntimeStateLookupKeys(chart))
+            {
+                if (installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry entry)
+                    && entry.CanApplyTo(chart, key.RequireOwnerMatch))
+                {
+                    return ChartFileProjection.WithTransientState(chart, entry.State, includeWarningSnapshot: false);
+                }
+            }
         }
-        return state?.HasState == true
-            ? ChartFileProjection.WithTransientState(chart, state, includeWarningSnapshot: false)
-            : chart;
+        return chart;
     }
 
     private void UpdateInstallDestinationRuntimeStates(LibraryMutationDelta delta, IEnumerable<ChartFile> appliedCharts)
@@ -6508,26 +6506,139 @@ reportProgress,
 
             foreach (ChartFile chart in appliedCharts ?? [])
             {
-                string key = ChartFileRuntimeStateKey.Create(chart);
-                if (string.IsNullOrWhiteSpace(key))
-                {
-                    continue;
-                }
-
                 ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
                     chart,
                     includeWarningSnapshot: true,
                     forceInstallDestinationProjection: true,
                     forceWarningProjection: true);
-                if (state.HasState)
+                foreach (string key in EnumerateInstallDestinationRuntimeStateKeys(chart))
                 {
-                    installDestinationRuntimeStatesByKey[key] = state;
-                }
-                else
-                {
-                    installDestinationRuntimeStatesByKey.Remove(key);
+                    if (state.HasState)
+                    {
+                        installDestinationRuntimeStatesByKey[key] = InstallDestinationRuntimeStateEntry.FromChart(chart, state);
+                    }
+                    else
+                    {
+                        installDestinationRuntimeStatesByKey.Remove(key);
+                    }
                 }
             }
+        }
+    }
+
+    private static IEnumerable<string> EnumerateInstallDestinationRuntimeStateKeys(ChartFile chart)
+    {
+        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (InstallDestinationRuntimeStateKey key in EnumerateChartRuntimeStateLookupKeys(chart))
+        {
+            if (seenKeys.Add(key.Key))
+            {
+                yield return key.Key;
+            }
+        }
+
+        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            foreach (InstallDestinationRuntimeStateKey ownerKey in EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner)))
+            {
+                if (seenKeys.Add(ownerKey.Key))
+                {
+                    yield return ownerKey.Key;
+                }
+            }
+            yield break;
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+        if (bmsonOwner != null)
+        {
+            foreach (InstallDestinationRuntimeStateKey ownerKey in EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonOwner)))
+            {
+                if (seenKeys.Add(ownerKey.Key))
+                {
+                    yield return ownerKey.Key;
+                }
+            }
+        }
+    }
+
+    private static IEnumerable<InstallDestinationRuntimeStateKey> EnumerateChartRuntimeStateLookupKeys(ChartFile chart)
+    {
+        string primaryKey = ChartFileRuntimeStateKey.Create(chart);
+        if (!string.IsNullOrWhiteSpace(primaryKey))
+        {
+            yield return new InstallDestinationRuntimeStateKey(primaryKey, requireOwnerMatch: false);
+        }
+
+        // Maintenance can recalculate a BMS hash after a runtime state is published.
+        // Keep an owner-guarded path key so the overlay survives that owner refresh
+        // without leaking to a different chart later installed at the same path.
+        string pathKey = ChartFileRuntimeStateKey.CreatePathKey(chart);
+        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return new InstallDestinationRuntimeStateKey(pathKey, requireOwnerMatch: true);
+        }
+    }
+
+    private readonly struct InstallDestinationRuntimeStateKey
+    {
+        internal InstallDestinationRuntimeStateKey(string key, bool requireOwnerMatch)
+        {
+            Key = key;
+            RequireOwnerMatch = requireOwnerMatch;
+        }
+
+        internal string Key { get; }
+
+        internal bool RequireOwnerMatch { get; }
+    }
+
+    private sealed class InstallDestinationRuntimeStateEntry
+    {
+        private readonly BMSFile bmsOwner;
+        private readonly LR2SongDBExtended.bmson_song bmsonOwner;
+
+        private InstallDestinationRuntimeStateEntry(
+            ChartFileTransientState state,
+            BMSFile bmsOwner,
+            LR2SongDBExtended.bmson_song bmsonOwner)
+        {
+            State = state ?? ChartFileTransientState.Empty;
+            this.bmsOwner = bmsOwner;
+            this.bmsonOwner = bmsonOwner;
+        }
+
+        internal ChartFileTransientState State { get; }
+
+        internal static InstallDestinationRuntimeStateEntry FromChart(ChartFile chart, ChartFileTransientState state)
+        {
+            return new InstallDestinationRuntimeStateEntry(
+                state,
+                chart?.GetBmsStorageOwner(),
+                chart?.GetBmsonStorageOwner());
+        }
+
+        internal bool CanApplyTo(ChartFile chart, bool requireOwnerMatch)
+        {
+            if (State?.HasState != true)
+            {
+                return false;
+            }
+            if (!requireOwnerMatch)
+            {
+                return true;
+            }
+
+            BMSFile currentBmsOwner = chart?.GetBmsStorageOwner();
+            if (bmsOwner != null || currentBmsOwner != null)
+            {
+                return ReferenceEquals(bmsOwner, currentBmsOwner);
+            }
+
+            LR2SongDBExtended.bmson_song currentBmsonOwner = chart?.GetBmsonStorageOwner();
+            return (bmsonOwner != null || currentBmsonOwner != null)
+                && ReferenceEquals(bmsonOwner, currentBmsonOwner);
         }
     }
 
@@ -6574,19 +6685,22 @@ reportProgress,
         string oldPath = string.IsNullOrWhiteSpace(pathChange.OldPath)
             ? pathChange.Chart.Path
             : pathChange.OldPath;
-        string oldKey = ChartFileRuntimeStateKey.Create(ChartFileProjection.WithPath(pathChange.Chart, oldPath));
-        if (string.IsNullOrWhiteSpace(oldKey))
+        ChartFile oldChart = ChartFileProjection.WithPath(pathChange.Chart, oldPath);
+        List<InstallDestinationRuntimeStateKey> oldKeys = [.. EnumerateChartRuntimeStateLookupKeys(oldChart)];
+        if (oldKeys.Count == 0)
         {
             return null;
         }
 
-        ChartFileTransientState state;
+        InstallDestinationRuntimeStateEntry entry;
         lock (installDestinationRuntimeStatesLock)
         {
-            installDestinationRuntimeStatesByKey.TryGetValue(oldKey, out state);
+            entry = oldKeys
+                .Select(key => installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry value) && value.CanApplyTo(oldChart, key.RequireOwnerMatch) ? value : null)
+                .FirstOrDefault(value => value?.State?.HasState == true);
         }
-        return state?.HasState == true
-            ? ChartFileProjection.WithTransientState(ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath), state, includeWarningSnapshot: false)
+        return entry?.State?.HasState == true
+            ? ChartFileProjection.WithTransientState(ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath), entry.State, includeWarningSnapshot: false)
             : null;
     }
 
@@ -6609,27 +6723,39 @@ reportProgress,
         string oldPath = string.IsNullOrWhiteSpace(pathChange.OldPath)
             ? pathChange.Chart.Path
             : pathChange.OldPath;
-        string oldKey = ChartFileRuntimeStateKey.Create(ChartFileProjection.WithPath(pathChange.Chart, oldPath));
-        string newKey = ChartFileRuntimeStateKey.Create(ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath));
-        if (string.IsNullOrWhiteSpace(oldKey)
-            || string.IsNullOrWhiteSpace(newKey)
-            || string.Equals(oldKey, newKey, StringComparison.OrdinalIgnoreCase)
-            || !installDestinationRuntimeStatesByKey.TryGetValue(oldKey, out ChartFileTransientState state))
+        ChartFile oldChart = ChartFileProjection.WithPath(pathChange.Chart, oldPath);
+        ChartFile newChart = ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath);
+        List<InstallDestinationRuntimeStateKey> oldKeys = [.. EnumerateChartRuntimeStateLookupKeys(oldChart)];
+        List<InstallDestinationRuntimeStateKey> newKeys = [.. EnumerateChartRuntimeStateLookupKeys(newChart)];
+        InstallDestinationRuntimeStateEntry entry = oldKeys
+            .Select(key => installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry value) && value.CanApplyTo(oldChart, key.RequireOwnerMatch) ? value : null)
+            .FirstOrDefault(value => value?.State?.HasState == true);
+        if (entry?.State?.HasState != true)
         {
             return;
         }
 
-        installDestinationRuntimeStatesByKey[newKey] = state;
-        installDestinationRuntimeStatesByKey.Remove(oldKey);
+        InstallDestinationRuntimeStateEntry movedEntry = InstallDestinationRuntimeStateEntry.FromChart(newChart, entry.State);
+        foreach (InstallDestinationRuntimeStateKey newKey in newKeys)
+        {
+            installDestinationRuntimeStatesByKey[newKey.Key] = movedEntry;
+        }
+        foreach (InstallDestinationRuntimeStateKey oldKey in oldKeys)
+        {
+            if (!newKeys.Any(key => string.Equals(key.Key, oldKey.Key, StringComparison.OrdinalIgnoreCase)))
+            {
+                installDestinationRuntimeStatesByKey.Remove(oldKey.Key);
+            }
+        }
     }
 
     private void PruneInstallDestinationRuntimeStatesToCurrentStorageRows()
     {
         var currentKeys = new HashSet<string>(
             (BMSFiles ?? [])
-                .Select(file => ChartFileRuntimeStateKey.Create(ChartFileProjection.FromBmsStorageOwnerIdentity(file)))
+                .SelectMany(file => EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsStorageOwnerIdentity(file)).Select(key => key.Key))
                 .Concat((BmsonSongs ?? [])
-                    .Select(song => ChartFileRuntimeStateKey.Create(ChartFileProjection.FromBmsonStorageOwnerIdentity(song))))
+                    .SelectMany(song => EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsonStorageOwnerIdentity(song)).Select(key => key.Key)))
                 .Where(key => !string.IsNullOrWhiteSpace(key)),
             StringComparer.OrdinalIgnoreCase);
 

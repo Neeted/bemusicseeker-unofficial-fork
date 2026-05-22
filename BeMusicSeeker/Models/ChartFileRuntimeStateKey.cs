@@ -22,4 +22,14 @@ internal static class ChartFileRuntimeStateKey
         }
         return string.IsNullOrWhiteSpace(path) ? null : kindPrefix + "path:" + path;
     }
+
+    internal static string CreatePathKey(ChartFile chart)
+    {
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+        {
+            return null;
+        }
+
+        return chart.Kind.ToString().ToLowerInvariant() + ":path:" + chart.Path;
+    }
 }
