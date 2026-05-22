@@ -355,7 +355,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(string.Empty, pendingBmsEntry.Chart.InstallDestinationArtist);
             CollectionAssert.AreEqual(Array.Empty<string>(), pendingBmsEntry.Chart.InstallDestinationSuggestions.ToArray());
             Assert.IsFalse(pendingFile.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            Assert.IsTrue(string.IsNullOrWhiteSpace(libraryFile.instl_dst));
             LibraryInstallDestinationChange libraryClear = result.MutationDelta.UpdatedInstallDestinations.Single();
             Assert.AreSame(libraryFile, libraryClear.GetBmsStorageOwner());
             Assert.IsTrue(libraryClear.ClearInstallDestinationState);

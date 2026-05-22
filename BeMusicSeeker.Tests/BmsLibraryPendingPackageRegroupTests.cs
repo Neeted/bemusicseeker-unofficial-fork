@@ -1171,7 +1171,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(sourceFile)), destinationDirectoryPath);
 
             Assert.IsFalse(succeeded);
-            Assert.IsNull(sourceFile.instl_dst);
+            Assert.AreEqual(string.Empty, ChartFileProjection.FromBmsFile(sourceFile).InstallDestination);
         });
     }
 

@@ -180,9 +180,9 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
 
             TestableBmsFile pendingA = CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms"));
             TestableBmsFile pendingB = CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme"));
-            pendingA.instl_dst = installedDir1;
-            pendingB.instl_dst = installedDir1;
-            ChartPackage package = CreatePendingPackage(pendingA, pendingB);
+            ChartPackage package = CreatePendingPackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingA, installedDir1),
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingB, installedDir1));
 
             InstalledChartDirectoryIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
@@ -282,6 +282,14 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
     {
         ChartPackage package = ChartPackageTestExtensions.CreatePackage(files);
         package.path = files.FirstOrDefault()?.path ?? string.Empty;
+        package.delete_parent = false;
+        return package;
+    }
+
+    private static ChartPackage CreatePendingPackage(params PackageChartEntry[] entries)
+    {
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(entries);
+        package.path = entries.FirstOrDefault()?.Chart?.Path ?? string.Empty;
         package.delete_parent = false;
         return package;
     }

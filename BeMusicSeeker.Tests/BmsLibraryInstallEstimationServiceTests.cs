@@ -1201,9 +1201,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         entry.ApplyInstalledPath(installedPath);
 
         Assert.AreEqual(installedPath, file.path);
-        Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
-        Assert.AreEqual(string.Empty, file.InstallDestinationTitle);
-        Assert.AreEqual(string.Empty, file.InstallDestinationArtist);
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
         Assert.AreEqual(installedPath, entry.Chart.Path);
         Assert.AreEqual(destinationDirectory, entry.Chart.InstallDestination);
@@ -1713,13 +1710,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
-        service.CorrectChartInstallationDirectory([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file))], delegate (PackageChartEntry target)
+        service.CorrectChartInstallationDirectory([entry], delegate (PackageChartEntry target)
         {
             target.SetInstallDestinationPathOnly(Path.Combine("C:\\Music", "FolderA"));
         });
 
-        Assert.IsNull(file.instl_dst);
+        Assert.AreEqual(string.Empty, entry.Chart.InstallDestination);
     }
 
     [TestMethod]

@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -45,22 +47,21 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
-    public void ResourceWarningDigest_IsHiddenWhenInstallDestinationIsSet()
+    public void ResourceWarningDigest_IsHiddenWhenChartInstallDestinationIsSet()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var file = new BMSFile();
         file.SetWarning(ChartWarningKind.ResourceWavMissing, string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2));
-        List<string> changedProperties = [];
-        file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            changedProperties.Add(e.PropertyName);
-        };
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+            "C:\\Installed",
+            string.Empty,
+            string.Empty,
+            [],
+            file.Warnings.ToStructuredList());
 
-        file.instl_dst = "C:\\Installed";
-
-        Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
-        StringAssert.Contains(file.Warnings.BuildTooltipText(), "WAV");
-        CollectionAssert.Contains(changedProperties, nameof(BMSFile.Warnings));
+        Assert.AreEqual(string.Empty, ChartWarningProjectionFormatter.BuildDigestText(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false));
+        StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), "WAV");
     }
 
     [TestMethod]

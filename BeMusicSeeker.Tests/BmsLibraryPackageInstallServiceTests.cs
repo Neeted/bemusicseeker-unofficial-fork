@@ -487,13 +487,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
     public void ChartPackage_ClearEntryInstallDestinations_DoesNotMaterializeAdapterlessBmsonEntries()
     {
         TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg\\a.bms");
-        bmsFile.instl_dst = "C:\\Installed\\Target";
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.WithPackageState(ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = "C:\\Pending\\Pkg\\adapterless.bmson",
             md5 = "cccccccccccccccccccccccccccccccc"
         }), "C:\\Installed\\Target", "Installed", "Artist", []));
-        PackageChartEntry bmsEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile));
+        PackageChartEntry bmsEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(bmsFile, "C:\\Installed\\Target");
         ChartPackage package = ChartPackage.FromChartEntries(
         [
             bmsEntry,

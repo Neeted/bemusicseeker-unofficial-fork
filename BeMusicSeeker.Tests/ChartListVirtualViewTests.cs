@@ -254,7 +254,6 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("C:\\Installed\\Bms", row.Chart.InstallDestination);
         Assert.AreEqual("Installed BMS", row.InstallDestinationTitle);
         Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
-        Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
     }
 
     [TestMethod]
@@ -345,7 +344,6 @@ public sealed class ChartListVirtualViewTests
             Assert.IsTrue(File.Exists(destinationCollisionPath));
             Assert.IsFalse(File.Exists(Path.Combine(sourceDirectoryPath, temporaryChartName)));
             Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, temporaryChartName)));
-            Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
         }
         finally
         {

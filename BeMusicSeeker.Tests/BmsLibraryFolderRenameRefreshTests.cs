@@ -328,7 +328,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.FixInstallationDirectoryCharts([repairTarget]);
 
                 Assert.AreEqual(destinationChartPath, file.path);
-                Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
                 ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
                 Assert.AreEqual(destinationChartPath, changedChart.Path);
                 Assert.AreEqual(string.Empty, changedChart.InstallDestination);
@@ -357,8 +356,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             var file = new TestableBmsFile
             {
-                path = @"C:\Library\chart.bms",
-                instl_dst = @"C:\Old"
+                path = @"C:\Library\chart.bms"
             };
             file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             SetLibraryFilesWithoutNotification(library, [file]);
@@ -372,7 +370,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
-            Assert.AreEqual(@"C:\Old", file.instl_dst);
             ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
             Assert.AreEqual(@"C:\New", changedChart.InstallDestination);
             ChartFile installedChart = InvokeCreateInstalledChartSnapshot(library).Single();
@@ -389,27 +386,27 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             var file = new TestableBmsFile
             {
-                path = @"C:\Library\chart.bms",
-                instl_dst = @"C:\Deleted",
-                InstallDestinationTitle = "Deleted title",
-                InstallDestinationArtist = "Deleted artist",
-                InstallDestinationSuggestions = [@"C:\Deleted", @"C:\Other"]
+                path = @"C:\Library\chart.bms"
             };
             file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            file.IsInstallDestinationSuggestionPopupOpen = true;
             file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
             SetLibraryFilesWithoutNotification(library, [file]);
 
             var delta = new LibraryMutationDelta();
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {
-                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+                Chart = ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+                    @"C:\Deleted",
+                    "Deleted title",
+                    "Deleted artist",
+                    [@"C:\Deleted", @"C:\Other"],
+                    file.Warnings.ToStructuredList()),
                 ClearInstallDestinationState = true
             });
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
-            Assert.AreEqual(@"C:\Deleted", file.instl_dst);
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
             Assert.AreEqual(string.Empty, changedChart.InstallDestination);
@@ -432,8 +429,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             var originalFile = new TestableBmsFile
             {
-                path = @"C:\Library\chart.bms",
-                instl_dst = @"C:\Old"
+                path = @"C:\Library\chart.bms"
             };
             originalFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             library.BMSFiles = [originalFile];

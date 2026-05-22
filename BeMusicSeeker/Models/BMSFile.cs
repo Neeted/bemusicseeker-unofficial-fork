@@ -180,16 +180,6 @@ public class BMSFile : LR2SongDB.song
         SCORE_UNSENT = 0x800
     }
 
-    private string _instl_dst;
-
-    private string _installDestinationTitle;
-
-    private string _installDestinationArtist;
-
-    private IReadOnlyList<string> _installDestinationSuggestions = [];
-
-    private bool _isInstallDestinationSuggestionPopupOpen;
-
     private BMSFileStatus _status;
 
     private ChartWarningCollection _warnings;
@@ -477,7 +467,7 @@ public class BMSFile : LR2SongDB.song
 
     public HashSet<string> BGAfiles { get; set; }
 
-    internal ChartWarningCollection Warnings => _warnings ??= new ChartWarningCollection(RaiseWarningPresentationChanged, () => instl_dst);
+    internal ChartWarningCollection Warnings => _warnings ??= new ChartWarningCollection(RaiseWarningPresentationChanged, () => string.Empty);
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {
@@ -570,120 +560,6 @@ public class BMSFile : LR2SongDB.song
             else
             {
                 ClearLowConfidenceInstallEstimationWarnings();
-            }
-        }
-    }
-
-    public virtual bool HasInstallDestinationSuggestions => (InstallDestinationSuggestions?.Count ?? 0) >= 1;
-
-    public virtual bool HasInstallDestinationSuggestionChoices => (InstallDestinationSuggestions?.Count ?? 0) >= 2;
-
-    public virtual bool IsInstallDestinationSuggestionPopupOpen
-    {
-        get
-        {
-            return _isInstallDestinationSuggestionPopupOpen;
-        }
-        set
-        {
-            bool normalized = value && HasInstallDestinationSuggestions;
-            if (_isInstallDestinationSuggestionPopupOpen != normalized)
-            {
-                _isInstallDestinationSuggestionPopupOpen = normalized;
-                RaisePropertyChanged("IsInstallDestinationSuggestionPopupOpen");
-            }
-        }
-    }
-
-    public virtual string instl_dst
-    {
-        get
-        {
-            return _instl_dst;
-        }
-        set
-        {
-            if (!(_instl_dst == value))
-            {
-                _instl_dst = value;
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    InstallDestinationTitle = string.Empty;
-                    InstallDestinationArtist = string.Empty;
-                }
-                RaisePropertyChanged("instl_dst");
-                RaiseWarningPresentationChanged();
-            }
-        }
-    }
-
-    /// <summary>
-    /// 保留画面で確認に使う、推定先フォルダの代表譜面タイトルです。
-    /// INSTL DST が未確定でも上位候補 metadata を見せるため、instl_dst とは独立して保持します。
-    /// </summary>
-    public virtual string InstallDestinationTitle
-    {
-        get
-        {
-            return _installDestinationTitle ?? string.Empty;
-        }
-        set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_installDestinationTitle == normalized))
-            {
-                _installDestinationTitle = normalized;
-                RaisePropertyChanged("InstallDestinationTitle");
-            }
-        }
-    }
-
-    /// <summary>
-    /// 保留画面で確認に使う、推定先フォルダの代表譜面アーティストです。
-    /// </summary>
-    public virtual string InstallDestinationArtist
-    {
-        get
-        {
-            return _installDestinationArtist ?? string.Empty;
-        }
-        set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_installDestinationArtist == normalized))
-            {
-                _installDestinationArtist = normalized;
-                RaisePropertyChanged("InstallDestinationArtist");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Pending 画面の INSTL DST 編集候補です。
-    /// low-confidence 時のみ上位候補の path を保持します。
-    /// </summary>
-    public virtual IReadOnlyList<string> InstallDestinationSuggestions
-    {
-        get
-        {
-            return _installDestinationSuggestions ?? [];
-        }
-        set
-        {
-            IReadOnlyList<string> normalized = value ?? [];
-            bool hadSuggestions = HasInstallDestinationSuggestions;
-            bool hadChoices = HasInstallDestinationSuggestionChoices;
-            if (!ReferenceEquals(_installDestinationSuggestions, normalized))
-            {
-                _installDestinationSuggestions = normalized;
-                RaisePropertyChanged("InstallDestinationSuggestions");
-                RaisePropertyChanged("HasInstallDestinationSuggestions");
-                RaisePropertyChanged("HasInstallDestinationSuggestionChoices");
-                if ((hadSuggestions != HasInstallDestinationSuggestions && !HasInstallDestinationSuggestions)
-                    || (hadChoices != HasInstallDestinationSuggestionChoices && !HasInstallDestinationSuggestions))
-                {
-                    IsInstallDestinationSuggestionPopupOpen = false;
-                }
             }
         }
     }

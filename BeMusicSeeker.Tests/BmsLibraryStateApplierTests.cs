@@ -87,11 +87,7 @@ public sealed class BmsLibraryStateApplierTests
                 movedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
                 var installLinkedFile = new TestableBmsFile
                 {
-                    path = Path.Combine(tempRootPath, "pending_chart.bms"),
-                    instl_dst = oldDirectoryPath,
-                    InstallDestinationTitle = "Old destination title",
-                    InstallDestinationArtist = "Old destination artist",
-                    InstallDestinationSuggestions = [Path.Combine(tempRootPath, "Candidate")]
+                    path = Path.Combine(tempRootPath, "pending_chart.bms")
                 };
                 var installedPackage = ChartPackageTestExtensions.CreatePackage([movedFile]);
                 installedPackage.path = oldDirectoryPath;
@@ -162,7 +158,13 @@ public sealed class BmsLibraryStateApplierTests
                 });
                 delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(installLinkedFile, includeWarningSnapshot: false),
+                    Chart = ChartFileProjection.WithPackageState(
+                        ChartFileProjection.FromBmsFile(installLinkedFile, includeWarningSnapshot: false),
+                        oldDirectoryPath,
+                        "Old destination title",
+                        "Old destination artist",
+                        [Path.Combine(tempRootPath, "Candidate")],
+                        []),
                     NewInstallDestination = newDirectoryPath
                 });
                 delta.UpdatedInstalledPackagePaths.Add(new LibraryInstalledPackagePathChange
@@ -174,13 +176,12 @@ public sealed class BmsLibraryStateApplierTests
                 applier.ApplyLibraryMutationDelta(delta);
 
                 Assert.AreEqual(newChartPath, movedFile.path);
-                Assert.AreEqual(oldDirectoryPath, installLinkedFile.instl_dst);
                 ChartFile appliedInstallDestinationChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
                 Assert.AreSame(installLinkedFile, appliedInstallDestinationChart.GetBmsStorageOwner());
                 Assert.AreEqual(newDirectoryPath, appliedInstallDestinationChart.InstallDestination);
-                Assert.AreEqual("Old destination title", installLinkedFile.InstallDestinationTitle);
-                Assert.AreEqual("Old destination artist", installLinkedFile.InstallDestinationArtist);
-                CollectionAssert.AreEqual(new[] { Path.Combine(tempRootPath, "Candidate") }, installLinkedFile.InstallDestinationSuggestions.ToArray());
+                Assert.AreEqual("Old destination title", appliedInstallDestinationChart.InstallDestinationTitle);
+                Assert.AreEqual("Old destination artist", appliedInstallDestinationChart.InstallDestinationArtist);
+                CollectionAssert.AreEqual(new[] { Path.Combine(tempRootPath, "Candidate") }, appliedInstallDestinationChart.InstallDestinationSuggestions.ToArray());
                 Assert.AreEqual(newDirectoryPath, installedPackage.path);
                 Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
                 Assert.IsTrue(callbacks.ParentFolderInvalidationCount >= 1);
@@ -216,13 +217,8 @@ public sealed class BmsLibraryStateApplierTests
         {
             var file = new TestableBmsFile
             {
-                path = @"C:\Library\chart.bms",
-                instl_dst = @"C:\Deleted",
-                InstallDestinationTitle = "Deleted title",
-                InstallDestinationArtist = "Deleted artist",
-                InstallDestinationSuggestions = [@"C:\Deleted", @"C:\Other"]
+                path = @"C:\Library\chart.bms"
             };
-            file.IsInstallDestinationSuggestionPopupOpen = true;
             file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
             List<BMSFile> libraryFiles = [file];
             List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
@@ -238,18 +234,19 @@ public sealed class BmsLibraryStateApplierTests
             };
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {
-                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                Chart = ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
+                    @"C:\Deleted",
+                    "Deleted title",
+                    "Deleted artist",
+                    [@"C:\Deleted", @"C:\Other"],
+                    file.Warnings.ToStructuredList()),
                 NewInstallDestination = null,
                 ClearInstallDestinationState = true
             });
 
             applier.ApplyLibraryMutationDelta(delta);
 
-            Assert.AreEqual(@"C:\Deleted", file.instl_dst);
-            Assert.AreEqual("Deleted title", file.InstallDestinationTitle);
-            Assert.AreEqual("Deleted artist", file.InstallDestinationArtist);
-            CollectionAssert.AreEqual(new[] { @"C:\Deleted", @"C:\Other" }, file.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(file.IsInstallDestinationSuggestionPopupOpen);
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
             Assert.AreSame(file, appliedChart.GetBmsStorageOwner());
@@ -272,13 +269,8 @@ public sealed class BmsLibraryStateApplierTests
         {
             var file = new TestableBmsFile
             {
-                path = @"C:\Library\chart.bms",
-                instl_dst = @"C:\Installed",
-                InstallDestinationTitle = "Candidate title",
-                InstallDestinationArtist = "Candidate artist",
-                InstallDestinationSuggestions = [@"C:\Installed", @"C:\Other"]
+                path = @"C:\Library\chart.bms"
             };
-            file.IsInstallDestinationSuggestionPopupOpen = true;
             file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
             List<BMSFile> libraryFiles = [file];
             List<LR2SongDBExtended.bmson_song> bmsonSongs = [];
@@ -291,10 +283,10 @@ public sealed class BmsLibraryStateApplierTests
             {
                 Chart = ChartFileProjection.WithPackageState(
                     ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: true),
-                    file.instl_dst,
-                    file.InstallDestinationTitle,
-                    file.InstallDestinationArtist,
-                    file.InstallDestinationSuggestions,
+                    @"C:\Installed",
+                    "Candidate title",
+                    "Candidate artist",
+                    [@"C:\Installed", @"C:\Other"],
                     file.Warnings.ToStructuredList()),
                 NewInstallDestination = null,
                 ClearInstallDestinationState = false
@@ -302,11 +294,6 @@ public sealed class BmsLibraryStateApplierTests
 
             applier.ApplyLibraryMutationDelta(delta);
 
-            Assert.AreEqual(@"C:\Installed", file.instl_dst);
-            Assert.AreEqual("Candidate title", file.InstallDestinationTitle);
-            Assert.AreEqual("Candidate artist", file.InstallDestinationArtist);
-            CollectionAssert.AreEqual(new[] { @"C:\Installed", @"C:\Other" }, file.InstallDestinationSuggestions.ToArray());
-            Assert.IsTrue(file.IsInstallDestinationSuggestionPopupOpen);
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
             Assert.AreSame(file, appliedChart.GetBmsStorageOwner());
@@ -322,21 +309,24 @@ public sealed class BmsLibraryStateApplierTests
     {
         var file = new TestableBmsFile
         {
-            path = @"C:\Library\chart.bms",
-            instl_dst = @"C:\Old"
+            path = @"C:\Library\chart.bms"
         };
         file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var delta = new LibraryMutationDelta();
         delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
         {
-            Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+            Chart = ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false),
+                @"C:\Old",
+                string.Empty,
+                string.Empty,
+                []),
             NewInstallDestination = @"C:\New"
         });
 
         ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
 
         Assert.AreEqual(@"C:\New", appliedChart.InstallDestination);
-        Assert.AreEqual(@"C:\Old", file.instl_dst);
     }
 
     [TestMethod]

@@ -539,7 +539,6 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreSame(keepFile, installDestinationChange.Chart.GetBmsStorageOwner());
             Assert.IsNull(installDestinationChange.NewInstallDestination);
             Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(keepFile.instl_dst));
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), keepDirectoryPath);
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), newDirectoryPath);
 
