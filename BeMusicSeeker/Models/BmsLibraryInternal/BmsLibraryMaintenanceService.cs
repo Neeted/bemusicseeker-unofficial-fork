@@ -435,14 +435,17 @@ internal sealed class BmsLibraryMaintenanceService
             || !string.Equals(currentFile.genre ?? string.Empty, reloadedFile.genre ?? string.Empty, StringComparison.Ordinal);
     }
 
-    public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<BMSFile> allFiles, Action<Exception, string> logWarn = null)
+    public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<ChartFile> charts, Action<Exception, string> logWarn = null)
     {
-        List<BMSFile> files = [.. EnumerateBmsChartFiles(allFiles)];
-        List<BMSFile> zeroNoteFiles = [.. files.Where(f => f.ChartInfo?.notes == 0 && !string.IsNullOrWhiteSpace(f.path))];
-        List<BMSFile> staleMismatchFiles = [.. files.Where(f => f.ChartInfo?.notes != 0 && f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch))];
+        List<ChartFile> bmsCharts = [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms && chart.GetBmsStorageOwner() != null)];
+        List<ChartFile> zeroNoteCharts = [.. bmsCharts.Where(chart => chart.ChartInfo?.notes == 0 && !string.IsNullOrWhiteSpace(chart.Path))];
+        List<BMSFile> staleMismatchFiles = [.. bmsCharts
+            .Where(chart => chart.ChartInfo?.notes != 0)
+            .Select(chart => chart.GetBmsStorageOwner())
+            .Where(file => file != null && file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch))];
         var result = new ZeroNoteRecheckResult
         {
-            Total = zeroNoteFiles.Count
+            Total = zeroNoteCharts.Count
         };
         foreach (BMSFile staleMismatchFile in staleMismatchFiles)
         {
@@ -452,11 +455,12 @@ internal sealed class BmsLibraryMaintenanceService
                 result.ChangedCount++;
             }
         }
-        foreach (BMSFile zeroNoteFile in zeroNoteFiles)
+        foreach (ChartFile zeroNoteChart in zeroNoteCharts)
         {
+            BMSFile zeroNoteFile = zeroNoteChart.GetBmsStorageOwner();
             try
             {
-                bool isZeroNoteByFile = BMSFile.IsZeroNoteBMSFile(zeroNoteFile.path);
+                bool isZeroNoteByFile = BMSFile.IsZeroNoteBMSFile(zeroNoteChart.Path);
                 if (!isZeroNoteByFile)
                 {
                     if (SetZeroNoteMismatchWarning(zeroNoteFile))
@@ -482,7 +486,7 @@ internal sealed class BmsLibraryMaintenanceService
                     result.ChangedCount++;
                 }
                 result.SkippedCount++;
-                logWarn?.Invoke(ex, "zero_note_recheck skipped: path=" + zeroNoteFile.path);
+                logWarn?.Invoke(ex, "zero_note_recheck skipped: path=" + zeroNoteChart.Path);
             }
         }
         return result;

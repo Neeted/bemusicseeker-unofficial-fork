@@ -682,7 +682,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         zeroNoteFile.path = "C:\\missing\\chart.bms";
         zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
 
-        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings([zeroNoteFile]);
+        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings([ChartFileProjection.FromBmsFile(zeroNoteFile)]);
 
         Assert.AreEqual(1, result.Total);
         Assert.AreEqual(1, result.ClearedCount);
