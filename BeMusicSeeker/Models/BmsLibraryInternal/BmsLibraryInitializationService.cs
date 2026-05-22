@@ -1213,7 +1213,10 @@ internal sealed class BmsLibraryInitializationService
         string warning = null;
         try
         {
-            ChartFile chart = ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false);
+            ChartFile chart = ChartFileProjection.FromBmsonSong(
+                song,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
             BMSFileMaintenanceInfo maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(chart, lookupContext);
             if (maintenanceInfo != null)
             {

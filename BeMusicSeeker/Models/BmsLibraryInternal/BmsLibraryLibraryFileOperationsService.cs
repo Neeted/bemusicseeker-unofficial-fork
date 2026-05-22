@@ -719,13 +719,19 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     delta.RenamedCount++;
                     if (unregister)
                     {
-                        delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(file));
+                        delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(
+                            file,
+                            includeWarningSnapshot: true,
+                            includeResourceReferences: false));
                     }
                     else
                     {
                         delta.ChartPathChanges.Add(new LibraryChartPathChange
                         {
-                            Chart = ChartFileProjection.FromBmsFile(file),
+                            Chart = ChartFileProjection.FromBmsFile(
+                                file,
+                                includeWarningSnapshot: true,
+                                includeResourceReferences: false),
                             NewPath = renameResult.FinalPath
                         });
                         delta.RaiseLibraryChartsChanged = true;
@@ -733,7 +739,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
                     delta.DuplicateDeletedCount++;
-                    delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(file));
+                    delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(
+                        file,
+                        includeWarningSnapshot: true,
+                        includeResourceReferences: false));
                     break;
                 default:
                     delta.SkippedCount++;

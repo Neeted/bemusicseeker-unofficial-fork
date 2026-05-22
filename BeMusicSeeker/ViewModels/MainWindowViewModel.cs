@@ -15190,7 +15190,9 @@ public class MainWindowViewModel : ViewModel
         NowPlayingBMS = bmsFile;
         SelectedIndexChartRowsView = indexChartRowsView;
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
-        playbackChart ??= ChartFileProjection.FromBmsFile(bmsFile);
+        playbackChart ??= ChartFileProjection.FromBmsFile(
+            bmsFile,
+            includeResourceReferences: false);
         string installDestination = playbackChart?.InstallDestination;
         if (!string.IsNullOrWhiteSpace(installDestination) && Directory.Exists(installDestination))
         {
@@ -21478,9 +21480,15 @@ public class MainWindowViewModel : ViewModel
 
     private List<ChartFile> GetLibraryChartsForFolderOperations()
     {
-        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(file))];
+        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(
+            file,
+            includeWarningSnapshot: true,
+            includeResourceReferences: false))];
         charts.AddRange((files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Select(song => ChartFileProjection.FromBmsonSong(song))
+            .Select(song => ChartFileProjection.FromBmsonSong(
+                song,
+                includeWarningSnapshot: true,
+                includeResourceReferences: false))
             .Where(chart => chart != null));
         return charts;
     }

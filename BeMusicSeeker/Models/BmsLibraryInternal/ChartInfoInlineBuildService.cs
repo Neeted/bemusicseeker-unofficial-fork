@@ -223,12 +223,18 @@ internal sealed class InlineChartSnapshotTarget
 
     public static InlineChartSnapshotTarget FromBmsFile(BMSFile file, ChartFileSnapshot snapshot)
     {
-        return FromChart(ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false), snapshot);
+        return FromChart(ChartFileProjection.FromBmsFile(
+            file,
+            includeWarningSnapshot: false,
+            includeResourceReferences: false), snapshot);
     }
 
     public static InlineChartSnapshotTarget FromBmsonSong(LR2SongDBExtended.bmson_song song, ChartFileSnapshot snapshot)
     {
-        return FromChart(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false), snapshot);
+        return FromChart(ChartFileProjection.FromBmsonSong(
+            song,
+            includeWarningSnapshot: false,
+            includeResourceReferences: false), snapshot);
     }
 
     public static InlineChartSnapshotTarget FromChart(ChartFile chart, ChartFileSnapshot snapshot)

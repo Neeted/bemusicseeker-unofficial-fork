@@ -172,7 +172,10 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         {
             bmsFile.path = installedPath;
             ClearInstalledBmsMetadata(bmsFile);
-            chart = ChartFileProjection.FromBmsFile(bmsFile);
+            chart = ChartFileProjection.FromBmsFile(
+                bmsFile,
+                includeWarningSnapshot: true,
+                includeResourceReferences: false);
             RaiseChartChanged();
             return;
         }
@@ -183,7 +186,10 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             bmsonSong.path = installedPath;
             bmsonSong.folder = Path.GetDirectoryName(installedPath) ?? string.Empty;
             bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
-            chart = ChartFileProjection.FromBmsonSong(bmsonSong);
+            chart = ChartFileProjection.FromBmsonSong(
+                bmsonSong,
+                includeWarningSnapshot: true,
+                includeResourceReferences: false);
             RaiseChartChanged();
         }
     }
@@ -476,13 +482,19 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         BMSFile bmsFile = chart.GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            return ChartFileProjection.FromBmsFile(bmsFile);
+            return ChartFileProjection.FromBmsFile(
+                bmsFile,
+                includeWarningSnapshot: true,
+                includeResourceReferences: false);
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
         if (bmsonSong != null)
         {
-            return ChartFileProjection.FromBmsonSong(bmsonSong);
+            return ChartFileProjection.FromBmsonSong(
+                bmsonSong,
+                includeWarningSnapshot: true,
+                includeResourceReferences: false);
         }
 
         return chart;
@@ -494,9 +506,15 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
         {
             if (ChartFileKindResolver.IsBmsonFilePath(filePath))
             {
-                return FromChart(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(filePath)));
+                return FromChart(ChartFileProjection.FromBmsonSong(
+                    BmsonSongParser.Parse(filePath),
+                    includeWarningSnapshot: true,
+                    includeResourceReferences: false));
             }
-            return FromChart(ChartFileProjection.FromBmsFile(BMSFile.CreateBMSFileFromFile(filePath)));
+            return FromChart(ChartFileProjection.FromBmsFile(
+                BMSFile.CreateBMSFileFromFile(filePath),
+                includeWarningSnapshot: true,
+                includeResourceReferences: false));
         }
         catch
         {

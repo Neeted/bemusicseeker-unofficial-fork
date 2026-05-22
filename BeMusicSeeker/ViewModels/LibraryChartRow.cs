@@ -154,7 +154,12 @@ internal sealed class LibraryChartRow : NotificationObject
             return null;
         }
         return new LibraryChartRow(
-            ChartFileProjection.FromBmsFile(file, ChartFileLevelParsing.CurrentCultureThenInvariant, includeWarningSnapshot: false, includeScoreSnapshot: true),
+            ChartFileProjection.FromBmsFile(
+                file,
+                ChartFileLevelParsing.CurrentCultureThenInvariant,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false,
+                includeScoreSnapshot: true),
             packageEntry: packageEntry);
     }
 
@@ -162,7 +167,10 @@ internal sealed class LibraryChartRow : NotificationObject
     {
         return song == null
             ? null
-            : new LibraryChartRow(ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false));
+            : new LibraryChartRow(ChartFileProjection.FromBmsonSong(
+                song,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false));
     }
 
     internal static LibraryChartRow FromChartFile(ChartFile chart, bool hideResourceHealthDigestWhenInstallDestinationSet = true)
@@ -676,7 +684,8 @@ internal sealed class LibraryChartRow : NotificationObject
 
         return ChartFileProjection.FromStorageOwner(
             CreateCurrentStorageOwnerSource(),
-            ChartFileLevelParsing.CurrentCultureThenInvariant);
+            ChartFileLevelParsing.CurrentCultureThenInvariant,
+            includeResourceReferences: false);
     }
 
     private ChartFile CreateCurrentStorageOwnerSource()

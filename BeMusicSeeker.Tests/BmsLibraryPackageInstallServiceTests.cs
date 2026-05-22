@@ -881,6 +881,57 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void PackageChartEntry_ResourceSnapshotReadsBmsOwnerResourcesFromLightweightProjection()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Resource Owner\r\n"
+                + "#WAV01 audio.wav\r\n"
+                + "#BMP01 movie.mpg\r\n"
+                + "#STAGEFILE stage.png\r\n"
+                + "#00111:01\r\n"
+                + "#00104:01\r\n");
+            BMSFile bmsFile = BMSFile.CreateBMSFileFromFile(chartPath);
+            ChartFile lightweightChart = ChartFileProjection.FromBmsFile(
+                bmsFile,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
+            PackageChartEntry entry = PackageChartEntry.FromChart(lightweightChart);
+
+            Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
+            Assert.AreEqual(1, entry.ResourceSnapshot.MovieReferenceCount);
+            Assert.AreEqual(1, entry.ResourceSnapshot.OptionalImageReferenceCount);
+        });
+    }
+
+    [TestMethod]
+    public void PackageChartEntry_ResourceSnapshotReadsBmsonOwnerResourcesFromLightweightProjection()
+    {
+        var song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"D:\BMS\pkg\chart.bmson",
+            md5 = "11111111111111111111111111111111",
+            title = "Resource Owner",
+            wav_files = ["audio.wav"],
+            bga_files = ["movie.mpg"],
+            stagefile = "stage.png"
+        };
+        ChartFile lightweightChart = ChartFileProjection.FromBmsonSong(
+            song,
+            includeWarningSnapshot: false,
+            includeResourceReferences: false);
+        PackageChartEntry entry = PackageChartEntry.FromChart(lightweightChart);
+
+        Assert.AreEqual(1, entry.ResourceSnapshot.AudioReferenceCount);
+        Assert.AreEqual(1, entry.ResourceSnapshot.MovieReferenceCount);
+        Assert.AreEqual(1, entry.ResourceSnapshot.OptionalImageReferenceCount);
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_KeepsChartPackagePendingWhenOnlySameStemChartFileExists()
     {
         TestResourceInitializer.EnsureJapaneseResources();

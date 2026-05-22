@@ -985,7 +985,10 @@ internal sealed class BmsLibraryMaintenanceService
                     try
                     {
                         long healthStart = Stopwatch.GetTimestamp();
-                        ChartFile chart = ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false);
+                        ChartFile chart = ChartFileProjection.FromBmsonSong(
+                            song,
+                            includeWarningSnapshot: false,
+                            includeResourceReferences: false);
                         BMSFileMaintenanceInfo afterInfo = BuildResourceHealthMaintenanceInfo(chart, resourceLookupContext, forceUpdate);
                         AddElapsedTicks(ref healthTicks, healthStart);
                         if (afterInfo == null)

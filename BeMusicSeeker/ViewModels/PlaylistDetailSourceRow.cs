@@ -340,7 +340,10 @@ internal sealed class PlaylistDetailSourceRow
         BMSFile bmsOwner = resolvedChartSnapshot?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
-            ChartFile currentChart = ChartFileProjection.FromStorageOwner(resolvedChartSnapshot, includeScoreSnapshot: false);
+            ChartFile currentChart = ChartFileProjection.FromStorageOwner(
+                resolvedChartSnapshot,
+                includeResourceReferences: false,
+                includeScoreSnapshot: false);
             currentChart = ChartFileProjection.WithScore(currentChart, effectiveScoreSnapshot ?? resolvedChartSnapshot.Score);
             currentChart = ApplyChartInfoProjection(currentChart, resolvedChartSnapshot);
             return ChartFileProjection.WithTransientState(
@@ -356,9 +359,9 @@ internal sealed class PlaylistDetailSourceRow
                 projectedChart = ApplyChartInfoProjection(projectedChart, ownerSource);
                 return ChartFileProjection.WithTransientState(
                     projectedChart,
-                    GetChartTransientState(ChartFileProjection.FromStorageOwner(ownerSource, includeWarningSnapshot: false), includeWarningSnapshot: true));
+                    GetChartTransientState(ChartFileProjection.FromStorageOwner(ownerSource, includeWarningSnapshot: false, includeResourceReferences: false), includeWarningSnapshot: true));
             }
-            ChartFile identityChart = ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false);
+            ChartFile identityChart = ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false, includeResourceReferences: false);
             return ChartFileProjection.FromStorageOwnerWithTransientState(
                 identityChart,
                 GetChartTransientState(identityChart, includeWarningSnapshot: true));

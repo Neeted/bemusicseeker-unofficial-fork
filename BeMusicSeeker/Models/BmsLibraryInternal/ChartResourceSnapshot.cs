@@ -133,11 +133,22 @@ internal sealed class ChartResourceSnapshot
         }
         ChartResourceSnapshot snapshot = CreateFromChartFields(chart);
         BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null && snapshot.TotalReferenceCount == 0)
+        if (bmsFile != null && !HasProjectedResourceLists(chart))
         {
             return Create(bmsFile);
         }
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        if (bmsonSong != null && !HasProjectedResourceLists(chart))
+        {
+            return Create(bmsonSong);
+        }
         return snapshot;
+    }
+
+    private static bool HasProjectedResourceLists(ChartFile chart)
+    {
+        return (chart?.AudioResourcePaths?.Count ?? 0) > 0
+            || (chart?.VisualResourcePaths?.Count ?? 0) > 0;
     }
 
     private static ChartResourceSnapshot CreateFromChartFields(ChartFile chart)

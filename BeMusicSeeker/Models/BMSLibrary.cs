@@ -7253,6 +7253,7 @@ reportProgress,
             bmsonSongs,
             includeWarningSnapshot: false,
             requireBmsonPath: true,
+            includeResourceReferences: true,
             includeScoreSnapshot: false);
     }
 
@@ -7678,7 +7679,10 @@ reportProgress,
         List<ChartFile> allCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            allCharts = ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false);
+            allCharts = ChartFileProjection.FromBmsFiles(
+                BMSFiles,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
         }
         ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(
             allCharts,
@@ -7712,7 +7716,10 @@ reportProgress,
             {
                 continue;
             }
-            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
+            ChartFile chart = ChartFileProjection.FromBmsFile(
+                file,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
             result.Add(ApplyChartInfoParseFailureWarning(chart, failure));
         }
         foreach (LR2SongDBExtended.bmson_song song in bmsonSnapshot)
@@ -7721,7 +7728,10 @@ reportProgress,
             {
                 continue;
             }
-            ChartFile chart = ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false);
+            ChartFile chart = ChartFileProjection.FromBmsonSong(
+                song,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
             result.Add(ApplyChartInfoParseFailureWarning(chart, failure));
         }
         return [.. result
@@ -10848,9 +10858,15 @@ reportProgress,
 
     private List<ChartFile> GetLibraryChartsForFolderOperations()
     {
-        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(file))];
+        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(
+            file,
+            includeWarningSnapshot: true,
+            includeResourceReferences: false))];
         charts.AddRange((BmsonSongs ?? [])
-            .Select(song => ChartFileProjection.FromBmsonSong(song))
+            .Select(song => ChartFileProjection.FromBmsonSong(
+                song,
+                includeWarningSnapshot: true,
+                includeResourceReferences: false))
             .Where(chart => chart != null));
         return charts;
     }

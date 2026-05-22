@@ -500,7 +500,10 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return PackageChartEntry.FromPath(filePath);
         }
-        return PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(CreateBmsChartForDiscovery(filePath)));
+        return PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(
+            CreateBmsChartForDiscovery(filePath),
+            includeWarningSnapshot: true,
+            includeResourceReferences: false));
     }
 
     private static bool HasExistingPackageChartResources(PackageChartEntry entry)
@@ -1143,7 +1146,10 @@ internal sealed class BmsLibraryPackageInstallService
         try
         {
             lookupKey = ChartFileKindResolver.IsBmsonFilePath(remainingFilePath)
-                ? ChartLookupKey.GetPrimaryHash(ChartFileProjection.FromBmsonSong(BmsonSongParser.Parse(remainingFilePath), includeWarningSnapshot: false))
+                ? ChartLookupKey.GetPrimaryHash(ChartFileProjection.FromBmsonSong(
+                    BmsonSongParser.Parse(remainingFilePath),
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false))
                 : ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5;
         }
         catch (Exception ex)
