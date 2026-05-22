@@ -27,10 +27,6 @@ internal sealed class ChartListSourceRow
 
     private readonly bool hasSourceChartProjection;
 
-    private readonly BMSFile bmsFile;
-
-    private readonly LR2SongDBExtended.bmson_song bmsonSong;
-
     private ChartListSourceRow(
         ChartFile sourceChart,
         bool hasSourceChartProjection,
@@ -40,8 +36,6 @@ internal sealed class ChartListSourceRow
     {
         this.sourceChart = sourceChart ?? throw new ArgumentNullException(nameof(sourceChart));
         this.hasSourceChartProjection = hasSourceChartProjection;
-        bmsFile = sourceChart.GetBmsStorageOwner();
-        bmsonSong = sourceChart.GetBmsonStorageOwner();
         this.resourceHealthProjectionProvider = resourceHealthProjectionProvider;
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.chartTransientStateProvider = chartTransientStateProvider;
@@ -167,21 +161,14 @@ internal sealed class ChartListSourceRow
     {
         if (sourceChart != null)
         {
-            if (bmsFile != null)
+            ChartFile identityOwnerChart = ChartFileProjection.FromStorageOwner(sourceChart, includeWarningSnapshot: false);
+            if (identityOwnerChart != null)
             {
-                ChartFile currentChart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: includeWarningSnapshot);
-                ChartFileTransientState transientState = GetChartTransientState(currentChart, includeWarningSnapshot);
-                currentChart = ChartFileProjection.WithTransientState(currentChart, transientState, includeWarningSnapshot);
-                return ApplySourceProjectionWarnings(currentChart, transientState, includeWarningSnapshot);
-            }
-            if (bmsonSong != null)
-            {
-                ChartFile identityChart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false);
-                ChartFileTransientState transientState = GetChartTransientState(identityChart, includeWarningSnapshot);
-                ChartFile currentChart = ChartFileProjection.FromBmsonSong(
-                    bmsonSong,
+                ChartFileTransientState transientState = GetChartTransientState(identityOwnerChart, includeWarningSnapshot);
+                ChartFile currentChart = ChartFileProjection.FromStorageOwnerWithTransientState(
+                    sourceChart,
                     transientState,
-                    includeWarningSnapshot);
+                    includeWarningSnapshot: includeWarningSnapshot);
                 return ApplySourceProjectionWarnings(currentChart, transientState, includeWarningSnapshot);
             }
             return includeWarningSnapshot ? sourceChart : ChartFileProjection.WithWarnings(sourceChart, []);
@@ -191,15 +178,7 @@ internal sealed class ChartListSourceRow
 
     private LR2SongDBExtended.chart_info ResolveChartInfoProjection()
     {
-        if (bmsFile != null)
-        {
-            return ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)?.ChartInfo;
-        }
-        if (bmsonSong != null)
-        {
-            return ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false)?.ChartInfo;
-        }
-        return sourceChart?.ChartInfo;
+        return ChartFileProjection.ResolveCurrentStorageOwnerChartInfo(sourceChart);
     }
 
     private static bool HasWarningProjection(ChartFileTransientState state)

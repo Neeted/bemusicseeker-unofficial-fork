@@ -446,6 +446,65 @@ internal static class ChartFileProjection
             song.MaintenanceInfo?.encoding ?? transientState.EncodingName);
     }
 
+    internal static ChartFile FromStorageOwner(
+        ChartFile source,
+        ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
+        bool includeWarningSnapshot = true)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsFile = source.GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return FromBmsFile(bmsFile, bmsLevelParsing, includeWarningSnapshot);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
+        return bmsonSong == null ? null : FromBmsonSong(bmsonSong, includeWarningSnapshot);
+    }
+
+    internal static ChartFile FromStorageOwnerWithTransientState(
+        ChartFile source,
+        ChartFileTransientState transientState,
+        ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
+        bool includeWarningSnapshot = true)
+    {
+        LR2SongDBExtended.bmson_song bmsonSong = source?.GetBmsonStorageOwner();
+        if (bmsonSong != null)
+        {
+            return FromBmsonSong(bmsonSong, transientState, includeWarningSnapshot);
+        }
+
+        return WithTransientState(
+            FromStorageOwner(source, bmsLevelParsing, includeWarningSnapshot),
+            transientState,
+            includeWarningSnapshot);
+    }
+
+    internal static LR2SongDBExtended.chart_info ResolveCurrentStorageOwnerChartInfo(ChartFile source)
+    {
+        ChartFile currentChart = FromStorageOwner(source, includeWarningSnapshot: false);
+        return currentChart != null ? currentChart.ChartInfo : source?.ChartInfo;
+    }
+
+    internal static ChartFile WithCurrentStorageOwnerChartInfo(ChartFile source)
+    {
+        return WithCurrentStorageOwnerChartInfo(source, source);
+    }
+
+    internal static ChartFile WithCurrentStorageOwnerChartInfo(ChartFile source, ChartFile ownerSource)
+    {
+        ChartFile currentChart = FromStorageOwner(ownerSource, includeWarningSnapshot: false);
+        if (currentChart == null || ReferenceEquals(currentChart.ChartInfo, source?.ChartInfo))
+        {
+            return source;
+        }
+        return WithChartInfo(source, currentChart.ChartInfo);
+    }
+
     internal static List<ChartFile> FromStorageRows(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,

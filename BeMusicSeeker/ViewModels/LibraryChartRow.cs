@@ -50,50 +50,36 @@ internal sealed class LibraryChartRow : NotificationObject
         }
         if (hasSourceChartProjection)
         {
-            if (BmsFile != null)
+            if (HasStorageOwner())
             {
-                return CreateBmsOwnerBackedChart();
-            }
-            LR2SongDBExtended.bmson_song sourceBmsonSong = GetBmsonSong();
-            if (sourceBmsonSong != null)
-            {
-                return CreateBmsonOwnerBackedChart();
+                return CreateStorageOwnerBackedChart();
             }
             return sourceChart;
         }
-        if (BmsFile != null)
+        if (HasStorageOwner())
         {
-            return CreateBmsOwnerBackedChart();
-        }
-        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
-        if (bmsonSong != null)
-        {
-            return CreateBmsonOwnerBackedChart();
+            return CreateStorageOwnerBackedChart();
         }
         return sourceChart;
     }
 
-    private ChartFile CreateBmsOwnerBackedChart()
+    private bool HasStorageOwner()
     {
-        ChartFile currentChart = ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
-        ChartFileTransientState transientState = GetChartTransientState(currentChart, includeWarningSnapshot: true);
-        currentChart = ChartFileProjection.WithTransientState(currentChart, transientState);
-        currentChart = sourceTransientBaseline != null
-            ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
-            : currentChart;
-        return HasWarningProjection(transientState)
-            ? ChartFileProjection.WithTransientState(currentChart, transientState)
-            : currentChart;
+        return BmsFile != null || GetBmsonSong() != null;
     }
 
-    private ChartFile CreateBmsonOwnerBackedChart()
+    private ChartFile CreateStorageOwnerBackedChart()
     {
-        LR2SongDBExtended.bmson_song bmsonSong = GetBmsonSong();
-        ChartFile identityChart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false);
+        ChartFile storageOwnerSource = CreateCurrentStorageOwnerSource();
+        ChartFile identityChart = ChartFileProjection.FromStorageOwner(
+            storageOwnerSource,
+            ChartFileLevelParsing.CurrentCultureThenInvariant,
+            includeWarningSnapshot: false);
         ChartFileTransientState transientState = GetChartTransientState(identityChart, includeWarningSnapshot: true);
-        ChartFile currentChart = ChartFileProjection.FromBmsonSong(
-            bmsonSong,
+        ChartFile currentChart = ChartFileProjection.FromStorageOwnerWithTransientState(
+            storageOwnerSource,
             transientState,
+            ChartFileLevelParsing.CurrentCultureThenInvariant,
             includeWarningSnapshot: true);
         currentChart = sourceTransientBaseline != null
             ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
@@ -566,15 +552,18 @@ internal sealed class LibraryChartRow : NotificationObject
             return null;
         }
 
+        return ChartFileProjection.FromStorageOwner(
+            CreateCurrentStorageOwnerSource(),
+            ChartFileLevelParsing.CurrentCultureThenInvariant);
+    }
+
+    private ChartFile CreateCurrentStorageOwnerSource()
+    {
         if (BmsFile != null)
         {
-            return ChartFileProjection.FromBmsFile(BmsFile, ChartFileLevelParsing.CurrentCultureThenInvariant);
+            return sourceChart;
         }
-        if (BmsonSong != null)
-        {
-            return ChartFileProjection.FromBmsonSong(BmsonSong);
-        }
-        return null;
+        return BmsonSong == null ? null : ChartFileProjection.FromBmsonStorageOwnerIdentity(BmsonSong);
     }
 
 }
