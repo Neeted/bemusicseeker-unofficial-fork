@@ -58,7 +58,7 @@ internal sealed class PlaylistReferenceIndex
         }
         RemoveTable(table);
         var keys = new PlaylistReferenceTableKeys();
-        AddEntries(table, entries, keys);
+        AddEntries(table, entries, keys, updateDisplay: true);
         if (keys.HasAny)
         {
             tableKeys[table] = keys;
@@ -112,8 +112,14 @@ internal sealed class PlaylistReferenceIndex
                 }
                 entries = [.. table.entries];
             }
-            index.ReplaceTable(table, entries);
+            var keys = new PlaylistReferenceTableKeys();
+            index.AddEntries(table, entries, keys, updateDisplay: false);
+            if (keys.HasAny)
+            {
+                index.tableKeys[table] = keys;
+            }
         }
+        index.RebuildDisplayMaps();
         return index;
     }
 
@@ -138,7 +144,7 @@ internal sealed class PlaylistReferenceIndex
         }
     }
 
-    private void AddEntries(BMSTable table, IEnumerable<BMSTableEntry> entries, PlaylistReferenceTableKeys keys)
+    private void AddEntries(BMSTable table, IEnumerable<BMSTableEntry> entries, PlaylistReferenceTableKeys keys, bool updateDisplay)
     {
         if (table == null || entries == null)
         {
@@ -150,8 +156,8 @@ internal sealed class PlaylistReferenceIndex
             {
                 continue;
             }
-            AddEntryKey(md5ToTablesMap, md5ToDisplayMap, keys.Md5, entry.md5, table);
-            AddEntryKey(sha256ToTablesMap, sha256ToDisplayMap, keys.Sha256, entry.sha256, table);
+            AddEntryKey(md5ToTablesMap, md5ToDisplayMap, keys.Md5, entry.md5, table, updateDisplay);
+            AddEntryKey(sha256ToTablesMap, sha256ToDisplayMap, keys.Sha256, entry.sha256, table, updateDisplay);
         }
     }
 
@@ -160,14 +166,15 @@ internal sealed class PlaylistReferenceIndex
         Dictionary<string, PlaylistReferenceDisplay> displayMap,
         HashSet<string> keys,
         string hash,
-        BMSTable table)
+        BMSTable table,
+        bool updateDisplay)
     {
         if (string.IsNullOrWhiteSpace(hash))
         {
             return;
         }
         string key = hash.Trim();
-        AddTableToKey(map, displayMap, key, table);
+        AddTableToKey(map, updateDisplay ? displayMap : null, key, table);
         keys.Add(key);
     }
 
@@ -185,6 +192,21 @@ internal sealed class PlaylistReferenceIndex
         else
         {
             keys.Sha256.Add(key);
+        }
+    }
+
+    private void RebuildDisplayMaps()
+    {
+        md5ToDisplayMap.Clear();
+        foreach (KeyValuePair<string, List<BMSTable>> item in md5ToTablesMap)
+        {
+            md5ToDisplayMap[item.Key] = new PlaylistReferenceDisplay([.. item.Value]);
+        }
+
+        sha256ToDisplayMap.Clear();
+        foreach (KeyValuePair<string, List<BMSTable>> item in sha256ToTablesMap)
+        {
+            sha256ToDisplayMap[item.Key] = new PlaylistReferenceDisplay([.. item.Value]);
         }
     }
 
@@ -206,7 +228,10 @@ internal sealed class PlaylistReferenceIndex
         if (!tables.Any(candidate => ReferenceEquals(candidate, table)))
         {
             tables.Add(table);
-            displayMap[key] = new PlaylistReferenceDisplay([.. tables]);
+            if (displayMap != null)
+            {
+                displayMap[key] = new PlaylistReferenceDisplay([.. tables]);
+            }
         }
     }
 

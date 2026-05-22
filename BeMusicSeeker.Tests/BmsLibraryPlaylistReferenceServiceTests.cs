@@ -213,6 +213,24 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
+    public void PlaylistReferenceIndex_FromTablesDeduplicatesDuplicateEntriesForSameTable()
+    {
+        string md5 = "ffffffffffffffffffffffffffffffff";
+        BMSTable table = CreateTable(
+            CreateEntry(md5),
+            CreateEntry(md5));
+        table.symbol = "DUP";
+        table.name = "Duplicate";
+
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromTables([table]);
+        PlaylistReferenceDisplay display = index.Find(md5, null);
+
+        Assert.AreEqual("DUP", display.Symbols);
+        Assert.AreEqual("Duplicate", display.Names);
+        Assert.AreEqual(1, display.Tables.Count);
+    }
+
+    [TestMethod]
     public void GetPlaylistOrgMd5sForChart_UsesCandidateWavHealthInSameDirectory()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
