@@ -4402,7 +4402,7 @@ public class BMSLibrary : NotificationObject
 
         bool inlineChartInfoApplied = false;
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
-        List<ChartFile> currentInstallDestinationCharts = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false);
+        List<ChartFile> currentInstallDestinationCharts = CreateCurrentInstallDestinationCleanupCharts();
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             options,
@@ -6491,6 +6491,17 @@ reportProgress,
         return [.. (charts ?? []).Select(OverlayInstallDestinationRuntimeState).Where(chart => chart != null)];
     }
 
+    private List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
+    {
+        lock (installDestinationRuntimeStatesLock)
+        {
+            return [.. installDestinationRuntimeStatesByKey.Values
+                .Distinct()
+                .Select(entry => entry.CreateChartSnapshot())
+                .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
+        }
+    }
+
     private ChartFile OverlayInstallDestinationRuntimeState(ChartFile chart)
     {
         lock (installDestinationRuntimeStatesLock)
@@ -6651,6 +6662,21 @@ reportProgress,
             LR2SongDBExtended.bmson_song currentBmsonOwner = chart?.GetBmsonStorageOwner();
             return (bmsonOwner != null || currentBmsonOwner != null)
                 && ReferenceEquals(bmsonOwner, currentBmsonOwner);
+        }
+
+        internal ChartFile CreateChartSnapshot()
+        {
+            if (State?.HasInstallDestinationState != true)
+            {
+                return null;
+            }
+
+            ChartFile source = bmsOwner != null
+                ? ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner)
+                : bmsonOwner != null
+                    ? ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonOwner)
+                    : null;
+            return ChartFileProjection.WithTransientState(source, State, includeWarningSnapshot: false);
         }
     }
 

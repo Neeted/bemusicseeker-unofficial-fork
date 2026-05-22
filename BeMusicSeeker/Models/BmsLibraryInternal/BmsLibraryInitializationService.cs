@@ -501,7 +501,7 @@ internal sealed class BmsLibraryInitializationService
             nextBmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
         IEnumerable<ChartFile> installDestinationCleanupCharts = currentInstallDestinationCharts
-            ?? ChartFileProjection.FromBmsFiles(result.NextFiles, includeWarningSnapshot: false);
+            ?? [];
         foreach (ChartFile chart in installDestinationCleanupCharts
             .Where(IsCurrentChartOwner)
             .Where(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination)))
