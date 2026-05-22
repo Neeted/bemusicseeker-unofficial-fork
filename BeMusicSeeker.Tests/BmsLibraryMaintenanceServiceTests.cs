@@ -546,20 +546,25 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(1200);
-        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
+        LR2SongDBExtended.chart_info zeroNoteInfo = CreateChartInfo(zeroNoteFile.hash, notes: 0);
+        zeroNoteFile.SetChartInfo(zeroNoteInfo);
         ChartFile zeroNoteChart = ChartFileProjection.FromBmsFile(zeroNoteFile);
         TestableBmsFile normalFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         normalFile.SetNotes(0);
-        normalFile.SetChartInfo(CreateChartInfo(normalFile.hash, notes: 1200));
+        LR2SongDBExtended.chart_info normalInfo = CreateChartInfo(normalFile.hash, notes: 1200);
+        normalFile.SetChartInfo(normalInfo);
         ChartFile normalChart = ChartFileProjection.FromBmsFile(normalFile);
         TestableBmsFile missingChartInfoFile = CreateFile("dddddddddddddddddddddddddddddddd");
         missingChartInfoFile.SetNotes(0);
         ChartFile missingChartInfoChart = ChartFileProjection.FromBmsFile(missingChartInfoFile);
         LR2SongDBExtended.bmson_song zeroNoteBmson = CreateBmsonSong("C:\\Library\\chart.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        zeroNoteBmson.ChartInfo = CreateChartInfo(zeroNoteBmson.md5, notes: 0);
+        LR2SongDBExtended.chart_info zeroNoteBmsonInfo = CreateChartInfo(zeroNoteBmson.md5, notes: 0);
+        zeroNoteBmson.ChartInfo = zeroNoteBmsonInfo;
         ChartFile zeroNoteBmsonChart = ChartFileProjection.FromBmsonSong(zeroNoteBmson);
 
-        List<ChartFile> result = service.GetZeroNoteCharts([zeroNoteChart, normalChart, missingChartInfoChart, zeroNoteBmsonChart]);
+        List<ChartFile> result = service.GetZeroNoteCharts(
+            [zeroNoteChart, normalChart, missingChartInfoChart, zeroNoteBmsonChart],
+            CreateChartInfoResolver(zeroNoteInfo, normalInfo, zeroNoteBmsonInfo));
 
         CollectionAssert.AreEqual(new[] { zeroNoteChart }, result);
     }
@@ -710,11 +715,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(0);
-        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
+        LR2SongDBExtended.chart_info zeroNoteInfo = CreateChartInfo(zeroNoteFile.hash, notes: 0);
+        zeroNoteFile.SetChartInfo(zeroNoteInfo);
         zeroNoteFile.path = "C:\\missing\\chart.bms";
         zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
 
-        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings([ChartFileProjection.FromBmsFile(zeroNoteFile)]);
+        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(
+            [ChartFileProjection.FromBmsFile(zeroNoteFile)],
+            chartInfoResolver: CreateChartInfoResolver(zeroNoteInfo));
 
         Assert.AreEqual(1, result.Total);
         Assert.AreEqual(1, result.ClearedCount);
@@ -1868,6 +1876,24 @@ public sealed class BmsLibraryMaintenanceServiceTests
             sha256 = new string('a', 64),
             parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
             notes = notes
+        };
+    }
+
+    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoResolver(params LR2SongDBExtended.chart_info[] rows)
+    {
+        return chart =>
+        {
+            if (chart == null)
+            {
+                return null!;
+            }
+            return (rows ?? [])
+                .Where(row => row != null)
+                .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Sha256) && string.Equals(row.sha256, chart.Sha256, StringComparison.OrdinalIgnoreCase))
+                ?? (rows ?? [])
+                    .Where(row => row != null)
+                    .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Md5) && string.Equals(row.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
+                ?? null!;
         };
     }
 

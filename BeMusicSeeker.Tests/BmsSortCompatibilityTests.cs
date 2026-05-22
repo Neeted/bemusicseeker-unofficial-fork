@@ -904,9 +904,10 @@ public sealed class BmsSortCompatibilityTests
         var file = new TestableBmsFile();
         file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = level, hash = hash });
         file.SetFolder(folder);
+        LR2SongDBExtended.chart_info chartInfo = null!;
         if (chartNotes.HasValue || chartTotal.HasValue || chartMainBpm.HasValue)
         {
-            file.SetChartInfo(new LR2SongDBExtended.chart_info
+            chartInfo = new LR2SongDBExtended.chart_info
             {
                 sha256 = CreateSha256FromPath(path),
                 md5 = hash,
@@ -915,7 +916,8 @@ public sealed class BmsSortCompatibilityTests
                 total = chartTotal,
                 mainbpm = chartMainBpm,
                 parser_version = 1
-            });
+            };
+            file.SetChartInfo(chartInfo);
         }
         if (rateScorePerfect.HasValue)
         {
@@ -937,7 +939,30 @@ public sealed class BmsSortCompatibilityTests
                 totalnotes = 100
             };
         }
-        return LibraryChartRow.FromBmsFile(file);
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        if (chartInfo != null)
+        {
+            row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
+        }
+        return row;
+    }
+
+    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoProvider(params LR2SongDBExtended.chart_info[] rows)
+    {
+        return chart =>
+        {
+            if (chart == null)
+            {
+                return null!;
+            }
+            return (rows ?? [])
+                .Where(row => row != null)
+                .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Sha256) && string.Equals(row.sha256, chart.Sha256, StringComparison.OrdinalIgnoreCase))
+                ?? (rows ?? [])
+                    .Where(row => row != null)
+                    .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Md5) && string.Equals(row.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
+                ?? null!;
+        };
     }
 
     private static PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(string path, string title, ClearType clear, RankType rank)

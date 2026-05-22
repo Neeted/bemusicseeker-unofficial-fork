@@ -1733,12 +1733,15 @@ public sealed class ChartListVirtualViewTests
             [file],
             [bmson],
             playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart),
-            chartTransientStateProvider: ResolveTransientState);
+            chartTransientStateProvider: ResolveTransientState,
+            chartInfoProjectionProvider: CreateChartInfoProvider(file.ChartInfo, bmson.ChartInfo));
         LibraryChartRow bmsRow = LibraryChartRow.FromBmsFile(file);
         bmsRow.SetChartTransientStateProvider(ResolveTransientState);
         bmsRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
+        bmsRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(file.ChartInfo));
         LibraryChartRow bmsonRow = LibraryChartRow.FromBmsonSong(bmson);
         bmsonRow.SetPlaylistReferenceDisplayProvider(row => playlistReferenceIndex.Find(row.Chart));
+        bmsonRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(bmson.ChartInfo));
 
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsStorageOwner() != null), bmsRow);
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Chart.GetBmsonStorageOwner() != null), bmsonRow);
@@ -1835,11 +1838,15 @@ public sealed class ChartListVirtualViewTests
         var chart = row?.Chart;
         if (chart?.GetBmsStorageOwner() != null)
         {
-            return LibraryChartRow.FromBmsFile(chart.GetBmsStorageOwner());
+            LibraryChartRow chartRow = LibraryChartRow.FromBmsFile(chart.GetBmsStorageOwner());
+            chartRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(chart.ChartInfo));
+            return chartRow;
         }
         if (chart?.GetBmsonStorageOwner() != null)
         {
-            return LibraryChartRow.FromBmsonSong(chart.GetBmsonStorageOwner());
+            LibraryChartRow chartRow = LibraryChartRow.FromBmsonSong(chart.GetBmsonStorageOwner());
+            chartRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(chart.ChartInfo));
+            return chartRow;
         }
         return LibraryChartRow.FromChartFile(chart);
     }
@@ -2255,7 +2262,8 @@ public sealed class ChartListVirtualViewTests
         IEnumerable<LR2SongDBExtended.bmson_song>? bmsonSongs = null,
         Func<ChartListSourceRow, ResourceHealthWarningProjection>? resourceHealthProjectionProvider = null,
         Func<ChartListSourceRow, PlaylistReferenceDisplay>? playlistReferenceDisplayProvider = null,
-        Func<ChartFile, bool, ChartFileTransientState>? chartTransientStateProvider = null)
+        Func<ChartFile, bool, ChartFileTransientState>? chartTransientStateProvider = null,
+        Func<ChartFile, LR2SongDBExtended.chart_info>? chartInfoProjectionProvider = null)
     {
         List<ChartFile> charts =
         [
@@ -2272,7 +2280,8 @@ public sealed class ChartListVirtualViewTests
             ChartListSourceProjectionMode.OwnerBacked,
             resourceHealthProjectionProvider,
             playlistReferenceDisplayProvider,
-            chartTransientStateProvider);
+            chartTransientStateProvider,
+            chartInfoProjectionProvider);
     }
 
     private static void AssertBmsonSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
@@ -2280,15 +2289,31 @@ public sealed class ChartListVirtualViewTests
         LR2SongDBExtended.bmson_song original = CreateBmsonSong();
         LR2SongDBExtended.bmson_song next = CreateBmsonSong();
         mutate(next);
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
+        LR2SongDBExtended.chart_info originalChartInfo = original.ChartInfo;
+        LR2SongDBExtended.chart_info nextChartInfo = next.ChartInfo;
+        row.SetChartInfoProjectionProvider(chart => ReferenceEquals(row.GetBmsonStorageOwner(), next)
+            ? ResolveChartInfoByIdentity(chart, [nextChartInfo])
+            : ResolveChartInfoByIdentity(chart, [originalChartInfo]));
 
         Assert.IsTrue(
-            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow.FromBmsonSong(original), next));
+            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(row, next));
     }
 
     private static void AssertBmsonSameReferenceSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
     {
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(CreateBmsonSong());
+        LR2SongDBExtended.chart_info projectedChartInfo = row.GetBmsonStorageOwner()?.ChartInfo ?? null!;
+        row.SetChartInfoProjectionProvider(chart => ResolveChartInfoByIdentity(chart, [projectedChartInfo]));
+
         Assert.IsTrue(
-            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow.FromBmsonSong(CreateBmsonSong()), mutate));
+            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(
+                row,
+                song =>
+                {
+                    mutate(song);
+                    projectedChartInfo = song.ChartInfo;
+                }));
     }
 
     private static LR2SongDBExtended.bmson_song CreateBmsonSong()
@@ -2369,6 +2394,26 @@ public sealed class ChartListVirtualViewTests
             enddensity = 4.0 + difficulty,
             speedchange_count = difficulty + 2
         };
+    }
+
+    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoProvider(params LR2SongDBExtended.chart_info[] rows)
+    {
+        return chart => ResolveChartInfoByIdentity(chart, rows);
+    }
+
+    private static LR2SongDBExtended.chart_info ResolveChartInfoByIdentity(ChartFile chart, IEnumerable<LR2SongDBExtended.chart_info> rows)
+    {
+        if (chart == null)
+        {
+            return null!;
+        }
+        return (rows ?? [])
+            .Where(row => row != null)
+            .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Sha256) && string.Equals(row.sha256, chart.Sha256, StringComparison.OrdinalIgnoreCase))
+            ?? (rows ?? [])
+                .Where(row => row != null)
+                .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Md5) && string.Equals(row.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
+            ?? null!;
     }
 
     private static BMSFileMaintenanceInfo CreateMaintenanceInfo(string path, string hash, int seed)

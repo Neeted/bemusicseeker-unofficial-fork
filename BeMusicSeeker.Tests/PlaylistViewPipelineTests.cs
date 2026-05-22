@@ -509,8 +509,10 @@ public sealed class PlaylistViewPipelineTests
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "ChartInfoSha", 7);
-        file.SetChartInfo(CreateChartInfo(new string('d', 64), file.hash));
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('d', 64), file.hash);
+        file.SetChartInfo(chartInfo);
         LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        row.SetChartInfoProjectionProvider(CreateChartInfoProvider(chartInfo));
 
         Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(row));
     }
@@ -2357,12 +2359,15 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlaylistDetailSourceRow_OwnedBmsChartInfoFollowsOwnerProjectionAfterHydration()
+    public void PlaylistDetailSourceRow_OwnedBmsChartInfoFollowsProjectionProviderAfterHydration()
     {
         var file = new TestableBmsFile();
         file.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
-        var sourceRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(file), ChartFileProjection.FromBmsFile(file));
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('b', 64), file.hash, level: 13, notes: 3333, total: 700);
+        var sourceRow = new PlaylistDetailSourceRow(
+            new TestablePlaylistEntry(file),
+            ChartFileProjection.FromBmsFile(file),
+            chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
 
         file.SetChartInfo(chartInfo);
 
@@ -2376,7 +2381,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlaylistDetailSourceRow_OwnedBmsonChartInfoFollowsOwnerProjectionAfterHydration()
+    public void PlaylistDetailSourceRow_OwnedBmsonChartInfoFollowsProjectionProviderAfterHydration()
     {
         var song = new LR2SongDBExtended.bmson_song
         {
@@ -2392,8 +2397,11 @@ public sealed class PlaylistViewPipelineTests
         entry.SetTitle(song.title);
         entry.SetMd5(song.md5);
         entry.SetSha256(song.sha256);
-        var sourceRow = new PlaylistDetailSourceRow(entry, ChartFileProjection.FromBmsonSong(song));
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('d', 64), song.md5, level: 14, notes: 4444, total: 800);
+        var sourceRow = new PlaylistDetailSourceRow(
+            entry,
+            ChartFileProjection.FromBmsonSong(song),
+            chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
 
         song.ChartInfo = chartInfo;
 
@@ -2447,7 +2455,8 @@ public sealed class PlaylistViewPipelineTests
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
             projectedChart,
-            chartTransientStateProvider: (_, _) => ChartFileTransientState.Empty);
+            chartTransientStateProvider: (_, _) => ChartFileTransientState.Empty,
+            chartInfoProjectionProvider: CreateChartInfoProvider(chartInfo));
         PlaylistDetailRow row = sourceRow.CreateViewRow();
 
         Assert.AreEqual("Projected Title", row.Title);
@@ -3220,6 +3229,24 @@ public sealed class PlaylistViewPipelineTests
             lanenotes = "1,2,3,4,5,6,7",
             parser_version = 1,
             updated_at = DateTime.UtcNow
+        };
+    }
+
+    private static Func<ChartFile, LR2SongDBExtended.chart_info> CreateChartInfoProvider(params LR2SongDBExtended.chart_info[] rows)
+    {
+        return chart =>
+        {
+            if (chart == null)
+            {
+                return null!;
+            }
+            return (rows ?? [])
+                .Where(row => row != null)
+                .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Sha256) && string.Equals(row.sha256, chart.Sha256, StringComparison.OrdinalIgnoreCase))
+                ?? (rows ?? [])
+                    .Where(row => row != null)
+                    .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Md5) && string.Equals(row.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
+                ?? null!;
         };
     }
 
