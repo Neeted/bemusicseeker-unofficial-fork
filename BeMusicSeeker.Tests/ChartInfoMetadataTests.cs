@@ -2631,8 +2631,7 @@ createTempDirectory);
                 {
                     encoding = "ks_c_5601-1987?"
                 },
-                suppressPropertyChanged: true,
-                registerEventHandlers: false);
+                suppressPropertyChanged: true);
 
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();

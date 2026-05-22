@@ -27,7 +27,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             wav_files_defined = 2,
             wav_files_existing = 1
         };
-        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
 
         IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info);
 
@@ -370,7 +370,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_defined = 4,
             bga_files_existing = 3
         };
-        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
         var row = LibraryChartRow.FromBmsFile(file);
         row.SetResourceHealthProjectionProvider(_ => new ResourceHealthWarningProjection(1, BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info), isIgnored: false));
 
@@ -404,7 +404,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             hash = file.hash,
             wav_files_defined = 2,
             wav_files_existing = 2
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         var row = LibraryChartRow.FromBmsFile(file);
         row.SetResourceHealthProjectionProvider(_ => ResourceHealthWarningProjection.Empty);
 
@@ -426,7 +426,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             wav_files_defined = 2,
             wav_files_existing = 1,
             is_files_warning_ignored = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         TestableBmsFile ignored = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         ignored.path = @"C:\Library\ignored.bms";
         ignored.SetMaintenanceInfo(new BMSFileMaintenanceInfo(ignored)
@@ -435,7 +435,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_defined = 2,
             bga_files_existing = 1,
             is_files_warning_ignored = true
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
 
         ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
         ChartFile ignoredChart = ChartFileProjection.FromBmsFile(ignored);
@@ -486,7 +486,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             wav_files_defined = 2,
             wav_files_existing = 1,
             is_files_warning_ignored = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         TestableBmsFile ignored = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         ignored.path = @"C:\Library\ignored.bms";
         ignored.SetMaintenanceInfo(new BMSFileMaintenanceInfo(ignored)
@@ -495,7 +495,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_defined = 2,
             bga_files_existing = 1,
             is_files_warning_ignored = true
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
         ChartFile ignoredChart = ChartFileProjection.FromBmsFile(ignored);
         var snapshot = ResourceHealthIndexSnapshot.Build([activeChart, ignoredChart], service, version: 1);
@@ -505,7 +505,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             hash = active.hash,
             wav_files_defined = 2,
             wav_files_existing = 2
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         activeChart = ChartFileProjection.FromBmsFile(active);
         ResourceHealthIndexSnapshot afterFix = snapshot.ApplyDelta([activeChart], null, service, version: 2);
 
@@ -522,7 +522,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bga_files_defined = 4,
             bga_files_existing = 3,
             is_files_warning_ignored = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         ChartFile addedChart = ChartFileProjection.FromBmsFile(added);
         ResourceHealthIndexSnapshot afterAdd = afterFix.ApplyDelta([addedChart], null, service, version: 3);
 
@@ -596,7 +596,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             hash = file.hash,
             is_files_warning_ignored = false
         };
-        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
 
         List<BMSFileMaintenanceInfo> changes = service.SetChartResourceWarningsIgnored([ChartFileProjection.FromBmsFile(file)], unset: false);
 
@@ -627,42 +627,42 @@ public sealed class BmsLibraryMaintenanceServiceTests
             hash = unknownFile.hash,
             encoding = "unknown",
             is_encoding_fixed = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         TestableBmsFile fixedUnknownFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         fixedUnknownFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(fixedUnknownFile)
         {
             hash = fixedUnknownFile.hash,
             encoding = "unknown",
             is_encoding_fixed = true
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         TestableBmsFile shiftJisFile = CreateFile("cccccccccccccccccccccccccccccccc");
         shiftJisFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(shiftJisFile)
         {
             hash = shiftJisFile.hash,
             encoding = "shift_jis",
             is_encoding_fixed = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         TestableBmsFile shiftJisQuestionFile = CreateFile("dddddddddddddddddddddddddddddddd");
         shiftJisQuestionFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(shiftJisQuestionFile)
         {
             hash = shiftJisQuestionFile.hash,
             encoding = "shift_jis?",
             is_encoding_fixed = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         TestableBmsFile gb2312File = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         gb2312File.SetMaintenanceInfo(new BMSFileMaintenanceInfo(gb2312File)
         {
             hash = gb2312File.hash,
             encoding = "gb2312",
             is_encoding_fixed = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
         TestableBmsFile big5File = CreateFile("ffffffffffffffffffffffffffffffff");
         big5File.SetMaintenanceInfo(new BMSFileMaintenanceInfo(big5File)
         {
             hash = big5File.hash,
             encoding = "big5",
             is_encoding_fixed = false
-        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        }, suppressPropertyChanged: true);
 
         List<BMSFile> regularList = service.GetGarbledFiles([unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File], isInFixedList: false);
         List<BMSFile> fixedList = service.GetGarbledFiles([unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File], isInFixedList: true);
@@ -721,7 +721,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "gb2312",
                 is_encoding_fixed = false
             };
-            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
 
@@ -773,7 +773,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "unknown",
                 is_encoding_fixed = false
             };
-            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
 
@@ -824,7 +824,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "shift_jis",
                 is_encoding_fixed = false
             };
-            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "shift_jis");
 
@@ -876,7 +876,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "unknown",
                 is_encoding_fixed = false
             };
-            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
             List<string> propertyNames = [];
             file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
@@ -926,7 +926,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "gb2312",
                 is_encoding_fixed = false
             };
-            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
 
@@ -963,7 +963,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash
-            }, suppressPropertyChanged: true, registerEventHandlers: false);
+            }, suppressPropertyChanged: true);
             List<string> propertyNames = [];
             file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
@@ -1745,7 +1745,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 encoding = "unknown",
                 is_encoding_fixed = false
             };
-            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], encoding);
 

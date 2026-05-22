@@ -9,11 +9,10 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsFileListenerLifecycleTests
 {
     [TestMethod]
-    public void SetMaintenanceInfo_ReplacesPreviousListener()
+    public void NotifyMaintenanceInfoChanged_RaisesMaintenanceInfoProperty()
     {
         TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSFileMaintenanceInfo info1 = CreateMaintenanceInfo(file, "shift_jis");
-        BMSFileMaintenanceInfo info2 = CreateMaintenanceInfo(file, "utf-8");
+        BMSFileMaintenanceInfo info = CreateMaintenanceInfo(file, "shift_jis");
         int maintenanceChangedCount = 0;
         file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
@@ -23,12 +22,11 @@ public sealed class BmsFileListenerLifecycleTests
             }
         };
 
-        file.SetMaintenanceInfo(info1, suppressPropertyChanged: true, registerEventHandlers: true);
-        file.SetMaintenanceInfo(info2, suppressPropertyChanged: true, registerEventHandlers: true);
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
         maintenanceChangedCount = 0;
 
-        info1.encoding = "euc-jp";
-        info2.encoding = "utf-16";
+        info.encoding = "utf-16";
+        file.NotifyMaintenanceInfoChanged(encodingChanged: true, healthChanged: false);
 
         Assert.AreEqual(1, maintenanceChangedCount);
         Assert.AreEqual("utf-16", file.maintenanceInfo.encoding);
@@ -58,39 +56,6 @@ public sealed class BmsFileListenerLifecycleTests
 
         Assert.AreEqual(1, scoreChangedCount);
         Assert.AreEqual(2, file.bmsScore.ranking);
-    }
-
-    [TestMethod]
-    public void ReleaseTransientListeners_AllowsFileToBeCollectedWhileRootsRemainAlive()
-    {
-        WeakReference weakReference = CreateWeakReferenceAfterRelease(out BMSScore score, out BMSFileMaintenanceInfo info);
-
-        ForceGc();
-
-        GC.KeepAlive(score);
-        GC.KeepAlive(info);
-        Assert.IsFalse(weakReference.IsAlive);
-    }
-
-    private static WeakReference CreateWeakReferenceAfterRelease(out BMSScore score, out BMSFileMaintenanceInfo info)
-    {
-        TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        score = CreateScore(file.hash);
-        info = CreateMaintenanceInfo(file, "shift_jis");
-
-        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: true);
-        file.bmsScore = score;
-        file.ReleaseTransientListeners();
-
-        var weakReference = new WeakReference(file);
-        return weakReference;
-    }
-
-    private static void ForceGc()
-    {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-        GC.Collect();
     }
 
     private static TestableBmsFile CreateFile(string hash)

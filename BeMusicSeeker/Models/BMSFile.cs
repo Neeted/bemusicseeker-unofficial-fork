@@ -188,8 +188,6 @@ public class BMSFile : LR2SongDB.song
 
     private string _cachedComposedSubtitleSource;
 
-    private PropertyChangedEventListener listenerForMaintenanceInfo;
-
     private BMSFileMaintenanceInfo _maintenanceInfo;
 
     private MaintenanceInfoOrigin maintenanceInfoOrigin;
@@ -506,7 +504,7 @@ public class BMSFile : LR2SongDB.song
         }
         set
         {
-            SetMaintenanceInfo(value, suppressPropertyChanged: false, registerEventHandlers: true);
+            SetMaintenanceInfo(value, suppressPropertyChanged: false);
         }
     }
 
@@ -521,9 +519,8 @@ public class BMSFile : LR2SongDB.song
     /// </summary>
     /// <param name="value">設定する maintenance snapshot。null の場合は placeholder を作ります。</param>
     /// <param name="suppressPropertyChanged">`maintenanceInfo` 自体の PropertyChanged を抑止するかどうか。</param>
-    /// <param name="registerEventHandlers">snapshot 内 property の変更を BMSFile へ転送する listener を登録するかどうか。</param>
     /// <param name="origin">snapshot の由来。未指定の場合は互換既定値を使います。</param>
-    public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, bool registerEventHandlers = true, MaintenanceInfoOrigin? origin = null)
+    public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, MaintenanceInfoOrigin? origin = null)
     {
         MaintenanceInfoOrigin nextOrigin = origin ?? (value == null ? MaintenanceInfoOrigin.Placeholder : MaintenanceInfoOrigin.Calculated);
         value ??= new BMSFileMaintenanceInfo(this);
@@ -536,13 +533,8 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentException("maintenanceInfo の MD5 が一致しません。");
         }
-        DisposeMaintenanceInfoListener();
         _maintenanceInfo = value;
         maintenanceInfoOrigin = nextOrigin;
-        if (registerEventHandlers)
-        {
-            registrateMaintenanceInfoPropertyChangedEventHandlers();
-        }
         if (!suppressPropertyChanged)
         {
             RaisePropertyChanged("maintenanceInfo");
@@ -604,44 +596,6 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    private void registrateMaintenanceInfoPropertyChangedEventHandlers()
-    {
-        DisposeMaintenanceInfoListener();
-        if (maintenanceInfo == null)
-        {
-            return;
-        }
-        listenerForMaintenanceInfo = new PropertyChangedEventListener(maintenanceInfo);
-        listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.encoding, delegate
-        {
-            RaisePropertyChanged(() => maintenanceInfo);
-        });
-        listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.WAVHealth, delegate
-        {
-            RaisePropertyChanged(() => maintenanceInfo);
-        });
-        listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.BGAHealth, delegate
-        {
-            RaisePropertyChanged(() => maintenanceInfo);
-        });
-        listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.MovieHealth, delegate
-        {
-            RaisePropertyChanged(() => maintenanceInfo);
-        });
-        listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.StagefileHealth, delegate
-        {
-            RaisePropertyChanged(() => maintenanceInfo);
-        });
-        listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.BannerHealth, delegate
-        {
-            RaisePropertyChanged(() => maintenanceInfo);
-        });
-        listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.BackbmpHealth, delegate
-        {
-            RaisePropertyChanged(() => maintenanceInfo);
-        });
-    }
-
     private void registrateBMSScorePropertyChangedEventHandlers()
     {
         DisposeBmsScoreListener();
@@ -675,25 +629,6 @@ public class BMSFile : LR2SongDB.song
             RaisePropertyChanged(() => bmsScore);
             RaisePropertyChanged(() => status);
         });
-    }
-
-    internal int ReleaseTransientListeners(bool releaseOwnedListeners = true)
-    {
-        int num = 0;
-        if (releaseOwnedListeners)
-        {
-            num += DisposeMaintenanceInfoListener();
-            num += DisposeBmsScoreListener();
-        }
-        return num;
-    }
-
-    private int DisposeMaintenanceInfoListener()
-    {
-        int result = ((listenerForMaintenanceInfo != null) ? 1 : 0);
-        listenerForMaintenanceInfo?.Dispose();
-        listenerForMaintenanceInfo = null;
-        return result;
     }
 
     private int DisposeBmsScoreListener()

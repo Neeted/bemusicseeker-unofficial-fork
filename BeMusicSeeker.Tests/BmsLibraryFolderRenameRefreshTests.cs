@@ -602,7 +602,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     hash = file.hash,
                     encoding = "unknown",
                     is_encoding_fixed = false
-                }, suppressPropertyChanged: true, registerEventHandlers: false);
+                }, suppressPropertyChanged: true);
                 int garbledChangedCount = 0;
                 int garbledFixedChangedCount = 0;
                 int encodingChangedCount = 0;

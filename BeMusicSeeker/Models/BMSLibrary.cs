@@ -5433,7 +5433,7 @@ reportProgress,
                 {
                     nextInfo = value;
                     result.AppliedBmsCount++;
-                    item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, registerEventHandlers: false, MaintenanceInfoOrigin.DbHydrated);
+                    item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.DbHydrated);
                     result.ValidSnapshotCount++;
                 }
                 else
@@ -5446,7 +5446,7 @@ reportProgress,
                     else
                     {
                         nextInfo = item.TryGetMaintenanceInfoWithoutCreating() ?? new BMSFileMaintenanceInfo(item);
-                        item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, registerEventHandlers: false, MaintenanceInfoOrigin.Placeholder);
+                        item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Placeholder);
                         result.PlaceholderCount++;
                     }
                 }
