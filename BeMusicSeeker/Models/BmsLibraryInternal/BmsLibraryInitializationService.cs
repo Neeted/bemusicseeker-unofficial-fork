@@ -484,13 +484,14 @@ internal sealed class BmsLibraryInitializationService
         var directoryKeys = new HashSet<string>(result.NextDirectoryResourceLookupCache?.Keys ?? [], StringComparer.OrdinalIgnoreCase);
         var stopwatchInstlDstCleanup = Stopwatch.StartNew();
         int clearedInstallDestinationCountBefore = result.MutationDelta.UpdatedInstallDestinations.Count;
-        foreach (BMSFile file in result.NextFiles.Where(file => !string.IsNullOrWhiteSpace(file.instl_dst)))
+        foreach (ChartFile chart in ChartFileProjection.FromBmsFiles(result.NextFiles, includeWarningSnapshot: false)
+            .Where(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination)))
         {
-            if (!directoryKeys.Contains(file.instl_dst))
+            if (!directoryKeys.Contains(chart.InstallDestination))
             {
                 result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
                 {
-                    Chart = ChartFileProjection.FromBmsFile(file),
+                    Chart = chart,
                     NewInstallDestination = null,
                     ClearInstallDestinationState = true
                 });
