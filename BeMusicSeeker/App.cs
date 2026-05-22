@@ -88,7 +88,6 @@ public partial class App : System.Windows.Application
         EquationTokenizer.AddNamespace(typeof(DataGridLength));
         EquationTokenizer.AddNamespace(typeof(DataGridLengthUnitType));
         EquationTokenizer.AddExtensionMethods(typeof(Enumerable));
-        EquationTokenizer.AddNamespace(typeof(BMSFile));
         EquationTokenizer.AddNamespace(typeof(BMSTable));
         EquationTokenizer.AddNamespace(typeof(Path));
         EquationTokenizer.AddNamespace(typeof(SystemInformation));
