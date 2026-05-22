@@ -1,5 +1,6 @@
 using System;
 using BeMusicSeeker.Models.LR2;
+using SQLite;
 
 namespace BeMusicSeeker.Models;
 
@@ -14,6 +15,8 @@ public class BMSScore : LR2ScoreDB.score
     private double? _stddevVal;
 
     private double? _scoreDifficulty;
+
+    private bool isLr2IrScoreUnsent;
 
     public int score => base.perfect * 2 + base.great;
 
@@ -93,6 +96,23 @@ public class BMSScore : LR2ScoreDB.score
             {
                 _scoreDifficulty = value;
                 RaisePropertyChanged("scoreDifficulty");
+            }
+        }
+    }
+
+    [Ignore]
+    public bool IsLr2IrScoreUnsent
+    {
+        get
+        {
+            return isLr2IrScoreUnsent;
+        }
+        set
+        {
+            if (isLr2IrScoreUnsent != value)
+            {
+                isLr2IrScoreUnsent = value;
+                RaisePropertyChanged("IsLr2IrScoreUnsent");
             }
         }
     }

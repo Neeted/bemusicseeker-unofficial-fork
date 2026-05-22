@@ -175,8 +175,7 @@ public class BMSFile : LR2SongDB.song
         PAUSE = 4,
         FORWARD = 8,
         BACKWARD = 0x10,
-        PLAYALL = 0x1F,
-        SCORE_UNSENT = 0x800
+        PLAYALL = 0x1F
     }
 
     private BMSFileStatus _status;
@@ -670,6 +669,11 @@ public class BMSFile : LR2SongDB.song
         listenerForBMSScore.RegisterHandler(() => bmsScore.scoreDifficulty, delegate
         {
             RaisePropertyChanged(() => bmsScore);
+        });
+        listenerForBMSScore.RegisterHandler(() => bmsScore.IsLr2IrScoreUnsent, delegate
+        {
+            RaisePropertyChanged(() => bmsScore);
+            RaisePropertyChanged(() => status);
         });
     }
 

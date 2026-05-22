@@ -31,7 +31,28 @@ internal static class ChartFileStatusMapper
     /// <returns>The equivalent chart display status.</returns>
     internal static ChartFileStatus FromBmsFileStatus(BMSFile.BMSFileStatus status)
     {
-        return (ChartFileStatus)status;
+        ChartFileStatus result = ChartFileStatus.NONE;
+        if (status.HasFlag(BMSFile.BMSFileStatus.PLAY))
+        {
+            result |= ChartFileStatus.PLAY;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.LOADING))
+        {
+            result |= ChartFileStatus.LOADING;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.PAUSE))
+        {
+            result |= ChartFileStatus.PAUSE;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.FORWARD))
+        {
+            result |= ChartFileStatus.FORWARD;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.BACKWARD))
+        {
+            result |= ChartFileStatus.BACKWARD;
+        }
+        return result;
     }
 
 }

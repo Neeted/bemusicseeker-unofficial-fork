@@ -135,6 +135,89 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     [TestMethod]
+    public void UpdateBmsScores_ProjectsMissingIrScoreAsUnsentChartStatus()
+    {
+        var service = new BmsLibraryIrService();
+        string hash = "13131313131313131313131313131313";
+        TestableBmsFile file = CreateFile(hash);
+        BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        file.bmsScore = score;
+
+        service.UpdateBmsScores([], [score], [file]);
+
+        Assert.IsTrue(score.IsLr2IrScoreUnsent);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        Assert.IsTrue(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
+        Assert.AreEqual(BMSFile.BMSFileStatus.NONE, file.status);
+    }
+
+    [TestMethod]
+    public void UpdateBmsScores_ClearsStaleUnsentProjectionWhenIrScoreMatches()
+    {
+        var service = new BmsLibraryIrService();
+        string hash = "14141414141414141414141414141414";
+        TestableBmsFile file = CreateFile(hash);
+        BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        score.IsLr2IrScoreUnsent = true;
+        file.bmsScore = score;
+
+        service.UpdateBmsScores([CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12)], [score], [file]);
+
+        Assert.IsFalse(score.IsLr2IrScoreUnsent);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
+    }
+
+    [TestMethod]
+    public void UpdateBmsScores_DoesNotProjectUnsentWhenDetectionIsDisabled()
+    {
+        var service = new BmsLibraryIrService();
+        string hash = "15151515151515151515151515151515";
+        TestableBmsFile file = CreateFile(hash);
+        BMSScore score = CreateScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        file.bmsScore = score;
+
+        service.UpdateBmsScores([], [score], [file], detectUnsentScores: false);
+
+        Assert.IsFalse(score.IsLr2IrScoreUnsent);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
+    }
+
+    [TestMethod]
+    public void UpdateBmsScores_DoesNotLeaveUnsentAfterIrScoreOverwrite()
+    {
+        var service = new BmsLibraryIrService();
+        string hash = "16161616161616161616161616161616";
+        TestableBmsFile file = CreateFile(hash);
+        BMSScore score = CreateScore(hash, ClearType.EASY, pg: 100, gr: 10, minbp: 50);
+        LR2IRScore irScore = CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12);
+        file.bmsScore = score;
+
+        service.UpdateBmsScores([irScore], [score], [file]);
+
+        Assert.AreEqual(irScore.score, score.score);
+        Assert.AreEqual(12, score.minbp);
+        Assert.IsFalse(score.IsLr2IrScoreUnsent);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
+    }
+
+    [TestMethod]
+    public void UpdateBmsScores_TreatsLocalPaAndIrFcAsSent()
+    {
+        var service = new BmsLibraryIrService();
+        string hash = "17171717171717171717171717171717";
+        TestableBmsFile file = CreateFile(hash);
+        BMSScore score = CreateScore(hash, ClearType.PA, pg: 300, gr: 50, minbp: 12);
+        file.bmsScore = score;
+
+        service.UpdateBmsScores([CreateIrScore(hash, ClearType.FC, pg: 300, gr: 50, minbp: 12)], [score], [file]);
+
+        Assert.IsFalse(score.IsLr2IrScoreUnsent);
+    }
+
+    [TestMethod]
     public void BeatorajaScoreDbLoader_ReadsModeZeroScoresOnly()
     {
         string rootDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerBeatorajaScoreTests", Guid.NewGuid().ToString("N"));
@@ -858,6 +941,33 @@ public sealed class BmsLibraryIrServiceTests
         file.SetHash(hash);
         file.path = hash + ".bms";
         return file;
+    }
+
+    private static BMSScore CreateScore(string hash, ClearType clear, int pg, int gr, int minbp)
+    {
+        return new BMSScore
+        {
+            hash = hash,
+            clear = clear,
+            perfect = pg,
+            great = gr,
+            totalnotes = 1000,
+            maxcombo = 900,
+            minbp = minbp
+        };
+    }
+
+    private static LR2IRScore CreateIrScore(string hash, ClearType clear, int pg, int gr, int minbp)
+    {
+        return new LR2IRScore(hash)
+        {
+            clear = clear,
+            notes = 1000,
+            combo = 900,
+            pg = pg,
+            gr = gr,
+            minbp = minbp
+        };
     }
 
     private static void CreateLr2ScoreDb(string scoreDbPath)

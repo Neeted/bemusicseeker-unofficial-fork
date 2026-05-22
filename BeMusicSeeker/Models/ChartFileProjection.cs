@@ -342,6 +342,12 @@ internal static class ChartFileProjection
         BMSFileMaintenanceInfo maintenanceInfo = file.HasValidMaintenanceInfoSnapshot
             ? file.TryGetMaintenanceInfoWithoutCreating()
             : null;
+        ChartScoreSnapshot score = ChartScoreSnapshot.FromBmsFile(file);
+        ChartFileStatus status = ChartFileStatusMapper.FromBmsFileStatus(file.status);
+        if (score.IsLr2IrScoreUnsent)
+        {
+            status |= ChartFileStatus.SCORE_UNSENT;
+        }
 
         return new ChartFile(
             ChartFileKind.Bms,
@@ -378,8 +384,8 @@ internal static class ChartFileProjection
             maintenanceInfo?.BannerHealth,
             maintenanceInfo?.BackbmpHealth,
             maintenanceInfo?.encoding,
-            ChartScoreSnapshot.FromBmsFile(file),
-            ChartFileStatusMapper.FromBmsFileStatus(file.status));
+            score,
+            status);
     }
 
     internal static ChartFile FromBmsonSong(

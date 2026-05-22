@@ -615,54 +615,76 @@ internal sealed class BmsLibraryIrService
             return currentScores;
         }
         List<BMSScore> existingScores = [.. currentScores];
-        if (detectUnsentScores)
+        foreach (BMSScore score in existingScores)
         {
-            foreach (BMSFile item in (from ls in existingScores
-                                      join os in scoreTable on ls.hash equals os.hash into os
-                                      select new
-                                      {
-                                          bmsScore = ls,
-                                          irScores = os.DefaultIfEmpty()
-                                      } into grp
-                                      from a in grp.irScores
-                                      select new
-                                      {
-                                          grp.bmsScore,
-                                          irScore = a
-                                      } into b
-                                      where b.irScore == null || b.bmsScore.score != b.irScore.score || b.bmsScore.minbp != b.irScore.minbp || (b.bmsScore.clear != b.irScore.clear && (b.bmsScore.clear != ClearType.PA || b.irScore.clear != ClearType.FC))
-                                      select b).Join(bmsFiles ?? [], b => b.bmsScore.hash, bmsFile => bmsFile.hash, (a, bmsFile) => bmsFile))
+            if (score != null)
             {
-                item.status |= BMSFile.BMSFileStatus.SCORE_UNSENT;
+                score.IsLr2IrScoreUnsent = false;
             }
         }
-        IEnumerable<BMSScore> appendedScores = (from os in scoreTable
-                                                join ls in existingScores on os.hash equals ls.hash into ls
-                                                select new
-                                                {
-                                                    irScore = os,
-                                                    bmsScores = ls.DefaultIfEmpty(new BMSScore(os))
-                                                } into grp
-                                                from a in grp.bmsScores
-                                                select new
-                                                {
-                                                    grp.irScore,
-                                                    bmsScore = a
-                                                }).Select(b =>
-                                            {
-                                                if (b.irScore.clear > b.bmsScore.clear)
-                                                {
-                                                    b.bmsScore.clear = b.irScore.clear;
-                                                }
-                                                if (b.irScore.score > b.bmsScore.score)
-                                                {
-                                                    b.bmsScore.Overwrite(b.irScore);
-                                                }
-                                                return b.bmsScore;
-                                            }).Except(existingScores);
+        List<BMSScore> appendedScores = [.. (from os in scoreTable
+                                             join ls in existingScores on os.hash equals ls.hash into ls
+                                             select new
+                                             {
+                                                 irScore = os,
+                                                 bmsScores = ls.DefaultIfEmpty(new BMSScore(os))
+                                             } into grp
+                                             from a in grp.bmsScores
+                                             select new
+                                             {
+                                                 grp.irScore,
+                                                 bmsScore = a
+                                             }).Select(b =>
+                                         {
+                                             if (b.irScore.clear > b.bmsScore.clear)
+                                             {
+                                                 b.bmsScore.clear = b.irScore.clear;
+                                             }
+                                             if (b.irScore.score > b.bmsScore.score)
+                                             {
+                                                 b.bmsScore.Overwrite(b.irScore);
+                                             }
+                                             return b.bmsScore;
+                                         }).Except(existingScores)];
         List<BMSScore> mergedScores = [.. existingScores, .. appendedScores];
         ApplyKnownScoresToFiles(bmsFiles, appendedScores);
+        if (detectUnsentScores)
+        {
+            ApplyLr2IrScoreUnsentStatus(mergedScores, bmsFiles, scoreTable);
+        }
         return mergedScores;
+    }
+
+    private static void ApplyLr2IrScoreUnsentStatus(IEnumerable<BMSScore> scores, IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2IRScore> scoreTable)
+    {
+        var targetHashes = new HashSet<string>(
+            (bmsFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.hash)).Select(file => file.hash),
+            StringComparer.OrdinalIgnoreCase);
+        ILookup<string, LR2IRScore> irScoresByHash = (scoreTable ?? [])
+            .Where(score => score != null && !string.IsNullOrWhiteSpace(score.hash))
+            .ToLookup(score => score.hash, StringComparer.OrdinalIgnoreCase);
+        foreach (BMSScore score in (scores ?? []).Where(score => score != null && targetHashes.Contains(score.hash)))
+        {
+            score.IsLr2IrScoreUnsent = IsLr2IrScoreUnsent(score, irScoresByHash[score.hash]);
+        }
+    }
+
+    private static bool IsLr2IrScoreUnsent(BMSScore score, IEnumerable<LR2IRScore> irScores)
+    {
+        LR2IRScore[] irScoreArray = [.. irScores ?? []];
+        if (irScoreArray.Length == 0)
+        {
+            return true;
+        }
+        return irScoreArray.Any(irScore => IsDifferentFromIrScore(score, irScore));
+    }
+
+    private static bool IsDifferentFromIrScore(BMSScore score, LR2IRScore irScore)
+    {
+        return irScore == null
+            || score.score != irScore.score
+            || score.minbp != irScore.minbp
+            || (score.clear != irScore.clear && (score.clear != ClearType.PA || irScore.clear != ClearType.FC));
     }
 
     public List<LR2IRData> LoadIrData(int lr2Id, BmsLibraryDbGateway dbGateway)

@@ -21,7 +21,8 @@ internal sealed class ChartScoreSnapshot
         string rankingString = "",
         DateTime? rankingLastUpdate = null,
         double? stdDevVal = null,
-        double? scoreDifficulty = null)
+        double? scoreDifficulty = null,
+        bool isLr2IrScoreUnsent = false)
     {
         Clear = clear;
         Rank = rank;
@@ -37,6 +38,7 @@ internal sealed class ChartScoreSnapshot
         RankingLastUpdate = rankingLastUpdate;
         StdDevVal = stdDevVal;
         ScoreDifficulty = scoreDifficulty;
+        IsLr2IrScoreUnsent = isLr2IrScoreUnsent;
     }
 
     internal ClearType Clear { get; }
@@ -66,6 +68,8 @@ internal sealed class ChartScoreSnapshot
     internal double? StdDevVal { get; }
 
     internal double? ScoreDifficulty { get; }
+
+    internal bool IsLr2IrScoreUnsent { get; }
 
     internal static ChartScoreSnapshot NoScore(string chartPath)
     {
@@ -109,6 +113,7 @@ internal sealed class ChartScoreSnapshot
                 : string.Empty,
             score.rankingLastupdate,
             score.stddevVal,
-            score.scoreDifficulty);
+            score.scoreDifficulty,
+            score.IsLr2IrScoreUnsent);
     }
 }

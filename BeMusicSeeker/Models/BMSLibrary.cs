@@ -7055,13 +7055,23 @@ reportProgress,
 
     private void ClearScoreUnsentStatus()
     {
+        using (rwlockBMSScores.GetWriterGuard())
+        {
+            foreach (BMSScore score in BMSScores ?? Enumerable.Empty<BMSScore>())
+            {
+                if (score != null)
+                {
+                    score.IsLr2IrScoreUnsent = false;
+                }
+            }
+        }
         using (rwlockBMSFiles.GetReaderGuard())
         {
             foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
             {
-                if (file != null)
+                if (file?.bmsScore != null)
                 {
-                    file.status &= ~BMSFile.BMSFileStatus.SCORE_UNSENT;
+                    file.bmsScore.IsLr2IrScoreUnsent = false;
                 }
             }
         }
