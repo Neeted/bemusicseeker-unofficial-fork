@@ -10561,7 +10561,8 @@ public class MainWindowViewModel : ViewModel
                 ResolveChartInfoForProjection,
                 ResolveChartInfoForSourceRow,
                 GetChartInfoProjectionVersion,
-                GetScoreSnapshotProjectionVersion);
+                GetScoreSnapshotProjectionVersion,
+                ResolveScoreSnapshotForSourceRow);
         long sourceRowsMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         long folderStageMs = sourceRowsMs;
         int folderCount = sourceRows.Count;
@@ -10734,7 +10735,8 @@ public class MainWindowViewModel : ViewModel
             includeWarningSnapshot: false,
             requireBmsonPath: true,
             orderBmsonByPath: true,
-            includeResourceReferences: false);
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
     }
 
     private static List<ChartFile> CreateStandardLibraryChartIdentitySnapshot(
@@ -10826,6 +10828,7 @@ public class MainWindowViewModel : ViewModel
         Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = ResolveChartInfoForSourceRow;
         Func<int> chartInfoProjectionVersionProvider = GetChartInfoProjectionVersion;
         Func<int> scoreSnapshotVersionProvider = GetScoreSnapshotProjectionVersion;
+        Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = ResolveScoreSnapshotForSourceRow;
         foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles ?? [])
         {
             if (file == null)
@@ -10840,7 +10843,8 @@ public class MainWindowViewModel : ViewModel
                 chartInfoProjectionProvider,
                 chartInfoRowProjectionProvider,
                 chartInfoProjectionVersionProvider,
-                scoreSnapshotVersionProvider);
+                scoreSnapshotVersionProvider,
+                scoreSnapshotProjectionProvider);
             if (row != null)
             {
                 sourceRows.Add(row);
@@ -10857,6 +10861,7 @@ public class MainWindowViewModel : ViewModel
         Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = ResolveChartInfoForSourceRow;
         Func<int> chartInfoProjectionVersionProvider = GetChartInfoProjectionVersion;
         Func<int> scoreSnapshotVersionProvider = GetScoreSnapshotProjectionVersion;
+        Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = ResolveScoreSnapshotForSourceRow;
         foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)).OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase))
         {
             ChartListSourceRow row = ChartListSourceRow.FromBmsonStorageOwner(
@@ -10867,7 +10872,8 @@ public class MainWindowViewModel : ViewModel
                 chartInfoProjectionProvider,
                 chartInfoRowProjectionProvider,
                 chartInfoProjectionVersionProvider,
-                scoreSnapshotVersionProvider);
+                scoreSnapshotVersionProvider,
+                scoreSnapshotProjectionProvider);
             if (row != null)
             {
                 sourceRows.Add(row);
@@ -11134,8 +11140,7 @@ public class MainWindowViewModel : ViewModel
 
             foreach (ChartListSourceRow row in sourceRows)
             {
-                ChartFile chart = row?.Chart;
-                hash = (hash * 397L) ^ (chart?.Kind == ChartFileKind.Bms ? 1 : 2);
+                hash = (hash * 397L) ^ (row?.Kind == ChartFileKind.Bms ? 1 : 2);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Path ?? string.Empty);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Hash ?? string.Empty);
                 hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Sha256 ?? string.Empty);
@@ -12000,6 +12005,15 @@ public class MainWindowViewModel : ViewModel
             return ResourceHealthWarningProjection.Empty;
         }
         return files.TryGetCurrentResourceHealthWarningProjection(row.Kind, row.Path, row.Hash);
+    }
+
+    private ChartScoreSnapshot ResolveScoreSnapshotForSourceRow(ChartListSourceRow row)
+    {
+        if (files == null || row == null)
+        {
+            return ChartScoreSnapshot.MissingChart;
+        }
+        return files.ResolveChartScoreSnapshot(row.Kind, row.Path, row.Hash, row.Sha256);
     }
 
     /// <summary>

@@ -166,6 +166,56 @@ internal static class ChartFileProjection
             status);
     }
 
+    internal static ChartFile WithScore(ChartFile source, ChartScoreSnapshot score)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        score ??= source.Score;
+        ChartFileStatus status = score?.IsLr2IrScoreUnsent == true
+            ? source.Status | ChartFileStatus.SCORE_UNSENT
+            : source.Status & ~ChartFileStatus.SCORE_UNSENT;
+        return new ChartFile(
+            source.Kind,
+            source.Path,
+            source.Md5,
+            source.Sha256,
+            source.Title,
+            source.RawTitle,
+            source.Artist,
+            source.Genre,
+            source.Folder,
+            source.Tag,
+            source.LevelText,
+            source.Level,
+            source.Mode,
+            source.ChartInfo,
+            source.GetBmsStorageOwner(),
+            source.GetBmsonStorageOwner(),
+            source.Subtitle,
+            source.AudioResourcePaths,
+            source.VisualResourcePaths,
+            source.Stagefile,
+            source.Backbmp,
+            source.Banner,
+            source.InstallDestination,
+            source.InstallDestinationTitle,
+            source.InstallDestinationArtist,
+            source.InstallDestinationSuggestions,
+            source.Warnings,
+            source.WAVHealth,
+            source.BGAHealth,
+            source.MovieHealth,
+            source.StagefileHealth,
+            source.BannerHealth,
+            source.BackbmpHealth,
+            source.EncodingName,
+            score,
+            status);
+    }
+
     internal static ChartFile WithPackageState(
         ChartFile source,
         string installDestination,
@@ -334,7 +384,8 @@ internal static class ChartFileProjection
         BMSFile file,
         ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
-        bool includeResourceReferences = true)
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = true)
     {
         if (file == null)
         {
@@ -343,7 +394,9 @@ internal static class ChartFileProjection
         BMSFileMaintenanceInfo maintenanceInfo = file.HasValidMaintenanceInfoSnapshot
             ? file.TryGetMaintenanceInfoWithoutCreating()
             : null;
-        ChartScoreSnapshot score = ChartScoreSnapshot.FromBmsFile(file);
+        ChartScoreSnapshot score = includeScoreSnapshot
+            ? ChartScoreSnapshot.FromBmsFile(file)
+            : ChartScoreSnapshot.NoScore(file.path);
         ChartFileStatus status = ChartFileStatusMapper.FromBmsFileStatus(file.status);
         if (score.IsLr2IrScoreUnsent)
         {
@@ -454,7 +507,8 @@ internal static class ChartFileProjection
         ChartFile source,
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
-        bool includeResourceReferences = true)
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = true)
     {
         if (source == null)
         {
@@ -464,7 +518,7 @@ internal static class ChartFileProjection
         BMSFile bmsFile = source.GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            return FromBmsFile(bmsFile, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences);
+            return FromBmsFile(bmsFile, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences, includeScoreSnapshot);
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
@@ -476,7 +530,8 @@ internal static class ChartFileProjection
         ChartFileTransientState transientState,
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
-        bool includeResourceReferences = true)
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = true)
     {
         LR2SongDBExtended.bmson_song bmsonSong = source?.GetBmsonStorageOwner();
         if (bmsonSong != null)
@@ -485,7 +540,7 @@ internal static class ChartFileProjection
         }
 
         return WithTransientState(
-            FromStorageOwner(source, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences),
+            FromStorageOwner(source, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences, includeScoreSnapshot),
             transientState,
             includeWarningSnapshot);
     }
@@ -554,9 +609,10 @@ internal static class ChartFileProjection
         bool includeWarningSnapshot = false,
         bool requireBmsonPath = false,
         bool orderBmsonByPath = false,
-        bool includeResourceReferences = true)
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = true)
     {
-        List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot, includeResourceReferences);
+        List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot, includeResourceReferences, includeScoreSnapshot);
         charts.AddRange(FromBmsonSongs(bmsonSongs, includeWarningSnapshot, requireBmsonPath, orderBmsonByPath, includeResourceReferences));
         return charts;
     }
@@ -564,11 +620,12 @@ internal static class ChartFileProjection
     internal static List<ChartFile> FromBmsFiles(
         IEnumerable<BMSFile> files,
         bool includeWarningSnapshot = false,
-        bool includeResourceReferences = true)
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = true)
     {
         return [.. (files ?? [])
             .Where(file => file != null)
-            .Select(file => FromBmsFile(file, includeWarningSnapshot: includeWarningSnapshot, includeResourceReferences: includeResourceReferences))
+            .Select(file => FromBmsFile(file, includeWarningSnapshot: includeWarningSnapshot, includeResourceReferences: includeResourceReferences, includeScoreSnapshot: includeScoreSnapshot))
             .Where(chart => chart != null)];
     }
 

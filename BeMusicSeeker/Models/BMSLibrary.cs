@@ -3704,6 +3704,35 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    internal ChartScoreSnapshot ResolveChartScoreSnapshot(ChartFileKind kind, string path, string md5, string sha256)
+    {
+        if (kind != ChartFileKind.Bms)
+        {
+            return ChartScoreSnapshot.NoScore(path);
+        }
+
+        ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: false);
+        if (snapshot == null)
+        {
+            return ChartScoreSnapshot.NoScore(path);
+        }
+
+        BMSScore score = null;
+        if (snapshot.ActiveScoreSource == ActiveScoreSource.Beatoraja
+            && !string.IsNullOrWhiteSpace(sha256)
+            && snapshot.ScoresBySha256?.TryGetValue(sha256, out BMSScore beatorajaScore) == true)
+        {
+            score = beatorajaScore;
+        }
+        else if (snapshot.ActiveScoreSource == ActiveScoreSource.Lr2
+            && !string.IsNullOrWhiteSpace(md5)
+            && snapshot.ScoresByHash?.TryGetValue(md5, out BMSScore lr2Score) == true)
+        {
+            score = lr2Score;
+        }
+        return ChartScoreSnapshot.FromBmsScore(score, path);
+    }
+
     private int ApplyCurrentScoreSnapshotToFiles(IEnumerable<BMSFile> bmsFiles)
     {
         ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
@@ -6440,7 +6469,8 @@ reportProgress,
             bmsFiles,
             bmsonSongs,
             includeWarningSnapshot: false,
-            includeResourceReferences: includeResourceReferences));
+            includeResourceReferences: includeResourceReferences,
+            includeScoreSnapshot: false));
     }
 
     private List<ChartFile> OverlayInstallDestinationRuntimeStates(IEnumerable<ChartFile> charts)
@@ -7165,7 +7195,8 @@ reportProgress,
             (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile),
             bmsonSongs,
             includeWarningSnapshot: false,
-            requireBmsonPath: true);
+            requireBmsonPath: true,
+            includeScoreSnapshot: false);
     }
 
     private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<ChartFile> charts)
@@ -10180,7 +10211,7 @@ reportProgress,
         var charts = new List<ChartFile>();
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            charts.AddRange(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false));
+            charts.AddRange(ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false, includeScoreSnapshot: false));
         }
         charts.AddRange(ChartFileProjection.FromBmsonSongs(BmsonSongs, includeWarningSnapshot: false));
         return charts.Count == 0 ? null : charts;
