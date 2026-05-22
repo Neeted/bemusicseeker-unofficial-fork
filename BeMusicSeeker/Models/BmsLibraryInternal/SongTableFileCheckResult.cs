@@ -28,7 +28,7 @@ internal sealed class SongTableFileCheckResult
 
     public List<string> DeletedBmsonPaths { get; } = [];
 
-    public List<BMSFile> ClearedInstallDestinations { get; } = [];
+    public LibraryMutationDelta MutationDelta { get; } = new();
 
     public DirectoryResourceLookupCache NextDirectoryResourceLookupCache { get; set; }
 
@@ -210,7 +210,7 @@ internal sealed class SongTableFileCheckResult
         InlineChartInfoParseFailureDeleteMd5s.Clear();
         DeletedPaths.Clear();
         DeletedBmsonPaths.Clear();
-        ClearedInstallDestinations.Clear();
+        MutationDelta.Clear();
         Pragmas.Clear();
     }
 }

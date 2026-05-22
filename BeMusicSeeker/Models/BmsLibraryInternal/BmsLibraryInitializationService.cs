@@ -483,13 +483,24 @@ internal sealed class BmsLibraryInitializationService
         result.NextFiles.AddRange(result.AddedFiles);
         var directoryKeys = new HashSet<string>(result.NextDirectoryResourceLookupCache?.Keys ?? [], StringComparer.OrdinalIgnoreCase);
         var stopwatchInstlDstCleanup = Stopwatch.StartNew();
+        int clearedInstallDestinationCountBefore = result.MutationDelta.UpdatedInstallDestinations.Count;
         foreach (BMSFile file in result.NextFiles.Where(file => !string.IsNullOrWhiteSpace(file.instl_dst)))
         {
             if (!directoryKeys.Contains(file.instl_dst))
             {
-                file.instl_dst = null;
-                result.ClearedInstallDestinations.Add(file);
+                result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(file),
+                    NewInstallDestination = null,
+                    ClearInstallDestinationState = true
+                });
             }
+        }
+        if (result.MutationDelta.UpdatedInstallDestinations.Count > clearedInstallDestinationCountBefore)
+        {
+            result.MutationDelta.RaiseLibraryChartsChanged = true;
+            result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
+            result.MutationDelta.ClearDuplicatedCache = true;
         }
         stopwatchInstlDstCleanup.Stop();
         result.InstlDstCleanupMs = stopwatchInstlDstCleanup.ElapsedMilliseconds;

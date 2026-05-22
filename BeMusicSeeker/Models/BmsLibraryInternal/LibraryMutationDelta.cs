@@ -34,6 +34,25 @@ internal sealed class LibraryMutationDelta
     public int SkippedCount { get; set; }
 
     public long TotalMs { get; set; }
+
+    public void Clear()
+    {
+        ChartsToUnregister.Clear();
+        ChartPathChanges.Clear();
+        FolderPathChanges.Clear();
+        UpdatedInstallDestinations.Clear();
+        UpdatedInstalledPackagePaths.Clear();
+        Failures.Clear();
+        RaiseLibraryChartsChanged = false;
+        RaiseInstalledPackagesChanged = false;
+        InvalidateInstalledDirectoryIndex = false;
+        InvalidateParentFolderCache = false;
+        ClearDuplicatedCache = false;
+        RenamedCount = 0;
+        DuplicateDeletedCount = 0;
+        SkippedCount = 0;
+        TotalMs = 0L;
+    }
 }
 
 internal sealed class LibraryChartPathChange

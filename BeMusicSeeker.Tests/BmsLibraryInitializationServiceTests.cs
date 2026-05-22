@@ -530,8 +530,11 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(12L, result.ManagedDecodeMs);
             Assert.AreEqual(7L, result.ManagedMaterializeMs);
             Assert.AreEqual(4096UL, result.BridgeRawBufferBytes);
-            Assert.AreSame(keepFile, result.ClearedInstallDestinations.Single());
-            Assert.IsNull(keepFile.instl_dst);
+            LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
+            Assert.AreSame(keepFile, installDestinationChange.Chart.GetBmsStorageOwner());
+            Assert.IsNull(installDestinationChange.NewInstallDestination);
+            Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
+            Assert.AreEqual(staleDirectoryPath, keepFile.instl_dst);
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), keepDirectoryPath);
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), newDirectoryPath);
 
@@ -1760,7 +1763,9 @@ public sealed class BmsLibraryInitializationServiceTests
         result.InlineChartInfoParseFailureDeleteMd5s.Add("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         result.DeletedPaths.Add("deleted.bms");
         result.DeletedBmsonPaths.Add("deleted.bmson");
-        result.ClearedInstallDestinations.Add(new BMSFile());
+        result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange());
+        result.MutationDelta.RaiseLibraryChartsChanged = true;
+        result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
         result.NextFiles.Add(next);
         result.NextBmsonSongs.Add(nextBmson);
         result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
@@ -1776,7 +1781,9 @@ public sealed class BmsLibraryInitializationServiceTests
         Assert.AreEqual(0, result.InlineChartInfoParseFailureDeleteMd5s.Count);
         Assert.AreEqual(0, result.DeletedPaths.Count);
         Assert.AreEqual(0, result.DeletedBmsonPaths.Count);
-        Assert.AreEqual(0, result.ClearedInstallDestinations.Count);
+        Assert.AreEqual(0, result.MutationDelta.UpdatedInstallDestinations.Count);
+        Assert.IsFalse(result.MutationDelta.RaiseLibraryChartsChanged);
+        Assert.IsFalse(result.MutationDelta.InvalidateInstalledDirectoryIndex);
         Assert.AreEqual(1, result.NextFiles.Count);
         Assert.AreSame(next, result.NextFiles[0]);
         Assert.AreEqual(1, result.NextBmsonSongs.Count);

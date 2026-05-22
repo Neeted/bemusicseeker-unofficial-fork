@@ -4417,6 +4417,7 @@ completeFileEnumerationOnce,
             InvalidateInstalledDirectoryIndex();
             InvalidateBMSParentFolderListCache();
         }
+        ApplyLibraryMutationDelta(fileCheckResult.MutationDelta);
         if (trackLibraryFileCheckProgress)
         {
             CompleteLibraryFileDiffProgress();
