@@ -15,13 +15,13 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class LibraryChartRow : NotificationObject
 {
-    private readonly ChartFile sourceChart;
+    private ChartFile sourceChart;
 
     private readonly Func<ChartFile> chartProvider;
 
     private readonly bool hasSourceChartProjection;
 
-    private readonly ChartFile sourceTransientBaseline;
+    private ChartFile sourceTransientBaseline;
 
     private readonly bool hideResourceHealthDigestWhenInstallDestinationSet;
 
@@ -94,14 +94,20 @@ internal sealed class LibraryChartRow : NotificationObject
             storageOwnerSource,
             ChartFileLevelParsing.CurrentCultureThenInvariant,
             includeWarningSnapshot: false,
-            includeResourceReferences: false);
+            includeResourceReferences: false,
+            includeScoreSnapshot: !hasSourceChartProjection);
         ChartFileTransientState transientState = GetChartTransientState(identityChart, includeWarningSnapshot: true);
         ChartFile currentChart = ChartFileProjection.FromStorageOwnerWithTransientState(
             storageOwnerSource,
             transientState,
             ChartFileLevelParsing.CurrentCultureThenInvariant,
             includeWarningSnapshot: true,
-            includeResourceReferences: false);
+            includeResourceReferences: false,
+            includeScoreSnapshot: !hasSourceChartProjection);
+        if (hasSourceChartProjection)
+        {
+            currentChart = ChartFileProjection.WithScore(currentChart, sourceChart.Score);
+        }
         currentChart = sourceTransientBaseline != null
             ? ChartFileProjection.WithTransientOverrides(currentChart, sourceChart, sourceTransientBaseline)
             : currentChart;
@@ -184,6 +190,17 @@ internal sealed class LibraryChartRow : NotificationObject
             chartProvider: () => entry.Chart,
             packageEntry: entry,
             hideResourceHealthDigestWhenInstallDestinationSet: false);
+    }
+
+    internal void UpdateSourceProjection(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return;
+        }
+        sourceChart = chart;
+        sourceTransientBaseline = CreateSourceTransientBaseline();
+        InvalidateChartCache();
     }
 
     internal void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)
@@ -563,6 +580,7 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(rankingLastupdate));
         RaisePropertyChanged(nameof(stddevVal));
         RaisePropertyChanged(nameof(scoreDifficulty));
+        RaisePropertyChanged(nameof(status));
     }
 
     private void RaiseMaintenanceDisplayPropertiesChanged()

@@ -54,9 +54,10 @@ internal sealed class NormalLibraryRowCache
                 {
                     stats.HitCount++;
                 }
+                row.UpdateSourceProjection(chart);
                 return row;
             }
-            row = LibraryChartRow.FromBmsFile(file);
+            row = LibraryChartRow.FromChartFile(chart);
             if (row == null)
             {
                 return null;
@@ -82,10 +83,11 @@ internal sealed class NormalLibraryRowCache
         }
         if (bmsonRow != null)
         {
+            bmsonRow.UpdateSourceProjection(chart);
             return bmsonRow;
         }
 
-        bmsonRow = LibraryChartRow.FromBmsonSong(bmsonSong);
+        bmsonRow = LibraryChartRow.FromChartFile(chart);
         return bmsonRow;
     }
 
