@@ -146,7 +146,7 @@ public sealed class BmsLibraryIrServiceTests
         service.UpdateBmsScores([], [score], [file]);
 
         Assert.IsTrue(score.IsLr2IrScoreUnsent);
-        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true);
         Assert.IsTrue(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
         Assert.AreEqual(BMSFile.BMSFileStatus.NONE, file.status);
     }
@@ -164,7 +164,7 @@ public sealed class BmsLibraryIrServiceTests
         service.UpdateBmsScores([CreateIrScore(hash, ClearType.HARD, pg: 300, gr: 50, minbp: 12)], [score], [file]);
 
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
-        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+        ChartFile chart = ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true);
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
 

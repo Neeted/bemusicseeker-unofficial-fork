@@ -30,6 +30,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
 
+    private readonly ChartScoreSnapshot effectiveScoreSnapshot;
+
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
@@ -228,7 +230,12 @@ internal sealed class PlaylistDetailSourceRow
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
         Chart = CreateChartFile();
         ChartFile chart = Chart;
-        ChartScoreSnapshot effectiveScore = ResolveEffectiveScore(chart, scoreSnapshot);
+        effectiveScoreSnapshot = ResolveEffectiveScore(chart, scoreSnapshot);
+        if (!ReferenceEquals(effectiveScoreSnapshot, chart?.Score))
+        {
+            Chart = ChartFileProjection.WithScore(chart, effectiveScoreSnapshot);
+            chart = Chart;
+        }
         Title = FirstNonEmpty(chart?.Title, entry.title);
         Artist = FirstNonEmpty(chart?.Artist, entry.artist);
         genre = FirstNonEmpty(chart?.Genre);
@@ -260,17 +267,17 @@ internal sealed class PlaylistDetailSourceRow
         encoding = Chart?.EncodingName ?? string.Empty;
         RefTablesSymbols = playlistReferenceDisplay.Symbols;
         RefTablesNames = playlistReferenceDisplay.Names;
-        clear = effectiveScore.Clear;
-        rank = effectiveScore.Rank;
-        rate = effectiveScore.Rate;
-        score = effectiveScore.Score;
-        totalnotes = effectiveScore.TotalNotes;
-        maxcombo = effectiveScore.MaxCombo;
-        minbp = effectiveScore.MinBp;
-        rankingString = effectiveScore.RankingString;
-        rankingLastupdate = effectiveScore.RankingLastUpdate;
-        stddevVal = effectiveScore.StdDevVal;
-        scoreDifficulty = effectiveScore.ScoreDifficulty;
+        clear = effectiveScoreSnapshot.Clear;
+        rank = effectiveScoreSnapshot.Rank;
+        rate = effectiveScoreSnapshot.Rate;
+        score = effectiveScoreSnapshot.Score;
+        totalnotes = effectiveScoreSnapshot.TotalNotes;
+        maxcombo = effectiveScoreSnapshot.MaxCombo;
+        minbp = effectiveScoreSnapshot.MinBp;
+        rankingString = effectiveScoreSnapshot.RankingString;
+        rankingLastupdate = effectiveScoreSnapshot.RankingLastUpdate;
+        stddevVal = effectiveScoreSnapshot.StdDevVal;
+        scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
         status = Chart?.Status ?? ChartFileStatus.NONE;
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
@@ -333,7 +340,8 @@ internal sealed class PlaylistDetailSourceRow
         BMSFile bmsOwner = resolvedChartSnapshot?.GetBmsStorageOwner();
         if (bmsOwner != null)
         {
-            ChartFile currentChart = ChartFileProjection.FromStorageOwner(resolvedChartSnapshot);
+            ChartFile currentChart = ChartFileProjection.FromStorageOwner(resolvedChartSnapshot, includeScoreSnapshot: false);
+            currentChart = ChartFileProjection.WithScore(currentChart, effectiveScoreSnapshot ?? resolvedChartSnapshot.Score);
             currentChart = ApplyChartInfoProjection(currentChart, resolvedChartSnapshot);
             return ChartFileProjection.WithTransientState(
                 currentChart,

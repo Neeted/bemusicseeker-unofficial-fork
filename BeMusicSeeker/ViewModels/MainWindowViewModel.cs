@@ -10756,7 +10756,7 @@ public class MainWindowViewModel : ViewModel
 
     private static List<ChartFile> CreateBmsChartSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
-        return ChartFileProjection.FromBmsFiles(bmsFiles, includeWarningSnapshot: false);
+        return ChartFileProjection.FromBmsFiles(bmsFiles, includeWarningSnapshot: false, includeScoreSnapshot: true);
     }
 
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(

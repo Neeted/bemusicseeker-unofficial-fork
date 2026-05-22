@@ -1068,7 +1068,7 @@ public sealed class BmsSortCompatibilityTests
             perfect = rank == RankType.AAA ? 95 : 85,
             totalnotes = 100
         };
-        return new PlaylistDetailSourceRow(new BMSTableEntry(file), ChartFileProjection.FromBmsFile(file));
+        return new PlaylistDetailSourceRow(new BMSTableEntry(file), ChartFileProjection.FromBmsFile(file, includeScoreSnapshot: true));
     }
 
     private static string CreateMd5FromPath(string path)

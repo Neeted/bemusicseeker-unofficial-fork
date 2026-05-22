@@ -154,7 +154,7 @@ internal sealed class LibraryChartRow : NotificationObject
             return null;
         }
         return new LibraryChartRow(
-            ChartFileProjection.FromBmsFile(file, ChartFileLevelParsing.CurrentCultureThenInvariant, includeWarningSnapshot: false),
+            ChartFileProjection.FromBmsFile(file, ChartFileLevelParsing.CurrentCultureThenInvariant, includeWarningSnapshot: false, includeScoreSnapshot: true),
             packageEntry: packageEntry);
     }
 

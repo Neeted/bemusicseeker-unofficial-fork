@@ -121,6 +121,8 @@ playlist 追加時の LR2 `org_md5` 補助探索は `GetPlaylistOrgMd5sForChart(
 
 score / ranking 系の表示値は `ChartScoreSnapshot` として `ChartFile` に投影され、`LibraryChartRow` / `ChartListSourceRow` は `BMSFile` の score 表示 getter を直接読まない。通常一覧の source row は `BMSLibrary.ScoreSnapshot` provider を優先し、LR2 score は md5、beatoraja score は sha256 から解決する。`BMSFile` 側には移行中の `bmsScore` attachment と listener lifecycle だけを残し、`clear` / `rank` / `score` / `rateDouble` / `rankingString` などの表示・sort getter は row read model 側へ閉じる。通常 library の所持 bmson は現時点で LR2 score storage を持たないため、path がある chart は `NO_PLAY`、path が無い chart は `NO_SONG` の既定 snapshot になる。これは「score 表示 API の入口は Chart だが、score の storage producer は BMS/LR2 境界に残る」という整理である。
 
+`ChartFileProjection.FromBmsFile(...)` / `FromStorageOwner(...)` の既定は `BMSFile.bmsScore` を読まない。score を `BMSFile.bmsScore` attachment から読む必要がある BMS-only 入口は `includeScoreSnapshot:true` を明示する。chart 共通処理で score が必要な場合は、`BMSLibrary.ResolveChartScoreSnapshot(...)` のような provider から `ChartScoreSnapshot` を投影する。`ChartListSourceRow` には provider なしの小規模テスト / 互換 fallback として `ChartScoreSnapshot.FromBmsFile(...)` が残るが、MainWindow の通常一覧 production caller は provider を渡す。
+
 一方、次の列は BMS / LR2 storage 由来に依存するため、所持 bmson では空または既定値になりやすい。
 
 - LR2 BMSID / diff name

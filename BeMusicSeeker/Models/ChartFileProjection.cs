@@ -385,7 +385,7 @@ internal static class ChartFileProjection
         ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
         bool includeResourceReferences = true,
-        bool includeScoreSnapshot = true)
+        bool includeScoreSnapshot = false)
     {
         if (file == null)
         {
@@ -508,7 +508,7 @@ internal static class ChartFileProjection
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
         bool includeResourceReferences = true,
-        bool includeScoreSnapshot = true)
+        bool includeScoreSnapshot = false)
     {
         if (source == null)
         {
@@ -531,7 +531,7 @@ internal static class ChartFileProjection
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
         bool includeWarningSnapshot = true,
         bool includeResourceReferences = true,
-        bool includeScoreSnapshot = true)
+        bool includeScoreSnapshot = false)
     {
         LR2SongDBExtended.bmson_song bmsonSong = source?.GetBmsonStorageOwner();
         if (bmsonSong != null)
@@ -610,7 +610,7 @@ internal static class ChartFileProjection
         bool requireBmsonPath = false,
         bool orderBmsonByPath = false,
         bool includeResourceReferences = true,
-        bool includeScoreSnapshot = true)
+        bool includeScoreSnapshot = false)
     {
         List<ChartFile> charts = FromBmsFiles(bmsFiles, includeWarningSnapshot, includeResourceReferences, includeScoreSnapshot);
         charts.AddRange(FromBmsonSongs(bmsonSongs, includeWarningSnapshot, requireBmsonPath, orderBmsonByPath, includeResourceReferences));
@@ -621,7 +621,7 @@ internal static class ChartFileProjection
         IEnumerable<BMSFile> files,
         bool includeWarningSnapshot = false,
         bool includeResourceReferences = true,
-        bool includeScoreSnapshot = true)
+        bool includeScoreSnapshot = false)
     {
         return [.. (files ?? [])
             .Where(file => file != null)
