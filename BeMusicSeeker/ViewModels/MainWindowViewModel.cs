@@ -17877,7 +17877,8 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist entry が持つ level を、対応する実体譜面へ反映します。
+    /// playlist entry が持つ level を、対応する LR2 song row へ反映します。
+    /// このメニューは LR2 互換の song.level 上書き機能であり、bmson_song への writeback は行いません。
     /// </summary>
     /// <param name="bmsTable">参照元 playlist。</param>
     public void ReplaceBMSFileLevelByTableEntryLevel(BMSTable bmsTable)
@@ -17895,9 +17896,9 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist entry が持つ level を実体譜面へ反映し、その譜面を返します。
+    /// playlist entry が持つ level を LR2 song row へ反映し、その row を返します。
     /// </summary>
-    /// <param name="file">更新対象の実体譜面。</param>
+    /// <param name="file">更新対象の LR2 song row。</param>
     /// <param name="entryLevel">playlist entry 側の level。</param>
     /// <returns>更新後の譜面。</returns>
     private static BeMusicSeeker.Models.BMSFile ApplyPlaylistEntryLevel(BeMusicSeeker.Models.BMSFile file, double? entryLevel)

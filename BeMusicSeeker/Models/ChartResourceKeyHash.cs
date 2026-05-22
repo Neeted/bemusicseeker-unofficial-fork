@@ -6,24 +6,24 @@ using Ribbit.Cryptography;
 
 namespace BeMusicSeeker.Models;
 
-public static class ChartResourceKeyHash
+internal static class ChartResourceKeyHash
 {
-    public static uint[] GetFileNameHashArray(string path)
+    internal static uint[] GetFileNameHashArray(string path)
     {
         return GetFileNameHashArray(FastDirectoryEnumerator.GetFileNames(path));
     }
 
-    public static uint[] GetFileNameHashArray(IEnumerable<string> list)
+    internal static uint[] GetFileNameHashArray(IEnumerable<string> list)
     {
         return [.. (list ?? []).Select(GetFileNameHash)];
     }
 
-    public static uint GetFileNameHash(string fileName)
+    internal static uint GetFileNameHash(string fileName)
     {
         return GetLookupHash(ChartResourcePathNormalizer.NormalizeFileNameForLookup(fileName));
     }
 
-    public static uint GetLookupHash(string normalizedLookupValue)
+    internal static uint GetLookupHash(string normalizedLookupValue)
     {
         if (string.IsNullOrWhiteSpace(normalizedLookupValue))
         {

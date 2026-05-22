@@ -23,7 +23,7 @@ namespace BeMusicSeeker.Models;
 /// `maintenanceInfo` がどの経路で得られた値かを表します。
 /// ResourceHealth の正本判定で lazy placeholder と DB/計算済み snapshot を区別するために使います。
 /// </summary>
-public enum MaintenanceInfoOrigin
+internal enum MaintenanceInfoOrigin
 {
     /// <summary>
     /// maintenance 情報がまだ materialize されていない状態です。
@@ -70,7 +70,7 @@ public class BMSFile : LR2SongDB.song
 
     private static bool IsPropertyChangedSuppressed => suppressPropertyChangedDepth > 0;
 
-    public static IDisposable SuppressPropertyChangedScope()
+    internal static IDisposable SuppressPropertyChangedScope()
     {
         suppressPropertyChangedDepth++;
         return new BulkLoadNotificationScope();
@@ -449,7 +449,7 @@ public class BMSFile : LR2SongDB.song
     /// <summary>
     /// 現在保持している `maintenanceInfo` がどの経路で得られたかを返します。
     /// </summary>
-    public MaintenanceInfoOrigin MaintenanceInfoOrigin => maintenanceInfoOrigin;
+    internal MaintenanceInfoOrigin MaintenanceInfoOrigin => maintenanceInfoOrigin;
 
     /// <summary>
     /// maintenance snapshot を差し替えます。
@@ -458,7 +458,7 @@ public class BMSFile : LR2SongDB.song
     /// <param name="value">設定する maintenance snapshot。null の場合は placeholder を作ります。</param>
     /// <param name="suppressPropertyChanged">`maintenanceInfo` 自体の PropertyChanged を抑止するかどうか。</param>
     /// <param name="origin">snapshot の由来。未指定の場合は互換既定値を使います。</param>
-    public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, MaintenanceInfoOrigin? origin = null)
+    internal void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, MaintenanceInfoOrigin? origin = null)
     {
         MaintenanceInfoOrigin nextOrigin = origin ?? (value == null ? MaintenanceInfoOrigin.Placeholder : MaintenanceInfoOrigin.Calculated);
         value ??= new BMSFileMaintenanceInfo(this);
@@ -479,7 +479,7 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    public bool HasMaintenanceInfoHash(string expectedHash)
+    internal bool HasMaintenanceInfoHash(string expectedHash)
     {
         if (_maintenanceInfo == null || string.IsNullOrWhiteSpace(expectedHash))
         {
@@ -577,7 +577,7 @@ public class BMSFile : LR2SongDB.song
         return result;
     }
 
-    public void SetEncosingInfo(BMSFileMaintenanceInfo mtInfo = null)
+    internal void SetEncosingInfo(BMSFileMaintenanceInfo mtInfo = null)
     {
         if (File.Exists(path))
         {
@@ -641,7 +641,7 @@ public class BMSFile : LR2SongDB.song
         BGAfiles = new HashSet<string>(bgaFiles ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
     }
 
-    public void SetMode()
+    internal void SetMode()
     {
         BMSFile bMSFile = CreateBMSFileFromFile(path);
         mode = bMSFile.mode;
@@ -651,7 +651,7 @@ public class BMSFile : LR2SongDB.song
     /// Path-based parser entry point. New single-read flows should prefer
     /// <see cref="CreateBMSFileFromSnapshot"/> so lightweight metadata and chart_info can share bytes.
     /// </summary>
-    public static BMSFile CreateBMSFileFromFile(string filePath, string codepageName = "shift_jis")
+    internal static BMSFile CreateBMSFileFromFile(string filePath, string codepageName = "shift_jis")
     {
         IEnumerable<string> enumerable = File.ReadLines(filePath, Encoding.GetEncoding(codepageName));
         return CreateBMSFileFromLines(
@@ -1193,7 +1193,7 @@ public class BMSFile : LR2SongDB.song
         return value >= '0' && value <= '9';
     }
 
-    public static void SetBMSComponentFilesFromBMSFile(BMSFile bmsFile, string codepageName = "shift_jis")
+    internal static void SetBMSComponentFilesFromBMSFile(BMSFile bmsFile, string codepageName = "shift_jis")
     {
         IEnumerable<string> enumerable = File.ReadLines(bmsFile.path, Encoding.GetEncoding(codepageName));
         var hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1315,7 +1315,7 @@ public class BMSFile : LR2SongDB.song
         return normalized;
     }
 
-    public static void ReloadBMSFileWithEncoding(BMSFile bmsFile, string codepageName = "")
+    internal static void ReloadBMSFileWithEncoding(BMSFile bmsFile, string codepageName = "")
     {
         if (bmsFile == null)
         {
@@ -1473,12 +1473,12 @@ public class BMSFile : LR2SongDB.song
         bmsFile.genre = genre;
     }
 
-    public static string DetectEncodingOfBMSFile(BMSFile bmsInfo)
+    internal static string DetectEncodingOfBMSFile(BMSFile bmsInfo)
     {
         return DetectEncodingOfBMSFile(bmsInfo.path);
     }
 
-    public static string DetectEncodingOfBMSFile(string path)
+    internal static string DetectEncodingOfBMSFile(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
         {
@@ -1710,7 +1710,7 @@ public class BMSFile : LR2SongDB.song
         return c == 'ｬ' || c == 'ｭ' || c == 'ｮ';
     }
 
-    public static bool IsZeroNoteBMSFile(string filePath)
+    internal static bool IsZeroNoteBMSFile(string filePath)
     {
         return !File.ReadLines(filePath, Encoding.GetEncoding("shift_jis")).Any(line => visibleObjectChRegex.IsMatch(line));
     }
