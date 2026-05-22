@@ -379,22 +379,30 @@ internal sealed class LibraryChartRow : NotificationObject
     private void OnSourcePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         RaisePropertyChanged(e.PropertyName);
-        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.Warnings))
+        LibraryChartRowSourceNotificationGroups groups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(e.PropertyName);
+        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.WarningPresentation))
         {
             RaiseWarningPresentationPropertiesChanged();
         }
-        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.ChartInfo))
+        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.ChartInfoDisplay))
         {
             RaiseChartInfoDisplayPropertiesChanged();
         }
-        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.bmsScore))
+        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.ScoreDisplay))
         {
             RaiseScoreDisplayPropertiesChanged();
         }
-        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.maintenanceInfo))
+        if (HasNotificationGroup(groups, LibraryChartRowSourceNotificationGroups.MaintenanceDisplay))
         {
             RaiseMaintenanceDisplayPropertiesChanged();
         }
+    }
+
+    private static bool HasNotificationGroup(
+        LibraryChartRowSourceNotificationGroups groups,
+        LibraryChartRowSourceNotificationGroups group)
+    {
+        return (groups & group) != 0;
     }
 
     private void OnPackageEntryPropertyChanged(object sender, PropertyChangedEventArgs e)

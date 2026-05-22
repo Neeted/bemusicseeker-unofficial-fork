@@ -3029,6 +3029,34 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void LibraryChartRowSourceNotificationMapper_MapsBmsStorageNotificationsToDisplayGroups()
+    {
+        LibraryChartRowSourceNotificationGroups allGroups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(string.Empty);
+        LibraryChartRowSourceNotificationGroups nullGroups = LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(null);
+
+        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.WarningPresentation));
+        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.ChartInfoDisplay));
+        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.ScoreDisplay));
+        Assert.IsTrue(allGroups.HasFlag(LibraryChartRowSourceNotificationGroups.MaintenanceDisplay));
+        Assert.AreEqual(allGroups, nullGroups);
+        Assert.AreEqual(
+            LibraryChartRowSourceNotificationGroups.WarningPresentation,
+            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.Warnings)));
+        Assert.AreEqual(
+            LibraryChartRowSourceNotificationGroups.ChartInfoDisplay,
+            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.ChartInfo)));
+        Assert.AreEqual(
+            LibraryChartRowSourceNotificationGroups.ScoreDisplay,
+            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.bmsScore)));
+        Assert.AreEqual(
+            LibraryChartRowSourceNotificationGroups.MaintenanceDisplay,
+            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.maintenanceInfo)));
+        Assert.AreEqual(
+            LibraryChartRowSourceNotificationGroups.None,
+            LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.path)));
+    }
+
+    [TestMethod]
     public void BuildStandardLibraryRowsForView_UsesProvidedBmsRowFactoryAndReportsCacheMetrics()
     {
         var file = new TestableBmsFile();
