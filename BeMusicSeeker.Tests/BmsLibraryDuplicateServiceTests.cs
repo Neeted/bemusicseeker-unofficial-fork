@@ -47,7 +47,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         service.ApplyDuplicateWarnings([ChartFileProjection.FromBmsFile(file)], Resources.Warning_DuplicateBmsFile);
 
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
-        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
         Assert.AreEqual("[1] 重複譜面", file.Warnings.BuildDigestText());
     }
 

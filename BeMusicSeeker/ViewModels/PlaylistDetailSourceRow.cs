@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
@@ -244,7 +245,7 @@ internal sealed class PlaylistDetailSourceRow
         PlaylistReferenceDisplay playlistReferenceDisplay = playlistReferenceDisplayProvider != null
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
-        HasZeroNoteMismatchWarning = bmsOwner?.HasZeroNoteMismatchWarning ?? false;
+        HasZeroNoteMismatchWarning = Chart?.Warnings?.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch) ?? false;
         HasHighlightedWarning = HasProjectedWarning(Chart);
         DisplayWarning = ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
         WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), DisplayWarning);

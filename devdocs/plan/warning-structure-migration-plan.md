@@ -32,6 +32,7 @@ Phase 1-7 は実装済み。`WARNING` 列は `WarningDigestText` を表示し、
 - Phase 5: duplicate / zero-note warning を structured warning へ移行し、互換フラグは既存ロジック用に維持。
 - Phase 6: legacy `BMSFile.warning` / classifier / legacy kind/category を削除し、snapshot とテストを structured warning 前提へ更新。
 - Phase 7: `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` を structured warning から導出する互換 alias に変更。
+- 後続の ChartFile 抽象化整理で、これらの `BMSFile` warning 表示 alias は削除済み。現行仕様は `devdocs/spec/warning-model.md` を参照。
 
 ## 現在の warning 生成元
 
@@ -46,13 +47,13 @@ Phase 1-7 は実装済み。`WARNING` 列は `WarningDigestText` を表示し、
   - `AlreadyInstalled`、`SingleBmsFile`、`SingleBmsonFile` structured warning。
 - duplicate
   - `DuplicateChart` structured warning。
-  - `IsHashDuplicated` は `DuplicateChart` から導出する互換 alias。
+  - 旧 `IsHashDuplicated` alias は削除済み。判定は `DuplicateChart` の有無を見る。
 - zero-note mismatch
   - `ZeroNoteMismatch` structured warning。
-  - `HasZeroNoteMismatchWarning` は `ZeroNoteMismatch` から導出する互換 alias。
+  - 旧 `HasZeroNoteMismatchWarning` alias は BMSFile から削除済み。row 表示は `ChartFile.Warnings` を見る。
 - install estimation
   - ambiguous / metadata mismatch / reinstall not improved / installed destination resolve failed を structured warning として設定する。
-  - `HasLowConfidenceInstallWarning` は ambiguous / metadata mismatch / reinstall not improved / generic low-confidence warning から導出する互換 alias。`InstalledDestinationResolveFailed` は含めない。
+  - 旧 `HasLowConfidenceInstallWarning` alias は削除済み。low-confidence 判定は warning kind の集合から明示的に行い、`InstalledDestinationResolveFailed` は含めない。
   - 導入先確定、導入成功、推定状態 clear では `InstallEstimation` category と suggestions を消す。
 
 ## Phase 6 実装結果
@@ -83,13 +84,15 @@ Phase 6 では legacy warning 互換を完全撤去した。外部永続化が�
 
 ## Phase 7 実装結果
 
-Phase 7 では warning 表示状態の source of truth を structured warning に統一した。`HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は public property 名を残しているが、backing field は持たず、対応する `ChartWarningKind` の有無から導出する。
+Phase 7 では warning 表示状態の source of truth を structured warning に統一した。当時は `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` の public property 名を残し、backing field を持たず、対応する `ChartWarningKind` の有無から導出していた。
+
+その後の ChartFile 抽象化整理で、`BMSFile` の warning 表示 alias は削除した。現在は BMS storage row の warning state を `BMSFile.Warnings` と mutation helper に限定し、通常一覧 / playlist detail の表示値は `ChartFile.Warnings` / `ChartWarningProjectionFormatter` から算出する。
 
 - `ChartWarningCollection.EnumerateEffectiveWarnings()` は stored structured warning だけを列挙する。
 - duplicate / zero-note / install estimation の生成元は `SetWarning()` / `ClearWarning()` / `ClearWarningsByCategory()` を直接使う。
 - pending chart snapshot と pending install destination 編集状態は structured warning snapshot と suggestions だけをコピーする。
 - 低信頼候補選択の preserve 判定は、低信頼 install-estimation warning と `InstallDestinationSuggestions` の一致で行う。
-- alias setter は互換用途として残すが、新規コードでは `SetWarning()` / `ClearWarning()` を使う。
+- 旧 alias setter は削除済み。warning を変更する production code は `SetWarning()` / `ClearWarning()` / `ClearWarningsByCategory()` を使う。
 
 ## Phase 6-7 テスト方針と確認観点
 

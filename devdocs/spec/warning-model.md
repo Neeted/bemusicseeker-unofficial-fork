@@ -9,7 +9,7 @@
 - `maintenanceInfo` は、DB 由来または計算済みの resource health snapshot だけを正本として扱います。BMS の `BMSFile.maintenanceInfo` lazy default や bmson parse 直後の encoding-only `bmson_song.MaintenanceInfo` は placeholder であり、resource health の defined / existing count が揃うまでは正本に昇格しません。DB 由来の partial snapshot は既存仕様どおり該当カテゴリの warning 投影に使います。
 - 旧来の自由文字列 `warning` は廃止済みで、表示・tooltip・行ハイライトは structured warning から算出します。
 - `DisplayWarning` は tooltip と同じ詳細全文、`WarningDigestText` は一覧セル用 digest、`WarningTooltipText` は tooltip 詳細です。
-- `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は互換用 property として残っていますが、状態の正本は warning kind の有無です。
+- 旧 `BMSFile` の `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` などの表示 alias は削除済みです。状態の正本は warning kind の有無であり、row 表示は `ChartFile.Warnings` / `ChartWarningProjectionFormatter` を通して解決します。
 
 ## 表示ルール
 
@@ -63,7 +63,7 @@
 ## 参照実装
 
 - 定義: `BeMusicSeeker/Models/ChartWarning.cs`。`ChartWarningCollection` は BMSFile owner ではなく、変更通知 callback と導入先 provider を受け取ります。
-- `BMSFile` の structured warning と BMS-only 互換 alias: `BeMusicSeeker/Models/BMSFile.cs`
+- `BMSFile` の structured warning storage と mutation helper: `BeMusicSeeker/Models/BMSFile.cs`
 - bmson storage row と一時表示 state の projection: `BeMusicSeeker/Models/ChartFileProjection.cs`, `BeMusicSeeker/Models/ChartFileTransientState.cs`
 - pending package の chart state: `BeMusicSeeker/Models/BmsLibraryInternal/PackageChartEntry.cs`
 - WARNING 列: `WarningDigestText` を本文、`WarningTooltipText` を tooltip、`HasHighlightedWarning` を行色判定に使います。

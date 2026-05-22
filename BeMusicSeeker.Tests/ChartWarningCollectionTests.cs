@@ -86,7 +86,7 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
-    public void StructuredWarnings_DriveCompatibilityAliasesHighlightAndDigest()
+    public void StructuredWarnings_DriveHighlightAndDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var file = new BMSFile();
@@ -95,41 +95,40 @@ public sealed class ChartWarningCollectionTests
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
 
-        Assert.IsTrue(file.HasZeroNoteMismatchWarning);
-        Assert.IsTrue(file.HasLowConfidenceInstallWarning);
-        Assert.IsTrue(file.IsHashDuplicated);
-        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
         Assert.AreEqual("[3] ゼロノート不整合, 重複譜面, 推定先複数", file.Warnings.BuildDigestText());
 
         file.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
         file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
         file.ClearWarning(ChartWarningKind.DuplicateChart);
 
-        Assert.IsFalse(file.HasZeroNoteMismatchWarning);
-        Assert.IsFalse(file.HasLowConfidenceInstallWarning);
-        Assert.IsFalse(file.IsHashDuplicated);
-        Assert.IsFalse(file.HasHighlightedWarning);
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        Assert.IsFalse(file.Warnings.HasHighlightedWarning);
         Assert.AreEqual(string.Empty, file.Warnings.BuildDigestText());
     }
 
     [TestMethod]
-    public void CompatibilityAliasSetters_MutateStructuredWarnings()
+    public void StructuredWarningMutators_UpdateStructuredWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var file = new BMSFile
-        {
-            HasZeroNoteMismatchWarning = true,
-            HasLowConfidenceInstallWarning = true,
-            IsHashDuplicated = true
-        };
+        var file = new BMSFile();
+
+        file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
+        file.SetWarning(ChartWarningKind.InstallEstimationLowConfidence, Resources.WarningDigest_InstallEstimationLowConfidence);
+        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
 
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
 
-        file.HasZeroNoteMismatchWarning = false;
-        file.HasLowConfidenceInstallWarning = false;
-        file.IsHashDuplicated = false;
+        file.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
+        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        file.ClearWarning(ChartWarningKind.DuplicateChart);
 
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence));
@@ -144,7 +143,7 @@ public sealed class ChartWarningCollectionTests
 
         file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed);
 
-        Assert.IsFalse(file.HasLowConfidenceInstallWarning);
+        Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
     }
 
@@ -156,8 +155,8 @@ public sealed class ChartWarningCollectionTests
 
         file.SetWarning(ChartWarningKind.InstalledDestinationAmbiguous, Resources.Warning_InstalledDestinationAmbiguous);
 
-        Assert.IsTrue(file.HasLowConfidenceInstallWarning);
-        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.IsTrue(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
+        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationAmbiguous));
         StringAssert.Contains(file.Warnings.BuildDigestText(), Resources.WarningDigest_InstalledDestinationAmbiguous);
     }
@@ -172,8 +171,8 @@ public sealed class ChartWarningCollectionTests
             ChartWarningKind.ChartInfoParseFailure,
             string.Format(Resources.Warning_ChartInfoParseFailure, "InvalidDataException", "開始BPM未定義"));
 
-        Assert.IsTrue(file.HasChartInfoParseFailureWarning);
-        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
+        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
         Assert.AreEqual("[1] メタデータ解析エラー", file.Warnings.BuildDigestText());
         StringAssert.Contains(file.Warnings.BuildTooltipText(), "InvalidDataException");
         StringAssert.Contains(file.Warnings.BuildTooltipText(), "開始BPM未定義");
@@ -187,7 +186,7 @@ public sealed class ChartWarningCollectionTests
 
         file.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
 
-        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.IsTrue(file.Warnings.HasHighlightedWarning);
         Assert.AreEqual("[1] LR2パス非対応", file.Warnings.BuildDigestText());
         StringAssert.Contains(file.Warnings.BuildTooltipText(), "Shift_JIS");
     }

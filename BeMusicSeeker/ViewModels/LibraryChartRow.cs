@@ -230,7 +230,7 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public double? level => Chart?.Level;
 
-    public bool HasZeroNoteMismatchWarning => BmsFile?.HasZeroNoteMismatchWarning ?? false;
+    public bool HasZeroNoteMismatchWarning => Chart?.Warnings?.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch) ?? false;
 
     public bool HasHighlightedWarning => ChartWarningProjectionFormatter.HasHighlightedWarning(Chart, GetResourceHealthProjection(), resourceHealthProjectionProvider != null);
 
@@ -429,6 +429,7 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(WarningDigestText));
         RaisePropertyChanged(nameof(WarningTooltipText));
         RaisePropertyChanged(nameof(HasHighlightedWarning));
+        RaisePropertyChanged(nameof(HasZeroNoteMismatchWarning));
     }
 
     private void RaiseChartInfoDisplayPropertiesChanged()

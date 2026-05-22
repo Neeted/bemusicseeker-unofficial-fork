@@ -1174,7 +1174,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(new[] { file }, maintenanceTargets);
         CollectionAssert.AreEqual(new[] { file }, scoreTargets);
         CollectionAssert.AreEqual(new[] { file }, applyTargets);
-        Assert.IsFalse(file.HasLowConfidenceInstallWarning);
+        Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
         Assert.AreEqual(0, entry.Chart.InstallDestinationSuggestions.Count);
         Assert.IsFalse(file.Warnings.BuildTooltipText().Contains(Resources.Warning_InstallEstimationAmbiguousPrefix));
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));

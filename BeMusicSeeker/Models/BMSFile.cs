@@ -507,61 +507,6 @@ public class BMSFile : LR2SongDB.song
     internal void RaiseWarningPresentationChanged()
     {
         RaisePropertyChanged(() => Warnings);
-        RaisePropertyChanged(() => HasHighlightedWarning);
-        RaisePropertyChanged(() => HasZeroNoteMismatchWarning);
-        RaisePropertyChanged(() => HasLowConfidenceInstallWarning);
-        RaisePropertyChanged(() => IsHashDuplicated);
-        RaisePropertyChanged(() => HasChartInfoParseFailureWarning);
-    }
-
-    public virtual bool HasZeroNoteMismatchWarning
-    {
-        get
-        {
-            return Warnings.Contains(ChartWarningKind.ZeroNoteMismatch);
-        }
-        set
-        {
-            if (HasZeroNoteMismatchWarning == value)
-            {
-                return;
-            }
-            if (value)
-            {
-                SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
-            }
-            else
-            {
-                ClearWarning(ChartWarningKind.ZeroNoteMismatch);
-            }
-        }
-    }
-
-    public virtual bool HasChartInfoParseFailureWarning => Warnings.Contains(ChartWarningKind.ChartInfoParseFailure);
-
-    public virtual bool HasHighlightedWarning => Warnings.HasHighlightedWarning;
-
-    public virtual bool HasLowConfidenceInstallWarning
-    {
-        get
-        {
-            return HasLowConfidenceInstallEstimationWarning();
-        }
-        set
-        {
-            if (HasLowConfidenceInstallWarning == value)
-            {
-                return;
-            }
-            if (value)
-            {
-                SetWarning(ChartWarningKind.InstallEstimationLowConfidence, Resources.WarningDigest_InstallEstimationLowConfidence);
-            }
-            else
-            {
-                ClearLowConfidenceInstallEstimationWarnings();
-            }
-        }
     }
 
     public virtual BMSFileStatus status
@@ -615,47 +560,6 @@ public class BMSFile : LR2SongDB.song
     /// 現在保持している `maintenanceInfo` がどの経路で得られたかを返します。
     /// </summary>
     public MaintenanceInfoOrigin MaintenanceInfoOrigin => maintenanceInfoOrigin;
-
-    public virtual bool IsHashDuplicated
-    {
-        get
-        {
-            return Warnings.Contains(ChartWarningKind.DuplicateChart);
-        }
-        set
-        {
-            if (IsHashDuplicated == value)
-            {
-                return;
-            }
-            if (value)
-            {
-                SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
-            }
-            else
-            {
-                ClearWarning(ChartWarningKind.DuplicateChart);
-            }
-        }
-    }
-
-    internal bool HasLowConfidenceInstallEstimationWarning()
-    {
-        return Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous)
-            || Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch)
-            || Warnings.Contains(ChartWarningKind.InstallEstimationReinstallNotImproved)
-            || Warnings.Contains(ChartWarningKind.InstalledDestinationAmbiguous)
-            || Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence);
-    }
-
-    private void ClearLowConfidenceInstallEstimationWarnings()
-    {
-        ClearWarning(ChartWarningKind.InstallEstimationAmbiguous);
-        ClearWarning(ChartWarningKind.InstallEstimationMetadataMismatch);
-        ClearWarning(ChartWarningKind.InstallEstimationReinstallNotImproved);
-        ClearWarning(ChartWarningKind.InstalledDestinationAmbiguous);
-        ClearWarning(ChartWarningKind.InstallEstimationLowConfidence);
-    }
 
     /// <summary>
     /// maintenance snapshot を差し替えます。
