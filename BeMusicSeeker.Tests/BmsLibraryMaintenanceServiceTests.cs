@@ -1580,6 +1580,114 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void UpdateMaintenanceInfo_BmsMissingEncodingOnlySkipsResourceHealthScan()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService(1);
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#TITLE Bms\r\n#WAV01 sub\\missing.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            var bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            bmsFile.maintenanceInfo.wav_files_defined = 0;
+            bmsFile.maintenanceInfo.bga_files_defined = 0;
+            bmsFile.maintenanceInfo.movie_files_defined = 0;
+            bmsFile.maintenanceInfo.is_stagefile_defined = false;
+            bmsFile.maintenanceInfo.is_backbmp_defined = false;
+            bmsFile.maintenanceInfo.is_banner_defined = false;
+            bmsFile.maintenanceInfo.encoding = null;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+            var lookupContext = new ResourceHealthLookupContext(null);
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                [ChartFileProjection.FromBmsFile(bmsFile)],
+                forceUpdate: false,
+                new BmsLibraryDbGateway(songDbPath),
+                null,
+                lookupContext);
+
+            Assert.AreEqual(1, result.CheckedFileCount);
+            Assert.AreEqual(0, result.MissingInfoTargetCount);
+            Assert.AreEqual(1, result.MissingEncodingTargetCount);
+            Assert.AreEqual(0, result.HealthTargetCount);
+            Assert.AreEqual(0, result.BmsResourceTargetCount);
+            Assert.AreEqual(0, result.HealthFileExistsFallbackCount);
+            Assert.AreEqual(0, lookupContext.FileExistsFallbackCount);
+            Assert.AreEqual("shift_jis", bmsFile.maintenanceInfo.encoding);
+            Assert.AreEqual(1, result.MaintenanceInfoUpsertCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_BmsResourceHealthPreservesIgnoredFlagUnlessForced()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService(1);
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#TITLE Bms\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            var bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            bmsFile.maintenanceInfo.encoding = "shift_jis";
+            bmsFile.maintenanceInfo.is_files_warning_ignored = true;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            service.UpdateMaintenanceInfo(
+                [ChartFileProjection.FromBmsFile(bmsFile)],
+                forceUpdate: false,
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(bmsFile.maintenanceInfo.is_files_warning_ignored);
+            Assert.AreEqual("shift_jis", bmsFile.maintenanceInfo.encoding);
+            Assert.IsTrue(bmsFile.maintenanceInfo.GetWAVHealth() < 100);
+
+            service.UpdateMaintenanceInfo(
+                [ChartFileProjection.FromBmsFile(bmsFile)],
+                forceUpdate: true,
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsFalse(bmsFile.maintenanceInfo.is_files_warning_ignored);
+            Assert.AreEqual("shift_jis", bmsFile.maintenanceInfo.encoding);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void UpdateMaintenanceInfo_CacheAwareHealthMatchesFileExistsPathAndAvoidsFallback()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -185,6 +185,100 @@ internal sealed class BmsLibraryMaintenanceService
         return maintenanceInfo;
     }
 
+    internal static BMSFileMaintenanceInfo BuildBmsResourceHealthMaintenanceInfo(
+        BMSFile file,
+        ResourceHealthLookupContext lookupContext,
+        bool forceUpdate = false,
+        bool clearResourceReferences = false)
+    {
+        if (!ChartFileKindResolver.IsBmsChartFile(file))
+        {
+            return null;
+        }
+        try
+        {
+            ChartFile chart = ChartFileProjection.FromBmsFile(
+                file,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false,
+                includeScoreSnapshot: false);
+            return BuildResourceHealthMaintenanceInfo(chart, lookupContext, forceUpdate);
+        }
+        finally
+        {
+            if (clearResourceReferences)
+            {
+                file.ClearResourceReferenceCache(clearComponentCollections: true);
+            }
+        }
+    }
+
+    internal static bool ApplyBmsResourceHealthMaintenanceInfo(
+        BMSFile file,
+        ResourceHealthLookupContext lookupContext,
+        bool forceUpdate,
+        bool clearResourceReferences = true)
+    {
+        if (!ChartFileKindResolver.IsBmsChartFile(file))
+        {
+            return false;
+        }
+        if (!forceUpdate && file.maintenanceInfo.IsInformationChecked())
+        {
+            return true;
+        }
+
+        try
+        {
+            BMSFileMaintenanceInfo computedInfo = BuildBmsResourceHealthMaintenanceInfo(file, lookupContext, forceUpdate);
+            if (computedInfo == null)
+            {
+                return false;
+            }
+            ApplyResourceHealthToBmsMaintenanceInfo(file, computedInfo, forceUpdate);
+            return true;
+        }
+        finally
+        {
+            if (clearResourceReferences)
+            {
+                file.ClearResourceReferenceCache(clearComponentCollections: true);
+            }
+        }
+    }
+
+    private static void ApplyResourceHealthToBmsMaintenanceInfo(
+        BMSFile file,
+        BMSFileMaintenanceInfo computedInfo,
+        bool forceUpdate)
+    {
+        BMSFileMaintenanceInfo targetInfo = file.maintenanceInfo;
+        string encoding = targetInfo.encoding;
+        bool isEncodingFixed = targetInfo.is_encoding_fixed;
+        bool isFilesWarningIgnored = targetInfo.is_files_warning_ignored;
+        using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+        {
+            targetInfo.path = computedInfo.path;
+            targetInfo.hash = computedInfo.hash;
+            targetInfo.wav_files_defined = computedInfo.wav_files_defined;
+            targetInfo.wav_files_existing = computedInfo.wav_files_existing;
+            targetInfo.bga_files_defined = computedInfo.bga_files_defined;
+            targetInfo.bga_files_existing = computedInfo.bga_files_existing;
+            targetInfo.movie_files_defined = computedInfo.movie_files_defined;
+            targetInfo.movie_files_existing = computedInfo.movie_files_existing;
+            targetInfo.is_stagefile_defined = computedInfo.is_stagefile_defined;
+            targetInfo.is_stagefile_existing = computedInfo.is_stagefile_existing;
+            targetInfo.is_banner_defined = computedInfo.is_banner_defined;
+            targetInfo.is_banner_existing = computedInfo.is_banner_existing;
+            targetInfo.is_backbmp_defined = computedInfo.is_backbmp_defined;
+            targetInfo.is_backbmp_existing = computedInfo.is_backbmp_existing;
+            targetInfo.encoding = encoding;
+            targetInfo.is_encoding_fixed = isEncodingFixed;
+            targetInfo.is_files_warning_ignored = forceUpdate ? false : isFilesWarningIgnored;
+        }
+        file.SetMaintenanceInfo(targetInfo, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
+    }
+
     internal static IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFileMaintenanceInfo maintenanceInfo)
     {
         if (maintenanceInfo == null)
@@ -602,6 +696,7 @@ internal sealed class BmsLibraryMaintenanceService
         var stopwatch = Stopwatch.StartNew();
         List<BMSFile> sourceFiles = [.. EnumerateBmsChartFiles(bmsFiles)];
         List<BMSFile> targets = [];
+        int healthTargetCount = 0;
         foreach (BMSFile file in sourceFiles)
         {
             bool missingInfo = file?.maintenanceInfo?.IsInformationChecked() != true;
@@ -624,11 +719,15 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 result.MissingEncodingTargetCount++;
             }
+            if (forceUpdate || missingInfo)
+            {
+                healthTargetCount++;
+            }
         }
         result.CheckedFileCount = targets.Count;
-        result.BmsResourceTargetCount = targets.Count(ChartFileKindResolver.IsBmsChartFile);
+        result.BmsResourceTargetCount = healthTargetCount;
         result.BmsonResourceTargetCount = 0;
-        result.HealthTargetCount = targets.Count;
+        result.HealthTargetCount = healthTargetCount;
         result.HealthDegree = maintenanceHealthDegree;
         resourceLookupContext ??= new ResourceHealthLookupContext(null);
         progressLogger?.Invoke("maintenance_target_summary total=" + targets.Count
@@ -702,13 +801,14 @@ internal sealed class BmsLibraryMaintenanceService
                 {
                     string originalHash = file.hash;
                     var beforeSnapshot = MaintenanceSnapshot.FromFile(file);
+                    bool healthNeeded = forceUpdate || file.maintenanceInfo.IsInformationChecked() != true;
                     int retryCount = 0;
-                    while (true)
+                    while (healthNeeded)
                     {
                         try
                         {
                             long healthStart = Stopwatch.GetTimestamp();
-                            file.SetHealthStatusUsingLookupContext(resourceLookupContext, forceUpdate, memClear: true);
+                            ApplyBmsResourceHealthMaintenanceInfo(file, resourceLookupContext, forceUpdate);
                             AddElapsedTicks(ref healthTicks, healthStart);
                             break;
                         }

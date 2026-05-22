@@ -1141,7 +1141,7 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             var stepStopwatch = Stopwatch.StartNew();
-            file.SetHealthStatusUsingLookupContext(lookupContext, forceUpdate: false, memClear: true);
+            BmsLibraryMaintenanceService.ApplyBmsResourceHealthMaintenanceInfo(file, lookupContext, forceUpdate: false);
             stepStopwatch.Stop();
             healthMs = stepStopwatch.ElapsedMilliseconds;
             stepStopwatch.Restart();

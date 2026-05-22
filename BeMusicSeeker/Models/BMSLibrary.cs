@@ -10569,20 +10569,28 @@ reportProgress,
                     return null;
                 }
                 var lookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
-                file.SetHealthStatusUsingLookupContext(lookupContext);
-                if (file.maintenanceInfo.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile)
+                BMSFileMaintenanceInfo sourceHealth = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(file, lookupContext, clearResourceReferences: true);
+                if (sourceHealth?.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile)
                 {
                     string dirname = DirectoryExt.GetDirectoryNameSimple(file.path);
-                    return [.. (from f in BMSFiles.Where(delegate (BMSFile f)
+                    list.Add(file.hash);
+                    foreach (BMSFile candidate in BMSFiles)
+                    {
+                        if (ReferenceEquals(candidate, file))
                         {
-                            if (!DirectoryExt.GetDirectoryNameSimple(f.path).Equals(dirname, StringComparison.OrdinalIgnoreCase))
-                            {
-                                return false;
-                            }
-                            f.SetHealthStatusUsingLookupContext(lookupContext);
-                            return f.maintenanceInfo.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile;
-                        })
-                            select f.hash).Distinct()];
+                            continue;
+                        }
+                        if (!DirectoryExt.GetDirectoryNameSimple(candidate.path).Equals(dirname, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        BMSFileMaintenanceInfo candidateHealth = BmsLibraryMaintenanceService.BuildBmsResourceHealthMaintenanceInfo(candidate, lookupContext, clearResourceReferences: true);
+                        if (candidateHealth?.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile)
+                        {
+                            list.Add(candidate.hash);
+                        }
+                    }
+                    return [.. list.Distinct()];
                 }
                 return null;
             }

@@ -1088,8 +1088,18 @@ public class BMSFile : LR2SongDB.song
 
     internal void ClearComponentFileCache()
     {
+        ClearResourceReferenceCache(clearComponentCollections: false);
+    }
+
+    internal void ClearResourceReferenceCache(bool clearComponentCollections)
+    {
         lock (filesCacheLock)
         {
+            if (clearComponentCollections)
+            {
+                WAVfiles = null;
+                BGAfiles = null;
+            }
             localWAVfilesNameHashArray = null;
             localBGAfilesNameHashArray = null;
             localBGAfilesMovieNameHashArray = null;
