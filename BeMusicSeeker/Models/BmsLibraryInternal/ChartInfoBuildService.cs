@@ -101,9 +101,7 @@ internal sealed class ChartInfoBuildService
         {
             throw new ArgumentNullException(nameof(chart));
         }
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-        if ((bmsFile == null) == (bmsonSong == null))
+        if (!ChartStorageOwnerMutator.HasSingleStorageOwner(chart))
         {
             throw new ArgumentException("Exactly one chart model must be specified.");
         }
@@ -674,7 +672,7 @@ internal sealed class ChartInfoBuildService
             {
                 target.AddChart(chart);
             }
-            if (chart.GetBmsStorageOwner() is BMSFile file && string.IsNullOrWhiteSpace(file.sha256))
+            if (ChartStorageOwnerMutator.HasMissingBmsSha256(chart))
             {
                 result.DigestTargetCount++;
             }
@@ -1313,12 +1311,10 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
         public string Sha256 { get; }
 
         public bool NeedsDigest => charts.Any(chart =>
-            chart?.GetBmsStorageOwner() is BMSFile file
-            && string.IsNullOrWhiteSpace(file.sha256));
+            ChartStorageOwnerMutator.HasMissingBmsSha256(chart));
 
         public int MissingDigestOwnerCount => charts.Count(chart =>
-            chart?.GetBmsStorageOwner() is BMSFile file
-            && string.IsNullOrWhiteSpace(file.sha256));
+            ChartStorageOwnerMutator.HasMissingBmsSha256(chart));
 
         public int OwnerCount => charts.Count;
 
@@ -1353,14 +1349,7 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
             int applied = 0;
             foreach (ChartFile chart in charts)
             {
-                BMSFile file = chart?.GetBmsStorageOwner();
-                if (file == null || !string.IsNullOrWhiteSpace(file.sha256))
-                {
-                    continue;
-                }
-                file.ApplySha256(sha256);
-                completedDigestFiles?.Add(file);
-                applied++;
+                applied += ChartStorageOwnerMutator.ApplyMissingBmsSha256(chart, sha256, completedDigestFiles);
             }
             return applied;
         }
@@ -1373,13 +1362,7 @@ ChartInfoBuildService.ChartInfoBuildTarget target,
             }
             foreach (ChartFile chart in charts)
             {
-                BMSFile file = chart?.GetBmsStorageOwner();
-                file?.SetChartInfo(row);
-                LR2SongDBExtended.bmson_song song = chart?.GetBmsonStorageOwner();
-                if (song != null)
-                {
-                    song.ChartInfo = row;
-                }
+                ChartStorageOwnerMutator.ApplyChartInfo(chart, row);
             }
         }
     }

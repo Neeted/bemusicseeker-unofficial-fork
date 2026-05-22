@@ -75,22 +75,9 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
                 try
                 {
                     ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
-                    BMSFile bmsFile = target.GetBmsStorageOwner();
-                    if (bmsFile != null)
+                    if (ChartStorageOwnerMutator.ApplySnapshotDigest(target, snapshot))
                     {
-                        bmsFile.ApplySnapshotDigest(snapshot.Md5, snapshot.Sha256);
                         snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
-                    }
-                    else
-                    {
-                        LR2SongDBExtended.bmson_song bmsonSong = target.GetBmsonStorageOwner();
-                        if (bmsonSong != null)
-                        {
-                            bmsonSong.md5 = snapshot.Md5;
-                            bmsonSong.sha256 = snapshot.Sha256;
-                            bmsonSong.updated_at = snapshot.LastWriteTimeUtc;
-                            snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
-                        }
                     }
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
