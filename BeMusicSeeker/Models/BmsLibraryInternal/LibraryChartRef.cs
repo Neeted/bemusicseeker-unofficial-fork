@@ -14,6 +14,7 @@ internal sealed class LibraryChartRef
 {
     private readonly BMSFile bmsFile;
     private readonly LR2SongDBExtended.bmson_song bmsonSong;
+    private readonly ChartFile chartSnapshot;
 
     public LibraryChartKind Kind { get; }
 
@@ -31,7 +32,8 @@ internal sealed class LibraryChartRef
         string md5,
         string sha256,
         BMSFile bmsFile,
-        LR2SongDBExtended.bmson_song bmsonSong)
+        LR2SongDBExtended.bmson_song bmsonSong,
+        ChartFile chartSnapshot = null)
     {
         Kind = kind;
         Path = string.IsNullOrWhiteSpace(path) ? null : path;
@@ -40,6 +42,7 @@ internal sealed class LibraryChartRef
         Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
         this.bmsFile = bmsFile;
         this.bmsonSong = bmsonSong;
+        this.chartSnapshot = chartSnapshot;
     }
 
     public static LibraryChartRef FromBmsFile(BMSFile file)
@@ -81,12 +84,26 @@ internal sealed class LibraryChartRef
         BMSFile bmsFile = chart.GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            return FromBmsFile(bmsFile);
+            return new LibraryChartRef(
+                LibraryChartKind.Bms,
+                chart.Path,
+                chart.Md5,
+                chart.Sha256,
+                bmsFile,
+                null,
+                chart);
         }
         LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
         if (bmsonSong != null)
         {
-            return FromBmsonSong(bmsonSong);
+            return new LibraryChartRef(
+                LibraryChartKind.Bmson,
+                chart.Path,
+                chart.Md5,
+                chart.Sha256,
+                null,
+                bmsonSong,
+                chart);
         }
         return FromPath(
             chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
@@ -122,6 +139,11 @@ internal sealed class LibraryChartRef
 
     internal ChartFile ToChartFile()
     {
+        if (chartSnapshot != null)
+        {
+            return chartSnapshot;
+        }
+
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {

@@ -881,6 +881,10 @@ public class BMSLibrary : NotificationObject
 
     private readonly object latestInstallDestinationChangedChartsLock = new();
 
+    private readonly object installDestinationRuntimeStatesLock = new();
+
+    private readonly Dictionary<string, ChartFileTransientState> installDestinationRuntimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly object resourceHealthIndexLock = new();
 
     private ResourceHealthIndexSnapshot resourceHealthIndexSnapshot = ResourceHealthIndexSnapshot.Empty;
@@ -1038,6 +1042,7 @@ public class BMSLibrary : NotificationObject
                 InvalidateBMSParentFolderListCache();
                 InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsfiles_changed");
+                PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
@@ -1081,6 +1086,7 @@ public class BMSLibrary : NotificationObject
                 InvalidateInstallEstimationMetadataProfileCache();
                 InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsons_changed");
+                PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BmsonSongs");
@@ -6463,9 +6469,180 @@ reportProgress,
         RebuildInstalledChartKeyIndexUnsafe();
     }
 
-    private static List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        return ChartFileProjection.FromStorageRows(bmsFiles, bmsonSongs, includeWarningSnapshot: false);
+        return OverlayInstallDestinationRuntimeStates(ChartFileProjection.FromStorageRows(bmsFiles, bmsonSongs, includeWarningSnapshot: false));
+    }
+
+    private List<ChartFile> OverlayInstallDestinationRuntimeStates(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? []).Select(OverlayInstallDestinationRuntimeState).Where(chart => chart != null)];
+    }
+
+    private ChartFile OverlayInstallDestinationRuntimeState(ChartFile chart)
+    {
+        string key = ChartFileRuntimeStateKey.Create(chart);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return chart;
+        }
+
+        ChartFileTransientState state;
+        lock (installDestinationRuntimeStatesLock)
+        {
+            installDestinationRuntimeStatesByKey.TryGetValue(key, out state);
+        }
+        return state?.HasState == true
+            ? ChartFileProjection.WithTransientState(chart, state, includeWarningSnapshot: false)
+            : chart;
+    }
+
+    private void UpdateInstallDestinationRuntimeStates(LibraryMutationDelta delta, IEnumerable<ChartFile> appliedCharts)
+    {
+        lock (installDestinationRuntimeStatesLock)
+        {
+            foreach (LibraryChartPathChange pathChange in delta?.ChartPathChanges ?? [])
+            {
+                MoveInstallDestinationRuntimeState(pathChange);
+            }
+
+            foreach (ChartFile chart in appliedCharts ?? [])
+            {
+                string key = ChartFileRuntimeStateKey.Create(chart);
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    continue;
+                }
+
+                ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
+                    chart,
+                    includeWarningSnapshot: true,
+                    forceInstallDestinationProjection: true,
+                    forceWarningProjection: true);
+                if (state.HasState)
+                {
+                    installDestinationRuntimeStatesByKey[key] = state;
+                }
+                else
+                {
+                    installDestinationRuntimeStatesByKey.Remove(key);
+                }
+            }
+        }
+    }
+
+    private List<ChartFile> CreateInstallDestinationChangedChartSnapshots(LibraryMutationDelta delta)
+    {
+        var chartsByKey = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in delta?.CreateAppliedInstallDestinationChartSnapshots() ?? [])
+        {
+            AddInstallDestinationChangedChart(chartsByKey, chart);
+        }
+
+        foreach (ChartFile chart in CreateMovedInstallDestinationRuntimeStateSnapshots(delta))
+        {
+            AddInstallDestinationChangedChart(chartsByKey, chart);
+        }
+
+        return [.. chartsByKey.Values];
+    }
+
+    private IEnumerable<ChartFile> CreateMovedInstallDestinationRuntimeStateSnapshots(LibraryMutationDelta delta)
+    {
+        if (delta?.ChartPathChanges == null)
+        {
+            yield break;
+        }
+
+        foreach (LibraryChartPathChange pathChange in delta.ChartPathChanges)
+        {
+            ChartFile movedChart = CreateMovedInstallDestinationRuntimeStateSnapshot(pathChange);
+            if (movedChart != null)
+            {
+                yield return movedChart;
+            }
+        }
+    }
+
+    private ChartFile CreateMovedInstallDestinationRuntimeStateSnapshot(LibraryChartPathChange pathChange)
+    {
+        if (pathChange?.Chart == null || string.IsNullOrWhiteSpace(pathChange.NewPath))
+        {
+            return null;
+        }
+
+        string oldPath = string.IsNullOrWhiteSpace(pathChange.OldPath)
+            ? pathChange.Chart.Path
+            : pathChange.OldPath;
+        string oldKey = ChartFileRuntimeStateKey.Create(ChartFileProjection.WithPath(pathChange.Chart, oldPath));
+        if (string.IsNullOrWhiteSpace(oldKey))
+        {
+            return null;
+        }
+
+        ChartFileTransientState state;
+        lock (installDestinationRuntimeStatesLock)
+        {
+            installDestinationRuntimeStatesByKey.TryGetValue(oldKey, out state);
+        }
+        return state?.HasState == true
+            ? ChartFileProjection.WithTransientState(ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath), state, includeWarningSnapshot: false)
+            : null;
+    }
+
+    private static void AddInstallDestinationChangedChart(Dictionary<string, ChartFile> chartsByKey, ChartFile chart)
+    {
+        string key = ChartFileRuntimeStateKey.Create(chart);
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            chartsByKey[key] = chart;
+        }
+    }
+
+    private void MoveInstallDestinationRuntimeState(LibraryChartPathChange pathChange)
+    {
+        if (pathChange?.Chart == null || string.IsNullOrWhiteSpace(pathChange.NewPath))
+        {
+            return;
+        }
+
+        string oldPath = string.IsNullOrWhiteSpace(pathChange.OldPath)
+            ? pathChange.Chart.Path
+            : pathChange.OldPath;
+        string oldKey = ChartFileRuntimeStateKey.Create(ChartFileProjection.WithPath(pathChange.Chart, oldPath));
+        string newKey = ChartFileRuntimeStateKey.Create(ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath));
+        if (string.IsNullOrWhiteSpace(oldKey)
+            || string.IsNullOrWhiteSpace(newKey)
+            || string.Equals(oldKey, newKey, StringComparison.OrdinalIgnoreCase)
+            || !installDestinationRuntimeStatesByKey.TryGetValue(oldKey, out ChartFileTransientState state))
+        {
+            return;
+        }
+
+        installDestinationRuntimeStatesByKey[newKey] = state;
+        installDestinationRuntimeStatesByKey.Remove(oldKey);
+    }
+
+    private void PruneInstallDestinationRuntimeStatesToCurrentStorageRows()
+    {
+        var currentKeys = new HashSet<string>(
+            (BMSFiles ?? [])
+                .Select(file => ChartFileRuntimeStateKey.Create(ChartFileProjection.FromBmsStorageOwnerIdentity(file)))
+                .Concat((BmsonSongs ?? [])
+                    .Select(song => ChartFileRuntimeStateKey.Create(ChartFileProjection.FromBmsonStorageOwnerIdentity(song))))
+                .Where(key => !string.IsNullOrWhiteSpace(key)),
+            StringComparer.OrdinalIgnoreCase);
+
+        lock (installDestinationRuntimeStatesLock)
+        {
+            foreach (string key in installDestinationRuntimeStatesByKey.Keys.ToList())
+            {
+                if (!currentKeys.Contains(key))
+                {
+                    installDestinationRuntimeStatesByKey.Remove(key);
+                }
+            }
+        }
     }
 
     private void RebuildInstalledDirectoryIndexCoreUnsafe(InstalledChartDirectoryIndexSnapshot snapshot)
@@ -10578,8 +10755,8 @@ reportProgress,
 
     private IEnumerable<LibraryChartRef> CreateLibraryChartRefSnapshotUnsafe()
     {
-        return (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
-            .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong))
+        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs)
+            .Select(LibraryChartRef.FromChartFile)
             .Where(chart => chart != null);
     }
 
@@ -10685,8 +10862,7 @@ reportProgress,
             {
                 return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
                     charts,
-                    (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
-                        .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)));
+                    CreateLibraryChartRefSnapshotUnsafe());
             }
         }
     }
@@ -10704,8 +10880,7 @@ reportProgress,
                 {
                     LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
                         charts,
-                        (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
-                            .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)),
+                        CreateLibraryChartRefSnapshotUnsafe(),
                         ChartPackagesPending,
                         directoryResourceLookupCache,
                         sendToRecycleBin,
@@ -10809,20 +10984,45 @@ reportProgress,
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
-        PublishInstallDestinationChangedCharts(delta);
-        stateApplier.ApplyLibraryMutationDelta(delta);
+        List<ChartFile> installDestinationChangedCharts = CreateInstallDestinationChangedChartSnapshots(delta);
+        PublishLatestInstallDestinationChangedCharts(installDestinationChangedCharts);
+        try
+        {
+            stateApplier.ApplyLibraryMutationDelta(delta);
+            UpdateInstallDestinationRuntimeStates(delta, installDestinationChangedCharts);
+            PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+        }
+        catch
+        {
+            ClearLatestInstallDestinationChangedCharts(installDestinationChangedCharts);
+            throw;
+        }
     }
 
-    private void PublishInstallDestinationChangedCharts(LibraryMutationDelta delta)
+    private void PublishLatestInstallDestinationChangedCharts(IReadOnlyList<ChartFile> charts)
     {
-        List<ChartFile> charts = delta?.CreateAppliedInstallDestinationChartSnapshots() ?? [];
-        if (charts.Count == 0)
+        if ((charts?.Count ?? 0) == 0)
         {
             return;
         }
         lock (latestInstallDestinationChangedChartsLock)
         {
             latestInstallDestinationChangedCharts = charts;
+        }
+    }
+
+    private void ClearLatestInstallDestinationChangedCharts(IReadOnlyList<ChartFile> charts)
+    {
+        if ((charts?.Count ?? 0) == 0)
+        {
+            return;
+        }
+        lock (latestInstallDestinationChangedChartsLock)
+        {
+            if (ReferenceEquals(latestInstallDestinationChangedCharts, charts))
+            {
+                latestInstallDestinationChangedCharts = [];
+            }
         }
     }
 

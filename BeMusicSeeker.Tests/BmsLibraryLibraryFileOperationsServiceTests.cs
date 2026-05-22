@@ -220,6 +220,52 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void BuildFolderMoveDelta_UsesChartSnapshotInstallDestinationForBmsonLibraryRef()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string sourceRoot = Path.Combine(tempDirectoryPath, "InstallSource");
+            string destinationRoot = Path.Combine(tempDirectoryPath, "InstallDestination");
+            string libraryDirectory = Path.Combine(tempDirectoryPath, "Library");
+            Directory.CreateDirectory(sourceRoot);
+            Directory.CreateDirectory(libraryDirectory);
+            var bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(libraryDirectory, "chart.bmson"),
+                folder = libraryDirectory,
+                md5 = "abcdefabcdefabcdefabcdefabcdefab",
+                sha256 = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                title = "Bmson"
+            };
+            ChartFile bmsonChart = ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(bmsonSong),
+                sourceRoot,
+                "Install title",
+                "Install artist",
+                []);
+
+            LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+                sourceRoot,
+                destinationRoot,
+                [LibraryChartRef.FromChartFile(bmsonChart)],
+                [],
+                [],
+                unregister: false,
+                raiseLibraryChartsChanged: false);
+
+            LibraryInstallDestinationChange change = delta.UpdatedInstallDestinations.Single();
+            Assert.IsNull(change.GetBmsStorageOwner());
+            Assert.AreSame(bmsonSong, change.Chart.GetBmsonStorageOwner());
+            Assert.AreEqual(sourceRoot, change.GetCurrentInstallDestination());
+            Assert.AreEqual(destinationRoot, change.NewInstallDestination);
+            ChartFile appliedChart = change.CreateAppliedChartSnapshot(delta.ChartPathChanges);
+            Assert.AreSame(bmsonSong, appliedChart.GetBmsonStorageOwner());
+            Assert.AreEqual(destinationRoot, appliedChart.InstallDestination);
+        });
+    }
+
+    [TestMethod]
     public void FolderMoveAppliedInstallDestinationSnapshotDoesNotRewritePendingEntryByPathCollision()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)

@@ -338,6 +338,58 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void RenameChartFolder_RewritesBmsonInstallDestinationFromModelOverlay()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonOverlayRename_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "InstallSource");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "InstallRenamed");
+            string libraryDirectoryPath = Path.Combine(tempRootPath, "Library");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(libraryDirectoryPath);
+            try
+            {
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var bmsonSong = new LR2SongDBExtended.bmson_song
+                {
+                    path = Path.Combine(libraryDirectoryPath, "chart.bmson"),
+                    folder = libraryDirectoryPath,
+                    md5 = "abcdefabcdefabcdefabcdefabcdefab",
+                    sha256 = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    title = "Overlay Bmson"
+                };
+                SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
+
+                var seedDelta = new LibraryMutationDelta();
+                seedDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                {
+                    Chart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false),
+                    NewInstallDestination = sourceDirectoryPath
+                });
+                InvokeApplyLibraryMutationDelta(library, seedDelta);
+                _ = library.ConsumeLatestInstallDestinationChangedCharts();
+
+                library.RenameChartFolder(sourceDirectoryPath, "InstallRenamed");
+
+                ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+                Assert.AreSame(bmsonSong, changedChart.GetBmsonStorageOwner());
+                Assert.AreEqual(destinationDirectoryPath, changedChart.InstallDestination);
+                Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
+                Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void FixInstallationDirectoryCharts_BmsonDuplicateRemovesRepairSourceAndKeepsInstalledRow()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -863,6 +915,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BmsonSongs", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         fieldInfo.SetValue(library, songs.ToList());
+    }
+
+    private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [delta]);
     }
 
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
