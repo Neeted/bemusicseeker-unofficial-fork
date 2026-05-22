@@ -525,20 +525,6 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    public string encoding => maintenanceInfo.encoding;
-
-    public int? WAVHealth => maintenanceInfo.WAVHealth;
-
-    public int? BGAHealth => maintenanceInfo.BGAHealth;
-
-    public int? MovieHealth => maintenanceInfo.MovieHealth;
-
-    public bool? StagefileHealth => maintenanceInfo.StagefileHealth;
-
-    public bool? BannerHealth => maintenanceInfo.BannerHealth;
-
-    public bool? BackbmpHealth => maintenanceInfo.BackbmpHealth;
-
     public BMSFileMaintenanceInfo maintenanceInfo
     {
         get
@@ -622,20 +608,10 @@ public class BMSFile : LR2SongDB.song
 
     internal void NotifyMaintenanceInfoChanged(bool encodingChanged, bool healthChanged)
     {
-        if (encodingChanged)
+        if (encodingChanged || healthChanged)
         {
-            RaisePropertyChanged(() => encoding);
+            RaisePropertyChanged(() => maintenanceInfo);
         }
-        if (!healthChanged)
-        {
-            return;
-        }
-        RaisePropertyChanged(() => WAVHealth);
-        RaisePropertyChanged(() => BGAHealth);
-        RaisePropertyChanged(() => MovieHealth);
-        RaisePropertyChanged(() => StagefileHealth);
-        RaisePropertyChanged(() => BannerHealth);
-        RaisePropertyChanged(() => BackbmpHealth);
     }
 
     public BMSScore bmsScore
@@ -670,31 +646,31 @@ public class BMSFile : LR2SongDB.song
         listenerForMaintenanceInfo = new PropertyChangedEventListener(maintenanceInfo);
         listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.encoding, delegate
         {
-            RaisePropertyChanged(() => encoding);
+            RaisePropertyChanged(() => maintenanceInfo);
         });
         listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.WAVHealth, delegate
         {
-            RaisePropertyChanged(() => WAVHealth);
+            RaisePropertyChanged(() => maintenanceInfo);
         });
         listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.BGAHealth, delegate
         {
-            RaisePropertyChanged(() => BGAHealth);
+            RaisePropertyChanged(() => maintenanceInfo);
         });
         listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.MovieHealth, delegate
         {
-            RaisePropertyChanged(() => MovieHealth);
+            RaisePropertyChanged(() => maintenanceInfo);
         });
         listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.StagefileHealth, delegate
         {
-            RaisePropertyChanged(() => StagefileHealth);
+            RaisePropertyChanged(() => maintenanceInfo);
         });
         listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.BannerHealth, delegate
         {
-            RaisePropertyChanged(() => BannerHealth);
+            RaisePropertyChanged(() => maintenanceInfo);
         });
         listenerForMaintenanceInfo.RegisterHandler(() => maintenanceInfo.BackbmpHealth, delegate
         {
-            RaisePropertyChanged(() => BackbmpHealth);
+            RaisePropertyChanged(() => maintenanceInfo);
         });
     }
 

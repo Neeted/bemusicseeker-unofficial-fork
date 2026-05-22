@@ -14,24 +14,24 @@ public sealed class BmsFileListenerLifecycleTests
         TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         BMSFileMaintenanceInfo info1 = CreateMaintenanceInfo(file, "shift_jis");
         BMSFileMaintenanceInfo info2 = CreateMaintenanceInfo(file, "utf-8");
-        int encodingChangedCount = 0;
+        int maintenanceChangedCount = 0;
         file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(BMSFile.encoding))
+            if (e.PropertyName == nameof(BMSFile.maintenanceInfo))
             {
-                encodingChangedCount++;
+                maintenanceChangedCount++;
             }
         };
 
         file.SetMaintenanceInfo(info1, suppressPropertyChanged: true, registerEventHandlers: true);
         file.SetMaintenanceInfo(info2, suppressPropertyChanged: true, registerEventHandlers: true);
-        encodingChangedCount = 0;
+        maintenanceChangedCount = 0;
 
         info1.encoding = "euc-jp";
         info2.encoding = "utf-16";
 
-        Assert.AreEqual(1, encodingChangedCount);
-        Assert.AreEqual("utf-16", file.encoding);
+        Assert.AreEqual(1, maintenanceChangedCount);
+        Assert.AreEqual("utf-16", file.maintenanceInfo.encoding);
     }
 
     [TestMethod]

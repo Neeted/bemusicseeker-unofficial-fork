@@ -619,7 +619,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
-                    if (e.PropertyName == nameof(BMSFile.encoding))
+                    if (e.PropertyName == nameof(BMSFile.maintenanceInfo))
                     {
                         Interlocked.Increment(ref encodingChangedCount);
                     }
@@ -635,7 +635,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(0, Volatile.Read(ref garbledChangedCount));
                 Assert.AreEqual(0, Volatile.Read(ref garbledFixedChangedCount));
                 Assert.IsTrue(Volatile.Read(ref encodingChangedCount) > 0);
-                Assert.AreEqual("gb2312", file.encoding);
+                Assert.AreEqual("gb2312", file.maintenanceInfo.encoding);
             }
             finally
             {

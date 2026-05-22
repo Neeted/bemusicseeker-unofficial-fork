@@ -421,6 +421,10 @@ internal sealed class LibraryChartRow : NotificationObject
         {
             RaiseScoreDisplayPropertiesChanged();
         }
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.maintenanceInfo))
+        {
+            RaiseMaintenanceDisplayPropertiesChanged();
+        }
     }
 
     private void RaiseWarningPresentationPropertiesChanged()
@@ -490,6 +494,17 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(nameof(rankingLastupdate));
         RaisePropertyChanged(nameof(stddevVal));
         RaisePropertyChanged(nameof(scoreDifficulty));
+    }
+
+    private void RaiseMaintenanceDisplayPropertiesChanged()
+    {
+        RaisePropertyChanged(nameof(WAVHealth));
+        RaisePropertyChanged(nameof(BGAHealth));
+        RaisePropertyChanged(nameof(MovieHealth));
+        RaisePropertyChanged(nameof(StagefileHealth));
+        RaisePropertyChanged(nameof(BannerHealth));
+        RaisePropertyChanged(nameof(BackbmpHealth));
+        RaisePropertyChanged(nameof(encoding));
     }
 
     private LR2SongDBExtended.bmson_song GetBmsonSong()

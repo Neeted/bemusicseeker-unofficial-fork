@@ -247,6 +247,9 @@ internal static class ChartFileProjection
         {
             return null;
         }
+        BMSFileMaintenanceInfo maintenanceInfo = file.HasValidMaintenanceInfoSnapshot
+            ? file.TryGetMaintenanceInfoWithoutCreating()
+            : null;
 
         return new ChartFile(
             ChartFileKind.Bms,
@@ -276,13 +279,13 @@ internal static class ChartFileProjection
             null,
             [],
             GetWarnings(file, includeWarningSnapshot),
-            file.WAVHealth,
-            file.BGAHealth,
-            file.MovieHealth,
-            file.StagefileHealth,
-            file.BannerHealth,
-            file.BackbmpHealth,
-            file.encoding,
+            maintenanceInfo?.WAVHealth,
+            maintenanceInfo?.BGAHealth,
+            maintenanceInfo?.MovieHealth,
+            maintenanceInfo?.StagefileHealth,
+            maintenanceInfo?.BannerHealth,
+            maintenanceInfo?.BackbmpHealth,
+            maintenanceInfo?.encoding,
             ChartScoreSnapshot.FromBmsFile(file),
             ChartFileStatusMapper.FromBmsFileStatus(file.status));
     }

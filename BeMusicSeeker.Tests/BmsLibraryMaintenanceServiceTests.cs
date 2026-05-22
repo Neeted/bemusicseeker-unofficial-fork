@@ -887,7 +887,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             Assert.AreEqual(0, result.SongsToUpsert.Count);
             CollectionAssert.AreEqual(new[] { info }, result.MaintenanceInfosToUpsert);
-            CollectionAssert.Contains(propertyNames, "encoding");
+            CollectionAssert.Contains(propertyNames, nameof(BMSFile.maintenanceInfo));
         }
         finally
         {
@@ -983,9 +983,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 null);
 
             Assert.IsTrue(result.HasUpdates);
-            CollectionAssert.Contains(propertyNames, "StagefileHealth");
-            CollectionAssert.Contains(propertyNames, "BannerHealth");
-            CollectionAssert.Contains(propertyNames, "BackbmpHealth");
+            CollectionAssert.Contains(propertyNames, nameof(BMSFile.maintenanceInfo));
         }
         finally
         {

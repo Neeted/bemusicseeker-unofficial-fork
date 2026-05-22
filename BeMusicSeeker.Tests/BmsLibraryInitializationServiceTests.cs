@@ -265,7 +265,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             result.LoadedFiles[0].maintenanceInfo.encoding = "utf-8";
 
-            CollectionAssert.DoesNotContain(propertyNames, "encoding");
+            CollectionAssert.DoesNotContain(propertyNames, nameof(BMSFile.maintenanceInfo));
         });
     }
 
