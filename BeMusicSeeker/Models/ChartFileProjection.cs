@@ -333,7 +333,8 @@ internal static class ChartFileProjection
     internal static ChartFile FromBmsFile(
         BMSFile file,
         ChartFileLevelParsing levelParsing = ChartFileLevelParsing.Invariant,
-        bool includeWarningSnapshot = true)
+        bool includeWarningSnapshot = true,
+        bool includeResourceReferences = true)
     {
         if (file == null)
         {
@@ -367,8 +368,8 @@ internal static class ChartFileProjection
             file,
             null,
             file.subtitle,
-            file.WAVfiles?.ToArray(),
-            file.BGAfiles?.ToArray(),
+            includeResourceReferences ? file.WAVfiles?.ToArray() : null,
+            includeResourceReferences ? file.BGAfiles?.ToArray() : null,
             file.stagefile,
             file.backbmp,
             file.banner,
@@ -390,18 +391,21 @@ internal static class ChartFileProjection
 
     internal static ChartFile FromBmsonSong(
         LR2SongDBExtended.bmson_song song,
-        bool includeWarningSnapshot = true)
+        bool includeWarningSnapshot = true,
+        bool includeResourceReferences = true)
     {
         return FromBmsonSong(
             song,
             ChartFileTransientState.Empty,
-            includeWarningSnapshot);
+            includeWarningSnapshot,
+            includeResourceReferences);
     }
 
     internal static ChartFile FromBmsonSong(
         LR2SongDBExtended.bmson_song song,
         ChartFileTransientState transientState,
-        bool includeWarningSnapshot = true)
+        bool includeWarningSnapshot = true,
+        bool includeResourceReferences = true)
     {
         if (song == null)
         {
@@ -427,8 +431,8 @@ internal static class ChartFileProjection
             null,
             song,
             string.IsNullOrWhiteSpace(song.subtitle) ? transientState.Subtitle : song.subtitle,
-            song.wav_files,
-            song.bga_files,
+            includeResourceReferences ? song.wav_files : null,
+            includeResourceReferences ? song.bga_files : null,
             song.stagefile,
             song.backbmp,
             song.banner,
@@ -449,7 +453,8 @@ internal static class ChartFileProjection
     internal static ChartFile FromStorageOwner(
         ChartFile source,
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
-        bool includeWarningSnapshot = true)
+        bool includeWarningSnapshot = true,
+        bool includeResourceReferences = true)
     {
         if (source == null)
         {
@@ -459,29 +464,88 @@ internal static class ChartFileProjection
         BMSFile bmsFile = source.GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            return FromBmsFile(bmsFile, bmsLevelParsing, includeWarningSnapshot);
+            return FromBmsFile(bmsFile, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences);
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
-        return bmsonSong == null ? null : FromBmsonSong(bmsonSong, includeWarningSnapshot);
+        return bmsonSong == null ? null : FromBmsonSong(bmsonSong, includeWarningSnapshot, includeResourceReferences);
     }
 
     internal static ChartFile FromStorageOwnerWithTransientState(
         ChartFile source,
         ChartFileTransientState transientState,
         ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant,
-        bool includeWarningSnapshot = true)
+        bool includeWarningSnapshot = true,
+        bool includeResourceReferences = true)
     {
         LR2SongDBExtended.bmson_song bmsonSong = source?.GetBmsonStorageOwner();
         if (bmsonSong != null)
         {
-            return FromBmsonSong(bmsonSong, transientState, includeWarningSnapshot);
+            return FromBmsonSong(bmsonSong, transientState, includeWarningSnapshot, includeResourceReferences);
         }
 
         return WithTransientState(
-            FromStorageOwner(source, bmsLevelParsing, includeWarningSnapshot),
+            FromStorageOwner(source, bmsLevelParsing, includeWarningSnapshot, includeResourceReferences),
             transientState,
             includeWarningSnapshot);
+    }
+
+    internal static ChartFile FromStorageOwnerListIdentity(
+        ChartFile source,
+        ChartFileLevelParsing bmsLevelParsing = ChartFileLevelParsing.Invariant)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsFile = source.GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return new ChartFile(
+                ChartFileKind.Bms,
+                bmsFile.path,
+                bmsFile.hash,
+                bmsFile.sha256,
+                bmsFile.Title,
+                bmsFile.GetRawTitleForDisplay(),
+                bmsFile.Artist,
+                bmsFile.genre,
+                GetDisplayFolderFromPath(bmsFile.path),
+                bmsFile.tag,
+                bmsFile.Level,
+                ParseNullableDouble(bmsFile.Level, bmsLevelParsing),
+                bmsFile.mode,
+                null,
+                bmsFile,
+                null,
+                bmsFile.subtitle);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
+        if (bmsonSong == null)
+        {
+            return null;
+        }
+
+        return new ChartFile(
+            ChartFileKind.Bmson,
+            bmsonSong.path,
+            bmsonSong.md5,
+            bmsonSong.sha256,
+            BmsonSongParser.ComposeDisplayTitle(bmsonSong),
+            bmsonSong.title,
+            bmsonSong.artist,
+            bmsonSong.genre,
+            BmsonSongParser.ComposeDisplayFolder(bmsonSong),
+            string.Empty,
+            FormatNullableDouble(bmsonSong.level),
+            bmsonSong.level,
+            BmsonSongParser.ResolvePlaylistMode(bmsonSong.mode_hint),
+            null,
+            null,
+            bmsonSong,
+            bmsonSong.subtitle);
     }
 
     internal static LR2SongDBExtended.chart_info ResolveCurrentStorageOwnerChartInfo(ChartFile source)
@@ -537,18 +601,19 @@ internal static class ChartFileProjection
             file.path,
             file.hash,
             file.sha256,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
+            file.Title,
+            file.GetRawTitleForDisplay(),
+            file.Artist,
+            file.genre,
+            GetDisplayFolderFromPath(file.path),
+            file.tag,
+            file.Level,
+            ParseNullableDouble(file.Level, ChartFileLevelParsing.Invariant),
+            file.mode,
             null,
             file,
-            null);
+            null,
+            file.subtitle);
     }
 
     internal static List<ChartFile> FromBmsStorageOwnerIdentities(IEnumerable<BMSFile> files)
@@ -571,18 +636,19 @@ internal static class ChartFileProjection
             song.path,
             song.md5,
             song.sha256,
+            BmsonSongParser.ComposeDisplayTitle(song),
+            song.title,
+            song.artist,
+            song.genre,
+            BmsonSongParser.ComposeDisplayFolder(song),
+            string.Empty,
+            FormatNullableDouble(song.level),
+            song.level,
+            BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
             null,
             null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            song);
+            song,
+            song.subtitle);
     }
 
     internal static List<ChartFile> FromBmsonStorageOwnerIdentities(IEnumerable<LR2SongDBExtended.bmson_song> songs)

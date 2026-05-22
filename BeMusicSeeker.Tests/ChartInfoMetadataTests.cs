@@ -2903,7 +2903,7 @@ createTempDirectory);
 
     [TestMethod]
     [DoNotParallelize]
-    public void DeferredChartInfoHydration_AppliesExistingRowsToBmsAndBmson()
+    public void DeferredChartInfoHydration_IndexesExistingRowsForBmsAndBmson()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
@@ -2945,11 +2945,15 @@ createTempDirectory);
             Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
             Assert.IsFalse(library.ChartInfoHydrationRunning);
             Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
-            Assert.AreEqual(2, library.ChartInfoHydrationAppliedCount);
-            Assert.IsNotNull(file.ChartInfo);
-            Assert.AreEqual(bmsSha, file.ChartInfo.sha256);
-            Assert.IsNotNull(bmsonSong.ChartInfo);
-            Assert.AreEqual(bmsonSha, bmsonSong.ChartInfo.sha256);
+            Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
+            Assert.IsNull(file.ChartInfo);
+            Assert.IsNull(bmsonSong.ChartInfo);
+            LR2SongDBExtended.chart_info resolvedBmsRow = library.ResolveChartInfo(file.sha256, file.hash);
+            LR2SongDBExtended.chart_info resolvedBmsonRow = library.ResolveChartInfo(bmsonSong.sha256, bmsonSong.md5);
+            Assert.IsNotNull(resolvedBmsRow);
+            Assert.AreEqual(bmsSha, resolvedBmsRow.sha256);
+            Assert.IsNotNull(resolvedBmsonRow);
+            Assert.AreEqual(bmsonSha, resolvedBmsonRow.sha256);
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
             Assert.AreEqual(0, chartInfoPropertyChangedCount);
 

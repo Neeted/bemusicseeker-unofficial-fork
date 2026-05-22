@@ -10136,6 +10136,17 @@ public class MainWindowViewModel : ViewModel
         return ChartFileRuntimeStateKey.Create(chart);
     }
 
+    private void PruneSharedChartTransientStateCacheToCurrentStorageRows(
+        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        if (chartTransientStatesByKey.Count == 0)
+        {
+            return;
+        }
+        PruneSharedChartTransientStateCache(CreateStandardLibraryChartIdentitySnapshot(bmsFiles, bmsonSongs));
+    }
+
     private void UpdateSharedChartTransientStates(IEnumerable<ChartFile> charts, bool forceInstallDestinationProjection = false)
     {
         foreach (ChartFile chart in charts ?? [])
@@ -10563,6 +10574,21 @@ public class MainWindowViewModel : ViewModel
             orderBmsonByPath: true);
     }
 
+    private static List<ChartFile> CreateStandardLibraryChartIdentitySnapshot(
+        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        return
+        [
+            .. ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFiles),
+            .. (bmsonSongs ?? [])
+                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
+                .Select(ChartFileProjection.FromBmsonStorageOwnerIdentity)
+                .Where(chart => chart != null)
+        ];
+    }
+
     private static List<ChartFile> CreateBmsChartSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
         return ChartFileProjection.FromBmsFiles(bmsFiles, includeWarningSnapshot: false);
@@ -10598,7 +10624,7 @@ public class MainWindowViewModel : ViewModel
         }
 
         List<ChartListSourceRow> sourceRows = ChartListSourceRow.BuildStandardLibraryRows(
-            CreateStandardLibraryChartSnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
+            CreateStandardLibraryChartIdentitySnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
             ChartListSourceProjectionMode.OwnerBacked,
             GetResourceHealthProjectionForSourceRow,
             GetPlaylistReferenceDisplayForSourceRow,
@@ -16809,7 +16835,7 @@ public class MainWindowViewModel : ViewModel
         List<LR2SongDBExtended.bmson_song> snapshot = [.. (bmsonSongs ?? [])
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-        PruneSharedChartTransientStateCache(CreateStandardLibraryChartSnapshot(BMSFiles, snapshot));
+        PruneSharedChartTransientStateCacheToCurrentStorageRows(BMSFiles, snapshot);
         return regularBmsLibraryRowCache.SyncBmsonRows(snapshot, ApplyLibraryChartRowProviders);
     }
 

@@ -555,6 +555,63 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_ClearsStaleBmsonInstallDestination()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string keepBmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
+            string staleDirectoryPath = Path.Combine(lr2RootPath, "Stale");
+            Directory.CreateDirectory(Path.GetDirectoryName(keepBmsonPath));
+            File.WriteAllText(keepBmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
+
+            LR2SongDBExtended.bmson_song keepSong = BmsonSongParser.Parse(keepBmsonPath);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(keepSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [keepSong],
+                executeBmsonScan: () => new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [keepBmsonPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { Path.GetDirectoryName(keepBmsonPath), Array.Empty<string>() }
+                        })
+                },
+                currentInstallDestinationCharts: [ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsonSong(keepSong, includeWarningSnapshot: false),
+                    staleDirectoryPath,
+                    string.Empty,
+                    string.Empty,
+                    [])]);
+
+            LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
+            Assert.AreSame(keepSong, installDestinationChange.Chart.GetBmsonStorageOwner());
+            Assert.IsNull(installDestinationChange.NewInstallDestination);
+            Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_ReportsCombinedBmsAndBmsonParseProgress()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2354,7 +2411,13 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                currentBmsonSongs: [existingSong]);
+                currentBmsonSongs: [existingSong],
+                currentInstallDestinationCharts: [ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsonSong(existingSong, includeWarningSnapshot: false),
+                    Path.Combine(lr2RootPath, "Stale"),
+                    string.Empty,
+                    string.Empty,
+                    [])]);
 
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreEqual("New", result.AddedBmsonSongs[0].title);
@@ -2362,6 +2425,9 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.AddedBmsonSongs[0].HasFreshResourceReferences);
             Assert.AreEqual(1, result.NextBmsonSongs.Count);
             Assert.AreEqual("New", result.NextBmsonSongs[0].title);
+            LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
+            Assert.AreSame(existingSong, installDestinationChange.Chart.GetBmsonStorageOwner());
+            Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.bmson_song row = verify.Table<LR2SongDBExtended.bmson_song>().Single();

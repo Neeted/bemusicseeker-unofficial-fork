@@ -639,6 +639,10 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
             {
                 result.ChartInfoBySha256[item.sha256] = item;
+                if (item.parser_version >= CurrentChartInfoParserVersion)
+                {
+                    result.CurrentChartInfoSha256s.Add(item.sha256);
+                }
             }
         }
         foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>())
@@ -646,7 +650,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             result.ParseFailureRows++;
             if (IsCurrentChartInfoParseFailure(row, parseTimeout))
             {
-                result.CurrentParseFailuresByMd5[row.md5] = row;
+                result.CurrentParseFailureMd5s.Add(row.md5);
             }
         }
         stopwatch.Stop();

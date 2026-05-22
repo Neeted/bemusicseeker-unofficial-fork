@@ -43,7 +43,7 @@ internal sealed class ChartListSourceRow
         this.playlistReferenceDisplayProvider = playlistReferenceDisplayProvider;
         this.chartTransientStateProvider = chartTransientStateProvider;
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
-        identityChart = CreateChartFile(includeWarningSnapshot: false);
+        identityChart = CreateIdentityChartFile();
     }
 
     internal ChartFile Chart => CreateChartFile();
@@ -161,23 +161,42 @@ internal sealed class ChartListSourceRow
 
     internal int? ChartSoflanCount => ChartInfoDisplay.ChartSoflanCount;
 
-    private ChartFile CreateChartFile(bool includeWarningSnapshot = true)
+    private ChartFile CreateChartFile(bool includeWarningSnapshot = true, bool includeResourceReferences = true)
     {
         if (sourceChart != null)
         {
-            ChartFile identityOwnerChart = ChartFileProjection.FromStorageOwner(sourceChart, includeWarningSnapshot: false);
+            ChartFile identityOwnerChart = ChartFileProjection.FromStorageOwner(
+                sourceChart,
+                includeWarningSnapshot: false,
+                includeResourceReferences: includeResourceReferences);
             if (identityOwnerChart != null)
             {
                 ChartFileTransientState transientState = GetChartTransientState(identityOwnerChart, includeWarningSnapshot);
                 ChartFile currentChart = ChartFileProjection.FromStorageOwnerWithTransientState(
                     sourceChart,
                     transientState,
-                    includeWarningSnapshot: includeWarningSnapshot);
+                    includeWarningSnapshot: includeWarningSnapshot,
+                    includeResourceReferences: includeResourceReferences);
                 return ApplySourceProjectionWarnings(ApplyChartInfoProjection(currentChart), transientState, includeWarningSnapshot);
             }
             return ApplyChartInfoProjection(includeWarningSnapshot ? sourceChart : ChartFileProjection.WithWarnings(sourceChart, []));
         }
         return null;
+    }
+
+    private ChartFile CreateIdentityChartFile()
+    {
+        if (sourceChart == null)
+        {
+            return null;
+        }
+        if (!hasSourceChartProjection)
+        {
+            return sourceChart;
+        }
+
+        return ChartFileProjection.FromStorageOwnerListIdentity(sourceChart)
+            ?? (hasSourceChartProjection ? sourceChart : ChartFileProjection.WithWarnings(sourceChart, []));
     }
 
     private LR2SongDBExtended.chart_info ResolveChartInfoProjection()

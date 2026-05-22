@@ -8,8 +8,11 @@ internal sealed class ChartInfoHydrationLoadResult
     public Dictionary<string, LR2SongDBExtended.chart_info> ChartInfoBySha256 { get; } =
         new Dictionary<string, LR2SongDBExtended.chart_info>(System.StringComparer.OrdinalIgnoreCase);
 
-    public Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> CurrentParseFailuresByMd5 { get; } =
-        new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(System.StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> CurrentChartInfoSha256s { get; } =
+        new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
+    public HashSet<string> CurrentParseFailureMd5s { get; } =
+        new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 
     public int ChartInfoRows { get; set; }
 

@@ -4606,13 +4606,15 @@ completeFileEnumerationOnce,
         LogInstallPerformance("chart_info_hydration start reason=" + (reason ?? "unknown"));
 
         Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap;
-        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentParseFailures;
+        HashSet<string> currentChartInfoSha256s;
+        HashSet<string> currentParseFailureMd5s;
         var loadStopwatch = Stopwatch.StartNew();
         try
         {
             ChartInfoHydrationLoadResult loadResult = dbGateway.LoadChartInfoHydrationData(chartInfoBuildService.CurrentParseTimeout);
             chartInfoMap = loadResult.ChartInfoBySha256;
-            currentParseFailures = loadResult.CurrentParseFailuresByMd5;
+            currentChartInfoSha256s = loadResult.CurrentChartInfoSha256s;
+            currentParseFailureMd5s = loadResult.CurrentParseFailureMd5s;
             result.ParseFailureRows = loadResult.ParseFailureRows;
             result.ChartInfoRows = loadResult.ChartInfoRows;
             result.DbMaterializeMs = loadResult.MaterializeMs;
@@ -4651,52 +4653,28 @@ completeFileEnumerationOnce,
             + " version=" + indexUpdateResult.Version
             + " indexBuildMs=" + result.IndexBuildMs);
 
-        var applyStopwatch = Stopwatch.StartNew();
+        var ownerClassifyStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFiles.GetReaderGuard())
         {
             foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
             {
-                if (file != null)
+                if (file == null)
                 {
-                    ClassifyChartInfoHydrationOwner(result, file.sha256, file.hash, chartInfoMap, currentParseFailures);
+                    continue;
                 }
-                if (file != null && !string.IsNullOrWhiteSpace(file.sha256) && chartInfoMap.TryGetValue(file.sha256, out LR2SongDBExtended.chart_info chartInfo))
-                {
-                    if (IsSameChartInfoIdentity(file.ChartInfo, chartInfo))
-                    {
-                        result.OwnerApplySkippedCount++;
-                        continue;
-                    }
-                    if (file.SetChartInfoSilently(chartInfo))
-                    {
-                        result.AppliedBmsCount++;
-                        result.OwnerApplyUpdatedCount++;
-                        result.OwnerApplySilentCount++;
-                    }
-                }
+                ClassifyChartInfoHydrationOwner(result, file.sha256, file.hash, currentChartInfoSha256s, currentParseFailureMd5s);
             }
             foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             {
-                if (song != null)
+                if (song == null)
                 {
-                    ClassifyChartInfoHydrationOwner(result, song.sha256, song.md5, chartInfoMap, currentParseFailures);
+                    continue;
                 }
-                if (song != null && !string.IsNullOrWhiteSpace(song.sha256) && chartInfoMap.TryGetValue(song.sha256, out LR2SongDBExtended.chart_info chartInfo))
-                {
-                    if (IsSameChartInfoIdentity(song.ChartInfo, chartInfo))
-                    {
-                        result.OwnerApplySkippedCount++;
-                        continue;
-                    }
-                    song.ChartInfo = chartInfo;
-                    result.AppliedBmsonCount++;
-                    result.OwnerApplyUpdatedCount++;
-                    result.OwnerApplySilentCount++;
-                }
+                ClassifyChartInfoHydrationOwner(result, song.sha256, song.md5, currentChartInfoSha256s, currentParseFailureMd5s);
             }
         }
-        applyStopwatch.Stop();
-        result.OwnerApplyMs = applyStopwatch.ElapsedMilliseconds;
+        ownerClassifyStopwatch.Stop();
+        result.OwnerApplyMs = ownerClassifyStopwatch.ElapsedMilliseconds;
         result.ApplyMs = result.OwnerApplyMs;
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
@@ -4708,8 +4686,8 @@ completeFileEnumerationOnce,
         ChartInfoHydrationResult result,
         string sha256,
         string md5,
-        IDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentParseFailuresByMd5)
+        ISet<string> currentChartInfoSha256s,
+        ISet<string> currentParseFailureMd5s)
     {
         if (result == null)
         {
@@ -4717,26 +4695,21 @@ completeFileEnumerationOnce,
         }
         result.OwnerCount++;
         if (!string.IsNullOrWhiteSpace(sha256)
-            && chartInfoBySha256 != null
-            && chartInfoBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info chartInfo)
-            && IsCurrentChartInfo(chartInfo))
+            && currentChartInfoSha256s != null
+            && currentChartInfoSha256s.Contains(sha256))
         {
             result.CurrentChartInfoOwnerCount++;
+            result.OwnerApplySkippedCount++;
             return;
         }
         if (!string.IsNullOrWhiteSpace(md5)
-            && currentParseFailuresByMd5 != null
-            && currentParseFailuresByMd5.ContainsKey(md5))
+            && currentParseFailureMd5s != null
+            && currentParseFailureMd5s.Contains(md5))
         {
             result.CurrentParseFailureOwnerCount++;
             return;
         }
         result.BackfillCandidateOwnerCount++;
-    }
-
-    private static bool IsCurrentChartInfo(LR2SongDBExtended.chart_info chartInfo)
-    {
-        return chartInfo != null && chartInfo.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
     }
 
     internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
@@ -4758,29 +4731,6 @@ completeFileEnumerationOnce,
     private LR2SongDBExtended.chart_info ResolveChartInfoForChart(ChartFile chart)
     {
         return chart == null ? null : ResolveChartInfo(chart.Sha256, chart.Md5);
-    }
-
-    private static bool IsSameChartInfoIdentity(LR2SongDBExtended.chart_info existing, LR2SongDBExtended.chart_info incoming)
-    {
-        if (existing == null || incoming == null)
-        {
-            return false;
-        }
-        if (string.IsNullOrWhiteSpace(existing.sha256) || string.IsNullOrWhiteSpace(incoming.sha256))
-        {
-            return false;
-        }
-        if (existing.parser_version <= 0 || incoming.parser_version <= 0)
-        {
-            return false;
-        }
-        if (existing.updated_at == default || incoming.updated_at == default)
-        {
-            return false;
-        }
-        return string.Equals(existing.sha256, incoming.sha256, StringComparison.OrdinalIgnoreCase)
-            && existing.parser_version == incoming.parser_version
-            && existing.updated_at == incoming.updated_at;
     }
 
     private ChartInfoIndexUpdateResult ReplaceChartInfoIndex(IEnumerable<LR2SongDBExtended.chart_info> rows, bool hydrated)
@@ -4981,7 +4931,7 @@ completeFileEnumerationOnce,
     /// <param name="reason">ログに残す要求理由。</param>
     private void QueueChartInfoBackfill(string reason, bool processSynchronously = false, ChartInfoHydrationResult hydrationResult = null)
     {
-        if (hydrationResult != null && hydrationResult.Succeeded && hydrationResult.BackfillCandidateOwnerCount <= 0)
+        if (hydrationResult != null && hydrationResult.Succeeded && hydrationResult.OwnerCount > 0 && hydrationResult.BackfillCandidateOwnerCount <= 0)
         {
             int skippedVersion = CompleteSkippedChartInfoBackfillRequestIfIdle();
             LogInstallPerformance("chart_info_backfill skipped reason=hydration_all_current"

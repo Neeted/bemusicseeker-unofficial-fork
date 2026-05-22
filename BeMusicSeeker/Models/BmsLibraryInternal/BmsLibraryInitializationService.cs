@@ -482,14 +482,28 @@ internal sealed class BmsLibraryInitializationService
         var deletedPathSet = new HashSet<string>(result.DeletedPaths, StringComparer.OrdinalIgnoreCase);
         result.NextFiles.AddRange(currentFileList.Where(file => !deletedPathSet.Contains(file.path)));
         result.NextFiles.AddRange(result.AddedFiles);
+        var removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.OrdinalIgnoreCase);
+        foreach (string updatedPath in pipelineResult.SuccessfullyParsedBmsonPaths)
+        {
+            removedBmsonPaths.Add(updatedPath);
+        }
+        List<LR2SongDBExtended.bmson_song> nextBmsonSongs = [.. currentBmsonList.Where(song => song != null && !removedBmsonPaths.Contains(song.path))];
+        nextBmsonSongs.AddRange(result.AddedBmsonSongs);
         var directoryKeys = new HashSet<string>(result.NextDirectoryResourceLookupCache?.Keys ?? [], StringComparer.OrdinalIgnoreCase);
         var stopwatchInstlDstCleanup = Stopwatch.StartNew();
         int clearedInstallDestinationCountBefore = result.MutationDelta.UpdatedInstallDestinations.Count;
-        List<BMSFile> nextFileOwners = [.. result.NextFiles.Where(file => file != null)];
+        var nextFileOwners = new HashSet<BMSFile>(result.NextFiles.Where(file => file != null));
+        var nextFilePaths = new HashSet<string>(
+            result.NextFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        var nextBmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(nextBmsonSongs.Where(song => song != null));
+        var nextBmsonPaths = new HashSet<string>(
+            nextBmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
         IEnumerable<ChartFile> installDestinationCleanupCharts = currentInstallDestinationCharts
             ?? ChartFileProjection.FromBmsFiles(result.NextFiles, includeWarningSnapshot: false);
         foreach (ChartFile chart in installDestinationCleanupCharts
-            .Where(chart => nextFileOwners.Any(file => ReferenceEquals(file, chart?.GetBmsStorageOwner())))
+            .Where(IsCurrentChartOwner)
             .Where(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination)))
         {
             if (!directoryKeys.Contains(chart.InstallDestination))
@@ -513,15 +527,8 @@ internal sealed class BmsLibraryInitializationService
         stopwatchApply.Stop();
         result.ApplyMs = stopwatchApply.ElapsedMilliseconds;
 
-        result.NextBmsonSongs.AddRange(currentBmsonList);
-        var removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.OrdinalIgnoreCase);
-        foreach (string updatedPath in pipelineResult.SuccessfullyParsedBmsonPaths)
-        {
-            removedBmsonPaths.Add(updatedPath);
-        }
         result.NextBmsonSongs.Clear();
-        result.NextBmsonSongs.AddRange(currentBmsonList.Where(song => !removedBmsonPaths.Contains(song.path)));
-        result.NextBmsonSongs.AddRange(result.AddedBmsonSongs);
+        result.NextBmsonSongs.AddRange(nextBmsonSongs);
         logEverythingScan?.Invoke("bmson_scan totalPaths=" + scannedBmsonPaths.Count + " deleted=" + result.DeletedBmsonPaths.Count + " upserted=" + result.AddedBmsonSongs.Count);
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
@@ -537,6 +544,20 @@ internal sealed class BmsLibraryInitializationService
                 result.InlineChartInfoParseFailureRows.Clear();
                 result.InlineChartInfoParseFailureDeleteMd5s.Clear();
             }
+        }
+
+        bool IsCurrentChartOwner(ChartFile chart)
+        {
+            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                return nextFileOwners.Contains(bmsOwner)
+                    || (!string.IsNullOrWhiteSpace(chart.Path) && nextFilePaths.Contains(chart.Path));
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+            return (bmsonOwner != null && nextBmsonOwners.Contains(bmsonOwner))
+                || (!string.IsNullOrWhiteSpace(chart?.Path) && nextBmsonPaths.Contains(chart.Path));
         }
 
         logInstallPerformance?.Invoke(
