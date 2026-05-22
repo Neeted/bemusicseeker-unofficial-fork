@@ -296,6 +296,48 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void FixInstallationDirectoryCharts_BmsChartClearsInstallDestinationAfterApply()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsRepair_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Broken");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.WriteAllText(sourceChartPath, "#PLAYER 1");
+            try
+            {
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var file = new TestableBmsFile
+                {
+                    path = sourceChartPath,
+                    instl_dst = destinationDirectoryPath
+                };
+                SetLibraryFilesWithoutNotification(library, [file]);
+                ChartFile repairTarget = ChartFileProjection.FromBmsFile(file);
+
+                library.FixInstallationDirectoryCharts([repairTarget]);
+
+                Assert.AreEqual(destinationChartPath, file.path);
+                Assert.IsNull(file.instl_dst);
+                Assert.IsFalse(File.Exists(sourceChartPath));
+                Assert.IsTrue(File.Exists(destinationChartPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void FixInstallationDirectoryCharts_BmsonDuplicateRemovesRepairSourceAndKeepsInstalledRow()
     {
         TestResourceInitializer.EnsureJapaneseResources();

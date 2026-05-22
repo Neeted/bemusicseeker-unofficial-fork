@@ -997,6 +997,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(1, result.MutationDelta.ChartPathChanges.Count);
         Assert.AreSame(movedFile, result.MutationDelta.ChartPathChanges[0].GetBmsStorageOwner());
         Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bms"), result.MutationDelta.ChartPathChanges[0].NewPath);
+        Assert.AreEqual(1, result.MutationDelta.UpdatedInstallDestinations.Count);
+        Assert.AreSame(movedFile, result.MutationDelta.UpdatedInstallDestinations[0].GetBmsStorageOwner());
+        Assert.IsNull(result.MutationDelta.UpdatedInstallDestinations[0].NewInstallDestination);
         Assert.AreEqual(1, result.ChartsToRemove.Count);
         Assert.AreSame(duplicateFile, result.ChartsToRemove[0].GetBmsStorageOwner());
         Assert.AreEqual(1, result.MaintenanceCharts.Count);

@@ -75,8 +75,7 @@ internal sealed class LibraryInstallDestinationChange
     internal string GetCurrentInstallDestination()
     {
         return Entry?.Chart?.InstallDestination
-            ?? Chart?.InstallDestination
-            ?? GetBmsStorageOwner()?.instl_dst;
+            ?? Chart?.InstallDestination;
     }
 
     internal BMSFile GetBmsStorageOwner()

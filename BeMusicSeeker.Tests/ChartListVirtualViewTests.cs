@@ -289,6 +289,76 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PlayStartBmsFile_UsesChartInstallDestinationWhenTemporaryRenameChangesPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        bool originalUsePlayerLR2body = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
+        bool originalOperationModeLR2Db = BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayStart_" + Guid.NewGuid().ToString("N"));
+        string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
+        string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
+        string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+        string destinationCollisionPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+        string temporaryChartName = "chart_.bms";
+        Directory.CreateDirectory(sourceDirectoryPath);
+        Directory.CreateDirectory(destinationDirectoryPath);
+        File.WriteAllText(sourceChartPath, "#PLAYER 1");
+        File.WriteAllText(destinationCollisionPath, "#PLAYER 1");
+        try
+        {
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = false;
+            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = false;
+            var viewModel = new MainWindowViewModel();
+            string songDbPath = Path.Combine(tempRootPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            var library = new BMSLibrary(songDbPath);
+            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
+            var player = new RecordingBmsPlayer();
+            typeof(MainWindowViewModel).GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, player);
+            var file = new TestableBmsFile();
+            file.Apply(sourceChartPath, "Playable", "Source");
+            ChartFile playableChart = ChartFileProjection.FromBmsFile(file);
+            PackageChartEntry transientEntry = PackageChartEntry.FromChart(playableChart);
+            transientEntry.SetInstallDestinationPathOnly(destinationDirectoryPath);
+            typeof(MainWindowViewModel)
+                .GetMethod("UpdateSharedChartTransientStates", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(viewModel, [new[] { transientEntry.Chart }, true]);
+            var sourceRow = ChartListSourceRow.FromChartFile(playableChart);
+            var viewRow = (LibraryChartRow)typeof(MainWindowViewModel)
+                .GetMethod("CreateVirtualChartSubsetRow", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(viewModel, [sourceRow, false])!;
+            typeof(MainWindowViewModel)
+                .GetMethod("ApplyLibraryChartRowProviders", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(LibraryChartRow)], null)!
+                .Invoke(viewModel, [viewRow]);
+            viewModel.ChartRowsView = new List<object>
+            {
+                viewRow
+            };
+
+            typeof(MainWindowViewModel)
+                .GetMethod("PlayStartBmsFile", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(viewModel, [0]);
+
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, temporaryChartName), player.LastPlayedPath);
+            Assert.AreEqual(sourceChartPath, file.path);
+            Assert.IsTrue(File.Exists(sourceChartPath));
+            Assert.IsTrue(File.Exists(destinationCollisionPath));
+            Assert.IsFalse(File.Exists(Path.Combine(sourceDirectoryPath, temporaryChartName)));
+            Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, temporaryChartName)));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(file.instl_dst));
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = originalUsePlayerLR2body;
+            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = originalOperationModeLR2Db;
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ChartListSourceRow_FromChartFile_UsesProjectionChartInfoWithoutStorageRow()
     {
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(
@@ -2287,6 +2357,113 @@ public sealed class ChartListVirtualViewTests
         {
             md5 = md5Value;
             sha256 = sha256Value;
+        }
+    }
+
+    private sealed class RecordingBmsPlayer : IBMSPlayer
+    {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public string ExePath { get; set; } = string.Empty;
+
+        public IntPtr ParentHandle { private get; set; }
+
+        public TimeSpan Duration => TimeSpan.Zero;
+
+        public TimeSpan CurrentTime { get; set; }
+
+        public TimeSpan StopTime => TimeSpan.Zero;
+
+        public TimeSpan BmsDuration => TimeSpan.Zero;
+
+        public TimeSpan MusicDuration => TimeSpan.Zero;
+
+        public int CurrentVoices => 0;
+
+        public int MaxVoices => 0;
+
+        public int NoteDensity => 0;
+
+        public int NoteDensityMax => 0;
+
+        public int Bpm => 0;
+
+        public int MinBpm => 0;
+
+        public int MaxBpm => 0;
+
+        public double Total => 0.0;
+
+        public int Combo => 0;
+
+        public int Notes => 0;
+
+        public int Measure => 0;
+
+        public int LastMeasure => 0;
+
+        internal string LastPlayedPath { get; private set; } = string.Empty;
+
+        public void CloseProcess()
+        {
+        }
+
+        public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
+        {
+            LastPlayedPath = bmsFilePath;
+        }
+
+        public void RestartPlayingBMSfile()
+        {
+        }
+
+        public void PausePlayingBMSfileToggle()
+        {
+        }
+
+        public void FastForwardPlayingBMSfileStart()
+        {
+        }
+
+        public void FastForwardPlayingBMSfileEnd()
+        {
+        }
+
+        public void FastBackwardPlayingBMSfileStart()
+        {
+        }
+
+        public void FastBackwardPlayingBMSfileEnd()
+        {
+        }
+
+        public void ShowInfo()
+        {
+        }
+
+        public void ShowEffect()
+        {
+        }
+
+        public void ChangePlayside()
+        {
+        }
+
+        public void IncreaseHighSpeed()
+        {
+        }
+
+        public void DecreaseHighSpeed()
+        {
+        }
+
+        public void VolumeChanged()
+        {
+        }
+
+        internal void RaisePropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 

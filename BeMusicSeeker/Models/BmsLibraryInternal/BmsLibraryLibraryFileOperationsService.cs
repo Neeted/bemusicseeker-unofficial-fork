@@ -585,13 +585,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 Chart = entry.Chart
             };
         }
-        foreach (BMSFile file in (libraryCharts ?? [])
-            .Select(chart => chart?.GetBmsStorageOwner())
-            .Where(file => file != null && IsInstallDestinationUnderFolder(file.instl_dst, folderPath)))
+        foreach (ChartFile chart in (libraryCharts ?? [])
+            .Select(ToChartFile)
+            .Where(chart => chart != null && IsInstallDestinationUnderFolder(chart.InstallDestination, folderPath)))
         {
             yield return new LibraryInstallDestinationChange
             {
-                Chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)
+                Chart = chart
             };
         }
     }
@@ -661,12 +661,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             BMSFile movedBmsFile = movedChart?.GetBmsStorageOwner();
             if (movedBmsFile != null)
             {
-                movedBmsFile.instl_dst = null;
                 result.MutationDelta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = movedChart,
                     NewPath = movedBmsFile.path,
                     OldPath = oldPath
+                });
+                result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                {
+                    Chart = movedChart,
+                    NewInstallDestination = null
                 });
                 result.MaintenanceCharts.Add(movedChart);
             }

@@ -14912,9 +14912,11 @@ public class MainWindowViewModel : ViewModel
     {
         object row;
         BeMusicSeeker.Models.BMSFile bmsFile;
+        ChartFile playbackChart = null;
         try
         {
             row = ChartRowsView[indexChartRowsView];
+            GridRowResolver.TryGetChartFile(row, out playbackChart);
             GridRowResolver.TryGetBmsPlayerFile(row, out bmsFile);
         }
         catch
@@ -14939,9 +14941,11 @@ public class MainWindowViewModel : ViewModel
         NowPlayingBMS = bmsFile;
         SelectedIndexChartRowsView = indexChartRowsView;
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartBMSfile"));
-        if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && Directory.Exists(bmsFile.instl_dst))
+        playbackChart ??= ChartFileProjection.FromBmsFile(bmsFile);
+        string installDestination = playbackChart?.InstallDestination;
+        if (!string.IsNullOrWhiteSpace(installDestination) && Directory.Exists(installDestination))
         {
-            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => ContainsChartTarget(pkg, ChartFileProjection.FromBmsFile(bmsFile))).FirstOrDefault();
+            ChartPackage chartPackage = ChartPackagesPending.Where(pkg => ContainsChartTarget(pkg, playbackChart)).FirstOrDefault();
             if (chartPackage == null)
             {
                 if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
@@ -14953,11 +14957,11 @@ public class MainWindowViewModel : ViewModel
                         return;
                     }
                 }
-                chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(bmsFile))]);
+                chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
                 chartPackage.delete_parent = false;
             }
             string fileName = Path.GetFileName(bmsFile.path);
-            while (File.Exists(Path.Combine(bmsFile.instl_dst, Path.GetFileName(bmsFile.path))) || Directory.Exists(Path.Combine(bmsFile.instl_dst, Path.GetFileName(bmsFile.path))))
+            while (File.Exists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))) || Directory.Exists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
             {
                 string text = Path.GetFileNameWithoutExtension(bmsFile.path) + "_" + Path.GetExtension(bmsFile.path);
                 try
@@ -14989,13 +14993,13 @@ public class MainWindowViewModel : ViewModel
             }
             lock (lockCopyFile)
             {
-                if (string.IsNullOrWhiteSpace(bmsFile.instl_dst))
+                if (string.IsNullOrWhiteSpace(installDestination))
                 {
                     return;
                 }
-                using (new temporarilyCopyFiles(list, bmsFile.instl_dst, 2000))
+                using (new temporarilyCopyFiles(list, installDestination, 2000))
                 {
-                    string bmsFilePath = Path.Combine(bmsFile.instl_dst, Path.GetFileName(bmsFile.path));
+                    string bmsFilePath = Path.Combine(installDestination, Path.GetFileName(bmsFile.path));
                     bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
                     try
                     {
