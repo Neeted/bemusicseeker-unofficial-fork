@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -20,16 +21,45 @@ internal sealed class BmsLibraryDuplicateService
     }
 
     /// <summary>
+    /// Storage owner から重複判定用 snapshot を作成します。
+    /// 重複判定は path/hash/directory だけで開始できるため、全件の <see cref="ChartFile"/> 投影は行いません。
+    /// </summary>
+    /// <param name="bmsFiles">BMS storage row。</param>
+    /// <param name="bmsonSongs">bmson storage row。</param>
+    /// <returns>重複判定用 snapshot。</returns>
+    public List<DuplicateChartRow> BuildSnapshot(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        return
+        [
+            .. (bmsFiles ?? [])
+                .Select(DuplicateChartRow.CreateFromBmsFile)
+                .Where(row => row != null),
+            .. (bmsonSongs ?? [])
+                .Select(DuplicateChartRow.CreateFromBmsonSong)
+                .Where(row => row != null),
+        ];
+    }
+
+    /// <summary>
     /// BMS storage row に残っている重複 warning だけを消します。
     /// bmson duplicate warning は duplicate group の <see cref="ChartFile"/> projection にだけ持つため、ここでは永続状態を消しません。
     /// </summary>
     /// <param name="charts">重複判定対象の chart。</param>
     public void ClearDuplicateState(IEnumerable<ChartFile> charts)
     {
-        foreach (BMSFile file in (charts ?? [])
-            .Select(chart => chart?.GetBmsStorageOwner())
-            .Where(file => file != null)
-            .Distinct())
+        ClearDuplicateState((charts ?? [])
+            .Select(chart => chart?.GetBmsStorageOwner()));
+    }
+
+    /// <summary>
+    /// BMS storage row に残っている重複 warning だけを消します。
+    /// </summary>
+    /// <param name="bmsFiles">重複判定対象の BMS storage row。</param>
+    public void ClearDuplicateState(IEnumerable<BMSFile> bmsFiles)
+    {
+        foreach (BMSFile file in (bmsFiles ?? []).Where(file => file != null).Distinct())
         {
             file.ClearWarning(ChartWarningKind.DuplicateChart);
         }
@@ -62,7 +92,7 @@ internal sealed class BmsLibraryDuplicateService
     public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot, string duplicateWarningMessage)
     {
         var result = new DuplicateAnalysisResult();
-        List<DuplicateChartRow> snapshotRows = [.. (snapshot ?? []).Where(row => row != null && row.Chart != null && !string.IsNullOrWhiteSpace(row.LookupHash))];
+        List<DuplicateChartRow> snapshotRows = [.. (snapshot ?? []).Where(row => row != null && row.HasChartSource && !string.IsNullOrWhiteSpace(row.LookupHash))];
         List<IGrouping<string, DuplicateChartRow>> duplicateHashGroups = [.. snapshotRows
             .GroupBy(row => row.LookupHash, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)];
@@ -72,10 +102,6 @@ internal sealed class BmsLibraryDuplicateService
             foreach (DuplicateChartRow item in duplicateHashGroup)
             {
                 duplicateRows.Add(item);
-                if (item.Chart != null)
-                {
-                    result.DuplicateCharts.Add(item.Chart);
-                }
             }
         }
 
@@ -165,9 +191,22 @@ internal sealed class BmsLibraryDuplicateService
             }
             if (groupRows.Count > 0)
             {
-                List<ChartFile> groupCharts = [.. groupRows
-                    .Select(row => duplicateRows.Contains(row) ? ApplyDuplicateWarning(row.Chart, duplicateWarningMessage) : row.Chart)
-                    .Where(chart => chart != null)];
+                List<ChartFile> groupCharts = [];
+                foreach (DuplicateChartRow row in groupRows)
+                {
+                    ChartFile chart = row.CreateChart();
+                    if (chart == null)
+                    {
+                        continue;
+                    }
+                    result.MaterializedChartCount++;
+                    if (duplicateRows.Contains(row))
+                    {
+                        chart = ApplyDuplicateWarning(chart, duplicateWarningMessage);
+                        result.DuplicateCharts.Add(chart);
+                    }
+                    groupCharts.Add(chart);
+                }
                 result.DuplicateGroups.Add(new DuplicateGroup(groupCharts, [.. dirs]));
             }
         }

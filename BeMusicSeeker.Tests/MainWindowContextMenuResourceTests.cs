@@ -1684,11 +1684,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "resource_health_index_deferred reason=setMaintenanceInfo");
         StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
         StringAssert.Contains(duplicateSearchMethod, "bmsSnapshotMs=");
-        StringAssert.Contains(duplicateSearchMethod, "installedChartSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");
         StringAssert.Contains(duplicateSearchMethod, "duplicateRowSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "analyzeMs=");
         StringAssert.Contains(duplicateSearchMethod, "applyWarningsMs=");
+        StringAssert.Contains(duplicateSearchMethod, "materializedChartCount=");
     }
 
     [TestMethod]

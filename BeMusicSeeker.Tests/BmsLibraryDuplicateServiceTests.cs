@@ -142,6 +142,35 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
+    public void Analyze_StorageOwnerSnapshotMaterializesOnlyGroupedRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryDuplicateService();
+        BMSFile duplicateBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
+        BMSFile uniqueSibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirA", "unique.bms"));
+        BMSFile unrelated = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\BMS", "DirC", "c.bms"));
+        var duplicateBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\BMS", "DirB", "b.bmson"),
+            title = "bmson duplicate",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        };
+
+        List<DuplicateChartRow> snapshot = service.BuildSnapshot([duplicateBms, uniqueSibling, unrelated], [duplicateBmson]);
+        DuplicateAnalysisResult result = service.Analyze(snapshot, Resources.Warning_DuplicateBmsFile);
+
+        Assert.AreEqual(3, snapshot.Count(row => row.Chart != null));
+        Assert.AreEqual(4, snapshot.Count);
+        Assert.AreEqual(3, result.MaterializedChartCount);
+        Assert.AreEqual(1, result.DuplicateGroups.Count);
+        Assert.AreEqual(2, result.DuplicateCharts.Count);
+        Assert.IsTrue(result.DuplicateCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), duplicateBms)));
+        Assert.IsFalse(result.DuplicateCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), uniqueSibling)));
+        Assert.IsFalse(result.DuplicateGroups[0].ChartFiles.Any(chart => string.Equals(chart.Path, unrelated.path, System.StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(result.DuplicateGroups[0].ChartFiles.Single(chart => chart.Kind == ChartFileKind.Bmson).Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
+    }
+
+    [TestMethod]
     public void BuildSnapshot_SkipsBmsonRowsWithoutPath()
     {
         var service = new BmsLibraryDuplicateService();

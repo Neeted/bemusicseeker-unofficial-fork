@@ -7832,13 +7832,10 @@ reportProgress,
                     List<LR2SongDBExtended.bmson_song> bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
                     long bmsonSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    List<ChartFile> installedChartSnapshot = CreateInstalledChartSnapshot(bmsSnapshot, bmsonSnapshot, includeResourceReferences: false);
-                    long installedChartSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
-                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    duplicateService.ClearDuplicateState(installedChartSnapshot);
+                    duplicateService.ClearDuplicateState(bmsSnapshot);
                     long clearDuplicateStateMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(installedChartSnapshot);
+                    List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(bmsSnapshot, bmsonSnapshot);
                     long duplicateRowSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot, DuplicateWarningMessage);
@@ -7854,14 +7851,14 @@ reportProgress,
                         + " totalMs=" + totalStopwatch.ElapsedMilliseconds
                         + " bmsSnapshotMs=" + bmsSnapshotMs
                         + " bmsonSnapshotMs=" + bmsonSnapshotMs
-                        + " installedChartSnapshotMs=" + installedChartSnapshotMs
                         + " clearDuplicateStateMs=" + clearDuplicateStateMs
                         + " duplicateRowSnapshotMs=" + duplicateRowSnapshotMs
                         + " analyzeMs=" + analyzeMs
                         + " applyWarningsMs=" + applyWarningsMs
                         + " propertySetMs=" + propertySetMs
-                        + " chartCount=" + installedChartSnapshot.Count
+                        + " chartCount=" + (bmsSnapshot.Count + bmsonSnapshot.Count)
                         + " rowCount=" + snapshot.Count
+                        + " materializedChartCount=" + analysis.MaterializedChartCount
                         + " duplicateChartCount=" + analysis.DuplicateCharts.Count
                         + " Groups=" + analysis.DuplicateGroups.Count);
                 }

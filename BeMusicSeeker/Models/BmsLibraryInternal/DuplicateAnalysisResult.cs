@@ -11,4 +11,6 @@ internal sealed class DuplicateAnalysisResult
     public HashSet<ChartFile> DuplicateCharts { get; } = [];
 
     public List<DuplicateGroup> DuplicateGroups { get; } = [];
+
+    public int MaterializedChartCount { get; set; }
 }
