@@ -1673,6 +1673,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void DuplicateMergeMaintenanceDefersResourceHealthIndexRebuildAndLogsDuplicateSearchStages()
+    {
+        string root = FindRepositoryRoot();
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string mergeMethod = ExtractMethodBody(libraryCode, "public void MergeChartDirectory(string src, string dst)");
+        string duplicateSearchMethod = ExtractMethodBody(libraryCode, "public void SearchDuplicateChartGroups()");
+
+        StringAssert.Contains(libraryCode, "DeferOnUpdates");
+        StringAssert.Contains(libraryCode, "resource_health_index_deferred reason=setMaintenanceInfo");
+        StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
+        StringAssert.Contains(duplicateSearchMethod, "bmsSnapshotMs=");
+        StringAssert.Contains(duplicateSearchMethod, "installedChartSnapshotMs=");
+        StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");
+        StringAssert.Contains(duplicateSearchMethod, "duplicateRowSnapshotMs=");
+        StringAssert.Contains(duplicateSearchMethod, "analyzeMs=");
+        StringAssert.Contains(duplicateSearchMethod, "applyWarningsMs=");
+    }
+
+    [TestMethod]
     public void EmptyDbStartupOptimizationDocs_DocumentFileDiffPipeline()
     {
         string root = FindRepositoryRoot();

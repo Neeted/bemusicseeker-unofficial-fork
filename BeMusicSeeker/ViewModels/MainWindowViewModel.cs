@@ -8546,6 +8546,10 @@ public class MainWindowViewModel : ViewModel
             && !isPlaylistDetailView;
         if (!fullNormalLibraryView)
         {
+            if (IsDuplicateSubsetDisplayRefreshEnough(currentMode, keywordFilter, modeFilter, isPlaylistDetailView, sortDependency, dependency))
+            {
+                return new MainViewRefreshDecision(MainViewRefreshAction.RefreshDisplay, dependency, sortDependency, reason, "duplicate_subset_dependency_update_does_not_affect_current_sort_or_filter");
+            }
             return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "not_full_normal_library");
         }
         if (IsMainViewDisplayRefreshEnough(sortDependency, dependency))
@@ -8553,6 +8557,25 @@ public class MainWindowViewModel : ViewModel
             return new MainViewRefreshDecision(MainViewRefreshAction.RefreshDisplay, dependency, sortDependency, reason, "dependency_update_does_not_affect_current_sort_or_filter");
         }
         return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "dependency_affects_current_view");
+    }
+
+    private static bool IsDuplicateSubsetDisplayRefreshEnough(
+        viewUpdateMode currentMode,
+        string keywordFilter,
+        ModeFilterType modeFilter,
+        bool isPlaylistDetailView,
+        MainViewDataDependency sortDependency,
+        MainViewDataDependency changedDependency)
+    {
+        if (currentMode != viewUpdateMode.DuplicateFilterSelected
+            || isPlaylistDetailView
+            || !string.IsNullOrWhiteSpace(keywordFilter)
+            || modeFilter != ModeFilterType.All)
+        {
+            return false;
+        }
+
+        return IsMainViewDisplayRefreshEnough(sortDependency, changedDependency);
     }
 
     private static bool IsMainViewDisplayRefreshEnough(MainViewDataDependency sortDependency, MainViewDataDependency changedDependency)

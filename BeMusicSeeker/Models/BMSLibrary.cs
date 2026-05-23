@@ -7317,7 +7317,8 @@ reportProgress,
     private enum ResourceHealthIndexUpdateMode
     {
         FullOnUpdates,
-        DeltaOnUpdates
+        DeltaOnUpdates,
+        DeferOnUpdates
     }
 
     private bool TryApplyResourceHealthIndexDeltaLocked(
@@ -7455,9 +7456,20 @@ reportProgress,
         }
         bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
         bool resourceHealthDeltaApplied = false;
-        if (rebuildResourceHealthIndex
+        bool resourceHealthIndexDeferred = false;
+        ResourceHealthIndexSnapshot resourceHealthSnapshot;
+        if (rebuildResourceHealthIndex && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeferOnUpdates)
+        {
+            resourceHealthIndexDeferred = true;
+            resourceHealthSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            LogInstallPerformance("resource_health_index_deferred reason=setMaintenanceInfo"
+                + " targetCount=" + resourceHealthSnapshot.TargetCount
+                + " updateTargets=" + maintenanceTargetCharts.Count
+                + " invalidated=" + Volatile.Read(ref resourceHealthIndexInvalidated).ToString().ToLowerInvariant());
+        }
+        else if (rebuildResourceHealthIndex
             && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
-            && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", maintenanceTargetCharts, null, out ResourceHealthIndexSnapshot resourceHealthSnapshot))
+            && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", maintenanceTargetCharts, null, out resourceHealthSnapshot))
         {
             resourceHealthDeltaApplied = true;
         }
@@ -7467,7 +7479,7 @@ reportProgress,
                 ? RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo")
                 : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
         }
-        workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex ? resourceHealthSnapshot.BuildMs : 0L;
+        workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex && !resourceHealthIndexDeferred ? resourceHealthSnapshot.BuildMs : 0L;
         workflowResult.WarningReapplyTargets = 0;
         workflowResult.WarningChangedCount = 0;
         if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0 || resourceHealthSnapshot.TargetCount > 0)
@@ -7496,7 +7508,7 @@ reportProgress,
                 + " bmsonResourceRefsReused=" + workflowResult.BmsonResourceReferenceReusedCount
                 + " songReloaded=" + workflowResult.ReloadedSongCount
                 + " resourceHealthIndexMs=" + workflowResult.ResourceHealthIndexMs
-                + " resourceHealthIndexMode=" + (resourceHealthDeltaApplied ? "delta" : (rebuildResourceHealthIndex ? "full" : "current"))
+                + " resourceHealthIndexMode=" + (resourceHealthIndexDeferred ? "deferred" : (resourceHealthDeltaApplied ? "delta" : (rebuildResourceHealthIndex ? "full" : "current")))
                 + " warningReapplyTargets=" + workflowResult.WarningReapplyTargets
                 + " warningChanged=" + workflowResult.WarningChangedCount
                 + " canceled=" + workflowResult.Canceled.ToString().ToLowerInvariant()
@@ -7800,6 +7812,7 @@ reportProgress,
     /// </summary>
     public void SearchDuplicateChartGroups()
     {
+        var totalStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockDuplicateChartGroups.GetWriterGuard())
@@ -7808,19 +7821,49 @@ reportProgress,
                 {
                     if (DuplicateChartGroups != null)
                     {
+                        LogInstallPerformance("SearchDuplicateChartGroups: cacheHit=true totalMs=" + totalStopwatch.ElapsedMilliseconds
+                            + " Groups=" + DuplicateChartGroups.Count);
                         return;
                     }
+                    long stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     List<BMSFile> bmsSnapshot = [.. BMSFiles.Where(f => f != null)];
+                    long bmsSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     List<LR2SongDBExtended.bmson_song> bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
+                    long bmsonSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     List<ChartFile> installedChartSnapshot = CreateInstalledChartSnapshot(bmsSnapshot, bmsonSnapshot, includeResourceReferences: false);
+                    long installedChartSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     duplicateService.ClearDuplicateState(installedChartSnapshot);
+                    long clearDuplicateStateMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(installedChartSnapshot);
-                    var swNew = System.Diagnostics.Stopwatch.StartNew();
+                    long duplicateRowSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot, DuplicateWarningMessage);
+                    long analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     duplicateService.ApplyDuplicateWarnings(analysis.DuplicateCharts, DuplicateWarningMessage);
+                    long applyWarningsMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateChartGroups = analysis.DuplicateGroups;
-                    swNew.Stop();
-                    LogInstallPerformance($"SearchDuplicateChartGroups: NewAlgo={swNew.ElapsedMilliseconds}ms, Groups={analysis.DuplicateGroups.Count}");
+                    long propertySetMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    totalStopwatch.Stop();
+                    LogInstallPerformance("SearchDuplicateChartGroups: cacheHit=false"
+                        + " totalMs=" + totalStopwatch.ElapsedMilliseconds
+                        + " bmsSnapshotMs=" + bmsSnapshotMs
+                        + " bmsonSnapshotMs=" + bmsonSnapshotMs
+                        + " installedChartSnapshotMs=" + installedChartSnapshotMs
+                        + " clearDuplicateStateMs=" + clearDuplicateStateMs
+                        + " duplicateRowSnapshotMs=" + duplicateRowSnapshotMs
+                        + " analyzeMs=" + analyzeMs
+                        + " applyWarningsMs=" + applyWarningsMs
+                        + " propertySetMs=" + propertySetMs
+                        + " chartCount=" + installedChartSnapshot.Count
+                        + " rowCount=" + snapshot.Count
+                        + " duplicateChartCount=" + analysis.DuplicateCharts.Count
+                        + " Groups=" + analysis.DuplicateGroups.Count);
                 }
             }
         }
@@ -10757,7 +10800,14 @@ reportProgress,
                         .. movedBmsFiles,
                         .. BMSFiles.Where(f => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)),
                     ];
-                    setMaintenanceInfo(CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceBmsonSongs), forceUpdate: true);
+                    // NOTE:
+                    // Merge finalizes BMSFiles/BmsonSongs after maintenance. Building the full warning index here
+                    // would immediately be invalidated by that final library replacement, so defer it to the next view
+                    // that actually needs the resource-health projection.
+                    setMaintenanceInfo(
+                        CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceBmsonSongs),
+                        forceUpdate: true,
+                        resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates);
                     var repackageBmsPathSet = new HashSet<string>(movedBmsFiles.Select(ff => ff.path), StringComparer.OrdinalIgnoreCase);
                     BMSFiles = [.. BMSFiles.Where(f => !repackageBmsPathSet.Contains(f.path)), .. movedBmsFiles];
                     if (movedBmsonSongs.Count > 0)

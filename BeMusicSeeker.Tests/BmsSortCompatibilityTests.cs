@@ -557,6 +557,64 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_UsesDisplayRefreshForDuplicateSubsetWhenMembershipIsUnaffected()
+    {
+        MainViewRefreshDecision warningDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.Folder),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Warning,
+            reason: "chart_files_need_resource_fix_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, warningDecision.Action);
+        Assert.AreEqual("duplicate_subset_dependency_update_does_not_affect_current_sort_or_filter", warningDecision.Detail);
+
+        MainViewRefreshDecision warningSortDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.WarningDigestText),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Warning,
+            reason: "chart_files_need_resource_fix_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, warningSortDecision.Action);
+        Assert.AreEqual("not_full_normal_library", warningSortDecision.Detail);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesDuplicateSubsetWhenFiltersCanDependOnChangedData()
+    {
+        MainViewRefreshDecision keywordDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: "warning",
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.Folder),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.Warning,
+            reason: "chart_files_need_resource_fix_changed");
+        MainViewRefreshDecision membershipDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.Folder),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.SourceMembership,
+            reason: "bms_files_duplicated_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.Refresh, keywordDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, membershipDecision.Action);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_RefreshesForUnknownChangedDependency()
     {
         MainViewRefreshDecision decision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
