@@ -10720,6 +10720,11 @@ reportProgress,
     /// </summary>
     public void MergeChartDirectory(string src, string dst)
     {
+        MergeChartDirectory(src, dst, operationId: 0);
+    }
+
+    internal void MergeChartDirectory(string src, string dst, long operationId)
+    {
         if (src == null)
         {
             throw new ArgumentNullException("src");
@@ -10728,98 +10733,171 @@ reportProgress,
         {
             throw new ArgumentNullException("dst");
         }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        var totalStopwatch = Stopwatch.StartNew();
+        LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + src + " dst=" + dst);
+        try
         {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
+            var initializedLockWaitStopwatch = Stopwatch.StartNew();
+            using (rwlockBMSFilesInitializedMin.GetReaderGuard())
             {
-                using (rwlockBMSFiles.GetWriterGuard())
+                LogInstallPerformance("duplicate_merge_model initialized_lock_acquired op=" + operationId + " waitMs=" + initializedLockWaitStopwatch.ElapsedMilliseconds);
+                var pendingLockWaitStopwatch = Stopwatch.StartNew();
+                using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
-                    LibraryMergeResult mergeResult = libraryFileOperationsService.PrepareMergeDirectory(
-                        src,
-                        dst,
-                        CreateLibraryChartRefSnapshotUnsafe(),
-                        ChartPackagesPending,
-                        ChartPackagesInstalled,
-                        CreateInstalledChartKeySnapshotExcludingChartsUnsafe);
-                    if (!mergeResult.Success)
+                    LogInstallPerformance("duplicate_merge_model pending_lock_acquired op=" + operationId + " waitMs=" + pendingLockWaitStopwatch.ElapsedMilliseconds);
+                    var bmsLockWaitStopwatch = Stopwatch.StartNew();
+                    using (rwlockBMSFiles.GetWriterGuard())
                     {
-                        return;
-                    }
-                    List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceCharts
+                        LogInstallPerformance("duplicate_merge_model bms_lock_acquired op=" + operationId + " waitMs=" + bmsLockWaitStopwatch.ElapsedMilliseconds);
+                        var prepareStopwatch = Stopwatch.StartNew();
+                        LibraryMergeResult mergeResult = libraryFileOperationsService.PrepareMergeDirectory(
+                            src,
+                            dst,
+                            CreateLibraryChartRefSnapshotUnsafe(),
+                            ChartPackagesPending,
+                            ChartPackagesInstalled,
+                            CreateInstalledChartKeySnapshotExcludingChartsUnsafe);
+                        int repackageEntryCount = mergeResult.Repackage?.ChartEntries?.Count ?? 0;
+                        LogInstallPerformance("duplicate_merge_model prepare_done op=" + operationId
+                            + " success=" + mergeResult.Success
+                            + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds
+                            + " sourceCharts=" + mergeResult.SourceCharts.Count
+                            + " repackageEntries=" + repackageEntryCount
+                            + " existingHashes=" + (mergeResult.ExistingHashes?.Count ?? 0)
+                            + " installDestinations=" + mergeResult.ReferenceMutationDelta.UpdatedInstallDestinations.Count
+                            + " installedPackagePaths=" + mergeResult.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count);
+                        if (!mergeResult.Success)
+                        {
+                            LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                            return;
+                        }
+                        var sourceSnapshotStopwatch = Stopwatch.StartNew();
+                        List<BMSFile> sourceBmsFiles = [.. mergeResult.SourceCharts
                         .Select(chart => chart?.GetBmsStorageOwner())
                         .Where(ChartFileKindResolver.IsBmsChartFile)];
-                    List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceCharts
+                        List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. mergeResult.SourceCharts
                         .Select(chart => chart?.GetBmsonStorageOwner())
                         .Where(song => song != null)
                         .Distinct()];
-                    unregisterBMSFiles(sourceBmsFiles);
-                    unregisterBmsonSongs(sourceBmsonSongs);
-                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-                    foreach (string item in (directoryResourceLookupCache?.Keys ?? []).Where(f => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
-                    {
-                        reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.RemoveDirWithResult(item));
-                    }
-                    if (!MoveChartPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
-                    {
-                        dialogService.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        return;
-                    }
-                    ChartScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots([dst]);
-                    foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
-                    {
-                        reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));
-                    }
-                    LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
-                    ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
-                    List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
-                    List<BMSFile> movedBmsFiles = [.. movedPackageEntries
+                        LogInstallPerformance("duplicate_merge_model source_snapshot_done op=" + operationId
+                            + " elapsedMs=" + sourceSnapshotStopwatch.ElapsedMilliseconds
+                            + " bms=" + sourceBmsFiles.Count
+                            + " bmson=" + sourceBmsonSongs.Count);
+                        var unregisterBmsStopwatch = Stopwatch.StartNew();
+                        unregisterBMSFiles(sourceBmsFiles);
+                        LogInstallPerformance("duplicate_merge_model unregister_bms_done op=" + operationId + " elapsedMs=" + unregisterBmsStopwatch.ElapsedMilliseconds + " count=" + sourceBmsFiles.Count);
+                        var unregisterBmsonStopwatch = Stopwatch.StartNew();
+                        unregisterBmsonSongs(sourceBmsonSongs);
+                        LogInstallPerformance("duplicate_merge_model unregister_bmson_done op=" + operationId + " elapsedMs=" + unregisterBmsonStopwatch.ElapsedMilliseconds + " count=" + sourceBmsonSongs.Count);
+                        var reverseLookupRemoveStopwatch = Stopwatch.StartNew();
+                        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+                        List<string> reverseLookupRemovedDirs = [.. (directoryResourceLookupCache?.Keys ?? []).Where(f => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
+                        foreach (string item in reverseLookupRemovedDirs)
+                        {
+                            reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.RemoveDirWithResult(item));
+                        }
+                        LogInstallPerformance("duplicate_merge_model reverse_lookup_remove_done op=" + operationId + " elapsedMs=" + reverseLookupRemoveStopwatch.ElapsedMilliseconds + " dirs=" + reverseLookupRemovedDirs.Count);
+                        var moveStopwatch = Stopwatch.StartNew();
+                        LogInstallPerformance("duplicate_merge_model move_files_start op=" + operationId + " entries=" + repackageEntryCount + " src=" + src + " dst=" + dst);
+                        if (!MoveChartPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
+                        {
+                            LogInstallPerformance("duplicate_merge_model move_files_failed op=" + operationId + " elapsedMs=" + moveStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                            dialogService.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            return;
+                        }
+                        LogInstallPerformance("duplicate_merge_model move_files_done op=" + operationId + " elapsedMs=" + moveStopwatch.ElapsedMilliseconds);
+                        var scanStopwatch = Stopwatch.StartNew();
+                        ChartScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots([dst]);
+                        LogInstallPerformance("duplicate_merge_model dst_scan_done op=" + operationId + " elapsedMs=" + scanStopwatch.ElapsedMilliseconds + " chartDirs=" + mergedDirectoryScan.ChartDirectories.Count);
+                        var reverseLookupAddStopwatch = Stopwatch.StartNew();
+                        foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
+                        {
+                            reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));
+                        }
+                        LogInstallPerformance("duplicate_merge_model reverse_lookup_add_done op=" + operationId + " elapsedMs=" + reverseLookupAddStopwatch.ElapsedMilliseconds + " dirs=" + mergedDirectoryScan.ChartDirectories.Count);
+                        LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
+                        var applyDeltaStopwatch = Stopwatch.StartNew();
+                        ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
+                        LogInstallPerformance("duplicate_merge_model apply_delta_done op=" + operationId
+                            + " elapsedMs=" + applyDeltaStopwatch.ElapsedMilliseconds
+                            + " installDestinations=" + mergeResult.ReferenceMutationDelta.UpdatedInstallDestinations.Count
+                            + " installedPackagePaths=" + mergeResult.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count);
+                        var movedSnapshotStopwatch = Stopwatch.StartNew();
+                        List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
+                        List<BMSFile> movedBmsFiles = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.GetBmsStorageOwner())
                         .Where(ChartFileKindResolver.IsBmsChartFile)];
-                    List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
+                        List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.GetBmsonStorageOwner())
                         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
-                    dbGateway.UpsertSongs(movedBmsFiles);
-                    if (movedBmsonSongs.Count > 0)
-                    {
-                        dbGateway.UpsertBmsonSongs(movedBmsonSongs);
-                    }
-                    List<LR2SongDBExtended.bmson_song> destinationBmsonMaintenanceSongs = [.. (BmsonSongs ?? [])
+                        LogInstallPerformance("duplicate_merge_model moved_snapshot_done op=" + operationId
+                            + " elapsedMs=" + movedSnapshotStopwatch.ElapsedMilliseconds
+                            + " bms=" + movedBmsFiles.Count
+                            + " bmson=" + movedBmsonSongs.Count);
+                        var dbStopwatch = Stopwatch.StartNew();
+                        dbGateway.UpsertSongs(movedBmsFiles);
+                        if (movedBmsonSongs.Count > 0)
+                        {
+                            dbGateway.UpsertBmsonSongs(movedBmsonSongs);
+                        }
+                        LogInstallPerformance("duplicate_merge_model db_upsert_done op=" + operationId + " elapsedMs=" + dbStopwatch.ElapsedMilliseconds + " bms=" + movedBmsFiles.Count + " bmson=" + movedBmsonSongs.Count);
+                        var maintenanceTargetStopwatch = Stopwatch.StartNew();
+                        List<LR2SongDBExtended.bmson_song> destinationBmsonMaintenanceSongs = [.. (BmsonSongs ?? [])
                         .Where(song => song != null
                             && !string.IsNullOrWhiteSpace(song.path)
                             && song.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
-                    List<LR2SongDBExtended.bmson_song> maintenanceBmsonSongs = [.. movedBmsonSongs
+                        List<LR2SongDBExtended.bmson_song> maintenanceBmsonSongs = [.. movedBmsonSongs
                         .Concat(destinationBmsonMaintenanceSongs)
                         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
                         .GroupBy(song => song.path, StringComparer.OrdinalIgnoreCase)
                         .Select(group => group.First())];
-                    List<BMSFile> maintenanceTargets =
-                    [
-                        .. movedBmsFiles,
+                        List<BMSFile> maintenanceTargets =
+                        [
+                            .. movedBmsFiles,
                         .. BMSFiles.Where(f => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)),
                     ];
-                    // NOTE:
-                    // Merge finalizes BMSFiles/BmsonSongs after maintenance. Building the full warning index here
-                    // would immediately be invalidated by that final library replacement, so defer it to the next view
-                    // that actually needs the resource-health projection.
-                    setMaintenanceInfo(
-                        CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceBmsonSongs),
-                        forceUpdate: true,
-                        resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates);
-                    var repackageBmsPathSet = new HashSet<string>(movedBmsFiles.Select(ff => ff.path), StringComparer.OrdinalIgnoreCase);
-                    BMSFiles = [.. BMSFiles.Where(f => !repackageBmsPathSet.Contains(f.path)), .. movedBmsFiles];
-                    if (movedBmsonSongs.Count > 0)
-                    {
-                        var nextBmsonByPath = (BmsonSongs ?? [])
-                            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                            .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
-                        foreach (LR2SongDBExtended.bmson_song movedBmsonSong in movedBmsonSongs)
+                        LogInstallPerformance("duplicate_merge_model maintenance_targets_done op=" + operationId
+                            + " elapsedMs=" + maintenanceTargetStopwatch.ElapsedMilliseconds
+                            + " bms=" + maintenanceTargets.Count
+                            + " bmson=" + maintenanceBmsonSongs.Count
+                            + " destinationBmson=" + destinationBmsonMaintenanceSongs.Count);
+                        // NOTE:
+                        // Merge finalizes BMSFiles/BmsonSongs after maintenance. Building the full warning index here
+                        // would immediately be invalidated by that final library replacement, so defer it to the next view
+                        // that actually needs the resource-health projection.
+                        var maintenanceStopwatch = Stopwatch.StartNew();
+                        setMaintenanceInfo(
+                            CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceBmsonSongs),
+                            forceUpdate: true,
+                            resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates);
+                        LogInstallPerformance("duplicate_merge_model maintenance_done op=" + operationId + " elapsedMs=" + maintenanceStopwatch.ElapsedMilliseconds);
+                        var replaceStopwatch = Stopwatch.StartNew();
+                        var repackageBmsPathSet = new HashSet<string>(movedBmsFiles.Select(ff => ff.path), StringComparer.OrdinalIgnoreCase);
+                        BMSFiles = [.. BMSFiles.Where(f => !repackageBmsPathSet.Contains(f.path)), .. movedBmsFiles];
+                        if (movedBmsonSongs.Count > 0)
                         {
-                            nextBmsonByPath[movedBmsonSong.path] = movedBmsonSong;
+                            var nextBmsonByPath = (BmsonSongs ?? [])
+                                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                                .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
+                            foreach (LR2SongDBExtended.bmson_song movedBmsonSong in movedBmsonSongs)
+                            {
+                                nextBmsonByPath[movedBmsonSong.path] = movedBmsonSong;
+                            }
+                            BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
                         }
-                        BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
+                        LogInstallPerformance("duplicate_merge_model replace_library_done op=" + operationId
+                            + " elapsedMs=" + replaceStopwatch.ElapsedMilliseconds
+                            + " movedBms=" + movedBmsFiles.Count
+                            + " movedBmson=" + movedBmsonSongs.Count
+                            + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     }
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformanceWarn("duplicate_merge_model failed op=" + operationId + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds + " exception=" + ex.GetType().Name);
+            throw;
         }
     }
 

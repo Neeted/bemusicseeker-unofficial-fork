@@ -4181,6 +4181,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
+        long operationId = Stopwatch.GetTimestamp();
+        var okToTaskStopwatch = Stopwatch.StartNew();
+        var totalStopwatch = Stopwatch.StartNew();
+        LogDuplicateMergePerformance("duplicate_merge_ui confirmed op=" + operationId + " src=" + srcPath + " dst=" + dstPath);
+
         // マージ後に自動選択するグループのHeaderをキャッシュ
         _pendingDuplicateGroupHeader = null;
         if (duplicateGroup != null && viewModel.DuplicateChartGroups != null)
@@ -4207,7 +4212,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         Task.Run(delegate
         {
-            viewModel.MergeChartDirectory(srcPath, dstPath);
+            LogDuplicateMergePerformance("duplicate_merge_task start op=" + operationId + " okToTaskStartMs=" + okToTaskStopwatch.ElapsedMilliseconds + " src=" + srcPath + " dst=" + dstPath);
+            var taskStopwatch = Stopwatch.StartNew();
+            viewModel.MergeChartDirectory(srcPath, dstPath, operationId);
+            LogDuplicateMergePerformance("duplicate_merge_task viewModel_done op=" + operationId + " taskMs=" + taskStopwatch.ElapsedMilliseconds + " totalSinceOkMs=" + totalStopwatch.ElapsedMilliseconds);
 
             // マージ完了ログ（将来のステータスバー通知に備える）
             NLogWrapper.FileLogger?.Info(string.Format(
@@ -4215,6 +4223,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         }).ContinueWith(t =>
         {
+            LogDuplicateMergePerformance("duplicate_merge_ui continuation op=" + operationId + " faulted=" + (t.Exception != null) + " totalSinceOkMs=" + totalStopwatch.ElapsedMilliseconds);
             if (t.Exception != null)
             {
                 return;
@@ -4222,6 +4231,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             // マージ後にDuplicateChartGroupsの更新を待ってからツリーで自動選択を試みる
             WaitForDuplicateListUpdateAndSelect(_pendingDuplicateGroupHeader, viewModel);
         }, TaskScheduler.FromCurrentSynchronizationContext()).Logging("ExecuteDuplicateFolderMerge");
+    }
+
+    private static void LogDuplicateMergePerformance(string message)
+    {
+        if (CommandLineSwitches.IsInfoLoggingEnabled)
+        {
+            LogManager.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
+        }
     }
 
     /// <summary>

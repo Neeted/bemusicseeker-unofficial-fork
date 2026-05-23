@@ -1677,7 +1677,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
-        string mergeMethod = ExtractMethodBody(libraryCode, "public void MergeChartDirectory(string src, string dst)");
+        string mergeMethod = ExtractMethodBody(libraryCode, "internal void MergeChartDirectory(string src, string dst, long operationId)");
         string duplicateSearchMethod = ExtractMethodBody(libraryCode, "public void SearchDuplicateChartGroups()");
 
         StringAssert.Contains(libraryCode, "DeferOnUpdates");

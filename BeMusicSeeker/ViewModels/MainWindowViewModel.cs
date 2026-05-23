@@ -21320,10 +21320,31 @@ public class MainWindowViewModel : ViewModel
 
     public void MergeChartDirectory(string src, string dst)
     {
+        MergeChartDirectory(src, dst, operationId: 0);
+    }
+
+    internal void MergeChartDirectory(string src, string dst, long operationId)
+    {
+        var totalStopwatch = Stopwatch.StartNew();
+        LogDuplicateMergePerformance("duplicate_merge_vm enter op=" + operationId + " src=" + src + " dst=" + dst);
+        var lockWaitStopwatch = Stopwatch.StartNew();
         lock (lockCopyFile)
         {
+            LogDuplicateMergePerformance("duplicate_merge_vm lock_acquired op=" + operationId + " waitMs=" + lockWaitStopwatch.ElapsedMilliseconds);
+            var playEndStopwatch = Stopwatch.StartNew();
             PlayEndBMSFile(closeProcess: true);
-            files.MergeChartDirectory(src, dst);
+            LogDuplicateMergePerformance("duplicate_merge_vm play_end_done op=" + operationId + " elapsedMs=" + playEndStopwatch.ElapsedMilliseconds);
+            var modelStopwatch = Stopwatch.StartNew();
+            files.MergeChartDirectory(src, dst, operationId);
+            LogDuplicateMergePerformance("duplicate_merge_vm model_done op=" + operationId + " elapsedMs=" + modelStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+        }
+    }
+
+    private static void LogDuplicateMergePerformance(string message)
+    {
+        if (CommandLineSwitches.IsInfoLoggingEnabled)
+        {
+            LogManager.GetLogger("InstallPerformance.DuplicateMerge").Info(message);
         }
     }
 
