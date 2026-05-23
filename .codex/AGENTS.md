@@ -170,8 +170,6 @@ dotnet roslynator analyze BeMusicSeeker-decomp.sln --properties Configuration=Re
 - bool は `is` / `has` / `can` など意味を明確化
 - マジックナンバーは `const` または `static readonly` に置き換える
 
-※ 外部公開 API の破壊的変更は禁止（明示的依頼がある場合を除く）
-
 ---
 
 ## 8. 理由コメント（重要）
