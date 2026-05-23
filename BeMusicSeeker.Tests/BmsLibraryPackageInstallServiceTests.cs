@@ -202,7 +202,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
             [mixedPackage, cleanupOnlyPackage],
-            CreateInstalledChartSnapshot([installedFile, cleanupInstalledFile]),
+            CreateInstalledChartLookup([installedFile, cleanupInstalledFile]),
             deletePendingPackageSourceAfterInstall: true,
             countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
 
@@ -246,7 +246,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [pendingPackage],
             [pendingPackage],
-            CreateInstalledChartSnapshot([installedFile]),
+            CreateInstalledChartLookup([installedFile]),
             deletePendingPackageSourceAfterInstall: false,
             countComponentMoveTargets: (_, _, _) => 1);
 
@@ -286,7 +286,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [pendingPackage],
             [pendingPackage],
-            CreateInstalledChartSnapshot([], [installedBmson]),
+            CreateInstalledChartLookup([], [installedBmson]),
             deletePendingPackageSourceAfterInstall: true,
             countComponentMoveTargets: (_, _, _) => 0);
 
@@ -311,7 +311,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [deferredPackage],
             [deferredPackage],
-            [],
+            CreateInstalledChartLookup([]),
             deletePendingPackageSourceAfterInstall: false,
             countComponentMoveTargets: (_, _, _) => 0);
 
@@ -343,7 +343,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
             [mixedPackage, cleanupOnlyPackage],
-            CreateInstalledChartSnapshot([installedFile, cleanupInstalledFile]),
+            CreateInstalledChartLookup([installedFile, cleanupInstalledFile]),
             deletePendingPackageSourceAfterInstall: true,
             countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
 
@@ -404,7 +404,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [bmsonPackage],
             [bmsonPackage],
-            [],
+            CreateInstalledChartLookup([]),
             deletePendingPackageSourceAfterInstall: false,
             countComponentMoveTargets: (_, _, _) => 1);
 
@@ -2520,7 +2520,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             bool moved = ExecuteSingleChartParentDeleteMove(
                 setup,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { remainingHash },
+                new PrimaryHashSetLookup([remainingHash]),
                 out List<string> logs);
 
             Assert.IsTrue(moved);
@@ -2583,7 +2583,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             bool moved = ExecuteSingleChartParentDeleteMove(
                 setup,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { nestedHash },
+                new PrimaryHashSetLookup([nestedHash]),
                 out List<string> logs);
 
             Assert.IsTrue(moved);
@@ -2606,7 +2606,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             bool moved = ExecuteSingleChartParentDeleteMove(
                 setup,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { remainingHash },
+                new PrimaryHashSetLookup([remainingHash]),
                 out List<string> logs);
 
             Assert.IsTrue(moved);
@@ -2732,6 +2732,19 @@ public sealed class BmsLibraryPackageInstallServiceTests
         return CreateInstalledChartSnapshot(installedFiles, []);
     }
 
+    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookup(IEnumerable<BMSFile> installedFiles)
+    {
+        return CreateInstalledChartLookup(installedFiles, []);
+    }
+
+    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookup(
+        IEnumerable<BMSFile> installedFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs)
+    {
+        return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70)
+            .BuildInstalledHashToDirectoryMap(CreateInstalledChartSnapshot(installedFiles, installedBmsonSongs));
+    }
+
     private static List<ChartFile> CreateInstalledChartSnapshot(
         IEnumerable<BMSFile> installedFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs)
@@ -2806,7 +2819,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         };
     }
 
-    private static bool ExecuteSingleChartParentDeleteMove(SafeDeleteMoveSetup setup, HashSet<string>? existingHashes, out List<string> logs)
+    private static bool ExecuteSingleChartParentDeleteMove(SafeDeleteMoveSetup setup, IPrimaryHashLookup? existingHashes, out List<string> logs)
     {
         var service = new BmsLibraryPackageInstallService();
         var fileMutationService = new RealFileMutationService();

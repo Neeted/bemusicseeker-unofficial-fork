@@ -208,7 +208,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
-            InvokeReinitializePendingWarningsForPackage(library, package, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            InvokeReinitializePendingWarningsForPackage(library, package, new PrimaryHashSetLookup());
 
             Assert.IsNull(entry.GetBmsOwnerForTest());
         });
@@ -228,7 +228,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             package.path = sourceDirectoryPath;
             package.delete_parent = false;
 
-            InvokeReinitializePendingWarningsForPackage(library, package, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            InvokeReinitializePendingWarningsForPackage(library, package, new PrimaryHashSetLookup());
 
             Assert.IsNull(entry.GetBmsOwnerForTest());
             Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
@@ -1397,7 +1397,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         regroupMethod.Invoke(library, [sourceDirectoryPaths]);
     }
 
-    private static void InvokeReinitializePendingWarningsForPackage(BMSLibrary library, ChartPackage package, ISet<string> installedHashes)
+    private static void InvokeReinitializePendingWarningsForPackage(BMSLibrary library, ChartPackage package, IPrimaryHashLookup installedHashes)
     {
         MethodInfo reinitializeMethod = typeof(BMSLibrary).GetMethod("ReinitializePendingWarningsForPackageUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(reinitializeMethod);

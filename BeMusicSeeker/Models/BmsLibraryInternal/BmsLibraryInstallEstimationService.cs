@@ -346,31 +346,25 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private readonly int innerWavHealthThreshold = innerWavHealthThreshold;
 
-    public InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<ChartFile> installedCharts)
+    public InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<ChartFile> installedCharts)
     {
-        var result = new InstalledChartDirectoryIndexSnapshot();
         var md5Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var sha256Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var knownChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var primaryHashCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartFile item in installedCharts ?? [])
         {
             if (item == null)
             {
                 continue;
             }
-            RegisterInstalledDirectory(md5Map, sha256Map, result.KnownChartDirectories, item.Md5, item.Sha256, item.Path);
+            RegisterInstalledDirectory(md5Map, sha256Map, knownChartDirectories, item.Md5, item.Sha256, item.Path);
+            AddPrimaryHash(primaryHashCounts, item.PrimaryLookupHash);
         }
-        foreach (KeyValuePair<string, HashSet<string>> item3 in md5Map)
-        {
-            result.Md5Directories[item3.Key] = [.. item3.Value.OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
-        }
-        foreach (KeyValuePair<string, HashSet<string>> item4 in sha256Map)
-        {
-            result.Sha256Directories[item4.Key] = [.. item4.Value.OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
-        }
-        return result;
+        return InstalledChartLookupIndexSnapshot.Create(md5Map, sha256Map, knownChartDirectories, primaryHashCounts);
     }
 
-    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         var result = new InstalledOnlyPackageResolutionResult();
         if (package == null)
@@ -410,7 +404,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         var result = new InstalledDirectoryLookupResult();
         if (package == null || missingEntries == null || missingEntries.Count == 0)
@@ -1143,43 +1137,43 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
+    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
     {
         return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, chart?.PrimaryLookupHash);
     }
 
-    public static List<string> GetDistinctInstalledDirectoriesByPrimaryHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string lookupHash)
+    public static List<string> GetDistinctInstalledDirectoriesByPrimaryHash(InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, string lookupHash)
     {
         if (installedDirectoryIndexSnapshot == null || string.IsNullOrWhiteSpace(lookupHash))
         {
             return [];
         }
-        if (installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(lookupHash, out List<string> md5Directories) && md5Directories != null)
+        if (installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(lookupHash, out IReadOnlyList<string> md5Directories) && md5Directories != null)
         {
             return [.. md5Directories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         }
-        if (installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(lookupHash, out List<string> shaDirectories) && shaDirectories != null)
+        if (installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(lookupHash, out IReadOnlyList<string> shaDirectories) && shaDirectories != null)
         {
             return [.. shaDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         }
         return [];
     }
 
-    public static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartEntries ?? [])
             .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count == 0)
             ?.Chart;
     }
 
-    public static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartEntries ?? [])
             .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count > 1)
             ?.Chart;
     }
 
-    public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.ChartEntries ?? [])
             .Where(entry => entry?.Chart != null)
@@ -2015,7 +2009,15 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return !string.IsNullOrWhiteSpace(hash);
     }
 
-    private static void RegisterInstalledDirectory(Dictionary<string, HashSet<string>> md5Map, Dictionary<string, HashSet<string>> sha256Map, ISet<string> knownChartDirectories, string md5, string sha256, string chartPath)
+    private static void AddPrimaryHash(Dictionary<string, int> primaryHashCounts, string lookupHash)
+    {
+        if (!string.IsNullOrWhiteSpace(lookupHash) && primaryHashCounts != null)
+        {
+            primaryHashCounts[lookupHash] = primaryHashCounts.TryGetValue(lookupHash, out int count) ? count + 1 : 1;
+        }
+    }
+
+    private static void RegisterInstalledDirectory(Dictionary<string, HashSet<string>> md5Map, Dictionary<string, HashSet<string>> sha256Map, HashSet<string> knownChartDirectories, string md5, string sha256, string chartPath)
     {
         string directoryPath = null;
         try

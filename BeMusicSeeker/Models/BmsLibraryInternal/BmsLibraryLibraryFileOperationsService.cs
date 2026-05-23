@@ -514,7 +514,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<LibraryChartRef> libraryCharts,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
-        Func<IEnumerable<ChartFile>, HashSet<string>> createHashSnapshotExcluding)
+        Func<IEnumerable<ChartFile>, IPrimaryHashLookup> createHashSnapshotExcluding)
     {
         var result = new LibraryMergeResult();
         if (!Directory.Exists(srcDir) || !Directory.Exists(dstDir) || srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
@@ -528,7 +528,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.Repackage = ChartPackage.FromChartEntries(sourceEntries);
         result.Repackage.path = srcDir;
         result.Repackage.delete_parent = false;
-        result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? EmptyPrimaryHashLookup.Instance;
         result.ReferenceMutationDelta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, currentLibraryCharts, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
@@ -618,7 +618,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public LibraryFixInstallationResult FixInstallationDirectory(
         IEnumerable<ChartFile> charts,
-        HashSet<string> existingHashes,
         Func<ChartPackage, string, bool> movePackageFiles,
         Func<ChartFile, bool> confirmDuplicateRemoval)
     {

@@ -10,7 +10,7 @@ internal sealed class LibraryMergeResult
 
     public ChartPackage Repackage { get; set; }
 
-    public HashSet<string> ExistingHashes { get; set; } = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+    public IPrimaryHashLookup ExistingHashes { get; set; } = EmptyPrimaryHashLookup.Instance;
 
     public LibraryMutationDelta ReferenceMutationDelta { get; } = new LibraryMutationDelta();
 }

@@ -825,7 +825,7 @@ internal sealed class BmsLibraryPackageInstallService
         Action<string> logInstallPerformance,
         bool showMessageBoxOnInstallFail = true,
         bool deleteAllContents = false,
-        HashSet<string> existingHashes = null,
+        IPrimaryHashLookup existingHashes = null,
         ISet<string> excludedComponentPaths = null)
     {
         if (package == null)
@@ -864,12 +864,12 @@ internal sealed class BmsLibraryPackageInstallService
 
         if (!string.IsNullOrWhiteSpace(installationDirectory))
         {
-            HashSet<string> hashSnapshot = existingHashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            IPrimaryHashLookup hashSnapshot = existingHashes ?? EmptyPrimaryHashLookup.Instance;
             List<PackageChartEntry> skippedEntries = [.. installTargetEntries
                 .Where(delegate (PackageChartEntry entry)
                 {
                     string lookupKey = entry?.Chart?.PrimaryLookupHash;
-                    return !string.IsNullOrWhiteSpace(lookupKey) && hashSnapshot.Contains(lookupKey);
+                    return !string.IsNullOrWhiteSpace(lookupKey) && hashSnapshot.ContainsPrimaryHash(lookupKey);
                 })];
             if (skippedEntries.Count > 0)
             {
@@ -1019,7 +1019,7 @@ internal sealed class BmsLibraryPackageInstallService
                 : "not_empty deleteAllContents=False";
             if (deleteAllContents)
             {
-                if (!TryBuildInstalledHashSnapshotForSafeCleanup(existingHashes, package.ChartEntries, out HashSet<string> installedHashesForCleanup, out folderDeletionDecisionReason))
+                if (!TryBuildCurrentPackageHashCountsForSafeCleanup(package.ChartEntries, out Dictionary<string, int> currentPackageHashCounts, out folderDeletionDecisionReason))
                 {
                     logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
                     return true;
@@ -1028,7 +1028,7 @@ internal sealed class BmsLibraryPackageInstallService
                 // NOTE:
                 // delete_parent は探索時の親候補フラグに過ぎないため、通常インストールでは
                 // 実際に残ったファイルを見て「空」または「既所持譜面のみ」の場合にだけ再帰削除します。
-                if (!CanDeleteDirectoryAfterInstall(directoryToDelete, installedHashesForCleanup, out folderDeletionDecisionReason))
+                if (!CanDeleteDirectoryAfterInstall(directoryToDelete, existingHashes, currentPackageHashCounts, out folderDeletionDecisionReason))
                 {
                     logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
                     return true;
@@ -1073,11 +1073,9 @@ internal sealed class BmsLibraryPackageInstallService
         return true;
     }
 
-    private static bool TryBuildInstalledHashSnapshotForSafeCleanup(HashSet<string> existingHashes, IEnumerable<PackageChartEntry> installedPackageEntries, out HashSet<string> installedHashes, out string reason)
+    private static bool TryBuildCurrentPackageHashCountsForSafeCleanup(IEnumerable<PackageChartEntry> installedPackageEntries, out Dictionary<string, int> currentPackageHashCounts, out string reason)
     {
-        installedHashes = existingHashes != null
-            ? new HashSet<string>(existingHashes, StringComparer.OrdinalIgnoreCase)
-            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        currentPackageHashCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (PackageChartEntry installedPackageEntry in installedPackageEntries ?? [])
         {
             if (installedPackageEntry?.Chart == null)
@@ -1090,13 +1088,13 @@ internal sealed class BmsLibraryPackageInstallService
                 reason = "current_package_hash_unavailable path=" + installedPackageEntry.Chart.Path;
                 return false;
             }
-            installedHashes.Add(lookupKey);
+            currentPackageHashCounts[lookupKey] = currentPackageHashCounts.TryGetValue(lookupKey, out int count) ? count + 1 : 1;
         }
-        reason = "safe_cleanup_allowed pending_installed_hashes=" + installedHashes.Count;
+        reason = "safe_cleanup_allowed pending_installed_hashes=" + currentPackageHashCounts.Count;
         return true;
     }
 
-    private static bool CanDeleteDirectoryAfterInstall(string directoryPath, ISet<string> installedHashes, out string reason)
+    private static bool CanDeleteDirectoryAfterInstall(string directoryPath, IPrimaryHashLookup existingHashes, IReadOnlyDictionary<string, int> currentPackageHashCounts, out string reason)
     {
         List<string> remainingFiles;
         try
@@ -1128,7 +1126,8 @@ internal sealed class BmsLibraryPackageInstallService
                 return false;
             }
 
-            if (installedHashes == null || !installedHashes.Contains(remainingLookupKey))
+            int currentPackageCount = currentPackageHashCounts != null && currentPackageHashCounts.TryGetValue(remainingLookupKey, out int count) ? count : 0;
+            if ((existingHashes?.GetPrimaryHashCount(remainingLookupKey) ?? 0) + currentPackageCount <= 0)
             {
                 reason = "remaining_chart_not_installed path=" + remainingFilePath + " hash=" + remainingLookupKey;
                 return false;
@@ -1484,7 +1483,7 @@ internal sealed class BmsLibraryPackageInstallService
         return delta;
     }
 
-    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<ChartPackage> requestedPackages, IEnumerable<ChartPackage> currentPendingPackages, IEnumerable<ChartFile> installedCharts, bool deletePendingPackageSourceAfterInstall, Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets)
+    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<ChartPackage> requestedPackages, IEnumerable<ChartPackage> currentPendingPackages, IPrimaryHashLookup installedChartLookup, bool deletePendingPackageSourceAfterInstall, Func<ChartPackage, string, ISet<string>, int> countComponentMoveTargets)
     {
         var planStopwatch = Stopwatch.StartNew();
         var plan = new PendingInstallBatchPlan();
@@ -1497,17 +1496,9 @@ internal sealed class BmsLibraryPackageInstallService
         plan.SelectedPendingCount = plan.SelectedPendingPackages.Count;
 
         var groupBuildStopwatch = Stopwatch.StartNew();
-        var installedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile installedChart in installedCharts ?? [])
-        {
-            string key = installedChart?.PrimaryLookupHash;
-            if (!string.IsNullOrWhiteSpace(key))
-            {
-                installedHashes.Add(key);
-            }
-        }
-        var moveGuardHashes = new HashSet<string>(installedHashes, StringComparer.OrdinalIgnoreCase);
-        var reservedHashes = new HashSet<string>(moveGuardHashes, StringComparer.OrdinalIgnoreCase);
+        IPrimaryHashLookup installedHashes = installedChartLookup ?? EmptyPrimaryHashLookup.Instance;
+        var moveGuardLookup = new PrimaryHashGuardLookup(installedHashes);
+        var reservedHashes = new PrimaryHashGuardLookup(installedHashes);
         var groupsByDestination = new Dictionary<string, PendingInstallBatchGroup>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartPackage originalPackage in plan.SelectedPendingPackages)
         {
@@ -1532,17 +1523,17 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     installTargetPackageEntries.Add(packageEntry);
                 }
-                else if (installedHashes.Contains(lookupKey))
+                else if (installedHashes.ContainsPrimaryHash(lookupKey))
                 {
                     installedInLibraryEntries.Add(packageEntry);
                 }
-                else if (reservedHashes.Contains(lookupKey))
+                else if (reservedHashes.ContainsPrimaryHash(lookupKey))
                 {
                     duplicateInBatchEntries.Add(packageEntry);
                 }
                 else
                 {
-                    reservedHashes.Add(lookupKey);
+                    reservedHashes.AddPrimaryHash(lookupKey);
                     installTargetPackageEntries.Add(packageEntry);
                 }
             }
@@ -1646,7 +1637,7 @@ internal sealed class BmsLibraryPackageInstallService
         groupBuildStopwatch.Stop();
         plan.GroupBuildMs = groupBuildStopwatch.ElapsedMilliseconds;
         plan.CleanupOnlyCandidateCount = plan.CleanupOnlyCandidates.Count;
-        plan.MoveGuardHashes = moveGuardHashes;
+        plan.MoveGuardLookup = moveGuardLookup;
         planStopwatch.Stop();
         plan.PlanBuildMs = planStopwatch.ElapsedMilliseconds;
         return plan;
@@ -1655,7 +1646,7 @@ internal sealed class BmsLibraryPackageInstallService
     public PendingInstallBatchResult ExecuteEstimatedInstallBatchPlan(
         PendingInstallBatchPlan plan,
         bool deletePendingPackageSourceAfterInstall,
-        Func<IEnumerable<ChartPackage>, string, List<ChartFile>, List<ChartPackage>, Dictionary<ChartPackage, HashSet<string>>, HashSet<string>, bool, bool, List<ChartPackage>> installPackages,
+        Func<IEnumerable<ChartPackage>, string, List<ChartFile>, List<ChartPackage>, Dictionary<ChartPackage, HashSet<string>>, IPrimaryHashLookup, bool, bool, List<ChartPackage>> installPackages,
         Func<ChartPackage, string, ChartPackage> createInstalledDisplayPackage,
         Func<ChartPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
         Action<string> logInfo = null)
@@ -1680,7 +1671,7 @@ internal sealed class BmsLibraryPackageInstallService
                 result.DeferredMaintenanceCharts,
                 result.DeferredInstalledPackages,
                 excludedComponentPathsByWorkPackage,
-                plan.MoveGuardHashes,
+                plan.MoveGuardLookup,
                 true,
                 deletePendingPackageSourceAfterInstall) ?? [];
             installStopwatch.Stop();
@@ -1784,13 +1775,13 @@ internal sealed class BmsLibraryPackageInstallService
     public PackageInstallExecutionResult InstallPackages(
         IEnumerable<ChartPackage> chartPackagesInstall,
         string installationDirectory,
-        Func<ChartPackage, string, bool, HashSet<string>, ISet<string>, bool> movePackageFiles,
+        Func<ChartPackage, string, bool, IPrimaryHashLookup, ISet<string>, bool> movePackageFiles,
         Action<PackageInstallExecutionResult> upsertStorageRows,
         Action<PackageInstallExecutionResult> updateMaintenance,
         Action<PackageInstallExecutionResult> applyScores,
         Action<PackageInstallExecutionResult> applyState,
         Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
-        HashSet<string> existingHashes = null,
+        IPrimaryHashLookup existingHashes = null,
         bool skipInstalledPackageWhenNoBms = false,
         bool deleteSourceContentsAfterSuccessfulInstall = false)
     {
@@ -1809,14 +1800,14 @@ internal sealed class BmsLibraryPackageInstallService
                 result.AddedCharts.AddRange(packageEntries
                     .Select(entry => entry?.Chart)
                     .Where(chart => chart != null));
-                if (existingHashes != null)
+                if (existingHashes is IMutablePrimaryHashLookup mutableExistingHashes)
                 {
                     foreach (PackageChartEntry entry in packageEntries)
                     {
                         string lookupKey = entry?.Chart?.PrimaryLookupHash;
                         if (!string.IsNullOrWhiteSpace(lookupKey))
                         {
-                            existingHashes.Add(lookupKey);
+                            mutableExistingHashes.AddPrimaryHash(lookupKey);
                         }
                     }
                 }

@@ -725,17 +725,11 @@ public class BMSLibrary : NotificationObject
 
     private int bmsParentFolderListDirtyVersion;
 
-    private readonly object lockInstalledDirectoryIndex = new();
+    private readonly object lockInstalledChartLookupIndex = new();
 
-    private InstalledChartDirectoryIndexSnapshot installedDirectoryIndex = new();
+    private InstalledChartLookupIndexSnapshot installedChartLookupIndex = new();
 
-    private bool installedDirectoryIndexInitialized;
-
-    private readonly object lockInstalledChartKeyIndex = new();
-
-    private readonly HashSet<string> installedChartKeyIndex = new(StringComparer.OrdinalIgnoreCase);
-
-    private bool installedChartKeyIndexInitialized;
+    private bool installedChartLookupIndexInitialized;
 
     private readonly object lockInstallEstimationMetadataProfileCache = new();
 
@@ -1037,7 +1031,6 @@ public class BMSLibrary : NotificationObject
             {
                 _BMSFiles = value;
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
-                InvalidateInstalledChartKeyIndex();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateDuplicateChartGroupsCache();
@@ -1080,7 +1073,6 @@ public class BMSLibrary : NotificationObject
             {
                 _BmsonSongs = normalized;
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
-                InvalidateInstalledChartKeyIndex();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateInstallEstimationMetadataProfileCache();
@@ -2344,7 +2336,7 @@ public class BMSLibrary : NotificationObject
 
     private sealed class PendingInstallEstimateEvaluationContext
     {
-        public InstalledChartDirectoryIndexSnapshot InstalledDirectoryIndexSnapshot { get; set; } = new InstalledChartDirectoryIndexSnapshot();
+        public InstalledChartLookupIndexSnapshot InstalledDirectoryIndexSnapshot { get; set; } = new InstalledChartLookupIndexSnapshot();
 
         public LibraryResourceIndex ResourceIndexSnapshot { get; set; }
 
@@ -3045,7 +3037,7 @@ public class BMSLibrary : NotificationObject
             };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(evaluationContext?.OptionsSnapshot);
-        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartDirectoryIndexSnapshot());
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartLookupIndexSnapshot());
     }
 
     private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, int packageDegree, ref int completed, ref int lowConfidenceCount)
@@ -3270,7 +3262,7 @@ public class BMSLibrary : NotificationObject
         string sourceLogValue = ToPendingEstimateBatchSourceLogValue(source);
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(options);
-        InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
+        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
         PendingEstimateSourceBatchSnapshot candidateSnapshot = BuildPendingEstimateSourceBatchSnapshotUnsafe(packageList, installEstimationService, installedDirectoryIndexSnapshot, sourceLogValue, options.UseEverythingForPendingPackageSourceScan);
         var estimableSnapshot = new PendingEstimateSourceBatchSnapshot
         {
@@ -3343,7 +3335,7 @@ public class BMSLibrary : NotificationObject
         return result;
     }
 
-    private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(List<ChartPackage> packageList, BmsLibraryInstallEstimationService installEstimationService, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string sourceLogValue, bool useEverythingForPendingPackageSourceScan)
+    private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(List<ChartPackage> packageList, BmsLibraryInstallEstimationService installEstimationService, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, string sourceLogValue, bool useEverythingForPendingPackageSourceScan)
     {
         var snapshot = new PendingEstimateSourceBatchSnapshot();
         var stopwatch = Stopwatch.StartNew();
@@ -6361,21 +6353,12 @@ reportProgress,
     /// </summary>
     private void InvalidateInstalledDirectoryIndex()
     {
-        lock (lockInstalledDirectoryIndex)
+        lock (lockInstalledChartLookupIndex)
         {
-            installedDirectoryIndex = new InstalledChartDirectoryIndexSnapshot();
-            installedDirectoryIndexInitialized = false;
+            installedChartLookupIndex = new InstalledChartLookupIndexSnapshot();
+            installedChartLookupIndexInitialized = false;
         }
         InvalidateInstallEstimationMetadataProfileCache();
-    }
-
-    private void InvalidateInstalledChartKeyIndex()
-    {
-        lock (lockInstalledChartKeyIndex)
-        {
-            installedChartKeyIndex.Clear();
-            installedChartKeyIndexInitialized = false;
-        }
     }
 
     private void InvalidateInstallEstimationMetadataProfileCache()
@@ -6383,23 +6366,6 @@ reportProgress,
         lock (lockInstallEstimationMetadataProfileCache)
         {
             installEstimationMetadataProfileCache.Clear();
-        }
-    }
-
-    private void RebuildInstalledChartKeyIndexUnsafe()
-    {
-        lock (lockInstalledChartKeyIndex)
-        {
-            installedChartKeyIndex.Clear();
-            foreach (InstalledChartLookupEntry installedChart in EnumerateInstalledChartLookupEntriesUnsafe())
-            {
-                string key = installedChart.PrimaryLookupHash;
-                if (!string.IsNullOrWhiteSpace(key))
-                {
-                    installedChartKeyIndex.Add(key);
-                }
-            }
-            installedChartKeyIndexInitialized = true;
         }
     }
 
@@ -6462,15 +6428,6 @@ reportProgress,
             playlistSummaryOwnedHashSnapshot ??= rebuiltSnapshot;
             return playlistSummaryOwnedHashSnapshot;
         }
-    }
-
-    private void EnsureInstalledChartKeyIndexBuiltUnsafe()
-    {
-        if (installedChartKeyIndexInitialized)
-        {
-            return;
-        }
-        RebuildInstalledChartKeyIndexUnsafe();
     }
 
     private List<ChartFile> CreateInstalledChartSnapshot(
@@ -6820,42 +6777,42 @@ reportProgress,
         }
     }
 
-    private void RebuildInstalledDirectoryIndexCoreUnsafe(InstalledChartDirectoryIndexSnapshot snapshot)
+    private void RebuildInstalledChartLookupIndexCoreUnsafe(InstalledChartLookupIndexSnapshot snapshot)
     {
-        installedDirectoryIndex = snapshot ?? new InstalledChartDirectoryIndexSnapshot();
-        installedDirectoryIndexInitialized = true;
+        installedChartLookupIndex = snapshot ?? new InstalledChartLookupIndexSnapshot();
+        installedChartLookupIndexInitialized = true;
     }
 
     /// <summary>
-    /// インストール済みディレクトリインデックスが未構築の場合にビルドします。
+    /// インストール済み chart lookup index が未構築の場合にビルドします。
     /// </summary>
-    private void EnsureInstalledDirectoryIndexBuiltUnsafe()
+    private void EnsureInstalledChartLookupIndexBuiltUnsafe()
     {
-        lock (lockInstalledDirectoryIndex)
+        lock (lockInstalledChartLookupIndex)
         {
-            if (installedDirectoryIndexInitialized)
+            if (installedChartLookupIndexInitialized)
             {
                 return;
             }
             var stopwatch = Stopwatch.StartNew();
             List<BMSFile> bmsFilesSnapshot = [.. (BMSFiles ?? Enumerable.Empty<BMSFile>()).Where(file => file != null)];
             List<ChartFile> installedCharts = CreateInstalledChartSnapshot(bmsFilesSnapshot, BmsonSongs, includeResourceReferences: false);
-            InstalledChartDirectoryIndexSnapshot snapshot = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(installedCharts);
-            RebuildInstalledDirectoryIndexCoreUnsafe(snapshot);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(installedCharts);
+            RebuildInstalledChartLookupIndexCoreUnsafe(snapshot);
             stopwatch.Stop();
-            LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + snapshot.HashCount + " dirRefs=" + snapshot.DirectoryReferenceCount + " files=" + bmsFilesSnapshot.Count + " bmson=" + (BmsonSongs?.Count ?? 0) + " singleFlight=true");
+            LogInstallPerformance("installed_chart_lookup_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + snapshot.HashCount + " primaryHashes=" + snapshot.DistinctPrimaryHashCount + " dirRefs=" + snapshot.DirectoryReferenceCount + " files=" + bmsFilesSnapshot.Count + " bmson=" + (BmsonSongs?.Count ?? 0) + " singleFlight=true");
         }
     }
 
     /// <summary>
-    /// 現在のインストール済みディレクトリインデックスのスナップショットを作成します。
+    /// 現在のインストール済み chart lookup index のスナップショットを取得します。
     /// </summary>
-    private InstalledChartDirectoryIndexSnapshot CreateInstalledDirectoryIndexSnapshotUnsafe()
+    private InstalledChartLookupIndexSnapshot CreateInstalledDirectoryIndexSnapshotUnsafe()
     {
-        EnsureInstalledDirectoryIndexBuiltUnsafe();
-        lock (lockInstalledDirectoryIndex)
+        EnsureInstalledChartLookupIndexBuiltUnsafe();
+        lock (lockInstalledChartLookupIndex)
         {
-            return installedDirectoryIndex.Clone();
+            return installedChartLookupIndex;
         }
     }
 
@@ -6866,11 +6823,7 @@ reportProgress,
         {
             return false;
         }
-        EnsureInstalledChartKeyIndexBuiltUnsafe();
-        lock (lockInstalledChartKeyIndex)
-        {
-            return installedChartKeyIndex.Contains(lookupKey);
-        }
+        return CreateInstalledDirectoryIndexSnapshotUnsafe().ContainsPrimaryHash(lookupKey);
     }
 
     private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
@@ -6931,7 +6884,7 @@ reportProgress,
         }
     }
 
-    private HashSet<string> CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
+    private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
     {
         var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (excluded != null)
@@ -6945,25 +6898,7 @@ reportProgress,
                 }
             }
         }
-        var installedKeyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (InstalledChartLookupEntry installedChart in EnumerateInstalledChartLookupEntriesUnsafe())
-        {
-            string key2 = installedChart.PrimaryLookupHash;
-            if (!string.IsNullOrWhiteSpace(key2))
-            {
-                installedKeyCounts[key2] = installedKeyCounts.TryGetValue(key2, out int value2) ? value2 + 1 : 1;
-            }
-        }
-        var snapshot = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, int> installedKeyCount in installedKeyCounts)
-        {
-            int excludedCount = excludedKeyCount.TryGetValue(installedKeyCount.Key, out int value5) ? value5 : 0;
-            if (installedKeyCount.Value - excludedCount > 0)
-            {
-                snapshot.Add(installedKeyCount.Key);
-            }
-        }
-        return snapshot;
+        return CreateInstalledDirectoryIndexSnapshotUnsafe().CreateExcludingLookup(excludedKeyCount);
     }
 
     /// <summary>
@@ -8382,10 +8317,10 @@ reportProgress,
     /// <param name="installationDirectory">移動先ディレクトリ（nullの場合は自動命名）</param>
     /// <param name="showMessageBoxOnInstallFail">移動失敗時にエラーダイアログを表示するか</param>
     /// <param name="deleteAllContents">移動元フォルダを再帰削除対象として扱うか（通常インストール時は安全判定を通過した場合のみ削除）</param>
-    /// <param name="existingHashes">既存譜面ハッシュのスナップショット（重複スキップ用）</param>
+    /// <param name="existingHashes">既存譜面ハッシュの lookup（重複スキップ用）</param>
     /// <param name="excludedComponentPaths">移動対象外のコンポーネントパス</param>
     /// <returns>移動成功時true</returns>
-    private bool MoveChartPackageFiles(ChartPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, HashSet<string> existingHashes = null, ISet<string> excludedComponentPaths = null)
+    private bool MoveChartPackageFiles(ChartPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, IPrimaryHashLookup existingHashes = null, ISet<string> excludedComponentPaths = null)
     {
         return packageInstallService.MovePackageFiles(
             pkg,
@@ -8438,7 +8373,7 @@ reportProgress,
 
     }
 
-    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
+    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
     {
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         List<ChartFile> addedChartsForChartInfo = [];
@@ -8710,7 +8645,7 @@ reportProgress,
         }
     }
 
-    private InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap()
+    private InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap()
     {
         return CreateInstalledDirectoryIndexSnapshotUnsafe();
     }
@@ -8737,7 +8672,7 @@ reportProgress,
                 Reason = InstalledDirectoryResolveReason.InvalidInput
             };
         }
-        InstalledChartDirectoryIndexSnapshot installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
+        InstalledChartLookupIndexSnapshot installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
         if (installedDirectoryIndex.HashCount == 0)
         {
             return new InstalledDirectoryLookupResult
@@ -9359,7 +9294,7 @@ reportProgress,
                         PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
                             packages,
                             ChartPackagesPending,
-                            CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false),
+                            CreateInstalledDirectoryIndexSnapshotUnsafe(),
                             deletePendingPackageSourceAfterInstall,
                             CountComponentMoveTargetsForPackage);
                         if (installPlan.SelectedPendingPackages.Count == 0)
@@ -9547,22 +9482,22 @@ reportProgress,
         PackageHasSplitInstalledDirectories
     }
 
-    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
+    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
     {
         return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, chart);
     }
 
-    private static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    private static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, installedDirectoryIndexSnapshot);
     }
 
-    private static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    private static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, installedDirectoryIndexSnapshot);
     }
 
-    private static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    private static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(package, installedDirectoryIndexSnapshot);
     }
@@ -9576,14 +9511,14 @@ reportProgress,
         {
             return;
         }
-        InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot = BuildInstalledHashToDirectoryMap();
+        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = BuildInstalledHashToDirectoryMap();
         foreach (string sourceDirectoryPath in sourceDirectories)
         {
             TryRegroupPendingPackagesForSourceDirectoryUnsafe(sourceDirectoryPath, installedDirectoryIndexSnapshot);
         }
     }
 
-    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         if (string.IsNullOrWhiteSpace(sourceDirectoryPath))
         {
@@ -9618,7 +9553,7 @@ reportProgress,
         LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackageEntries.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
     }
 
-    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<ChartPackage> sourcePackages, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
+    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<ChartPackage> sourcePackages, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
     {
         regroupedPackage = null;
         resolvedDestinationDirectory = null;
@@ -9672,7 +9607,7 @@ reportProgress,
         return true;
     }
 
-    private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
+    private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
     {
         expectedDirectory = null;
         reason = "missing_expected_destination";
@@ -9703,14 +9638,14 @@ reportProgress,
         return true;
     }
 
-    private void ReinitializePendingWarningsForPackageUnsafe(ChartPackage package, ISet<string> installedHashes)
+    private void ReinitializePendingWarningsForPackageUnsafe(ChartPackage package, IPrimaryHashLookup installedHashes)
     {
         if (package == null)
         {
             return;
         }
         bool isSingleFilePackage = !Directory.Exists(package.path);
-        HashSet<string> installedHashSet = installedHashes as HashSet<string> ?? new HashSet<string>(installedHashes ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        IPrimaryHashLookup installedHashLookup = installedHashes ?? EmptyPrimaryHashLookup.Instance;
         foreach (PackageChartEntry entry in package.ChartEntries)
         {
             ChartFile chart = entry?.Chart;
@@ -9723,7 +9658,7 @@ reportProgress,
             entry.ClearStructuredWarnings();
 
             string key = chart.PrimaryLookupHash;
-            if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
+            if (!string.IsNullOrWhiteSpace(key) && installedHashLookup.ContainsPrimaryHash(key))
             {
                 entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
                 entry.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
@@ -9819,7 +9754,7 @@ reportProgress,
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
                         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                        InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
+                        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite scan pendingTotal=" + ChartPackagesPending.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
                         PendingResourceOverwriteExecutionResult executionResult = packageInstallService.ExecuteInstalledOnlyResourceOverwrite(
@@ -10763,7 +10698,7 @@ reportProgress,
                             + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds
                             + " sourceCharts=" + mergeResult.SourceCharts.Count
                             + " repackageEntries=" + repackageEntryCount
-                            + " existingHashes=" + (mergeResult.ExistingHashes?.Count ?? 0)
+                            + " existingHashes=" + (mergeResult.ExistingHashes?.DistinctPrimaryHashCount ?? 0)
                             + " installDestinations=" + mergeResult.ReferenceMutationDelta.UpdatedInstallDestinations.Count
                             + " installedPackagePaths=" + mergeResult.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count);
                         if (!mergeResult.Success)
@@ -10926,10 +10861,9 @@ reportProgress,
             using (rwlockBMSFiles.GetWriterGuard())
             {
                 List<ChartFile> chartList = [.. charts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
-                HashSet<string> existingHashes = CreateInstalledChartKeySnapshotExcludingChartsUnsafe(chartList);
+                IPrimaryHashLookup existingHashes = CreateInstalledChartKeySnapshotExcludingChartsUnsafe(chartList);
                 LibraryFixInstallationResult result = libraryFileOperationsService.FixInstallationDirectory(
                     chartList,
-                    existingHashes,
                     (package, destinationDirectory) => MoveChartPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
                     delegate (ChartFile chart)
                     {

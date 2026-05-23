@@ -1974,11 +1974,57 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             sha256 = new string('b', 64)
         };
 
-        InstalledChartDirectoryIndexSnapshot result = BuildInstalledHashToDirectoryMap(service, [], [bmsonSong]);
+        InstalledChartLookupIndexSnapshot result = BuildInstalledHashToDirectoryMap(service, [], [bmsonSong]);
 
-        CollectionAssert.AreEqual(new[] { installDir }, result.Md5Directories[bmsonSong.md5]);
-        CollectionAssert.AreEqual(new[] { installDir }, result.Sha256Directories[bmsonSong.sha256]);
+        CollectionAssert.AreEqual(new[] { installDir }, result.Md5Directories[bmsonSong.md5].ToArray());
+        CollectionAssert.AreEqual(new[] { installDir }, result.Sha256Directories[bmsonSong.sha256].ToArray());
         CollectionAssert.AreEqual(new[] { installDir }, result.KnownChartDirectories.ToList());
+    }
+
+    [TestMethod]
+    public void BuildInstalledHashToDirectoryMap_CountsPrimaryHashesForExcludingLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string duplicateHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string otherHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        TestableBmsFile first = CreateFile(duplicateHash, "C:\\Installed\\A\\chart.bms");
+        TestableBmsFile second = CreateFile(duplicateHash, "C:\\Installed\\B\\chart.bms");
+        TestableBmsFile other = CreateFile(otherHash, "C:\\Installed\\C\\chart.bms");
+
+        InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [first, second, other]);
+
+        Assert.AreEqual(2, snapshot.DistinctPrimaryHashCount);
+        Assert.AreEqual(2, snapshot.GetPrimaryHashCount(duplicateHash));
+        Assert.IsTrue(snapshot.ContainsPrimaryHashAfterExcluding(duplicateHash, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [duplicateHash.ToUpperInvariant()] = 1
+        }));
+        Assert.IsFalse(snapshot.ContainsPrimaryHashAfterExcluding(duplicateHash, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [duplicateHash] = 2
+        }));
+        IPrimaryHashLookup excludingOne = snapshot.CreateExcludingLookup(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [duplicateHash] = 1
+        });
+
+        Assert.IsTrue(excludingOne.ContainsPrimaryHash(duplicateHash));
+        Assert.AreEqual(1, excludingOne.GetPrimaryHashCount(duplicateHash));
+        Assert.IsTrue(excludingOne.ContainsPrimaryHash(otherHash));
+        IPrimaryHashLookup excludingAll = snapshot.CreateExcludingLookup(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [duplicateHash] = 2
+        });
+
+        Assert.IsFalse(excludingAll.ContainsPrimaryHash(duplicateHash));
+        Assert.AreEqual(0, excludingAll.GetPrimaryHashCount(duplicateHash));
+        IPrimaryHashLookup excludingUnknown = snapshot.CreateExcludingLookup(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["cccccccccccccccccccccccccccccccc"] = 1
+        });
+
+        Assert.AreEqual(2, excludingUnknown.DistinctPrimaryHashCount);
     }
 
     [TestMethod]
@@ -3005,7 +3051,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         pendingFile.SetSha256(new string('b', 64));
         ChartFile pendingChart = ChartFileProjection.FromBmsFile(pendingFile, includeWarningSnapshot: false);
 
-        InstalledChartDirectoryIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [installedFile]);
+        InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [installedFile]);
         List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingChart);
 
         Assert.AreEqual(0, directories.Count);
@@ -3031,7 +3077,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             sha256 = new string('c', 64)
         }, includeWarningSnapshot: false);
 
-        InstalledChartDirectoryIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [], [bmsonSong]);
+        InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [], [bmsonSong]);
         List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingChart);
 
         CollectionAssert.AreEqual(new[] { installDir }, directories);
@@ -3056,7 +3102,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
     }
 
-    private static InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs = null)
+    private static InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs = null)
     {
         return service.BuildInstalledHashToDirectoryMap(CreateInstalledChartSnapshot(installedFiles, installedBmsonSongs));
     }

@@ -10,7 +10,7 @@ internal sealed class PendingInstallBatchPlan
 
     public List<ChartPackage> CleanupOnlyCandidates { get; } = [];
 
-    public HashSet<string> MoveGuardHashes { get; set; } = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+    public IMutablePrimaryHashLookup MoveGuardLookup { get; set; } = new PrimaryHashSetLookup();
 
     public int InstallTargetFileCount { get; set; }
 

@@ -883,7 +883,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 [CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)],
                 [pendingPackage],
                 [],
-                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                _ => new PrimaryHashSetLookup());
 
             Assert.IsTrue(result.Success);
             Assert.AreEqual(2, result.ReferenceMutationDelta.UpdatedInstallDestinations.Count);
@@ -923,7 +923,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefs([libraryFile]),
                 [pendingPackage],
                 [],
-                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                _ => new PrimaryHashSetLookup());
 
             Assert.IsTrue(result.Success);
             LibraryInstallDestinationChange change = result.ReferenceMutationDelta.UpdatedInstallDestinations.Single();
@@ -964,7 +964,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 charts =>
                 {
                     excludedHashes = [.. charts.Select(chart => chart.PrimaryLookupHash).Where(hash => !string.IsNullOrWhiteSpace(hash))];
-                    return [];
+                    return EmptyPrimaryHashLookup.Instance;
                 });
 
             Assert.IsTrue(result.Success);
@@ -1059,7 +1059,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         LibraryFixInstallationResult result = service.FixInstallationDirectory(
             [movedChart, duplicateChart],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             delegate (ChartPackage package, string destinationDirectory)
             {
                 if (package.ChartEntries[0].Chart.GetBmsStorageOwner() == duplicateFile)
@@ -1108,7 +1107,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         LibraryFixInstallationResult result = service.FixInstallationDirectory(
             [chart],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             delegate (ChartPackage package, string destinationDirectory)
             {
                 package.ChartEntries[0].ApplyInstalledPath(Path.Combine(destinationDirectory, "move.bmson"));
@@ -1148,7 +1146,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         LibraryFixInstallationResult result = service.FixInstallationDirectory(
             [chart],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             delegate (ChartPackage package, string _)
             {
                 package.ReplaceChartEntries([]);
