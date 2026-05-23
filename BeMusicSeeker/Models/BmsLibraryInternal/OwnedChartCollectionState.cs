@@ -41,6 +41,35 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal int RemoveCharts(IEnumerable<ChartFile> removedCharts)
+    {
+        List<ChartFile> removedChartList = [.. (removedCharts ?? []).Where(chart => chart != null)];
+        if (removedChartList.Count == 0)
+        {
+            return 0;
+        }
+
+        var bmsOwners = new HashSet<BMSFile>(removedChartList
+            .Select(chart => chart.GetBmsStorageOwner())
+            .Where(file => file != null));
+        var bmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(removedChartList
+            .Select(chart => chart.GetBmsonStorageOwner())
+            .Where(song => song != null));
+        var bmsPaths = new HashSet<string>(
+            removedChartList
+                .Where(chart => chart.Kind == ChartFileKind.Bms)
+                .Select(chart => chart.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            System.StringComparer.OrdinalIgnoreCase);
+        var bmsonPaths = new HashSet<string>(
+            removedChartList
+                .Where(chart => chart.Kind == ChartFileKind.Bmson)
+                .Select(chart => chart.Path)
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            System.StringComparer.OrdinalIgnoreCase);
+        return charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths));
+    }
+
     internal bool MatchesStorageRows(
         IReadOnlyList<BMSFile> bmsFiles,
         IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonSongs)
@@ -83,5 +112,38 @@ internal sealed class OwnedChartCollectionState
             }
         }
         return chartIndex == charts.Count;
+    }
+
+    private static bool IsRemovedChart(
+        ChartFile chart,
+        ISet<BMSFile> bmsOwners,
+        ISet<LR2SongDBExtended.bmson_song> bmsonOwners,
+        ISet<string> bmsPaths,
+        ISet<string> bmsonPaths)
+    {
+        if (chart == null)
+        {
+            return false;
+        }
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null && bmsOwners.Contains(bmsOwner))
+        {
+            return true;
+        }
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        if (bmsonOwner != null && bmsonOwners.Contains(bmsonOwner))
+        {
+            return true;
+        }
+        if (string.IsNullOrWhiteSpace(chart.Path))
+        {
+            return false;
+        }
+        return chart.Kind switch
+        {
+            ChartFileKind.Bms => bmsPaths.Contains(chart.Path),
+            ChartFileKind.Bmson => bmsonPaths.Contains(chart.Path),
+            _ => false
+        };
     }
 }

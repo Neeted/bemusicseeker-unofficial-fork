@@ -731,6 +731,8 @@ public class BMSLibrary : NotificationObject
 
     private bool ownedChartCollectionInitialized;
 
+    private int suppressOwnedChartCollectionInvalidation;
+
     private readonly object lockInstalledChartLookupIndex = new();
 
     private InstalledChartLookupIndexState installedChartLookupIndex = new();
@@ -6362,8 +6364,38 @@ reportProgress,
     {
         lock (lockOwnedChartCollection)
         {
+            if (suppressOwnedChartCollectionInvalidation > 0)
+            {
+                return;
+            }
             ownedChartCollection = new OwnedChartCollectionState();
             ownedChartCollectionInitialized = false;
+        }
+    }
+
+    private IDisposable SuppressOwnedChartCollectionInvalidation()
+    {
+        lock (lockOwnedChartCollection)
+        {
+            suppressOwnedChartCollectionInvalidation++;
+        }
+        return new OwnedChartCollectionInvalidationSuppression(this);
+    }
+
+    private sealed class OwnedChartCollectionInvalidationSuppression(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                lock (owner.lockOwnedChartCollection)
+                {
+                    owner.suppressOwnedChartCollectionInvalidation = Math.Max(0, owner.suppressOwnedChartCollectionInvalidation - 1);
+                }
+                owner = null;
+            }
         }
     }
 
@@ -6557,6 +6589,25 @@ reportProgress,
 
             ownedChartCollection = OwnedChartCollectionState.FromStorageRows(bmsFiles, bmsonSongs);
             ownedChartCollectionInitialized = true;
+        }
+    }
+
+    private void ApplyOwnedChartCollectionMutation(LibraryMutationDelta delta)
+    {
+        if (delta == null)
+        {
+            return;
+        }
+        lock (lockOwnedChartCollection)
+        {
+            if (!ownedChartCollectionInitialized)
+            {
+                return;
+            }
+            if (delta.ChartsToUnregister.Count > 0)
+            {
+                ownedChartCollection.RemoveCharts(delta.ChartsToUnregister);
+            }
         }
     }
 
@@ -11587,9 +11638,11 @@ reportProgress,
         try
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
+            using (SuppressOwnedChartCollectionInvalidation())
             {
                 stateApplier.ApplyLibraryMutationDelta(delta);
             }
+            ApplyOwnedChartCollectionMutation(delta);
             UpdateInstallDestinationRuntimeStates(delta, installDestinationChangedCharts);
             PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
             if (delta?.InvalidateInstalledDirectoryIndex == true || installedLookupMutation.HasChanges)
@@ -11603,6 +11656,7 @@ reportProgress,
             {
                 InvalidateInstalledDirectoryIndex();
             }
+            InvalidateOwnedChartCollection();
             ClearLatestInstallDestinationChangedCharts(installDestinationChangedCharts);
             throw;
         }

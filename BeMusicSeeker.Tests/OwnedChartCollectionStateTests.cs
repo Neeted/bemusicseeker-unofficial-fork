@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -103,6 +105,116 @@ public sealed class OwnedChartCollectionStateTests
         Assert.AreSame(bmsFile, snapshot.GetBmsStorageOwner());
     }
 
+    [TestMethod]
+    public void RemoveCharts_UpdateOwnedCollectionMembership()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
+        var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Second", "chart.bms"));
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
+            md5 = "cccccccccccccccccccccccccccccccc"
+        };
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, second], [bmsonSong]);
+
+        Assert.AreEqual(2, state.RemoveCharts([
+            ChartFileProjection.FromBmsStorageOwnerIdentity(first),
+            ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonSong)
+        ]));
+        List<ChartFile> afterRemove = state.CreateSnapshot(includeResourceReferences: false);
+
+        Assert.AreEqual(1, afterRemove.Count);
+        Assert.AreSame(second, afterRemove[0].GetBmsStorageOwner());
+    }
+
+    [TestMethod]
+    public void RemoveCharts_PathFallbackDoesNotCrossChartKind()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = sharedPath,
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        };
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+        var bmsPathOnlyChart = new ChartFile(
+            ChartFileKind.Bms,
+            sharedPath,
+            bmsFile.hash,
+            null,
+            "title",
+            "raw",
+            "artist",
+            string.Empty,
+            Path.GetDirectoryName(sharedPath),
+            string.Empty,
+            string.Empty,
+            null,
+            0,
+            null,
+            null,
+            null);
+
+        Assert.AreEqual(1, state.RemoveCharts([bmsPathOnlyChart]));
+        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+
+        Assert.AreEqual(1, snapshot.Count);
+        Assert.AreSame(bmsonSong, snapshot[0].GetBmsonStorageOwner());
+    }
+
+    [TestMethod]
+    public void RemoveCharts_PathFallbackMatchesSameKindDuplicateRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
+        var samePath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
+        var other = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "chart.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, samePath, other], []);
+
+        Assert.AreEqual(2, state.RemoveCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(first)]));
+        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+
+        Assert.AreEqual(1, snapshot.Count);
+        Assert.AreSame(other, snapshot[0].GetBmsStorageOwner());
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_UnregisterKeepsOwnedCollectionInitializedAndSynced()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
+            var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Second", "chart.bms"));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [first, second],
+                BmsonSongs = []
+            };
+            List<ChartFile> initialSnapshot = InvokeCreateInstalledChartSnapshot(library, includeResourceReferences: false);
+            Assert.AreEqual(2, initialSnapshot.Count);
+            Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
+            var delta = new LibraryMutationDelta
+            {
+                InvalidateInstalledDirectoryIndex = true
+            };
+            delta.ChartsToUnregister.Add(initialSnapshot[0]);
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
+            Assert.AreEqual(1, library.BMSFiles.Count);
+            Assert.AreSame(second, library.BMSFiles[0]);
+            List<ChartFile> afterSnapshot = InvokeCreateInstalledChartSnapshot(library, includeResourceReferences: false);
+            Assert.AreEqual(1, afterSnapshot.Count);
+            Assert.AreSame(second, afterSnapshot[0].GetBmsStorageOwner());
+        });
+    }
+
     private static void AssertChartSnapshotParity(IReadOnlyList<ChartFile> expected, IReadOnlyList<ChartFile> actual)
     {
         Assert.AreEqual(expected.Count, actual.Count);
@@ -114,6 +226,53 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(expected[i].Sha256, actual[i].Sha256);
             Assert.AreSame(expected[i].GetBmsStorageOwner(), actual[i].GetBmsStorageOwner());
             Assert.AreSame(expected[i].GetBmsonStorageOwner(), actual[i].GetBmsonStorageOwner());
+        }
+    }
+
+    private static List<ChartFile> InvokeCreateInstalledChartSnapshot(BMSLibrary library, bool includeResourceReferences)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (List<ChartFile>)methodInfo.Invoke(library, [library.BMSFiles, library.BmsonSongs, includeResourceReferences]);
+    }
+
+    private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [delta]);
+    }
+
+    private static bool IsOwnedChartCollectionInitialized(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollectionInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return (bool)fieldInfo.GetValue(library);
+    }
+
+    private static void WithTemporarySongDb(Action<string> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+            testAction(songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
         }
     }
 
