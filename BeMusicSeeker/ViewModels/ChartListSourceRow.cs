@@ -632,8 +632,7 @@ internal sealed class ChartListSourceRow
             chartInfoProjectionVersionProvider,
             scoreSnapshotVersionProvider,
             scoreSnapshotProjectionProvider: null,
-            entry,
-            hideResourceHealthDigestWhenInstallDestinationSet: false);
+            entry);
     }
 
     internal static List<ChartListSourceRow> BuildStandardLibraryRows(

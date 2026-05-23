@@ -1059,13 +1059,17 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(sourceRow.WAVHealth, row.WAVHealth);
         Assert.AreEqual(sourceRow.BGAHealth, row.BGAHealth);
         Assert.AreEqual(sourceRow.MovieHealth, row.MovieHealth);
-        StringAssert.Contains(sourceRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
-        StringAssert.Contains(row.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+        Assert.IsFalse(sourceRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        Assert.IsFalse(row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(sourceRow.Chart.Warnings), "WAV missing");
+        StringAssert.Contains(row.WarningTooltipText, "WAV missing");
 
         entry.ApplyInstallDestination(@"D:\BMS\Next", "Next", "Artist");
 
         Assert.AreEqual(@"D:\BMS\Next", sourceRow.InstallDestination);
         Assert.AreEqual(@"D:\BMS\Next", row.instl_dst);
+        Assert.IsFalse(sourceRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        Assert.IsFalse(row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
     }
 
     [TestMethod]

@@ -1667,6 +1667,56 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void LibraryChartRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Bmson\\resource-missing.bmson",
+            folder = "C:\\Pending\\Bmson",
+            title = "Resource Missing",
+            artist = "Artist",
+            md5 = "45454545454545454545454545454545",
+            sha256 = new string('4', 64)
+        };
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        entry.SetWarning(ChartWarningKind.ResourceWavMissing, "WAV missing detail");
+
+        var unresolvedRow = LibraryChartRow.FromPackageChartEntry(entry);
+        StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+
+        entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
+        var resolvedRow = LibraryChartRow.FromPackageChartEntry(entry);
+
+        Assert.IsFalse(resolvedRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        StringAssert.Contains(resolvedRow.WarningTooltipText, "WAV missing detail");
+    }
+
+    [TestMethod]
+    public void ChartListSourceRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Bmson\\source-resource-missing.bmson",
+            folder = "C:\\Pending\\Bmson",
+            title = "Source Resource Missing",
+            artist = "Artist",
+            md5 = "67676767676767676767676767676767",
+            sha256 = new string('6', 64)
+        };
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
+        entry.SetWarning(ChartWarningKind.ResourceWavMissing, "source WAV missing detail");
+
+        ChartListSourceRow unresolvedRow = ChartListSourceRow.FromPackageChartEntry(entry);
+        StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+
+        entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
+        ChartListSourceRow resolvedRow = ChartListSourceRow.FromPackageChartEntry(entry);
+
+        Assert.IsFalse(resolvedRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(resolvedRow.Chart.Warnings), "source WAV missing detail");
+    }
+
+    [TestMethod]
     public void ChartOperationTarget_PendingBmson_UsesPendingPathAndPendingCapabilities()
     {
         var bmson = new LR2SongDBExtended.bmson_song

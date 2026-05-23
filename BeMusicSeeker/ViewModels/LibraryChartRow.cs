@@ -196,8 +196,7 @@ internal sealed class LibraryChartRow : NotificationObject
             chart,
             hasSourceChartProjection: true,
             chartProvider: () => entry.Chart,
-            packageEntry: entry,
-            hideResourceHealthDigestWhenInstallDestinationSet: false);
+            packageEntry: entry);
     }
 
     internal void UpdateSourceProjection(ChartFile chart)
