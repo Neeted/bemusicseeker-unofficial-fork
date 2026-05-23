@@ -725,6 +725,12 @@ public class BMSLibrary : NotificationObject
 
     private int bmsParentFolderListDirtyVersion;
 
+    private readonly object lockOwnedChartCollection = new();
+
+    private OwnedChartCollectionState ownedChartCollection = new();
+
+    private bool ownedChartCollectionInitialized;
+
     private readonly object lockInstalledChartLookupIndex = new();
 
     private InstalledChartLookupIndexState installedChartLookupIndex = new();
@@ -1033,6 +1039,7 @@ public class BMSLibrary : NotificationObject
             {
                 _BMSFiles = value;
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
+                InvalidateOwnedChartCollection();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateDuplicateChartGroupsCache();
@@ -1075,6 +1082,7 @@ public class BMSLibrary : NotificationObject
             {
                 _BmsonSongs = normalized;
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
+                InvalidateOwnedChartCollection();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateInstallEstimationMetadataProfileCache();
@@ -6350,6 +6358,15 @@ reportProgress,
         }
     }
 
+    private void InvalidateOwnedChartCollection()
+    {
+        lock (lockOwnedChartCollection)
+        {
+            ownedChartCollection = new OwnedChartCollectionState();
+            ownedChartCollectionInitialized = false;
+        }
+    }
+
     /// <summary>
     /// インストール済みディレクトリインデックスをクリアし、次回使用時に再構築されるようにマークします。
     /// </summary>
@@ -6494,12 +6511,53 @@ reportProgress,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         bool includeResourceReferences)
     {
+        if (IsCurrentInstalledChartSource(bmsFiles, bmsonSongs))
+        {
+            return OverlayInstallDestinationRuntimeStates(CreateOwnedChartSnapshot(includeResourceReferences));
+        }
+
         return OverlayInstallDestinationRuntimeStates(ChartFileProjection.FromStorageRows(
             bmsFiles,
             bmsonSongs,
             includeWarningSnapshot: false,
             includeResourceReferences: includeResourceReferences,
             includeScoreSnapshot: false));
+    }
+
+    private bool IsCurrentInstalledChartSource(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        return ReferenceEquals(bmsFiles, BMSFiles) && ReferenceEquals(bmsonSongs, BmsonSongs);
+    }
+
+    private List<ChartFile> CreateOwnedChartSnapshot(bool includeResourceReferences)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateSnapshot(
+                includeWarningSnapshot: false,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: false);
+        }
+    }
+
+    private void EnsureOwnedChartCollectionBuiltUnsafe()
+    {
+        List<BMSFile> bmsFiles = BMSFiles ?? [];
+        List<LR2SongDBExtended.bmson_song> bmsonSongs = BmsonSongs ?? [];
+        lock (lockOwnedChartCollection)
+        {
+            if (ownedChartCollectionInitialized
+                && ownedChartCollection.MatchesStorageRows(bmsFiles, bmsonSongs))
+            {
+                return;
+            }
+
+            ownedChartCollection = OwnedChartCollectionState.FromStorageRows(bmsFiles, bmsonSongs);
+            ownedChartCollectionInitialized = true;
+        }
     }
 
     private InstalledChartLookupMutation BuildInstalledChartLookupMutation(LibraryMutationDelta delta)
