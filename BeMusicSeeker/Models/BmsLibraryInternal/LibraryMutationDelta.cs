@@ -9,6 +9,8 @@ internal sealed class LibraryMutationDelta
 {
     public List<ChartFile> ChartsToUnregister { get; } = [];
 
+    public List<ChartFile> ChartsToRegister { get; } = [];
+
     public List<LibraryChartPathChange> ChartPathChanges { get; } = [];
 
     public List<LibraryFolderPathChange> FolderPathChanges { get; } = [];
@@ -47,6 +49,7 @@ internal sealed class LibraryMutationDelta
     public void Clear()
     {
         ChartsToUnregister.Clear();
+        ChartsToRegister.Clear();
         ChartPathChanges.Clear();
         FolderPathChanges.Clear();
         UpdatedInstallDestinations.Clear();

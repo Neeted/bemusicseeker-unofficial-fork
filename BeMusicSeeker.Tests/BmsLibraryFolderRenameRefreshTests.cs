@@ -456,6 +456,100 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_BuiltInstalledLookupMovesPathIncrementally()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LookupMove_" + Guid.NewGuid().ToString("N"));
+            string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+            string newDirectoryPath = Path.Combine(tempRootPath, "New");
+            string oldChartPath = Path.Combine(oldDirectoryPath, "chart.bms");
+            string newChartPath = Path.Combine(newDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(oldDirectoryPath);
+            Directory.CreateDirectory(newDirectoryPath);
+            File.WriteAllText(oldChartPath, "#PLAYER 1");
+            File.WriteAllText(newChartPath, "#PLAYER 1");
+            try
+            {
+                string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var file = new TestableBmsFile
+                {
+                    path = oldChartPath
+                };
+                file.SetHash(hash);
+                SetLibraryFilesWithoutNotification(library, [file]);
+                InstalledChartLookupIndexSnapshot initial = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+                Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+                CollectionAssert.AreEqual(new[] { oldDirectoryPath }, initial.Md5Directories[hash].ToArray());
+
+                var delta = new LibraryMutationDelta
+                {
+                    InvalidateInstalledDirectoryIndex = true
+                };
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(file),
+                    NewPath = newChartPath
+                });
+
+                InvokeApplyLibraryMutationDelta(library, delta);
+                InstalledChartLookupIndexSnapshot updated = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+
+                Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+                Assert.AreEqual(newChartPath, file.path);
+                CollectionAssert.AreEqual(new[] { newDirectoryPath }, updated.Md5Directories[hash].ToArray());
+                Assert.IsFalse(updated.KnownChartDirectories.Contains(oldDirectoryPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void BMSFilesReplacement_InvalidatesBuiltInstalledLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string firstDirectoryPath = Path.Combine("C:\\Installed", "First");
+            string secondDirectoryPath = Path.Combine("C:\\Installed", "Second");
+            string firstHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            string secondHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var firstFile = new TestableBmsFile
+            {
+                path = Path.Combine(firstDirectoryPath, "chart.bms")
+            };
+            firstFile.SetHash(firstHash);
+            var secondFile = new TestableBmsFile
+            {
+                path = Path.Combine(secondDirectoryPath, "chart.bms")
+            };
+            secondFile.SetHash(secondHash);
+
+            library.BMSFiles = [firstFile];
+            InstalledChartLookupIndexSnapshot initial = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsTrue(initial.ContainsPrimaryHash(firstHash));
+
+            library.BMSFiles = [secondFile];
+
+            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+            InstalledChartLookupIndexSnapshot rebuilt = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+            Assert.IsFalse(rebuilt.ContainsPrimaryHash(firstHash));
+            Assert.IsTrue(rebuilt.ContainsPrimaryHash(secondHash));
+            CollectionAssert.AreEqual(new[] { secondDirectoryPath }, rebuilt.Md5Directories[secondHash].ToArray());
+        });
+    }
+
+    [TestMethod]
     public void RenameChartFolder_RewritesBmsonInstallDestinationFromModelOverlay()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1040,6 +1134,20 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [delta]);
+    }
+
+    private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledDirectoryIndexSnapshot(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledDirectoryIndexSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (InstalledChartLookupIndexSnapshot)methodInfo.Invoke(library, []);
+    }
+
+    private static bool IsInstalledChartLookupIndexInitialized(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installedChartLookupIndexInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return (bool)fieldInfo.GetValue(library);
     }
 
     private static List<ChartFile> InvokeCreateInstalledChartSnapshot(BMSLibrary library)

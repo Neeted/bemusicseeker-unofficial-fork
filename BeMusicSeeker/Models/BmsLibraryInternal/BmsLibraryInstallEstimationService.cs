@@ -348,20 +348,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     public InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<ChartFile> installedCharts)
     {
-        var md5Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        var sha256Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        var knownChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var primaryHashCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile item in installedCharts ?? [])
-        {
-            if (item == null)
-            {
-                continue;
-            }
-            RegisterInstalledDirectory(md5Map, sha256Map, knownChartDirectories, item.Md5, item.Sha256, item.Path);
-            AddPrimaryHash(primaryHashCounts, item.PrimaryLookupHash);
-        }
-        return InstalledChartLookupIndexSnapshot.Create(md5Map, sha256Map, knownChartDirectories, primaryHashCounts);
+        return InstalledChartLookupIndexState.FromCharts(installedCharts).CreateSnapshot();
     }
 
     public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
@@ -2004,51 +1991,4 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         };
     }
 
-    private static bool IsBmsHashAvailable(string hash)
-    {
-        return !string.IsNullOrWhiteSpace(hash);
-    }
-
-    private static void AddPrimaryHash(Dictionary<string, int> primaryHashCounts, string lookupHash)
-    {
-        if (!string.IsNullOrWhiteSpace(lookupHash) && primaryHashCounts != null)
-        {
-            primaryHashCounts[lookupHash] = primaryHashCounts.TryGetValue(lookupHash, out int count) ? count + 1 : 1;
-        }
-    }
-
-    private static void RegisterInstalledDirectory(Dictionary<string, HashSet<string>> md5Map, Dictionary<string, HashSet<string>> sha256Map, HashSet<string> knownChartDirectories, string md5, string sha256, string chartPath)
-    {
-        string directoryPath = null;
-        try
-        {
-            directoryPath = DirectoryExt.GetDirectoryNameSimple(chartPath);
-        }
-        catch
-        {
-        }
-        if (string.IsNullOrWhiteSpace(directoryPath))
-        {
-            return;
-        }
-        knownChartDirectories?.Add(directoryPath);
-        if (IsBmsHashAvailable(md5))
-        {
-            if (!md5Map.TryGetValue(md5, out HashSet<string> value))
-            {
-                value = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                md5Map[md5] = value;
-            }
-            value.Add(directoryPath);
-        }
-        if (!string.IsNullOrWhiteSpace(sha256))
-        {
-            if (!sha256Map.TryGetValue(sha256, out HashSet<string> value2))
-            {
-                value2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                sha256Map[sha256] = value2;
-            }
-            value2.Add(directoryPath);
-        }
-    }
 }

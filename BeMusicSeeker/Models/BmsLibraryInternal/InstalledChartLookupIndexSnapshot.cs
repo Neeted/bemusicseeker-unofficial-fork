@@ -1,8 +1,25 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+internal interface IInstalledChartLookupIndex : IPrimaryHashLookup
+{
+    IReadOnlyDictionary<string, IReadOnlyList<string>> Md5Directories { get; }
+
+    IReadOnlyDictionary<string, IReadOnlyList<string>> Sha256Directories { get; }
+
+    IReadOnlyCollection<string> KnownChartDirectories { get; }
+
+    IReadOnlyDictionary<string, int> PrimaryHashCounts { get; }
+
+    int HashCount { get; }
+
+    int DirectoryReferenceCount { get; }
+}
 
 internal interface IPrimaryHashLookup
 {
@@ -18,7 +35,7 @@ internal interface IMutablePrimaryHashLookup : IPrimaryHashLookup
     void AddPrimaryHash(string lookupHash);
 }
 
-internal sealed class InstalledChartLookupIndexSnapshot : IPrimaryHashLookup
+internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupIndex
 {
     private readonly Dictionary<string, IReadOnlyList<string>> md5Directories;
 
@@ -159,6 +176,253 @@ internal sealed class InstalledChartLookupIndexSnapshot : IPrimaryHashLookup
         return excludedCounts == null || excludedCounts.Count == 0
             ? this
             : new ExcludingPrimaryHashLookup(this, excludedCounts);
+    }
+}
+
+internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
+{
+    private readonly Dictionary<string, Dictionary<string, int>> md5DirectoryCounts = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, Dictionary<string, int>> sha256DirectoryCounts = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, int> knownChartDirectoryCounts = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, int> primaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
+
+    private InstalledChartLookupIndexSnapshot snapshot;
+
+    private bool snapshotDirty = true;
+
+    internal static InstalledChartLookupIndexState FromStorageRows(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        var state = new InstalledChartLookupIndexState();
+        foreach (BMSFile bmsFile in bmsFiles ?? [])
+        {
+            if (bmsFile != null)
+            {
+                state.AddChart(bmsFile.path, bmsFile.hash, bmsFile.sha256);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song bmsonSong in bmsonSongs ?? [])
+        {
+            if (bmsonSong != null)
+            {
+                state.AddChart(bmsonSong.path, bmsonSong.md5, bmsonSong.sha256);
+            }
+        }
+        return state;
+    }
+
+    internal static InstalledChartLookupIndexState FromCharts(IEnumerable<ChartFile> charts)
+    {
+        var state = new InstalledChartLookupIndexState();
+        foreach (ChartFile chart in charts ?? [])
+        {
+            if (chart != null)
+            {
+                state.AddChart(chart.Path, chart.Md5, chart.Sha256);
+            }
+        }
+        return state;
+    }
+
+    public int DistinctPrimaryHashCount => primaryHashCounts.Count;
+
+    internal int HashCount => md5DirectoryCounts.Count + sha256DirectoryCounts.Count;
+
+    internal int DirectoryReferenceCount => md5DirectoryCounts.Sum(item => item.Value.Count)
+        + sha256DirectoryCounts.Sum(item => item.Value.Count);
+
+    public bool ContainsPrimaryHash(string lookupHash)
+    {
+        return GetPrimaryHashCount(lookupHash) > 0;
+    }
+
+    public int GetPrimaryHashCount(string lookupHash)
+    {
+        return !string.IsNullOrWhiteSpace(lookupHash) && primaryHashCounts.TryGetValue(lookupHash, out int count)
+            ? count
+            : 0;
+    }
+
+    internal void AddChart(string path, string md5, string sha256)
+    {
+        string directory = GetDirectory(path);
+        AddKnownDirectory(directory);
+        AddDirectoryHash(md5DirectoryCounts, md5, directory);
+        AddDirectoryHash(sha256DirectoryCounts, sha256, directory);
+        AddPrimaryHash(GetPrimaryHash(md5, sha256));
+    }
+
+    internal void RemoveChart(string path, string md5, string sha256)
+    {
+        string directory = GetDirectory(path);
+        RemoveKnownDirectory(directory);
+        RemoveDirectoryHash(md5DirectoryCounts, md5, directory);
+        RemoveDirectoryHash(sha256DirectoryCounts, sha256, directory);
+        RemovePrimaryHash(GetPrimaryHash(md5, sha256));
+    }
+
+    internal void MoveChart(string oldPath, string newPath, string md5, string sha256)
+    {
+        RemoveChart(oldPath, md5, sha256);
+        AddChart(newPath, md5, sha256);
+    }
+
+    internal IPrimaryHashLookup CreateExcludingLookup(IReadOnlyDictionary<string, int> excludedCounts)
+    {
+        return excludedCounts == null || excludedCounts.Count == 0
+            ? this
+            : new ExcludingPrimaryHashLookup(this, excludedCounts);
+    }
+
+    internal InstalledChartLookupIndexSnapshot CreateSnapshot()
+    {
+        if (!snapshotDirty && snapshot != null)
+        {
+            return snapshot;
+        }
+        snapshot = InstalledChartLookupIndexSnapshot.Create(
+            ToDirectorySetMap(md5DirectoryCounts),
+            ToDirectorySetMap(sha256DirectoryCounts),
+            new HashSet<string>(knownChartDirectoryCounts.Keys, StringComparer.OrdinalIgnoreCase),
+            new Dictionary<string, int>(primaryHashCounts, StringComparer.OrdinalIgnoreCase));
+        snapshotDirty = false;
+        return snapshot;
+    }
+
+    private static Dictionary<string, HashSet<string>> ToDirectorySetMap(Dictionary<string, Dictionary<string, int>> source)
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, Dictionary<string, int>> item in source)
+        {
+            result[item.Key] = new HashSet<string>(item.Value.Keys, StringComparer.OrdinalIgnoreCase);
+        }
+        return result;
+    }
+
+    private void AddKnownDirectory(string directory)
+    {
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Increment(knownChartDirectoryCounts, directory);
+            MarkDirty();
+        }
+    }
+
+    private void RemoveKnownDirectory(string directory)
+    {
+        if (!string.IsNullOrWhiteSpace(directory) && Decrement(knownChartDirectoryCounts, directory))
+        {
+            MarkDirty();
+        }
+    }
+
+    private void AddDirectoryHash(Dictionary<string, Dictionary<string, int>> directoryCountsByHash, string hash, string directory)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+        if (!directoryCountsByHash.TryGetValue(hash, out Dictionary<string, int> directoryCounts))
+        {
+            directoryCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            directoryCountsByHash[hash] = directoryCounts;
+        }
+        Increment(directoryCounts, directory);
+        MarkDirty();
+    }
+
+    private void RemoveDirectoryHash(Dictionary<string, Dictionary<string, int>> directoryCountsByHash, string hash, string directory)
+    {
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return;
+        }
+        if (directoryCountsByHash.TryGetValue(hash, out Dictionary<string, int> directoryCounts)
+            && Decrement(directoryCounts, directory))
+        {
+            if (directoryCounts.Count == 0)
+            {
+                directoryCountsByHash.Remove(hash);
+            }
+            MarkDirty();
+        }
+    }
+
+    private void AddPrimaryHash(string lookupHash)
+    {
+        if (!string.IsNullOrWhiteSpace(lookupHash))
+        {
+            Increment(primaryHashCounts, lookupHash);
+            MarkDirty();
+        }
+    }
+
+    private void RemovePrimaryHash(string lookupHash)
+    {
+        if (!string.IsNullOrWhiteSpace(lookupHash) && Decrement(primaryHashCounts, lookupHash))
+        {
+            MarkDirty();
+        }
+    }
+
+    private static void Increment(Dictionary<string, int> counts, string key)
+    {
+        counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
+    }
+
+    private static bool Decrement(Dictionary<string, int> counts, string key)
+    {
+        if (!counts.TryGetValue(key, out int count))
+        {
+            return false;
+        }
+        if (count <= 1)
+        {
+            counts.Remove(key);
+        }
+        else
+        {
+            counts[key] = count - 1;
+        }
+        return true;
+    }
+
+    private static string GetPrimaryHash(string md5, string sha256)
+    {
+        return !string.IsNullOrWhiteSpace(md5)
+            ? md5
+            : string.IsNullOrWhiteSpace(sha256) ? null : sha256;
+    }
+
+    private static string GetDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return DirectoryExt.GetDirectoryNameSimple(path);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private void MarkDirty()
+    {
+        snapshotDirty = true;
     }
 }
 

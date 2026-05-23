@@ -2028,6 +2028,81 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void InstalledChartLookupIndexState_FromStorageRowsBuildsBmsAndBmsonLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string bmsDir = Path.Combine("C:\\Installed", "Bms");
+        string bmsonDir = Path.Combine("C:\\Installed", "Bmson");
+        TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(bmsDir, "chart.bms"));
+        bmsFile.SetSha256(new string('b', 64));
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine(bmsonDir, "chart.bmson"),
+            folder = bmsonDir,
+            md5 = "cccccccccccccccccccccccccccccccc",
+            sha256 = new string('d', 64)
+        };
+
+        InstalledChartLookupIndexSnapshot snapshot = InstalledChartLookupIndexState
+            .FromStorageRows([bmsFile], [bmsonSong])
+            .CreateSnapshot();
+
+        CollectionAssert.AreEqual(new[] { bmsDir }, snapshot.Md5Directories[bmsFile.hash].ToArray());
+        CollectionAssert.AreEqual(new[] { bmsDir }, snapshot.Sha256Directories[bmsFile.sha256].ToArray());
+        CollectionAssert.AreEqual(new[] { bmsonDir }, snapshot.Md5Directories[bmsonSong.md5].ToArray());
+        CollectionAssert.AreEqual(new[] { bmsonDir }, snapshot.Sha256Directories[bmsonSong.sha256].ToArray());
+        Assert.IsTrue(snapshot.KnownChartDirectories.Contains(bmsDir));
+        Assert.IsTrue(snapshot.KnownChartDirectories.Contains(bmsonDir));
+        Assert.AreEqual(2, snapshot.DistinctPrimaryHashCount);
+    }
+
+    [TestMethod]
+    public void InstalledChartLookupIndexState_DecrementsPrimaryHashAndDirectoryCounts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string firstDir = Path.Combine("C:\\Installed", "First");
+        string secondDir = Path.Combine("C:\\Installed", "Second");
+        var state = new InstalledChartLookupIndexState();
+        state.AddChart(Path.Combine(firstDir, "a.bms"), hash, null);
+        state.AddChart(Path.Combine(secondDir, "b.bms"), hash, null);
+
+        state.RemoveChart(Path.Combine(firstDir, "a.bms"), hash, null);
+        InstalledChartLookupIndexSnapshot partial = state.CreateSnapshot();
+
+        Assert.IsTrue(partial.ContainsPrimaryHash(hash));
+        Assert.AreEqual(1, partial.GetPrimaryHashCount(hash));
+        CollectionAssert.AreEqual(new[] { secondDir }, partial.Md5Directories[hash].ToArray());
+
+        state.RemoveChart(Path.Combine(secondDir, "b.bms"), hash, null);
+        InstalledChartLookupIndexSnapshot empty = state.CreateSnapshot();
+
+        Assert.IsFalse(empty.ContainsPrimaryHash(hash));
+        Assert.IsFalse(empty.Md5Directories.ContainsKey(hash));
+        Assert.IsFalse(empty.KnownChartDirectories.Contains(firstDir));
+        Assert.IsFalse(empty.KnownChartDirectories.Contains(secondDir));
+    }
+
+    [TestMethod]
+    public void InstalledChartLookupIndexState_MoveChartUpdatesDirectoryLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string oldDir = Path.Combine("C:\\Installed", "Old");
+        string newDir = Path.Combine("C:\\Installed", "New");
+        var state = new InstalledChartLookupIndexState();
+        state.AddChart(Path.Combine(oldDir, "chart.bms"), hash, null);
+
+        state.MoveChart(Path.Combine(oldDir, "chart.bms"), Path.Combine(newDir, "chart.bms"), hash, null);
+        InstalledChartLookupIndexSnapshot snapshot = state.CreateSnapshot();
+
+        CollectionAssert.AreEqual(new[] { newDir }, snapshot.Md5Directories[hash].ToArray());
+        Assert.IsFalse(snapshot.KnownChartDirectories.Contains(oldDir));
+        Assert.IsTrue(snapshot.KnownChartDirectories.Contains(newDir));
+        Assert.AreEqual(1, snapshot.GetPrimaryHashCount(hash));
+    }
+
+    [TestMethod]
     public void EstimateInstallationDirectory_BmsonUsesCommonHealthBasedSearch()
     {
         TestResourceInitializer.EnsureJapaneseResources();
