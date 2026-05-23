@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -42,5 +43,22 @@ internal sealed class ChartStorageTargetSet
         }
 
         return new ChartStorageTargetSet(bmsFiles, [.. bmsonSongsByPath.Values]);
+    }
+
+    internal static ChartStorageTargetSet FromRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song bmsonSong in bmsonSongs ?? [])
+        {
+            if (bmsonSong != null && !string.IsNullOrWhiteSpace(bmsonSong.path))
+            {
+                bmsonSongsByPath[bmsonSong.path] = bmsonSong;
+            }
+        }
+        return new ChartStorageTargetSet(
+            [.. (bmsFiles ?? []).Where(file => ChartFileKindResolver.IsBmsChartFile(file))],
+            [.. bmsonSongsByPath.Values]);
     }
 }

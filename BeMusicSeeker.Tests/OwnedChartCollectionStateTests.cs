@@ -183,6 +183,34 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void UpsertStorageRows_ReplacesSamePathRowsAndPreservesStorageOrder()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string replacedBmsPath = Path.Combine("C:\\Installed", "Bms", "replace.bms");
+        string replacedBmsonPath = Path.Combine("C:\\Installed", "Bmson", "replace.bmson");
+        var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+        var replacedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", replacedBmsPath);
+        var newBms = CreateFile("cccccccccccccccccccccccccccccccc", replacedBmsPath);
+        var addedBms = CreateFile("dddddddddddddddddddddddddddddddd", Path.Combine("C:\\Installed", "Bms", "added.bms"));
+        var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "aaa.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        var replacedBmson = CreateBmsonSong(replacedBmsonPath, "ffffffffffffffffffffffffffffffff");
+        var newBmson = CreateBmsonSong(replacedBmsonPath, "11111111111111111111111111111111");
+        var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "zzz.bmson"), "22222222222222222222222222222222");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([keptBms, replacedBms], [replacedBmson, keptBmson]);
+
+        state.UpsertStorageRows([newBms, addedBms], [newBmson, addedBmson]);
+        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+
+        Assert.AreEqual(6, snapshot.Count);
+        Assert.AreSame(keptBms, snapshot[0].GetBmsStorageOwner());
+        Assert.AreSame(newBms, snapshot[1].GetBmsStorageOwner());
+        Assert.AreSame(addedBms, snapshot[2].GetBmsStorageOwner());
+        Assert.AreSame(keptBmson, snapshot[3].GetBmsonStorageOwner());
+        Assert.AreSame(newBmson, snapshot[4].GetBmsonStorageOwner());
+        Assert.AreSame(addedBmson, snapshot[5].GetBmsonStorageOwner());
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_UnregisterKeepsOwnedCollectionInitializedAndSynced()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -215,6 +243,68 @@ public sealed class OwnedChartCollectionStateTests
         });
     }
 
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_UpsertsOwnedCollectionWithoutRebuild()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string replacedBmsPath = Path.Combine("C:\\Installed", "Bms", "replace.bms");
+            string replacedBmsonPath = Path.Combine("C:\\Installed", "Bmson", "replace.bmson");
+            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+            var replacedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", replacedBmsPath);
+            var newBms = CreateFile("cccccccccccccccccccccccccccccccc", replacedBmsPath);
+            var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "aaa.bmson"), "dddddddddddddddddddddddddddddddd");
+            var replacedBmson = CreateBmsonSong(replacedBmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            var newBmson = CreateBmsonSong(replacedBmsonPath, "ffffffffffffffffffffffffffffffff");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [keptBms, replacedBms],
+                BmsonSongs = [replacedBmson, keptBmson]
+            };
+            InvokeCreateInstalledChartSnapshot(library, includeResourceReferences: false);
+            object ownedStateBefore = GetOwnedChartCollectionState(library);
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
+            List<ChartFile> snapshot = InvokeCreateInstalledChartSnapshot(library, includeResourceReferences: false);
+
+            Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
+            Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
+            Assert.AreEqual(4, snapshot.Count);
+            Assert.AreSame(keptBms, snapshot[0].GetBmsStorageOwner());
+            Assert.AreSame(newBms, snapshot[1].GetBmsStorageOwner());
+            Assert.AreSame(keptBmson, snapshot[2].GetBmsonStorageOwner());
+            Assert.AreSame(newBmson, snapshot[3].GetBmsonStorageOwner());
+        });
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_InvalidatesOwnedCollectionOnFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+            var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
+            string duplicateBmsonPath = Path.Combine("C:\\Installed", "Bmson", "duplicate.bmson");
+            var duplicateBmsonA = CreateBmsonSong(duplicateBmsonPath, "cccccccccccccccccccccccccccccccc");
+            var duplicateBmsonB = CreateBmsonSong(duplicateBmsonPath, "dddddddddddddddddddddddddddddddd");
+            var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "added.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [keptBms],
+                BmsonSongs = [duplicateBmsonA, duplicateBmsonB]
+            };
+            InvokeCreateInstalledChartSnapshot(library, includeResourceReferences: false);
+
+            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
+                InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms], [addedBmson])));
+
+            Assert.IsInstanceOfType(exception.InnerException, typeof(ArgumentException));
+            Assert.IsFalse(IsOwnedChartCollectionInitialized(library));
+        });
+    }
+
     private static void AssertChartSnapshotParity(IReadOnlyList<ChartFile> expected, IReadOnlyList<ChartFile> actual)
     {
         Assert.AreEqual(expected.Count, actual.Count);
@@ -243,11 +333,25 @@ public sealed class OwnedChartCollectionStateTests
         methodInfo.Invoke(library, [delta]);
     }
 
+    private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [addedTargets, "test"]);
+    }
+
     private static bool IsOwnedChartCollectionInitialized(BMSLibrary library)
     {
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollectionInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         return (bool)fieldInfo.GetValue(library);
+    }
+
+    private static object GetOwnedChartCollectionState(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollection", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return fieldInfo.GetValue(library);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
@@ -285,6 +389,15 @@ public sealed class OwnedChartCollectionStateTests
         file.SetHash(hash);
         file.SetSha256(sha256);
         return file;
+    }
+
+    private static LR2SongDBExtended.bmson_song CreateBmsonSong(string path, string md5)
+    {
+        return new LR2SongDBExtended.bmson_song
+        {
+            path = path,
+            md5 = md5
+        };
     }
 
     private sealed class TestableBmsFile : BMSFile

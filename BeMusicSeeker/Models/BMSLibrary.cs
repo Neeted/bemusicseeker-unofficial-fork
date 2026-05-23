@@ -6375,10 +6375,8 @@ reportProgress,
 
     private IDisposable SuppressOwnedChartCollectionInvalidation()
     {
-        lock (lockOwnedChartCollection)
-        {
-            suppressOwnedChartCollectionInvalidation++;
-        }
+        Monitor.Enter(lockOwnedChartCollection);
+        suppressOwnedChartCollectionInvalidation++;
         return new OwnedChartCollectionInvalidationSuppression(this);
     }
 
@@ -6390,10 +6388,8 @@ reportProgress,
         {
             if (owner != null)
             {
-                lock (owner.lockOwnedChartCollection)
-                {
-                    owner.suppressOwnedChartCollectionInvalidation = Math.Max(0, owner.suppressOwnedChartCollectionInvalidation - 1);
-                }
+                owner.suppressOwnedChartCollectionInvalidation = Math.Max(0, owner.suppressOwnedChartCollectionInvalidation - 1);
+                Monitor.Exit(owner.lockOwnedChartCollection);
                 owner = null;
             }
         }
@@ -6608,6 +6604,67 @@ reportProgress,
             {
                 ownedChartCollection.RemoveCharts(delta.ChartsToUnregister);
             }
+        }
+    }
+
+    private void ApplyOwnedChartCollectionUpsert(ChartStorageTargetSet addedTargets)
+    {
+        if (addedTargets == null)
+        {
+            return;
+        }
+        lock (lockOwnedChartCollection)
+        {
+            if (!ownedChartCollectionInitialized)
+            {
+                return;
+            }
+            ownedChartCollection.UpsertStorageRows(addedTargets.BmsFiles, addedTargets.BmsonSongs);
+        }
+    }
+
+    private void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
+    {
+        if (addedTargets == null)
+        {
+            return;
+        }
+        InstalledChartLookupMutation lookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets.BmsFiles, addedTargets.BmsonSongs);
+        try
+        {
+            using (SuppressInstalledChartLookupInvalidation())
+            using (SuppressOwnedChartCollectionInvalidation())
+            {
+                ApplyInstalledChartStorageRowsUnsafe(addedTargets);
+                ApplyOwnedChartCollectionUpsert(addedTargets);
+            }
+            ApplyInstalledChartLookupMutation(lookupMutation, lookupReason);
+        }
+        catch
+        {
+            InvalidateInstalledDirectoryIndex();
+            InvalidateOwnedChartCollection();
+            throw;
+        }
+    }
+
+    private void ApplyInstalledChartStorageRowsUnsafe(ChartStorageTargetSet addedTargets)
+    {
+        if (addedTargets.BmsFiles.Count > 0)
+        {
+            var addedBmsPathSet = new HashSet<string>(addedTargets.BmsFiles.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
+            BMSFiles = [.. (BMSFiles ?? []).Where(file => file != null && !addedBmsPathSet.Contains(file.path)), .. addedTargets.BmsFiles];
+        }
+        if (addedTargets.BmsonSongs.Count > 0)
+        {
+            var nextBmsonByPath = (BmsonSongs ?? [])
+                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
+            foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedTargets.BmsonSongs)
+            {
+                nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
+            }
+            BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
         }
     }
 
@@ -8739,27 +8796,7 @@ reportProgress,
                 estimatedInstallBatchApplyContext.AddInstalledCharts(installResult?.AddedCharts, installationDirectory);
                 return;
             }
-            InstalledChartLookupMutation lookupMutation = BuildInstalledChartLookupUpsertMutation(addedCharts);
-            using (SuppressInstalledChartLookupInvalidation())
-            {
-                if (addedTargets.BmsFiles.Count > 0)
-                {
-                    var addedBmsPathSet = new HashSet<string>(addedTargets.BmsFiles.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
-                    BMSFiles = [.. BMSFiles.Where(file => !addedBmsPathSet.Contains(file.path)), .. addedTargets.BmsFiles];
-                }
-                if (addedTargets.BmsonSongs.Count > 0)
-                {
-                    var nextBmsonByPath = (BmsonSongs ?? [])
-                        .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                        .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
-                    foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedTargets.BmsonSongs)
-                    {
-                        nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
-                    }
-                    BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-                }
-            }
-            ApplyInstalledChartLookupMutation(lookupMutation, "install_package");
+            ApplyInstalledChartStorageTargets(addedTargets, "install_package");
             if (addedTargets.BmsFiles.Count > 0 || addedTargets.BmsonSongs.Count > 0)
             {
                 IEnumerable<string> addedDirectories = addedTargets.BmsFiles
@@ -8817,31 +8854,9 @@ reportProgress,
         {
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
-        InstalledChartLookupMutation lookupMutation = BuildInstalledChartLookupUpsertMutation(context.AddedBmsFiles, context.AddedBmsonSongs);
-        using (SuppressInstalledChartLookupInvalidation())
-        {
-            if (context.AddedBmsFiles.Count > 0)
-            {
-                var addedBmsPathSet = new HashSet<string>(
-                    context.AddedBmsFiles
-                        .Select(file => file.path)
-                        .Where(path => !string.IsNullOrWhiteSpace(path)),
-                    StringComparer.OrdinalIgnoreCase);
-                BMSFiles = [.. BMSFiles.Where(file => file != null && !addedBmsPathSet.Contains(file.path)), .. context.AddedBmsFiles];
-            }
-            if (context.AddedBmsonSongs.Count > 0)
-            {
-                var nextBmsonByPath = (BmsonSongs ?? [])
-                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                    .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
-                foreach (LR2SongDBExtended.bmson_song addedBmsonSong in context.AddedBmsonSongs)
-                {
-                    nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
-                }
-                BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-            }
-        }
-        ApplyInstalledChartLookupMutation(lookupMutation, "install_package_batch");
+        ApplyInstalledChartStorageTargets(
+            ChartStorageTargetSet.FromRows(context.AddedBmsFiles, context.AddedBmsonSongs),
+            "install_package_batch");
         List<string> affectedDirectories = [.. context.AffectedDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         if (affectedDirectories.Count == 0)
         {

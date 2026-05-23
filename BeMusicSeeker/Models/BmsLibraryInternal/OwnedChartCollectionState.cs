@@ -70,6 +70,24 @@ internal sealed class OwnedChartCollectionState
         return charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths));
     }
 
+    internal void UpsertStorageRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
+        List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (bmsonSongs ?? [])
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        if (bmsFileList.Count == 0 && bmsonSongList.Count == 0)
+        {
+            return;
+        }
+
+        RemoveMatchingStorageRows(bmsFileList, bmsonSongList);
+        InsertBmsChartsBeforeBmson(ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFileList));
+        charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongList));
+        SortBmsonChartsByPath();
+    }
+
     internal bool MatchesStorageRows(
         IReadOnlyList<BMSFile> bmsFiles,
         IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonSongs)
@@ -112,6 +130,57 @@ internal sealed class OwnedChartCollectionState
             }
         }
         return chartIndex == charts.Count;
+    }
+
+    private void RemoveMatchingStorageRows(
+        IReadOnlyCollection<BMSFile> bmsFiles,
+        IReadOnlyCollection<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        var bmsOwners = new HashSet<BMSFile>(bmsFiles.Where(file => file != null));
+        var bmsPaths = new HashSet<string>(
+            bmsFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            System.StringComparer.OrdinalIgnoreCase);
+        var bmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(bmsonSongs.Where(song => song != null));
+        var bmsonPaths = new HashSet<string>(
+            bmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            System.StringComparer.OrdinalIgnoreCase);
+
+        charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths));
+    }
+
+    private void InsertBmsChartsBeforeBmson(IEnumerable<ChartFile> bmsCharts)
+    {
+        List<ChartFile> bmsChartList = [.. (bmsCharts ?? []).Where(chart => chart != null)];
+        if (bmsChartList.Count == 0)
+        {
+            return;
+        }
+
+        int firstBmsonIndex = charts.FindIndex(chart => chart?.Kind == ChartFileKind.Bmson);
+        if (firstBmsonIndex >= 0)
+        {
+            charts.InsertRange(firstBmsonIndex, bmsChartList);
+        }
+        else
+        {
+            charts.AddRange(bmsChartList);
+        }
+    }
+
+    private void SortBmsonChartsByPath()
+    {
+        int firstBmsonIndex = charts.FindIndex(chart => chart?.Kind == ChartFileKind.Bmson);
+        if (firstBmsonIndex < 0)
+        {
+            return;
+        }
+
+        List<ChartFile> sortedBmsonCharts = [.. charts
+            .Skip(firstBmsonIndex)
+            .Where(chart => chart != null)
+            .OrderBy(chart => chart.Path, System.StringComparer.OrdinalIgnoreCase)];
+        charts.RemoveRange(firstBmsonIndex, charts.Count - firstBmsonIndex);
+        charts.AddRange(sortedBmsonCharts);
     }
 
     private static bool IsRemovedChart(
