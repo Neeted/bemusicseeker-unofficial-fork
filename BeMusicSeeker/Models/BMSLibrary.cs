@@ -7208,38 +7208,11 @@ reportProgress,
     private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
     {
         var knownChartDirectories = new HashSet<string>((directoryResourceLookupCache?.Keys ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
+        foreach (string directory in CreateInstalledDirectoryIndexSnapshotUnsafe().KnownChartDirectories)
         {
-            string path = null;
-            try
+            if (!string.IsNullOrWhiteSpace(directory))
             {
-                path = !string.IsNullOrWhiteSpace(bmsFile?.folder)
-                    ? bmsFile.folder
-                    : DirectoryExt.GetDirectoryNameSimple(bmsFile?.path);
-            }
-            catch
-            {
-            }
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                knownChartDirectories.Add(path);
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-        {
-            string path = null;
-            try
-            {
-                path = !string.IsNullOrWhiteSpace(bmsonSong?.folder)
-                    ? bmsonSong.folder
-                    : DirectoryExt.GetDirectoryNameSimple(bmsonSong?.path);
-            }
-            catch
-            {
-            }
-            if (!string.IsNullOrWhiteSpace(path))
-            {
-                knownChartDirectories.Add(path);
+                knownChartDirectories.Add(directory);
             }
         }
         return knownChartDirectories;
