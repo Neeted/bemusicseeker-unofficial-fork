@@ -273,15 +273,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public LibraryMutationDelta BuildFolderMoveDelta(
         string srcDir,
         string dstDir,
-        IEnumerable<LibraryChartRef> libraryCharts,
+        IEnumerable<LibraryChartRef> sourceCharts,
+        IEnumerable<LibraryChartRef> installDestinationOverlayCharts,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         bool unregister,
         bool raiseLibraryChartsChanged = true)
     {
         var delta = new LibraryMutationDelta();
-        List<LibraryChartRef> currentLibraryCharts = [.. (libraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
-        List<LibraryChartRef> targetCharts = [.. currentLibraryCharts.Where(chart => chart.Path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
+        List<LibraryChartRef> targetCharts = [.. (sourceCharts ?? [])
+            .Where(chart => IsChartUnderFolder(chart, srcDir))];
         if (unregister)
         {
             delta.ChartsToUnregister.AddRange(targetCharts.Select(ToChartFile).Where(chart => chart != null));
@@ -290,7 +291,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             delta.ClearDuplicatedCache = targetCharts.Count > 0;
             return delta;
         }
-        delta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, currentLibraryCharts, srcDir, dstDir));
+        delta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
@@ -502,7 +503,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public LibraryMergeResult PrepareMergeDirectory(
         string srcDir,
         string dstDir,
-        IEnumerable<LibraryChartRef> libraryCharts,
+        IEnumerable<LibraryChartRef> sourceCharts,
+        IEnumerable<LibraryChartRef> installDestinationOverlayCharts,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         Func<IEnumerable<ChartFile>, IPrimaryHashLookup> createHashSnapshotExcluding)
@@ -512,15 +514,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return result;
         }
-        List<LibraryChartRef> currentLibraryCharts = [.. (libraryCharts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
-        result.SourceCharts.AddRange(currentLibraryCharts
-            .Where(chart => chart.Path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+        result.SourceCharts.AddRange((sourceCharts ?? [])
+            .Where(chart => IsChartUnderFolder(chart, srcDir))
+            .Select(CreateStableLibraryChartRefSnapshot)
+            .Where(chart => chart != null));
         List<PackageChartEntry> sourceEntries = [.. result.SourceCharts.Select(ToPackageChartEntry).Where(entry => entry != null)];
         result.Repackage = ChartPackage.FromChartEntries(sourceEntries);
         result.Repackage.path = srcDir;
         result.Repackage.delete_parent = false;
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? EmptyPrimaryHashLookup.Instance;
-        result.ReferenceMutationDelta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, currentLibraryCharts, srcDir, dstDir));
+        result.ReferenceMutationDelta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
@@ -590,6 +593,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return chart?.ToChartFile();
     }
 
+    private static LibraryChartRef CreateStableLibraryChartRefSnapshot(LibraryChartRef chart)
+    {
+        ChartFile chartSnapshot = chart?.ToChartFile();
+        return chartSnapshot == null ? null : LibraryChartRef.FromChartFile(chartSnapshot);
+    }
+
     private static PackageChartEntry ToPackageChartEntry(LibraryChartRef chart)
     {
         ChartFile chartFile = ToChartFile(chart);
@@ -605,6 +614,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return !string.IsNullOrWhiteSpace(installDestination)
             && !string.IsNullOrWhiteSpace(folderPath)
             && (installDestination + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsChartUnderFolder(LibraryChartRef chart, string folderPath)
+    {
+        return !string.IsNullOrWhiteSpace(chart?.Path)
+            && !string.IsNullOrWhiteSpace(folderPath)
+            && chart.Path.StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     public LibraryFixInstallationResult FixInstallationDirectory(

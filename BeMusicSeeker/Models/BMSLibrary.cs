@@ -11152,7 +11152,8 @@ reportProgress,
                         LibraryMergeResult mergeResult = libraryFileOperationsService.PrepareMergeDirectory(
                             src,
                             dst,
-                            CreateLibraryChartRefSnapshotUnsafe(),
+                            CreateLibraryChartRefIndexSnapshotUnsafe().GetChartRefsUnderRealPath(src),
+                            CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
                             ChartPackagesPending,
                             ChartPackagesInstalled,
                             CreateInstalledChartKeySnapshotExcludingChartsUnsafe);
@@ -11524,7 +11525,15 @@ reportProgress,
         {
             return;
         }
-        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, CreateLibraryChartRefSnapshotUnsafe(), ChartPackagesPending, ChartPackagesInstalled, unregister == true, raiseLibraryChartsChanged: raiseLibraryChartsChanged);
+        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(
+            srcDir,
+            dstDir,
+            CreateLibraryChartRefIndexSnapshotUnsafe().GetChartRefsUnderRealPath(srcDir),
+            CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
+            ChartPackagesPending,
+            ChartPackagesInstalled,
+            unregister == true,
+            raiseLibraryChartsChanged: raiseLibraryChartsChanged);
         ApplyLibraryMutationDelta(delta);
     }
 

@@ -189,6 +189,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryMutationDelta delta = service.BuildFolderMoveDelta(
                 sourceRoot,
                 destinationRoot,
+                [LibraryChartRef.FromBmsFile(libraryFile)],
                 [CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)],
                 [pendingPackage],
                 [installedPackage],
@@ -246,6 +247,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryMutationDelta delta = service.BuildFolderMoveDelta(
                 sourceRoot,
                 destinationRoot,
+                [],
                 [LibraryChartRef.FromChartFile(bmsonChart)],
                 [],
                 [],
@@ -281,6 +283,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryMutationDelta delta = service.BuildFolderMoveDelta(
                 sourceRoot,
                 destinationRoot,
+                [LibraryChartRef.FromBmsFile(libraryFile)],
                 [CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)],
                 [pendingPackage],
                 [],
@@ -670,6 +673,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CreateLibraryChartRefs([file1, file2]),
             [],
             [],
+            [],
             unregister: false,
             raiseLibraryChartsChanged: false);
 
@@ -694,6 +698,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([file]),
+            [],
             [],
             [],
             unregister: false,
@@ -835,6 +840,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CreateLibraryChartRefs([], [bmsonSong]),
             [],
             [],
+            [],
             unregister: false,
             raiseLibraryChartsChanged: false);
 
@@ -861,6 +867,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([], [bmsonSong]),
+            [],
             [],
             [],
             unregister: false,
@@ -899,6 +906,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryMergeResult result = service.PrepareMergeDirectory(
                 sourceRoot,
                 destinationRoot,
+                [LibraryChartRef.FromBmsFile(libraryFile)],
                 [CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)],
                 [pendingPackage],
                 [],
@@ -940,6 +948,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 CreateLibraryChartRefs([libraryFile]),
+                [],
                 [pendingPackage],
                 [],
                 _ => new PrimaryHashSetLookup());
@@ -980,6 +989,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 CreateLibraryChartRefs([bmsFile], [bmsonSong]),
                 [],
                 [],
+                [],
                 charts =>
                 {
                     excludedHashes = [.. charts.Select(chart => chart.PrimaryLookupHash).Where(hash => !string.IsNullOrWhiteSpace(hash))];
@@ -999,6 +1009,38 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void PrepareMergeDirectory_SourceChartsKeepPreparedPathAfterOwnerPathChanges()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
+            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
+            Directory.CreateDirectory(sourceRoot);
+            Directory.CreateDirectory(destinationRoot);
+            string sourcePath = Path.Combine(sourceRoot, "chart.bms");
+            string movedPath = Path.Combine(destinationRoot, "chart.bms");
+            TestableBmsFile bmsFile = CreateFile(sourcePath);
+
+            LibraryMergeResult result = service.PrepareMergeDirectory(
+                sourceRoot,
+                destinationRoot,
+                CreateLibraryChartRefs([bmsFile]),
+                [],
+                [],
+                [],
+                _ => EmptyPrimaryHashLookup.Instance);
+
+            bmsFile.path = movedPath;
+
+            Assert.IsTrue(result.Success);
+            Assert.AreEqual(sourcePath, result.SourceCharts.Single().Path);
+            Assert.AreEqual(sourcePath, result.SourceCharts.Single().ToChartFile().Path);
+            Assert.AreSame(bmsFile, result.SourceCharts.Single().GetBmsStorageOwner());
+        });
+    }
+
+    [TestMethod]
     public void BuildFolderMoveDelta_MixedBmsAndBmsonTracksBothStorageModels()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
@@ -1013,6 +1055,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([bmsFile], [bmsonSong]),
+            [],
             [],
             [],
             unregister: false,
@@ -1044,6 +1087,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([bmsFile], [bmsonSong]),
+            [],
             [],
             [],
             unregister: true);
