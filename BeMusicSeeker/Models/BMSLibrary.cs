@@ -6665,15 +6665,13 @@ reportProgress,
 
     private sealed class OwnedChartCollectionStorageMutation
     {
-        public List<ChartFile> RegisteredCharts { get; } = [];
-
         public List<ChartFile> UnregisteredCharts { get; } = [];
 
         public List<LibraryChartPathChange> PathChanges { get; } = [];
 
-        public bool HasChanges => RegisteredCharts.Count > 0 || UnregisteredCharts.Count > 0 || PathChanges.Count > 0;
+        public bool HasChanges => UnregisteredCharts.Count > 0 || PathChanges.Count > 0;
 
-        public bool HasHashSetChanges => RegisteredCharts.Count > 0 || UnregisteredCharts.Count > 0;
+        public bool HasHashSetChanges => UnregisteredCharts.Count > 0;
     }
 
     private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
@@ -6929,7 +6927,6 @@ reportProgress,
             {
                 return;
             }
-            // LibraryMutationDelta registrations are derived-index payloads; storage-row additions enter via ApplyOwnedChartCollectionUpsert.
             if (mutation.UnregisteredCharts.Count > 0)
             {
                 ownedChartCollection.RemoveCharts(mutation.UnregisteredCharts);
@@ -7025,7 +7022,7 @@ reportProgress,
         {
             InstalledLookupMutation = BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
             ForceInstalledLookupDispatch = delta?.InvalidateInstalledDirectoryIndex == true,
-            AddedCount = storageMutation.RegisteredCharts.Count,
+            AddedCount = 0,
             RemovedCount = storageMutation.UnregisteredCharts.Count,
             MovedCount = storageMutation.PathChanges.Count,
             InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
@@ -7036,7 +7033,6 @@ reportProgress,
             OwnedCollectionChanged = storageMutation.HasChanges,
             ResourceHealthIndexInvalidated = storageMutation.HasChanges
         };
-        result.StorageMutation.RegisteredCharts.AddRange(storageMutation.RegisteredCharts);
         result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
         result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = delta != null;
@@ -7053,7 +7049,6 @@ reportProgress,
             return mutation;
         }
 
-        mutation.RegisteredCharts.AddRange(delta.ChartsToRegister.Where(chart => chart != null));
         mutation.UnregisteredCharts.AddRange(delta.ChartsToUnregister.Where(chart => chart != null));
         mutation.PathChanges.AddRange(delta.ChartPathChanges.Where(change => change?.Chart != null));
         return mutation;
@@ -7194,10 +7189,6 @@ reportProgress,
                 continue;
             }
             mutation.Moved.Add(new InstalledChartLookupPathMutationEntry(oldPath, newPath, chart.Md5, chart.Sha256));
-        }
-        foreach (ChartFile chart in storageMutation.RegisteredCharts)
-        {
-            mutation.Added.Add(CreateInstalledChartLookupMutationEntry(chart));
         }
         if ((folderPathChanges?.Count ?? 0) > 0 && storageMutation.PathChanges.Count == 0)
         {
