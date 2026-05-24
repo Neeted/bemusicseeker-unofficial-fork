@@ -5233,7 +5233,7 @@ completeFileEnumerationOnce,
             List<ChartFile> chartSnapshot;
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                chartSnapshot = CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false);
+                chartSnapshot = CreateCurrentInstalledChartSnapshot(includeResourceReferences: false);
             }
             int snapshotCount = chartSnapshot.Count;
             bool completedLatestRequest = false;
@@ -6534,29 +6534,9 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> CreateInstalledChartSnapshot(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
-        bool includeResourceReferences)
+    private List<ChartFile> CreateCurrentInstalledChartSnapshot(bool includeResourceReferences)
     {
-        if (IsCurrentInstalledChartSource(bmsFiles, bmsonSongs))
-        {
-            return OverlayInstallDestinationRuntimeStates(CreateOwnedChartSnapshot(includeResourceReferences));
-        }
-
-        return OverlayInstallDestinationRuntimeStates(ChartFileProjection.FromStorageRows(
-            bmsFiles,
-            bmsonSongs,
-            includeWarningSnapshot: false,
-            includeResourceReferences: includeResourceReferences,
-            includeScoreSnapshot: false));
-    }
-
-    private bool IsCurrentInstalledChartSource(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
-    {
-        return ReferenceEquals(bmsFiles, BMSFiles) && ReferenceEquals(bmsonSongs, BmsonSongs);
+        return OverlayInstallDestinationRuntimeStates(CreateOwnedChartSnapshot(includeResourceReferences));
     }
 
     private List<ChartFile> CreateOwnedChartSnapshot(bool includeResourceReferences)
@@ -7621,7 +7601,7 @@ reportProgress,
 
     private List<ChartFile> CreateOwnedResourceMaintenanceCharts()
     {
-        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: true);
+        return CreateCurrentInstalledChartSnapshot(includeResourceReferences: true);
     }
 
     private void InvalidateResourceHealthIndex(string reason)
