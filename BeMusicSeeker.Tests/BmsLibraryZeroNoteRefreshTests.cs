@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Windows;
@@ -98,6 +99,48 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         });
     }
 
+    [TestMethod]
+    public void ChartFilesZeroNote_UsesOwnedBmsSnapshot()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var zeroNoteFile = new TestableBmsFile
+            {
+                path = "C:\\charts\\zero.bms"
+            };
+            zeroNoteFile.SetSha256(new string('a', 64));
+            zeroNoteFile.SetNotes(0);
+            var normalFile = new TestableBmsFile
+            {
+                path = "C:\\charts\\normal.bms"
+            };
+            normalFile.SetSha256(new string('b', 64));
+            normalFile.SetNotes(1000);
+            library.BMSFiles = [zeroNoteFile, normalFile];
+            library.BmsonSongs =
+            [
+                new LR2SongDBExtended.bmson_song
+                {
+                    path = "C:\\charts\\zero.bmson",
+                    md5 = Guid.NewGuid().ToString("N")
+                }
+            ];
+            SeedChartInfoIndex(
+                songDbPath,
+                library,
+                CreateChartInfo(zeroNoteFile.hash, notes: 0, sha256: zeroNoteFile.sha256),
+                CreateChartInfo(normalFile.hash, notes: 1000, sha256: normalFile.sha256));
+
+            List<ChartFile> result = [.. library.ChartFilesZeroNote];
+
+            Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
+            Assert.AreEqual(1, result.Count);
+            Assert.AreSame(zeroNoteFile, result.Single().GetBmsStorageOwner());
+        });
+    }
+
     private static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ZeroNoteRefreshTests_" + Guid.NewGuid().ToString("N"));
@@ -129,22 +172,27 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             karinotes = value;
         }
+
+        internal void SetSha256(string value)
+        {
+            sha256 = value;
+        }
     }
 
-    private static LR2SongDBExtended.chart_info CreateChartInfo(string md5, int notes)
+    private static LR2SongDBExtended.chart_info CreateChartInfo(string md5, int notes, string? sha256 = null)
     {
         return new LR2SongDBExtended.chart_info
         {
             md5 = md5,
-            sha256 = new string('a', 64),
+            sha256 = sha256 ?? new string('a', 64),
             parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
             notes = notes
         };
     }
 
-    private static void SeedChartInfoIndex(string songDbPath, BMSLibrary library, LR2SongDBExtended.chart_info chartInfo)
+    private static void SeedChartInfoIndex(string songDbPath, BMSLibrary library, params LR2SongDBExtended.chart_info[] chartInfos)
     {
-        new BmsLibraryDbGateway(songDbPath).UpsertChartInfos([chartInfo]);
+        new BmsLibraryDbGateway(songDbPath).UpsertChartInfos(chartInfos);
         InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
         Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
     }
@@ -163,6 +211,13 @@ public sealed class BmsLibraryZeroNoteRefreshTests
                 && library.ChartInfoHydrationCompletedVersion == library.ChartInfoHydrationRequestedVersion
                 && !library.ChartInfoHydrationRunning,
             10000);
+    }
+
+    private static bool IsOwnedChartCollectionInitialized(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollectionInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return (bool)fieldInfo.GetValue(library);
     }
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService

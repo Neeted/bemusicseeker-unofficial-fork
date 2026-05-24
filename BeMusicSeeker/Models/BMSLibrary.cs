@@ -1135,7 +1135,7 @@ public class BMSLibrary : NotificationObject
     public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
 
     internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(
-        ChartFileProjection.FromBmsFiles(BMSFiles, includeWarningSnapshot: false, includeResourceReferences: false),
+        CreateOwnedBmsChartSnapshot(includeResourceReferences: false),
         ResolveChartInfoForChart);
 
     internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
@@ -6571,6 +6571,12 @@ reportProgress,
         }
     }
 
+    private List<ChartFile> CreateOwnedBmsChartSnapshot(bool includeResourceReferences)
+    {
+        return [.. CreateOwnedChartSnapshot(includeResourceReferences)
+            .Where(chart => chart?.Kind == ChartFileKind.Bms)];
+    }
+
     private void EnsureOwnedChartCollectionBuiltUnsafe()
     {
         List<BMSFile> bmsFiles = BMSFiles ?? [];
@@ -8007,10 +8013,7 @@ reportProgress,
         List<ChartFile> allCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            allCharts = ChartFileProjection.FromBmsFiles(
-                BMSFiles,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
+            allCharts = CreateOwnedBmsChartSnapshot(includeResourceReferences: false);
         }
         ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(
             allCharts,
