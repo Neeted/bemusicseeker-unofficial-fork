@@ -53,14 +53,19 @@ internal sealed class LibraryChartRefIndexSnapshot
 
     internal static LibraryChartRefIndexSnapshot Empty => empty;
 
-    internal static LibraryChartRefIndexSnapshot FromStorageOwnerCharts(IEnumerable<ChartFile> charts)
+    internal static LibraryChartRefIndexSnapshot FromStorageOwnerCharts(
+        IEnumerable<ChartFile> charts,
+        Action cancellationCheck = null)
     {
         return FromLibraryChartRefs((charts ?? [])
             .Select(CreateStorageOwnerRef)
-            .Where(chart => chart != null));
+            .Where(chart => chart != null),
+            cancellationCheck);
     }
 
-    internal static LibraryChartRefIndexSnapshot FromLibraryChartRefs(IEnumerable<LibraryChartRef> charts)
+    internal static LibraryChartRefIndexSnapshot FromLibraryChartRefs(
+        IEnumerable<LibraryChartRef> charts,
+        Action cancellationCheck = null)
     {
         var bmsByReference = new Dictionary<BMSFile, LibraryChartRef>();
         var bmsonByReference = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef>();
@@ -73,6 +78,7 @@ internal sealed class LibraryChartRefIndexSnapshot
 
         foreach (LibraryChartRef chart in (charts ?? []).Where(chart => chart != null))
         {
+            cancellationCheck?.Invoke();
             allChartRefs.Add(chart);
             if (string.IsNullOrWhiteSpace(chart.Path))
             {

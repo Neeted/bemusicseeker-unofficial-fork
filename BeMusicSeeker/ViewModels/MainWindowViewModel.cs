@@ -6956,29 +6956,18 @@ public class MainWindowViewModel : ViewModel
         cancellationToken.ThrowIfCancellationRequested();
         var chartsByMd5 = new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
         var chartsBySha256 = new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
-        foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? [])
+        foreach (LibraryChartRef chart in files?.CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex(cancellationToken) ?? [])
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (file == null)
+            if (chart == null
+                || (chart.Kind == LibraryChartKind.Bmson && string.IsNullOrWhiteSpace(chart.Path)))
             {
                 continue;
             }
             AddPlaylistLibraryIndexChart(
                 chartsByMd5,
                 chartsBySha256,
-                LibraryChartRef.FromBmsFile(file));
-        }
-        foreach (LR2SongDBExtended.bmson_song song in files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (song == null || string.IsNullOrWhiteSpace(song.path))
-            {
-                continue;
-            }
-            AddPlaylistLibraryIndexChart(
-                chartsByMd5,
-                chartsBySha256,
-                LibraryChartRef.FromBmsonSong(song));
+                chart);
         }
         cancellationToken.ThrowIfCancellationRequested();
         var newSnapshot = new PlaylistLibraryIndexSnapshot

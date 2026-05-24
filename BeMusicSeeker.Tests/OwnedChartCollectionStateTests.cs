@@ -145,6 +145,29 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateLibraryChartRefIndexSnapshot_CachedRefsUseCurrentOwnerHashes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+
+        bmsFile.SetHash("cccccccccccccccccccccccccccccccc");
+        bmsFile.SetSha256(new string('d', 64));
+        bmsonSong.md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        bmsonSong.sha256 = new string('f', 64);
+
+        List<LibraryChartRef> refs = index.CreateAllChartRefsSnapshot();
+        LibraryChartRef bmsRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bms);
+        LibraryChartRef bmsonRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bmson);
+        Assert.AreEqual(bmsFile.hash, bmsRef.Md5);
+        Assert.AreEqual(bmsFile.sha256, bmsRef.Sha256);
+        Assert.AreEqual(bmsonSong.md5, bmsonRef.Md5);
+        Assert.AreEqual(bmsonSong.sha256, bmsonRef.Sha256);
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_AllRefsIncludesPathlessRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();

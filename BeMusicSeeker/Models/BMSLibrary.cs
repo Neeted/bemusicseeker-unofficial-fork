@@ -6496,6 +6496,21 @@ reportProgress,
         }
     }
 
+    internal List<LibraryChartRef> CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            EnsureOwnedChartCollectionBuiltUnsafe();
+            lock (lockOwnedChartCollection)
+            {
+                LibraryChartRefIndexSnapshot snapshot = ownedChartCollection.CreateLibraryChartRefIndexSnapshot(cancellationToken.ThrowIfCancellationRequested);
+                cancellationToken.ThrowIfCancellationRequested();
+                return snapshot.CreateAllChartRefsSnapshot();
+            }
+        }
+    }
+
     private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe(
         ISet<string> currentChartInfoSha256s,
         ISet<string> currentParseFailureMd5s)

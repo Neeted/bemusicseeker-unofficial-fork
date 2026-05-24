@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -127,9 +128,9 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
-    internal LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshot()
+    internal LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshot(Action cancellationCheck = null)
     {
-        return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts);
+        return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts, cancellationCheck);
     }
 
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()

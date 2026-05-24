@@ -15,17 +15,50 @@ internal sealed class LibraryChartRef
     private readonly BMSFile bmsFile;
     private readonly LR2SongDBExtended.bmson_song bmsonSong;
     private readonly ChartFile chartSnapshot;
+    private readonly string path;
+    private readonly string md5;
+    private readonly string sha256;
     private string directory;
 
     public LibraryChartKind Kind { get; }
 
-    public string Path { get; }
+    public string Path => path;
 
     public string Directory => directory ??= string.IsNullOrWhiteSpace(Path) ? null : System.IO.Path.GetDirectoryName(Path);
 
-    public string Md5 { get; }
+    public string Md5
+    {
+        get
+        {
+            BMSFile currentBmsFile = GetBmsStorageOwner();
+            if (currentBmsFile != null)
+            {
+                return NormalizeHash(currentBmsFile.hash);
+            }
 
-    public string Sha256 { get; }
+            LR2SongDBExtended.bmson_song currentBmsonSong = GetBmsonStorageOwner();
+            return currentBmsonSong != null
+                ? NormalizeHash(currentBmsonSong.md5)
+                : md5;
+        }
+    }
+
+    public string Sha256
+    {
+        get
+        {
+            BMSFile currentBmsFile = GetBmsStorageOwner();
+            if (currentBmsFile != null)
+            {
+                return NormalizeHash(currentBmsFile.sha256);
+            }
+
+            LR2SongDBExtended.bmson_song currentBmsonSong = GetBmsonStorageOwner();
+            return currentBmsonSong != null
+                ? NormalizeHash(currentBmsonSong.sha256)
+                : sha256;
+        }
+    }
 
     private LibraryChartRef(
         LibraryChartKind kind,
@@ -37,9 +70,9 @@ internal sealed class LibraryChartRef
         ChartFile chartSnapshot = null)
     {
         Kind = kind;
-        Path = string.IsNullOrWhiteSpace(path) ? null : path;
-        Md5 = string.IsNullOrWhiteSpace(md5) ? null : md5.Trim();
-        Sha256 = string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
+        this.path = string.IsNullOrWhiteSpace(path) ? null : path;
+        this.md5 = NormalizeHash(md5);
+        this.sha256 = NormalizeHash(sha256);
         this.bmsFile = bmsFile;
         this.bmsonSong = bmsonSong;
         this.chartSnapshot = chartSnapshot;
@@ -190,6 +223,11 @@ internal sealed class LibraryChartRef
         }
 
         return null;
+    }
+
+    private static string NormalizeHash(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
 }

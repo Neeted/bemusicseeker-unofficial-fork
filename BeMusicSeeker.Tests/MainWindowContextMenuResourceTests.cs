@@ -828,6 +828,28 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistLibraryIndexUsesOwnedChartRefs()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string createPlaylistLibraryIndex = ExtractBetween(
+            viewModelCode,
+            "private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot",
+            "private PlaylistLibraryIndexSnapshot GetOrCreatePlaylistLibraryIndexSnapshot");
+        string snapshotHelper = ExtractBetween(
+            bmsLibraryCode,
+            "internal List<LibraryChartRef> CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex",
+            "private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe");
+
+        StringAssert.Contains(createPlaylistLibraryIndex, "CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex(cancellationToken)");
+        Assert.IsFalse(createPlaylistLibraryIndex.Contains("foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles"));
+        Assert.IsFalse(createPlaylistLibraryIndex.Contains("files?.BmsonSongs"));
+        StringAssert.Contains(snapshotHelper, "CreateLibraryChartRefIndexSnapshot(cancellationToken.ThrowIfCancellationRequested)");
+        StringAssert.Contains(snapshotHelper, "CreateAllChartRefsSnapshot()");
+    }
+
+    [TestMethod]
     public void DuplicateFilterViewUsesChartFileParameters()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
