@@ -190,7 +190,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 [LibraryChartRef.FromBmsFile(libraryFile)],
-                [CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)],
+                CreateInstallDestinationOverlaySnapshot([CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)]),
                 [pendingPackage],
                 [installedPackage],
                 unregister: false,
@@ -248,7 +248,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 [],
-                [LibraryChartRef.FromChartFile(bmsonChart)],
+                CreateInstallDestinationOverlaySnapshot([LibraryChartRef.FromChartFile(bmsonChart)]),
                 [],
                 [],
                 unregister: false,
@@ -284,7 +284,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 [LibraryChartRef.FromBmsFile(libraryFile)],
-                [CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)],
+                CreateInstallDestinationOverlaySnapshot([CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)]),
                 [pendingPackage],
                 [],
                 unregister: false,
@@ -342,7 +342,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [libraryRef, LibraryChartRef.FromBmsonSong(bmsonSong)],
                 CreateLibraryChartRefLookup([libraryRef, LibraryChartRef.FromBmsonSong(bmsonSong)]),
-                [libraryRef],
+                CreateInstallDestinationOverlaySnapshot([libraryRef]),
                 [pendingPackage],
                 lookupCache,
                 false,
@@ -394,7 +394,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsonSong(song)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsonSong(song)]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 lookupCache,
                 false,
@@ -430,7 +430,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(canonicalFile)]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 lookupCache,
                 true,
@@ -467,7 +467,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, staleChartPath, null, null)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(catalogFile)]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 new DirectoryResourceLookupCache(),
                 true,
@@ -502,7 +502,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsFile(nonCanonicalFile)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(canonicalFile)]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -535,7 +535,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(catalogFile)]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -572,7 +572,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsFile(libraryFile)],
                 CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(libraryFile)]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -671,7 +671,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([file1, file2]),
-            [],
+            CreateInstallDestinationOverlaySnapshot(),
             [],
             [],
             unregister: false,
@@ -698,7 +698,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([file]),
-            [],
+            CreateInstallDestinationOverlaySnapshot(),
             [],
             [],
             unregister: false,
@@ -838,7 +838,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([], [bmsonSong]),
-            [],
+            CreateInstallDestinationOverlaySnapshot(),
             [],
             [],
             unregister: false,
@@ -867,7 +867,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([], [bmsonSong]),
-            [],
+            CreateInstallDestinationOverlaySnapshot(),
             [],
             [],
             unregister: false,
@@ -907,7 +907,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 [LibraryChartRef.FromBmsFile(libraryFile)],
-                [CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)],
+                CreateInstallDestinationOverlaySnapshot([CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)]),
                 [pendingPackage],
                 [],
                 _ => new PrimaryHashSetLookup());
@@ -948,7 +948,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 CreateLibraryChartRefs([libraryFile]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [pendingPackage],
                 [],
                 _ => new PrimaryHashSetLookup());
@@ -987,7 +987,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 CreateLibraryChartRefs([bmsFile], [bmsonSong]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 [],
                 charts =>
@@ -1026,7 +1026,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 CreateLibraryChartRefs([bmsFile]),
-                [],
+                CreateInstallDestinationOverlaySnapshot(),
                 [],
                 [],
                 _ => EmptyPrimaryHashLookup.Instance);
@@ -1055,7 +1055,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([bmsFile], [bmsonSong]),
-            [],
+            CreateInstallDestinationOverlaySnapshot(),
             [],
             [],
             unregister: false,
@@ -1087,7 +1087,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([bmsFile], [bmsonSong]),
-            [],
+            CreateInstallDestinationOverlaySnapshot(),
             [],
             [],
             unregister: true);
@@ -1298,6 +1298,11 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     private static LibraryChartRefIndexSnapshot CreateLibraryChartRefLookup(IEnumerable<LibraryChartRef> charts)
     {
         return LibraryChartRefIndexSnapshot.FromLibraryChartRefs(charts);
+    }
+
+    private static InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlaySnapshot(IEnumerable<LibraryChartRef> charts = null!)
+    {
+        return InstallDestinationOverlayChartRefSnapshot.FromLibraryChartRefs(charts ?? []);
     }
 
     private static LibraryChartRef CreateLibraryChartRefWithInstallDestination(

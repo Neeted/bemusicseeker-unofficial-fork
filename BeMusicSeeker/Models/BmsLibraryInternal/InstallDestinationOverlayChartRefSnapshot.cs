@@ -24,12 +24,7 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
             .Where(chart => chart != null));
     }
 
-    internal List<LibraryChartRef> ToList()
-    {
-        return [.. chartRefs];
-    }
-
-    private static InstallDestinationOverlayChartRefSnapshot FromLibraryChartRefs(IEnumerable<LibraryChartRef> charts)
+    internal static InstallDestinationOverlayChartRefSnapshot FromLibraryChartRefs(IEnumerable<LibraryChartRef> charts)
     {
         List<LibraryChartRef> refs = [.. (charts ?? [])
             .Where(chart => chart != null)
@@ -39,6 +34,16 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
         return refs.Count == 0
             ? Empty
             : new InstallDestinationOverlayChartRefSnapshot(refs);
+    }
+
+    internal List<LibraryChartRef> GetChartRefsUnderInstallDestination(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return [];
+        }
+
+        return [.. chartRefs.Where(chart => IsInstallDestinationUnderFolder(chart?.GetChartSnapshot()?.InstallDestination, folderPath))];
     }
 
     private static string CreateRuntimeKey(LibraryChartRef chart)
@@ -56,5 +61,12 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
         }
 
         return ChartFileRuntimeStateKey.CreatePathKey(chartKind, chart.Path);
+    }
+
+    private static bool IsInstallDestinationUnderFolder(string installDestination, string folderPath)
+    {
+        return !string.IsNullOrWhiteSpace(installDestination)
+            && !string.IsNullOrWhiteSpace(folderPath)
+            && (installDestination + System.IO.Path.DirectorySeparatorChar).StartsWith(folderPath + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 }

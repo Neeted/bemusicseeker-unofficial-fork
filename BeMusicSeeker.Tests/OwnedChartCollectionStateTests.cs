@@ -1058,7 +1058,8 @@ public sealed class OwnedChartCollectionStateTests
             });
             InvokeApplyLibraryMutationDelta(library, delta);
 
-            List<LibraryChartRef> refs = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+            InstallDestinationOverlayChartRefSnapshot snapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+            List<LibraryChartRef> refs = snapshot.GetChartRefsUnderInstallDestination(Path.Combine("C:\\Install", "Bms"));
 
             Assert.AreEqual(1, refs.Count);
             Assert.AreSame(bmsFile, refs[0].GetBmsStorageOwner());
@@ -1171,11 +1172,11 @@ public sealed class OwnedChartCollectionStateTests
         return (List<ChartFile>)methodInfo.Invoke(library, [includeResourceReferences]);
     }
 
-    private static List<LibraryChartRef> InvokeCreateInstallDestinationOverlayChartRefSnapshot(BMSLibrary library)
+    private static InstallDestinationOverlayChartRefSnapshot InvokeCreateInstallDestinationOverlayChartRefSnapshot(BMSLibrary library)
     {
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstallDestinationOverlayChartRefSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        return (List<LibraryChartRef>)methodInfo.Invoke(library, []);
+        return (InstallDestinationOverlayChartRefSnapshot)methodInfo.Invoke(library, []);
     }
 
     private static ChartPackage InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(

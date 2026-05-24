@@ -74,7 +74,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public LibraryRemovalResult DeleteLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         LibraryChartRefIndexSnapshot libraryChartLookup,
-        IEnumerable<LibraryChartRef> installDestinationOverlayCharts,
+        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
         IEnumerable<ChartPackage> pendingPackages,
         DirectoryResourceLookupCache directoryLookupCache,
         bool sendToRecycleBin,
@@ -216,7 +216,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    private static void CollectInstallDestinationClearsUnderDeletedFolder(LibraryRemovalResult result, string folderPath, IEnumerable<ChartPackage> pendingPackages, IEnumerable<LibraryChartRef> currentLibraryCharts)
+    private static void CollectInstallDestinationClearsUnderDeletedFolder(
+        LibraryRemovalResult result,
+        string folderPath,
+        IEnumerable<ChartPackage> pendingPackages,
+        InstallDestinationOverlayChartRefSnapshot currentLibraryCharts)
     {
         if (result == null || string.IsNullOrWhiteSpace(folderPath))
         {
@@ -274,7 +278,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string srcDir,
         string dstDir,
         IEnumerable<LibraryChartRef> sourceCharts,
-        IEnumerable<LibraryChartRef> installDestinationOverlayCharts,
+        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         bool unregister,
@@ -504,7 +508,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string srcDir,
         string dstDir,
         IEnumerable<LibraryChartRef> sourceCharts,
-        IEnumerable<LibraryChartRef> installDestinationOverlayCharts,
+        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         Func<IEnumerable<ChartFile>, IPrimaryHashLookup> createHashSnapshotExcluding)
@@ -545,7 +549,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     private static IEnumerable<LibraryInstallDestinationChange> EnumerateInstallDestinationChangesUnderFolder(
         IEnumerable<ChartPackage> pendingPackages,
-        IEnumerable<LibraryChartRef> libraryCharts,
+        InstallDestinationOverlayChartRefSnapshot libraryCharts,
         string sourceFolderPath,
         string destinationFolderPath)
     {
@@ -563,7 +567,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     private static IEnumerable<LibraryInstallDestinationChange> EnumerateInstallDestinationTargetsUnderFolder(
         IEnumerable<ChartPackage> pendingPackages,
-        IEnumerable<LibraryChartRef> libraryCharts,
+        InstallDestinationOverlayChartRefSnapshot libraryCharts,
         string folderPath)
     {
         foreach (PackageChartEntry entry in (pendingPackages ?? [])
@@ -577,9 +581,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 Chart = entry.Chart
             };
         }
-        foreach (ChartFile chart in (libraryCharts ?? [])
+        foreach (ChartFile chart in (libraryCharts ?? InstallDestinationOverlayChartRefSnapshot.Empty)
+            .GetChartRefsUnderInstallDestination(folderPath)
             .Select(chart => chart?.GetChartSnapshot())
-            .Where(chart => chart != null && IsInstallDestinationUnderFolder(chart.InstallDestination, folderPath)))
+            .Where(chart => chart != null))
         {
             yield return new LibraryInstallDestinationChange
             {

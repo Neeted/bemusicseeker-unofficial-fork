@@ -12079,11 +12079,10 @@ reportProgress,
         ApplyLibraryMutationDelta(delta);
     }
 
-    private List<LibraryChartRef> CreateInstallDestinationOverlayChartRefSnapshotUnsafe()
+    private InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshotUnsafe()
     {
         return InstallDestinationOverlayChartRefSnapshot
-            .FromCharts(CreateCurrentInstallDestinationCleanupCharts())
-            .ToList();
+            .FromCharts(CreateCurrentInstallDestinationCleanupCharts());
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
