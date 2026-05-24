@@ -6550,6 +6550,22 @@ reportProgress,
         }
     }
 
+    private List<ChartFile> CreateOwnedChartSnapshotForMd5Hashes(
+        ISet<string> md5Hashes,
+        bool includeWarningSnapshot,
+        bool includeResourceReferences)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateSnapshotForMd5Hashes(
+                md5Hashes,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: false);
+        }
+    }
+
     private List<ChartFile> CreateOwnedBmsChartSnapshot(bool includeResourceReferences)
     {
         return [.. CreateOwnedChartSnapshot(includeResourceReferences)
@@ -8036,36 +8052,22 @@ reportProgress,
         {
             return [];
         }
-        List<BMSFile> bmsSnapshot;
-        List<LR2SongDBExtended.bmson_song> bmsonSnapshot;
+        HashSet<string> failedMd5s = new(failures.Keys.Where(hash => !string.IsNullOrWhiteSpace(hash)), StringComparer.OrdinalIgnoreCase);
+        List<ChartFile> failedCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            bmsSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-            bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
+            failedCharts = CreateOwnedChartSnapshotForMd5Hashes(
+                failedMd5s,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
         }
         List<ChartFile> result = [];
-        foreach (BMSFile file in bmsSnapshot)
+        foreach (ChartFile chart in failedCharts)
         {
-            if (string.IsNullOrWhiteSpace(file.hash) || !failures.TryGetValue(file.hash, out LR2SongDBExtended.chart_info_parse_failure failure))
+            if (string.IsNullOrWhiteSpace(chart?.Md5) || !failures.TryGetValue(chart.Md5, out LR2SongDBExtended.chart_info_parse_failure failure))
             {
                 continue;
             }
-            ChartFile chart = ChartFileProjection.FromBmsFile(
-                file,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
-            result.Add(ApplyChartInfoParseFailureWarning(chart, failure));
-        }
-        foreach (LR2SongDBExtended.bmson_song song in bmsonSnapshot)
-        {
-            if (string.IsNullOrWhiteSpace(song.md5) || !failures.TryGetValue(song.md5, out LR2SongDBExtended.chart_info_parse_failure failure))
-            {
-                continue;
-            }
-            ChartFile chart = ChartFileProjection.FromBmsonSong(
-                song,
-                includeWarningSnapshot: false,
-                includeResourceReferences: false);
             result.Add(ApplyChartInfoParseFailureWarning(chart, failure));
         }
         return [.. result

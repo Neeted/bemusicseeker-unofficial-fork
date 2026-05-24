@@ -67,6 +67,27 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal List<ChartFile> CreateSnapshotForMd5Hashes(
+        ISet<string> md5Hashes,
+        bool includeWarningSnapshot = false,
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = false)
+    {
+        if (md5Hashes == null || md5Hashes.Count == 0)
+        {
+            return [];
+        }
+
+        return [.. charts
+            .Where(chart => md5Hashes.Contains(GetCurrentMd5(chart)))
+            .Select(chart => ChartFileProjection.FromStorageOwner(
+                chart,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: includeScoreSnapshot))
+            .Where(chart => chart != null)];
+    }
+
     internal LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshot()
     {
         return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts);
@@ -316,6 +337,23 @@ internal sealed class OwnedChartCollectionState
 
         LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
         return bmsonOwner != null ? bmsonOwner.path : chart.Path;
+    }
+
+    private static string GetCurrentMd5(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return bmsOwner.hash;
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        return bmsonOwner != null ? bmsonOwner.md5 : chart.Md5;
     }
 
     private static bool IsRemovedChart(

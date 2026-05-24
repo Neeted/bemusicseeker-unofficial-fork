@@ -71,9 +71,14 @@ internal sealed class LibraryChartRefIndexSnapshot
         var pathCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var allChartRefs = new List<LibraryChartRef>();
 
-        foreach (LibraryChartRef chart in (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path)))
+        foreach (LibraryChartRef chart in (charts ?? []).Where(chart => chart != null))
         {
             allChartRefs.Add(chart);
+            if (string.IsNullOrWhiteSpace(chart.Path))
+            {
+                continue;
+            }
+
             BMSFile bmsFile = chart.GetBmsStorageOwner();
             if (bmsFile != null && !bmsByReference.ContainsKey(bmsFile))
             {

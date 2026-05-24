@@ -145,6 +145,65 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateLibraryChartRefIndexSnapshot_AllRefsIncludesPathlessRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, new string('b', 64));
+        var bmsonSong = CreateBmsonSong(null, "cccccccccccccccccccccccccccccccc");
+
+        LibraryChartRefIndexSnapshot index = LibraryChartRefIndexSnapshot.FromLibraryChartRefs([
+            LibraryChartRef.FromBmsFile(bmsFile),
+            LibraryChartRef.FromBmsonSong(bmsonSong)
+        ]);
+
+        List<LibraryChartRef> refs = index.CreateAllChartRefsSnapshot();
+
+        Assert.AreEqual(2, refs.Count);
+        Assert.IsTrue(refs.Any(chart => chart.Kind == LibraryChartKind.Bms && chart.GetBmsStorageOwner() == bmsFile));
+        Assert.IsTrue(refs.Any(chart => chart.Kind == LibraryChartKind.Bmson && chart.GetBmsonStorageOwner() == bmsonSong));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath("C:\\Installed", null));
+    }
+
+    [TestMethod]
+    public void CreateSnapshotForMd5Hashes_ProjectsOnlyMatchingCurrentOwners()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+        bmsFile.SetHash("dddddddddddddddddddddddddddddddd");
+
+        List<ChartFile> snapshot = state.CreateSnapshotForMd5Hashes(
+            new HashSet<string>(["dddddddddddddddddddddddddddddddd"], StringComparer.OrdinalIgnoreCase),
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(1, snapshot.Count);
+        Assert.AreSame(bmsFile, snapshot[0].GetBmsStorageOwner());
+        Assert.AreEqual("dddddddddddddddddddddddddddddddd", snapshot[0].Md5);
+    }
+
+    [TestMethod]
+    public void CreateSnapshotForMd5Hashes_IncludesMatchingPathlessBmsonOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        var bmsonSong = CreateBmsonSong(null, "cccccccccccccccccccccccccccccccc");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+
+        List<ChartFile> snapshot = state.CreateSnapshotForMd5Hashes(
+            new HashSet<string>(["cccccccccccccccccccccccccccccccc"], StringComparer.OrdinalIgnoreCase),
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(1, snapshot.Count);
+        Assert.AreSame(bmsonSong, snapshot[0].GetBmsonStorageOwner());
+        Assert.IsNull(snapshot[0].Path);
+    }
+
+    [TestMethod]
     public void CreateSnapshotForDirectChildDirectories_FiltersBeforeProjectionUsingCurrentOwnerPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -648,7 +707,7 @@ public sealed class OwnedChartCollectionStateTests
         }
     }
 
-    private static TestableBmsFile CreateFile(string hash, string path, string? sha256 = null)
+    private static TestableBmsFile CreateFile(string hash, string? path, string? sha256 = null)
     {
         var file = new TestableBmsFile
         {
@@ -659,7 +718,7 @@ public sealed class OwnedChartCollectionStateTests
         return file;
     }
 
-    private static LR2SongDBExtended.bmson_song CreateBmsonSong(string path, string md5)
+    private static LR2SongDBExtended.bmson_song CreateBmsonSong(string? path, string md5)
     {
         return new LR2SongDBExtended.bmson_song
         {
