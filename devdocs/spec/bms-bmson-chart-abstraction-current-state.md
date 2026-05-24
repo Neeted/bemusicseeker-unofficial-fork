@@ -797,7 +797,8 @@ resource maintenance は installed lookup と違い、実際の health 計算で
 - `duplicate_merge_model prepare_done`
 - `SearchDuplicateChartGroups`
 - `playlist_library_index_prewarm`
-- `main_view_virtual_fallback` / `main_view_virtual_required_failed`
+- `main_view_virtual_route_skipped` / `main_view_virtual_sort_reset` / `main_view_virtual_required_failed`
+- `main_view_virtual_subset_materialized_fallback`
 - full installed chart snapshot / owned chart materialize count
 
 成功目安:
@@ -807,7 +808,8 @@ resource maintenance は installed lookup と違い、実際の health 計算で
 - `CreateCurrentInstalledChartSnapshot(...)` / 旧 full `LibraryChartRef` snapshot 相当の処理が、全件 storage row projection または全件 `ChartFile` materialize として hot path に現れない。
 - folder / merge / delete 操作では、対象 directory / input chart に応じた view / index が使われ、全件 materialize 後 filter にならない。
 - 通常一覧 root / folder 切替で可視行以外の heavy projection が増えない。
-- 通常 library で `main_view_virtual_fallback` / `main_view_virtual_required_failed` が通常操作のログに出ない。未対応 sort column があれば列定義 / virtual sort metadata の不整合として直す。
+- 通常 library で `main_view_virtual_route_skipped` / `main_view_virtual_sort_reset` / `main_view_virtual_required_failed` が通常操作のログに出ない。未対応 sort column があれば列定義 / virtual sort metadata の不整合として直す。
+- subset view で `main_view_virtual_subset_materialized_fallback` が通常操作のログに出ない。これは対象 subset だけを既存 materialized row 経路へ戻す bounded fallback であり、全所持譜面 materialize ではないが、sortable column metadata の不整合を示すため解消対象にする。
 - playlist detail open で library hash index build が全件 `LibraryChartRef` list copy を伴わず、owned playlist resolve index snapshot か cached snapshot を読む。
 
 ### 完了条件
@@ -815,7 +817,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
 - `BMSLibrary` の chart-common 処理が owned chart collection を primary source にしている。
 - `BMSFiles` / `BmsonSongs` の直接 enumeration は DB load-save、external full refresh、BMS-only / bmson-only producer、または通常一覧 virtual source row の owner-backed read model 境界に限定されている。
 - `CreateCurrentInstalledChartSnapshot(...)` と旧 full `LibraryChartRef` snapshot 相当の処理は、storage row list からの全件 projectionにも不要な owned collection 全件 `ChartFile` materializeにも依存しない。
-- normal library fallback は通常 hot path から外れ、sortable column の不整合を隠す全件 materialize 経路になっていない。
+- normal library route skip / required failure は通常 hot path から外れ、sortable column の不整合を隠す全件 materialize 経路になっていない。
 - owned chart collection、installed lookup、playlist summary owned hash、playlist detail owned resolve index、parent folder cache、directory view、resource maintenance target が同じ mutation 境界で同期または無効化される。
 - BMS / bmson の install、uninstall、merge、repair、folder move、path rename、maintenance、playlist reference、duplicate search の既存挙動が維持される。
 - 既存の LR2 DB、app-owned bmson DB、playlist DB / JSON、settings、UI 文言の互換性を壊していない。

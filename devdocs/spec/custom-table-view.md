@@ -511,7 +511,7 @@ LR2非対応パス画面は、通常ライブラリよりも警告内容の確�
   - 通常ライブラリ / FullScanAllCharts / chart subset の仮想経路は `sortEngine=virtual`, `virtual=True`, `viewRowsCreated` が可視範囲程度になる。
   - 通常ライブラリ root と FullScanAllCharts は同じ source row / order cache を使うため、再表示では `sourceRowsReuse=True`, `sortReuse=True`, `orderBuildMs=0` になることを確認できる。
   - chart subset では `sourceRowsSignature` を出し、同じ subset 並びの再表示で `sortReuse=True`, `orderBuildMs=0` になることを確認できる。
-  - プレイリスト詳細は専用 source-row sort のため、`isPlaylistDetailView=True`, `sortEngine=fast` が正常。通常操作で `main_view_virtual_fallback`, `main_view_virtual_required_failed`, `regularRowMaterializeMs` が出ないことを回帰確認の目安にする。
+  - プレイリスト詳細は専用 source-row sort のため、`isPlaylistDetailView=True`, `sortEngine=fast` が正常。通常操作で `main_view_virtual_route_skipped`, `main_view_virtual_sort_reset`, `main_view_virtual_required_failed`, `main_view_virtual_subset_materialized_fallback`, `regularRowMaterializeMs` が出ないことを回帰確認の目安にする。
 
 ## テーマ
 
