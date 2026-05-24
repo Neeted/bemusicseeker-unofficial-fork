@@ -1369,6 +1369,35 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateInstallDestinationOverlayChartRefSnapshotUnsafe_InvalidatesCachedSnapshotOnOverlayUpdate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = []
+            };
+            string oldInstallDestination = Path.Combine("C:\\Install", "Old");
+            string newInstallDestination = Path.Combine("C:\\Install", "New");
+            ApplyInstallDestinationChange(library, bmsFile, oldInstallDestination);
+            InstallDestinationOverlayChartRefSnapshot oldSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+            Assert.AreSame(oldSnapshot, InvokeCreateInstallDestinationOverlayChartRefSnapshot(library));
+
+            ApplyInstallDestinationChange(library, bmsFile, newInstallDestination);
+            InstallDestinationOverlayChartRefSnapshot newSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+
+            Assert.AreNotSame(oldSnapshot, newSnapshot);
+            Assert.AreEqual(0, newSnapshot.GetChartRefsUnderInstallDestination(oldInstallDestination).Count);
+            List<LibraryChartRef> refs = newSnapshot.GetChartRefsUnderInstallDestination(newInstallDestination);
+            Assert.AreEqual(1, refs.Count);
+            Assert.AreSame(bmsFile, refs[0].GetBmsStorageOwner());
+        });
+    }
+
+    [TestMethod]
     public void CreateInstalledDisplayPackageForResourceOnlyMerge_UsesDestinationDirectChildrenOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1495,6 +1524,17 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [delta]);
+    }
+
+    private static void ApplyInstallDestinationChange(BMSLibrary library, BMSFile bmsFile, string installDestination)
+    {
+        var delta = new LibraryMutationDelta();
+        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+        {
+            Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
+            NewInstallDestination = installDestination
+        });
+        InvokeApplyLibraryMutationDelta(library, delta);
     }
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)

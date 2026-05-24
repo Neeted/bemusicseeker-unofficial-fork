@@ -907,6 +907,8 @@ public class BMSLibrary : NotificationObject
 
     private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> installDestinationRuntimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
+    private InstallDestinationOverlayChartRefSnapshot installDestinationOverlayChartRefSnapshot;
+
     private readonly object resourceHealthIndexLock = new();
 
     private ResourceHealthIndexSnapshot resourceHealthIndexSnapshot = ResourceHealthIndexSnapshot.Empty;
@@ -7320,11 +7322,16 @@ reportProgress,
     {
         lock (installDestinationRuntimeStatesLock)
         {
-            return [.. installDestinationRuntimeStatesByKey.Values
-                .Distinct()
-                .Select(entry => entry.CreateChartSnapshot())
-                .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
+            return CreateCurrentInstallDestinationCleanupChartsUnsafe();
         }
+    }
+
+    private List<ChartFile> CreateCurrentInstallDestinationCleanupChartsUnsafe()
+    {
+        return [.. installDestinationRuntimeStatesByKey.Values
+            .Distinct()
+            .Select(entry => entry.CreateChartSnapshot())
+            .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
     }
 
     private ChartFile OverlayInstallDestinationRuntimeState(ChartFile chart)
@@ -7375,6 +7382,7 @@ reportProgress,
                     }
                 }
             }
+            InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe();
         }
     }
 
@@ -7624,6 +7632,11 @@ reportProgress,
         }
     }
 
+    private void InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe()
+    {
+        installDestinationOverlayChartRefSnapshot = null;
+    }
+
     private void PruneInstallDestinationRuntimeStatesToCurrentStorageRows()
     {
         lock (installDestinationRuntimeStatesLock)
@@ -7641,12 +7654,18 @@ reportProgress,
 
         lock (installDestinationRuntimeStatesLock)
         {
+            bool removedAny = false;
             foreach (string key in installDestinationRuntimeStatesByKey.Keys.ToList())
             {
                 if (!currentKeys.Contains(key))
                 {
                     installDestinationRuntimeStatesByKey.Remove(key);
+                    removedAny = true;
                 }
+            }
+            if (removedAny)
+            {
+                InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe();
             }
         }
     }
@@ -12072,8 +12091,11 @@ reportProgress,
 
     private InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshotUnsafe()
     {
-        return InstallDestinationOverlayChartRefSnapshot
-            .FromCharts(CreateCurrentInstallDestinationCleanupCharts());
+        lock (installDestinationRuntimeStatesLock)
+        {
+            return installDestinationOverlayChartRefSnapshot ??= InstallDestinationOverlayChartRefSnapshot
+                .FromCharts(CreateCurrentInstallDestinationCleanupChartsUnsafe());
+        }
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
