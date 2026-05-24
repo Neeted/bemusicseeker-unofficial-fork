@@ -266,6 +266,51 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void InstallDestinationOverlaySnapshot_UsesDirectoryBoundary()
+    {
+        var sourceFile = CreateFile("C:\\Charts\\source.bms");
+        var childFile = CreateFile("C:\\Charts\\child.bms");
+        var siblingFile = CreateFile("C:\\Charts\\sibling.bms");
+
+        InstallDestinationOverlayChartRefSnapshot snapshot = CreateInstallDestinationOverlaySnapshot([
+            CreateLibraryChartRefWithInstallDestination(sourceFile, "C:\\Install\\Source"),
+            CreateLibraryChartRefWithInstallDestination(childFile, "C:\\Install\\Source\\Child"),
+            CreateLibraryChartRefWithInstallDestination(siblingFile, "C:\\Install\\SourceSibling")
+        ]);
+
+        List<LibraryChartRef> refs = snapshot.GetChartRefsUnderInstallDestination("C:\\Install\\Source");
+
+        CollectionAssert.AreEquivalent(
+            new[] { sourceFile, childFile },
+            refs.Select(chart => chart.GetBmsStorageOwner()).ToArray());
+    }
+
+    [TestMethod]
+    public void BuildFolderMoveDelta_RewritesInstallDestinationWithTrailingSourceSeparator()
+    {
+        var service = new BmsLibraryLibraryFileOperationsService();
+        TestableBmsFile libraryFile = CreateFile("C:\\Charts\\library.bms");
+        TestableBmsFile pendingFile = CreateFile("C:\\Charts\\pending.bms");
+        var pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Install\\Source");
+        var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
+
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            "C:\\Install\\Source\\",
+            "D:\\Install\\Destination\\",
+            [],
+            CreateInstallDestinationOverlaySnapshot([CreateLibraryChartRefWithInstallDestination(libraryFile, "C:\\Install\\Source\\Child")]),
+            [pendingPackage],
+            [],
+            unregister: false,
+            raiseLibraryChartsChanged: false);
+
+        LibraryInstallDestinationChange pendingChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.Entry, pendingEntry));
+        LibraryInstallDestinationChange libraryChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.GetBmsStorageOwner(), libraryFile));
+        Assert.AreEqual("D:\\Install\\Destination", pendingChange.NewInstallDestination);
+        Assert.AreEqual("D:\\Install\\Destination\\Child", libraryChange.NewInstallDestination);
+    }
+
+    [TestMethod]
     public void FolderMoveAppliedInstallDestinationSnapshotDoesNotRewritePendingEntryByPathCollision()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)

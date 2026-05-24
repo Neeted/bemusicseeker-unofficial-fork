@@ -1,18 +1,25 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class InstallDestinationOverlayChartRefSnapshot
 {
-    private static readonly InstallDestinationOverlayChartRefSnapshot empty = new([]);
+    private static readonly InstallDestinationOverlayChartRefSnapshot empty = new(
+        new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase),
+        []);
 
-    private readonly List<LibraryChartRef> chartRefs;
+    private readonly Dictionary<string, List<LibraryChartRef>> refsByInstallDestinationDirectory;
+    private readonly List<string> sortedInstallDestinationDirectories;
 
-    private InstallDestinationOverlayChartRefSnapshot(List<LibraryChartRef> chartRefs)
+    private InstallDestinationOverlayChartRefSnapshot(
+        Dictionary<string, List<LibraryChartRef>> refsByInstallDestinationDirectory,
+        List<string> sortedInstallDestinationDirectories)
     {
-        this.chartRefs = chartRefs ?? [];
+        this.refsByInstallDestinationDirectory = refsByInstallDestinationDirectory ?? new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
+        this.sortedInstallDestinationDirectories = sortedInstallDestinationDirectories ?? [];
     }
 
     internal static InstallDestinationOverlayChartRefSnapshot Empty => empty;
@@ -31,19 +38,70 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
             .GroupBy(CreateRuntimeKey, StringComparer.OrdinalIgnoreCase)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
             .Select(group => group.First())];
-        return refs.Count == 0
-            ? Empty
-            : new InstallDestinationOverlayChartRefSnapshot(refs);
+        if (refs.Count == 0)
+        {
+            return Empty;
+        }
+
+        var refsByDirectory = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
+        foreach (LibraryChartRef chart in refs)
+        {
+            string directoryKey = CreateDirectoryKey(chart.GetChartSnapshot()?.InstallDestination);
+            if (string.IsNullOrWhiteSpace(directoryKey))
+            {
+                continue;
+            }
+
+            if (!refsByDirectory.TryGetValue(directoryKey, out List<LibraryChartRef> directoryRefs))
+            {
+                directoryRefs = [];
+                refsByDirectory[directoryKey] = directoryRefs;
+            }
+            directoryRefs.Add(chart);
+        }
+
+        if (refsByDirectory.Count == 0)
+        {
+            return Empty;
+        }
+
+        return new InstallDestinationOverlayChartRefSnapshot(
+            refsByDirectory,
+            [.. refsByDirectory.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]);
     }
 
     internal List<LibraryChartRef> GetChartRefsUnderInstallDestination(string folderPath)
     {
-        if (string.IsNullOrWhiteSpace(folderPath))
+        string folderKey = CreateDirectoryKey(folderPath);
+        if (string.IsNullOrWhiteSpace(folderKey))
         {
             return [];
         }
 
-        return [.. chartRefs.Where(chart => IsInstallDestinationUnderFolder(chart?.GetChartSnapshot()?.InstallDestination, folderPath))];
+        List<LibraryChartRef> refs = [];
+        if (refsByInstallDestinationDirectory.TryGetValue(folderKey, out List<LibraryChartRef> directRefs))
+        {
+            refs.AddRange(directRefs);
+        }
+
+        string descendantPrefix = AppendDirectorySeparator(folderKey);
+        int index = LowerBound(sortedInstallDestinationDirectories, descendantPrefix);
+        for (; index < sortedInstallDestinationDirectories.Count; index++)
+        {
+            string directoryKey = sortedInstallDestinationDirectories[index];
+            if (!directoryKey.StartsWith(descendantPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                break;
+            }
+
+            if (string.Equals(directoryKey, folderKey, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            refs.AddRange(refsByInstallDestinationDirectory[directoryKey]);
+        }
+        return refs;
     }
 
     private static string CreateRuntimeKey(LibraryChartRef chart)
@@ -63,10 +121,56 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
         return ChartFileRuntimeStateKey.CreatePathKey(chartKind, chart.Path);
     }
 
-    private static bool IsInstallDestinationUnderFolder(string installDestination, string folderPath)
+    private static string AppendDirectorySeparator(string path)
     {
-        return !string.IsNullOrWhiteSpace(installDestination)
-            && !string.IsNullOrWhiteSpace(folderPath)
-            && (installDestination + System.IO.Path.DirectorySeparatorChar).StartsWith(folderPath + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        return string.IsNullOrWhiteSpace(path) || path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+            ? path
+            : path + Path.DirectorySeparatorChar;
+    }
+
+    private static int LowerBound(List<string> values, string value)
+    {
+        int low = 0;
+        int high = values?.Count ?? 0;
+        while (low < high)
+        {
+            int mid = low + ((high - low) / 2);
+            if (StringComparer.OrdinalIgnoreCase.Compare(values[mid], value) < 0)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+        return low;
+    }
+
+    private static string CreateDirectoryKey(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            string pathKey = Path.GetFullPath(path.Trim());
+            string root = Path.GetPathRoot(pathKey);
+            string trimmed = pathKey.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                return pathKey;
+            }
+
+            string rootTrimmed = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return !string.IsNullOrWhiteSpace(rootTrimmed) && string.Equals(trimmed, rootTrimmed, StringComparison.OrdinalIgnoreCase)
+                ? root
+                : trimmed;
+        }
+        catch
+        {
+            return path.Trim();
+        }
     }
 }
