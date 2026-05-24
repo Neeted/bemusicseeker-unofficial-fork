@@ -12081,29 +12081,9 @@ reportProgress,
 
     private List<LibraryChartRef> CreateInstallDestinationOverlayChartRefSnapshotUnsafe()
     {
-        return [.. CreateCurrentInstallDestinationCleanupCharts()
-            .Select(LibraryChartRef.FromChartFile)
-            .Where(chart => chart != null)
-            .GroupBy(CreateLibraryChartRefRuntimeKey, StringComparer.OrdinalIgnoreCase)
-            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
-            .Select(group => group.First())];
-    }
-
-    private static string CreateLibraryChartRefRuntimeKey(LibraryChartRef chart)
-    {
-        if (chart == null)
-        {
-            return null;
-        }
-
-        ChartFileKind chartKind = chart.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
-        string primaryKey = ChartFileRuntimeStateKey.Create(chartKind, chart.Path, chart.Md5, chart.Sha256);
-        if (!string.IsNullOrWhiteSpace(primaryKey))
-        {
-            return primaryKey;
-        }
-
-        return ChartFileRuntimeStateKey.CreatePathKey(chartKind, chart.Path);
+        return InstallDestinationOverlayChartRefSnapshot
+            .FromCharts(CreateCurrentInstallDestinationCleanupCharts())
+            .ToList();
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
