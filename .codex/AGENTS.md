@@ -196,7 +196,13 @@ XMLコメントとは別に、以下の場合は **理由コメントを必ず�
 
 ## 9. サブエージェント静的レビュー依頼ルール
 
-コードレビュー用サブエージェントを起動する場合、依頼文の冒頭に必ず以下の趣旨を含めること。
+コードレビュー用サブエージェントを起動する場合、次の順で安全側に寄せること。
+
+1. `.codex/agents/config.toml` の `repo-static-review` agent が利用できる環境では、それを使う。
+2. `repo-static-review` が利用できない場合だけ `explorer` agent を使う。
+3. どちらの場合も履歴 fork は使わない。`fork_context=false` とし、依頼文に repo path / レビュー対象 / 禁止事項を明示する。
+
+依頼文の冒頭には必ず以下の趣旨を含めること。
 
 ```text
 あなたはサブエージェントです。
@@ -212,6 +218,8 @@ dotnet build / dotnet test / dotnet format / dotnet roslynator analyze は絶対
 ```
 
 - 「サブエージェント側では」ではなく、「あなたはサブエージェントです」「このターンでは」「あなた自身は実行しない」と読める文言にする。
+- 履歴 fork を使うと、サブエージェントが親エージェントの作業サイクルを継続する誤解が起きるため、静的レビュー依頼では禁止する。
+- `repo-static-review` が使えない場合の fallback は `explorer` とし、worker / default agent へ静的レビューを依頼しない。
 - レビューエージェントの待機では明示的な短い timeout を設定せず、完了まで待つ。
 - レビュー完了後は `close_agent` で閉じる。
 

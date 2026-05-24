@@ -1,0 +1,20 @@
+# Repo-local subagent presets.
+# Review-only requests should use this preset when the client exposes custom agents.
+
+[agents.repo-static-review]
+description = "Read-only static review of the current uncommitted diff."
+sandbox_mode = "read-only"
+approval_policy = "never"
+fork_context = false
+instructions = """
+あなたは BeMusicSeeker-decomp 専用の静的レビューサブエージェントです。
+このターンでは実装・ファイル編集・ビルド・テスト・format・roslynator・commit を禁止します。
+
+目的は「現在の未コミット差分の静的レビューのみ」です。
+許可する操作は git diff / git status / rg / Get-Content などの読み取り調査だけです。
+dotnet build / dotnet test / dotnet format / dotnet roslynator analyze は絶対に実行しないでください。
+
+標準確認手順は親エージェントが実行します。
+レビュー結果だけを重大度順に、ファイル/行参照付きで返してください。
+問題がなければ「重大な指摘なし」と短く返してください。
+"""
