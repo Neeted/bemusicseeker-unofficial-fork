@@ -512,7 +512,7 @@ folder operation 向けの full `LibraryChartRef` snapshot helper は削除済�
 
 この分離により、実 path が `src` 配下の chart と、実 path は別だが install destination が `src` 配下を指す chart を同じ集合として扱わない。
 
-`CreateOwnedResourceMaintenanceCharts()` は owned snapshot を使う。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
+`CreateOwnedResourceMaintenanceCharts()` は owned snapshot の実 path source から作り、install destination overlay は混ぜない。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
 
 playlist owned hash snapshot は owned chart collection の lightweight hash index から作る。installed chart lookup は owned chart collection から path / md5 / sha256 / primary hash / kind だけを読む隣接 index として build し、差分更新 state を持つ。ここでも全件 `ChartFile` materialize は不要である。hash / directory / primary count だけを見る index として管理し、package entry や resource target が必要な caller だけ最後に `ChartFile` 化する。
 

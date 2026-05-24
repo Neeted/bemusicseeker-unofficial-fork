@@ -5576,7 +5576,7 @@ reportProgress,
                     setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                     var stopwatchSetHealth = Stopwatch.StartNew();
-                    maintenanceResult = setMaintenanceInfo(CreateResourceMaintenanceCharts(filesSnapshot, bmsonSnapshot)) ?? new MaintenanceWorkflowResult();
+                    maintenanceResult = setOwnedMaintenanceInfo() ?? new MaintenanceWorkflowResult();
                     stopwatchSetHealth.Stop();
                     setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
@@ -7582,7 +7582,8 @@ reportProgress,
 
     private List<ChartFile> CreateOwnedResourceMaintenanceCharts()
     {
-        return CreateCurrentInstalledChartSnapshot(includeResourceReferences: true);
+        return [.. CreateOwnedChartSnapshot(includeResourceReferences: true)
+            .Where(chart => chart?.Kind != ChartFileKind.Bmson || !string.IsNullOrWhiteSpace(chart.Path))];
     }
 
     private void InvalidateResourceHealthIndex(string reason)
