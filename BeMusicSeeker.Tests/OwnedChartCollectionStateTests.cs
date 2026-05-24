@@ -191,6 +191,28 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateLibraryChartRefIndexSnapshot_RealPathSubtreeUsesDirectoryBoundary()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string targetDirectory = Path.Combine("C:\\Installed", "Target");
+        var directBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(targetDirectory, "direct.bms"));
+        var nestedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(targetDirectory, "Nested", "nested.bms"));
+        var siblingPrefixBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "TargetPrefix", "prefix.bms"));
+        var siblingSuffixBms = CreateFile("dddddddddddddddddddddddddddddddd", Path.Combine("C:\\Installed", "TargetSuffix", "suffix.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([directBms, nestedBms, siblingPrefixBms, siblingSuffixBms], []);
+
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        List<LibraryChartRef> refs = index.GetChartRefsUnderRealPath(targetDirectory);
+
+        Assert.AreEqual(2, refs.Count);
+        Assert.IsTrue(refs.Any(chart => ReferenceEquals(directBms, chart.GetBmsStorageOwner())));
+        Assert.IsTrue(refs.Any(chart => ReferenceEquals(nestedBms, chart.GetBmsStorageOwner())));
+        Assert.IsFalse(refs.Any(chart => ReferenceEquals(siblingPrefixBms, chart.GetBmsStorageOwner())));
+        Assert.IsFalse(refs.Any(chart => ReferenceEquals(siblingSuffixBms, chart.GetBmsStorageOwner())));
+        Assert.AreEqual(4, index.GetChartRefsUnderRealPath("C:\\").Count);
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_DoesNotResolveAmbiguousSameKindPathOnlyInput()
     {
         TestResourceInitializer.EnsureJapaneseResources();

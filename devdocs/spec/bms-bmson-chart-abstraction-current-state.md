@@ -535,7 +535,7 @@ owned collection へ寄せる対象は「BMS と bmson が混在する chart-com
 優先する view / index:
 
 - `LibraryChartRef` view: kind、path、owner、primary hash だけで、folder move / delete / merge の canonical resolve に使う。
-- real path directory view: `directory -> direct chart refs`、`directory -> subtree chart refs`、`directory -> subtree chart count`。`StartsWith` の全件 scan を避け、merge source、folder move、whole-folder delete 判定に使う。folder auto rename は対象 folder 群の direct children snapshot だけを owned collection から作る。install destination はこの view に含めない。
+- real path directory view: `directory -> direct chart refs`、sorted direct directory keys からの prefix range、`directory -> subtree chart count`。directory bucket 全走査を避け、merge source、folder move、whole-folder delete 判定に使う。folder auto rename は対象 folder 群の direct children snapshot だけを owned collection から作る。install destination はこの view に含めない。
 - install destination overlay directory view: runtime install destination state と pending package entry の overlay view。folder move / merge では destination path rewrite、delete では destination clear にだけ使う。real path directory count や source chart selection には使わない。pending package entry は owned chart lookup へ通さず、entry identity のまま返す。
 - owner/path canonical lookup: input chart を current library chart へ canonical resolve する。delete / repair / rename で使う。owner reference がある場合は owner match、path-only input は kind + canonical path の exact match に限定する。複数候補は ambiguous / unresolved として扱う。
 - hash/directory index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。
@@ -712,7 +712,7 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
    - current all chart が本当に必要な場合は `CreateAllInstalledChartSnapshotFor...` のように full operation であることを名前と log に出す。
    - directory / hash / owner / input subset がある caller は、owned collection の filtered view または入力 rows の一時 projection を使う。
    - `OwnedChartCollectionState.CreateSnapshot(...)` は full projection 用として残し、hot path には `Enumerate*View` / `Create*IndexSnapshot` 系を追加する。
-   - folder operation 向けの full `LibraryChartRef` snapshot helper は owner/path canonical lookup、real path directory view、install destination overlay target snapshot へ分解済み。次は view 内部の全 directory bucket scan を減らし、ほかの full snapshot caller も用途別 view へ寄せる。
+   - folder operation 向けの full `LibraryChartRef` snapshot helper は owner/path canonical lookup、real path directory view、install destination overlay target snapshot へ分解済み。real path directory view は sorted direct directory keys の prefix range で subtree refs を列挙する。次はほかの full snapshot caller も用途別 view へ寄せる。
    - `CreateOwnedResourceMaintenanceCharts()` は full rebuild 専用に限定する。通常の install / merge / repair / warning 操作は subset target builder を使う。
 
 3. **Hot path の view / index 化**

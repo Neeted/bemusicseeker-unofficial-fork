@@ -14,6 +14,7 @@ internal sealed class LibraryChartRefIndexSnapshot
         new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase),
+        [],
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
 
@@ -22,6 +23,7 @@ internal sealed class LibraryChartRefIndexSnapshot
     private readonly Dictionary<string, LibraryChartRef> byKindAndPath;
     private readonly HashSet<string> ambiguousKindAndPathKeys;
     private readonly Dictionary<string, List<LibraryChartRef>> directRefsByDirectory;
+    private readonly List<string> sortedDirectDirectories;
     private readonly Dictionary<string, int> subtreeCountsByDirectory;
     private readonly Dictionary<string, int> pathCounts;
 
@@ -31,6 +33,7 @@ internal sealed class LibraryChartRefIndexSnapshot
         Dictionary<string, LibraryChartRef> byKindAndPath,
         HashSet<string> ambiguousKindAndPathKeys,
         Dictionary<string, List<LibraryChartRef>> directRefsByDirectory,
+        List<string> sortedDirectDirectories,
         Dictionary<string, int> subtreeCountsByDirectory,
         Dictionary<string, int> pathCounts)
     {
@@ -39,6 +42,7 @@ internal sealed class LibraryChartRefIndexSnapshot
         this.byKindAndPath = byKindAndPath;
         this.ambiguousKindAndPathKeys = ambiguousKindAndPathKeys;
         this.directRefsByDirectory = directRefsByDirectory;
+        this.sortedDirectDirectories = sortedDirectDirectories;
         this.subtreeCountsByDirectory = subtreeCountsByDirectory;
         this.pathCounts = pathCounts;
     }
@@ -102,12 +106,14 @@ internal sealed class LibraryChartRefIndexSnapshot
             }
         }
 
+        List<string> sortedDirectDirectories = [.. directRefsByDirectory.Keys.OrderBy(key => key, StringComparer.OrdinalIgnoreCase)];
         return new LibraryChartRefIndexSnapshot(
             bmsByReference,
             bmsonByReference,
             byKindAndPath,
             ambiguousKindAndPathKeys,
             directRefsByDirectory,
+            sortedDirectDirectories,
             subtreeCountsByDirectory,
             pathCounts);
     }
@@ -152,12 +158,27 @@ internal sealed class LibraryChartRefIndexSnapshot
         }
 
         List<LibraryChartRef> refs = [];
-        foreach (KeyValuePair<string, List<LibraryChartRef>> pair in directRefsByDirectory)
+        if (directRefsByDirectory.TryGetValue(folderKey, out List<LibraryChartRef> directRefs))
         {
-            if (IsSameOrDescendantDirectory(pair.Key, folderKey))
+            refs.AddRange(directRefs);
+        }
+
+        string descendantPrefix = AppendDirectorySeparator(folderKey);
+        int index = LowerBound(sortedDirectDirectories, descendantPrefix);
+        for (; index < sortedDirectDirectories.Count; index++)
+        {
+            string directoryKey = sortedDirectDirectories[index];
+            if (!directoryKey.StartsWith(descendantPrefix, StringComparison.OrdinalIgnoreCase))
             {
-                refs.AddRange(pair.Value);
+                break;
             }
+
+            if (string.Equals(directoryKey, folderKey, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            refs.AddRange(directRefsByDirectory[directoryKey]);
         }
         return refs;
     }
@@ -293,12 +314,6 @@ internal sealed class LibraryChartRefIndexSnapshot
         }
     }
 
-    private static bool IsSameOrDescendantDirectory(string candidateDirectoryKey, string folderKey)
-    {
-        return string.Equals(candidateDirectoryKey, folderKey, StringComparison.OrdinalIgnoreCase)
-            || IsPathUnderDirectory(candidateDirectoryKey, folderKey);
-    }
-
     private static bool IsPathUnderDirectory(string pathKey, string folderKey)
     {
         return !string.IsNullOrWhiteSpace(pathKey)
@@ -311,6 +326,25 @@ internal sealed class LibraryChartRefIndexSnapshot
         return string.IsNullOrWhiteSpace(path) || path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
             ? path
             : path + Path.DirectorySeparatorChar;
+    }
+
+    private static int LowerBound(List<string> values, string value)
+    {
+        int low = 0;
+        int high = values?.Count ?? 0;
+        while (low < high)
+        {
+            int mid = low + ((high - low) / 2);
+            if (StringComparer.OrdinalIgnoreCase.Compare(values[mid], value) < 0)
+            {
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid;
+            }
+        }
+        return low;
     }
 
     private static string CreateKindAndPathKey(LibraryChartKind kind, string path)
