@@ -331,7 +331,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
                 Assert.AreEqual(destinationChartPath, changedChart.Path);
                 Assert.AreEqual(string.Empty, changedChart.InstallDestination);
-                ChartFile installedChart = InvokeCreateCurrentInstalledChartSnapshot(library).Single();
+                ChartFile installedChart = InvokeCreateOwnedChartSnapshotWithInstallDestinationOverlay(library).Single();
                 Assert.AreEqual(destinationChartPath, installedChart.Path);
                 Assert.AreEqual(string.Empty, installedChart.InstallDestination);
                 Assert.IsFalse(File.Exists(sourceChartPath));
@@ -372,7 +372,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
             Assert.AreEqual(@"C:\New", changedChart.InstallDestination);
-            ChartFile installedChart = InvokeCreateCurrentInstalledChartSnapshot(library).Single();
+            ChartFile installedChart = InvokeCreateOwnedChartSnapshotWithInstallDestinationOverlay(library).Single();
             Assert.AreEqual(@"C:\New", installedChart.InstallDestination);
         });
     }
@@ -411,7 +411,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
             Assert.AreEqual(string.Empty, changedChart.InstallDestination);
             Assert.IsFalse(changedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            ChartFile installedChart = InvokeCreateCurrentInstalledChartSnapshot(library).Single();
+            ChartFile installedChart = InvokeCreateOwnedChartSnapshotWithInstallDestinationOverlay(library).Single();
             Assert.AreEqual(string.Empty, installedChart.InstallDestination);
             Assert.IsFalse(installedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             Assert.AreEqual(
@@ -448,7 +448,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             replacementFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             library.BMSFiles = [replacementFile];
 
-            ChartFile installedChart = InvokeCreateCurrentInstalledChartSnapshot(library).Single();
+            ChartFile installedChart = InvokeCreateOwnedChartSnapshotWithInstallDestinationOverlay(library).Single();
 
             Assert.AreSame(replacementFile, installedChart.GetBmsStorageOwner());
             Assert.AreEqual(string.Empty, installedChart.InstallDestination);
@@ -1150,9 +1150,17 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         return (bool)fieldInfo.GetValue(library);
     }
 
-    private static List<ChartFile> InvokeCreateCurrentInstalledChartSnapshot(BMSLibrary library)
+    private static List<ChartFile> InvokeCreateOwnedChartSnapshotWithInstallDestinationOverlay(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateCurrentInstalledChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        List<ChartFile> snapshot = InvokeCreateOwnedChartSnapshot(library);
+        MethodInfo overlayMethodInfo = typeof(BMSLibrary).GetMethod("OverlayInstallDestinationRuntimeStates", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(overlayMethodInfo);
+        return (List<ChartFile>)overlayMethodInfo.Invoke(library, [snapshot]);
+    }
+
+    private static List<ChartFile> InvokeCreateOwnedChartSnapshot(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (List<ChartFile>)methodInfo.Invoke(library, [true]);
     }

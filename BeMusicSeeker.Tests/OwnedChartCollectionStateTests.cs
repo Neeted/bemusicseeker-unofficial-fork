@@ -662,7 +662,7 @@ public sealed class OwnedChartCollectionStateTests
                 BMSFiles = [first, second],
                 BmsonSongs = []
             };
-            List<ChartFile> initialSnapshot = InvokeCreateCurrentInstalledChartSnapshot(library, includeResourceReferences: false);
+            List<ChartFile> initialSnapshot = InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
             Assert.AreEqual(2, initialSnapshot.Count);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             var delta = new LibraryMutationDelta
@@ -676,7 +676,7 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreEqual(1, library.BMSFiles.Count);
             Assert.AreSame(second, library.BMSFiles[0]);
-            List<ChartFile> afterSnapshot = InvokeCreateCurrentInstalledChartSnapshot(library, includeResourceReferences: false);
+            List<ChartFile> afterSnapshot = InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
             Assert.AreEqual(1, afterSnapshot.Count);
             Assert.AreSame(second, afterSnapshot[0].GetBmsStorageOwner());
         });
@@ -701,11 +701,11 @@ public sealed class OwnedChartCollectionStateTests
                 BMSFiles = [keptBms, replacedBms],
                 BmsonSongs = [replacedBmson, keptBmson]
             };
-            InvokeCreateCurrentInstalledChartSnapshot(library, includeResourceReferences: false);
+            InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
             object ownedStateBefore = GetOwnedChartCollectionState(library);
 
             InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
-            List<ChartFile> snapshot = InvokeCreateCurrentInstalledChartSnapshot(library, includeResourceReferences: false);
+            List<ChartFile> snapshot = InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
 
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
@@ -734,7 +734,7 @@ public sealed class OwnedChartCollectionStateTests
                 BMSFiles = [keptBms],
                 BmsonSongs = [duplicateBmsonA, duplicateBmsonB]
             };
-            InvokeCreateCurrentInstalledChartSnapshot(library, includeResourceReferences: false);
+            InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
                 InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms], [addedBmson])));
@@ -870,9 +870,9 @@ public sealed class OwnedChartCollectionStateTests
         }
     }
 
-    private static List<ChartFile> InvokeCreateCurrentInstalledChartSnapshot(BMSLibrary library, bool includeResourceReferences)
+    private static List<ChartFile> InvokeCreateOwnedChartSnapshot(BMSLibrary library, bool includeResourceReferences)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateCurrentInstalledChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (List<ChartFile>)methodInfo.Invoke(library, [includeResourceReferences]);
     }

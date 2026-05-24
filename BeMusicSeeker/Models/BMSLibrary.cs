@@ -5186,7 +5186,7 @@ completeFileEnumerationOnce,
             List<ChartFile> chartSnapshot;
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                chartSnapshot = CreateCurrentInstalledChartSnapshot(includeResourceReferences: false);
+                chartSnapshot = CreateOwnedChartSnapshot(includeResourceReferences: false);
             }
             int snapshotCount = chartSnapshot.Count;
             bool completedLatestRequest = false;
@@ -6468,11 +6468,6 @@ reportProgress,
         {
             return ownedChartCollection.CreateOwnedHashIndexSnapshot();
         }
-    }
-
-    private List<ChartFile> CreateCurrentInstalledChartSnapshot(bool includeResourceReferences)
-    {
-        return OverlayInstallDestinationRuntimeStates(CreateOwnedChartSnapshot(includeResourceReferences));
     }
 
     private List<ChartFile> CreateOwnedChartSnapshot(bool includeResourceReferences)

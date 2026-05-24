@@ -146,7 +146,7 @@ bmson library rows は全ての tree mode に無条件で混ざるわけでは�
 
 ### Duplicate view
 
-duplicate view は `DuplicateChartGroups` / `SearchDuplicateChartGroups()` を入口にし、現行 snapshot は `BmsLibraryDuplicateService.BuildSnapshot(...)` で `ChartFile` snapshot を受け取る。`BMSLibrary` は owned chart collection から current installed chart snapshot を作り、必要な install destination runtime overlay を重ねてから duplicate service へ渡す。ここは full duplicate search という明示的な全件 operation であり、通常 merge の existing hash lookup は installed lookup index を使う。
+duplicate view は `DuplicateChartGroups` / `SearchDuplicateChartGroups()` を入口にし、現行 snapshot は `BmsLibraryDuplicateService.BuildSnapshot(...)` が `BMSFile` / `bmson_song` storage row snapshot を受け取って作る。ここは full duplicate search という明示的な全件 operation であり、install destination runtime overlay は duplicate 判定に混ぜない。通常 merge の existing hash lookup は installed lookup index を使う。
 
 `DuplicateChartRow` は grouping / duplicate 判定用の path / primary lookup hash と、表示・operation の正本として `ChartFile` を持つ。BMS duplicate row の storage owner は `ChartFile.GetBmsStorageOwner()` から読む。bmson duplicate row は `ChartFile.GetBmsonStorageOwner()` で storage owner へ降りる。bmson duplicate row は `PendingChartEntry` compatibility adapter を materialize しない。duplicate subset の仮想一覧表示は `DuplicateGroup.ChartFiles` をそのまま `ChartListSourceRow` へ渡すため、projection-only warning も落とさない。
 
@@ -504,7 +504,7 @@ UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっ�
 
 ### snapshot / lookup helper
 
-旧 `CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, ...)` 型の汎用 helper は削除済みである。current installed source の full snapshot が本当に必要な処理だけ `CreateCurrentInstalledChartSnapshot(...)` を使い、任意 rows / subset / BMS-only / bmson-only の入力は用途別 projection helper へ分ける。まだ全件 `ChartFile` list を materialize する full operation は残るため、hot path ではなく明示的 full rebuild / full backfill に限定する。
+旧 installed chart snapshot 系の汎用 helper / wrapper は削除済みである。chart_info full backfill は install destination overlay を通さず `CreateOwnedChartSnapshot(includeResourceReferences:false)` から明示的 full target を作る。任意 rows / subset / BMS-only / bmson-only の入力は用途別 projection helper へ分ける。まだ全件 `ChartFile` list を materialize する full operation は残るため、hot path ではなく明示的 full rebuild / full backfill に限定する。
 
 folder operation 向けの full `LibraryChartRef` snapshot helper は削除済みである。duplicate merge / folder move / delete confirmation は full ref snapshot を受け取らず、必要な情報を次の 3 つへ分ける。
 
@@ -653,7 +653,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - `BMSLibrary` が保持する所持譜面集合の primary source を、`BMSFiles` / `BmsonSongs` の二本立て storage row collection から、owned chart collection の identity / view / index へ移す。
 - `BMSFiles` / `BmsonSongs` は DB 永続化 owner、外部互換 property、BMS / bmson 固有 producer の境界として残す。BMS-only / bmson-only 処理は無理に `ChartFile` 経由にしない。
 - BMS と bmson が混在する chart-common 処理は owned chart collection を入口にする。ただし、入口は必ず `List<ChartFile>` ではなく、用途に応じて `LibraryChartRef` view、directory index、hash index、storage owner view、resource maintenance target view を使う。
-- `CreateCurrentInstalledChartSnapshot(...)`、resource maintenance target 作成、installed chart lookup などは、全件 `ChartFile` list を都度作らず、対象を絞った owned view / index または入力 rows の一時 projection から作る。playlist summary hash / playlist reference apply / playlist detail resolve は owned hash index または owned playlist resolve index から作る。folder operation 向けの full `LibraryChartRef` snapshot helper は残さない。
+- chart_info full backfill は処理自体が全件 parse target を必要とする明示 full operation として `CreateOwnedChartSnapshot(includeResourceReferences:false)` を使う。resource maintenance target 作成、installed chart lookup、playlist summary hash、playlist reference apply、playlist detail resolve、folder operation などの hot path / repeated mutation path は、全件 `ChartFile` list を都度作らず、対象を絞った owned view / index または入力 rows の一時 projection から作る。folder operation 向けの full `LibraryChartRef` snapshot helper は残さない。
 - install / uninstall / merge / repair / folder move / path rename は owned chart collection と storage row owner を同じ mutation として差分更新する。
 - large library での不要な全件 materialize を減らし、初回 build、繰り返し mutation、folder / merge 操作のいずれでも O(N) rebuild / scan を hot path に置かない。
 
@@ -727,7 +727,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
    - 残タスクは、mutation coverage / diagnostic log をさらに増やし、残存 full materialize / full refs copy が hot path に戻らないように監視すること。
 
 2. **Full snapshot helper の分解: 進行中**
-   - 旧 `CreateInstalledChartSnapshot(...)` は削除済み。current source の full snapshot は `CreateCurrentInstalledChartSnapshot(...)` に限定済み。
+   - 旧 installed chart snapshot 系 helper は削除済み。chart_info full backfill は owned chart snapshot を直接使い、install destination overlay を混ぜない。
    - folder operation 向けの full `LibraryChartRef` snapshot helper は owner/path canonical lookup、real path directory view、install destination overlay target snapshot へ分解済み。
    - `CreateOwnedResourceMaintenanceCharts()` は owned resource maintenance target view から作る。通常の install / merge / repair / warning 操作は subset target builder を使う。
    - installed lookup は owned lightweight view に移行済みで、初回 build は `source=owned_collection_lightweight` を log する。
@@ -805,7 +805,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
 
 - 初回 owned chart collection build が、従来の全件 projection より明確に重くならない。
 - merge / install / repair の 2 回目以降で、owned chart collection と installed lookup の full rebuild が出ない。
-- `CreateCurrentInstalledChartSnapshot(...)` / 旧 full `LibraryChartRef` snapshot 相当の処理が、全件 storage row projection または全件 `ChartFile` materialize として hot path に現れない。
+- chart_info full backfill / 旧 full `LibraryChartRef` snapshot 相当の処理が、全件 storage row projection または全件 `ChartFile` materialize として hot path に現れない。
 - folder / merge / delete 操作では、対象 directory / input chart に応じた view / index が使われ、全件 materialize 後 filter にならない。
 - 通常一覧 root / folder 切替で可視行以外の heavy projection が増えない。
 - 通常 library で `main_view_virtual_route_skipped` / `main_view_virtual_sort_reset` / `main_view_virtual_required_failed` が通常操作のログに出ない。未対応 sort column があれば列定義 / virtual sort metadata の不整合として直す。
@@ -816,7 +816,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
 
 - `BMSLibrary` の chart-common 処理が owned chart collection を primary source にしている。
 - `BMSFiles` / `BmsonSongs` の直接 enumeration は DB load-save、external full refresh、BMS-only / bmson-only producer、または通常一覧 virtual source row の owner-backed read model 境界に限定されている。
-- `CreateCurrentInstalledChartSnapshot(...)` と旧 full `LibraryChartRef` snapshot 相当の処理は、storage row list からの全件 projectionにも不要な owned collection 全件 `ChartFile` materializeにも依存しない。
+- chart_info full backfill は明示 full operation として owned collection から全件 `ChartFile` target を作るが、storage row list から再投影せず、install destination overlay も混ぜない。旧 full `LibraryChartRef` snapshot 相当の処理は hot path に残さず、storage row list からの全件 projectionにも不要な owned collection 全件 `ChartFile` materializeにも依存しない。
 - normal library route skip / required failure は通常 hot path から外れ、sortable column の不整合を隠す全件 materialize 経路になっていない。
 - owned chart collection、installed lookup、playlist summary owned hash、playlist detail owned resolve index、parent folder cache、directory view、resource maintenance target が同じ mutation 境界で同期または無効化される。
 - BMS / bmson の install、uninstall、merge、repair、folder move、path rename、maintenance、playlist reference、duplicate search の既存挙動が維持される。
