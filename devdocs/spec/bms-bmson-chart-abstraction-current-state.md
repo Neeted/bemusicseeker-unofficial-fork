@@ -514,7 +514,7 @@ folder operation 向けの full `LibraryChartRef` snapshot helper は削除済�
 
 `CreateOwnedResourceMaintenanceCharts()` は owned snapshot を使う。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
 
-playlist owned hash snapshot は owned chart collection の lightweight hash index から作る。installed chart lookup は projection を避ける storage row direct builder と差分更新 state を持つ。installed chart lookup も最終設計では owned chart collection の隣接 index へ寄せるが、ここでも全件 `ChartFile` materialize は不要である。hash / directory / primary count だけを見る index として管理する。
+playlist owned hash snapshot は owned chart collection の lightweight hash index から作る。installed chart lookup は projection を避ける storage row direct builder と差分更新 state を持つが、次の段階では owned chart collection から path / md5 / sha256 / primary hash / kind だけを読む隣接 index へ寄せる。ここでも全件 `ChartFile` materialize は不要である。hash / directory / primary count だけを見る index として管理し、package entry や resource target が必要な caller だけ最後に `ChartFile` 化する。
 
 新規 helper を追加する場合は、`BMSFiles` + `BmsonSongs` を直接結合する API を増やさず、owned chart collection の view / index へ置くか、任意 subset / BMS-only / bmson-only / DB 境界であることを API 名で分かるようにする。全件 `ChartFile` list を返す helper は、明示的な full operation 以外では追加しない。
 
@@ -538,12 +538,12 @@ owned collection へ寄せる対象は「BMS と bmson が混在する chart-com
 - real path directory view: `directory -> direct chart refs`、sorted direct directory keys からの prefix range、`directory -> subtree chart count`。directory bucket 全走査を避け、merge source、folder move、whole-folder delete 判定に使う。folder auto rename は対象 folder 群の direct children snapshot だけを owned collection から作る。install destination はこの view に含めない。
 - install destination overlay directory view: runtime install destination state と pending package entry の overlay view。folder move / merge では destination path rewrite、delete では destination clear にだけ使う。real path directory count や source chart selection には使わない。pending package entry は owned chart lookup へ通さず、entry identity のまま返す。
 - owner/path canonical lookup: input chart を current library chart へ canonical resolve する。delete / repair / rename で使う。owner reference がある場合は owner match、path-only input は kind + canonical path の exact match に限定する。複数候補は ambiguous / unresolved として扱う。
-- hash/directory index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。
-- resource maintenance target view: resource references が必要な subset だけを `ChartFile` 化する。
+- hash/directory index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。owned collection の current path/hash を source にし、`primaryHashCounts`、`md5 -> directories`、`sha256 -> directories`、`known chart directories` を差分更新する。`CreateExcludingLookup` はこの index の primary hash count から作り、merge source 自身を除外する時も full chart snapshot を作らない。
+- resource maintenance target view: resource references が必要な subset だけを `ChartFile` 化する。full target は resource health full rebuild、手動 full rescan、明示的な full maintenance operation に限定する。通常 view は `ResourceHealthIndexSnapshot` を正本にし、cache が current なら full target を作らない。
 - path snapshot view: parent folder cache の candidate rebuild など、path だけが必要な処理に使う。
 - full chart snapshot: chart_info full backfill や resource health full rebuild のように、処理自体が全件 chart projection を必要とする明示的 full operation に限定する。
 
-全所持譜面を見る必要がある処理でも、既に session cache / index がある場合はそちらを正本にする。例として、resource health は `ResourceHealthIndexSnapshot`、duplicate group は `DuplicateChartGroups` cache、playlist hash は playlist owned hash snapshot、installed hash/directory は installed lookup state、parent folder は parent folder cache、chart_info は chart_info index、score は score snapshot を見る。owned collection から full `ChartFile` list を作って同じ情報を再計算しない。
+全所持譜面を見る必要がある処理でも、既に session cache / index がある場合はそちらを正本にする。例として、resource health は `ResourceHealthIndexSnapshot`、duplicate group は `DuplicateChartGroups` cache、playlist hash は playlist owned hash snapshot、installed hash/directory は installed lookup state、parent folder は parent folder cache、chart_info は chart_info index、score は score snapshot を見る。owned collection から full `ChartFile` list を作って同じ情報を再計算しない。特に `ChartFilesNeedResourceFix` / ignored view は、resource health index が current なら snapshot の active / ignored targets を返し、force rescan や index rebuild が必要な時だけ resource maintenance full target を作る。
 
 API 命名では、`CreateSnapshot` は full materialize の印象が強いため hot path へ増やさない。`EnumerateLibraryChartRefs`、`EnumerateChartRefsUnderDirectory`、`ResolveOwnedChartRefs`、`CreateOwnedHashIndexSnapshot`、`CreateInstalledLookupSnapshot`、`EnumerateResourceMaintenanceTargets` のように、返す情報量と対象範囲が分かる名前を使う。
 
@@ -694,10 +694,15 @@ folder operation service へ渡す入力も、full library ref snapshot では�
 - kind partition
 - playlist owned hash snapshot
 - parent folder candidate view
+- resource health warning index
 - resource maintenance target view
 - install destination runtime overlay directory lookup
 
 index は collection mutation に同期して差分更新する。丸ごと DB reload、外部 setter による collection replacement、表現できない mutation だけ full invalidate / rebuild に落とす。
+
+installed lookup は owned collection の current installed source に隣接する hash/directory index として扱う。初回 build は `BMSFiles` / `BmsonSongs` を直接列挙せず、owned collection の lightweight entry view から行う。mutation では unregister / install upsert / merge path change / folder move を add / remove / move / hash change として表現し、表現できない外部 replacement だけ full invalidate する。API は `IPrimaryHashLookup` と `IInstalledChartLookupIndex` の用途を分け、重複 skip や安全削除は primary hash lookup、install destination 推定は directory lookup snapshot を読む。
+
+resource maintenance は installed lookup と違い、実際の health 計算で resource references 付き `ChartFile` が必要になる。したがって owned collection に置くのは「resource maintenance target を作る view」と「resource health warning index」の二層である。通常表示や warning 判定は `ResourceHealthIndexSnapshot` を読み、install / merge / repair / ignore 変更は subset target と delta update を優先する。full target は `resource_health_index_build`、manual full rescan、startup hydration 後の index rebuild のような明示的 full operation に限定し、log reason と target count を必ず残す。
 
 ### Migration phases
 
@@ -723,7 +728,8 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
    - delete / whole-folder confirmation は、全件 refs から canonical resolve / folder count を作らず、owner/path lookup と real path subtree count を使う。hash-only resolve は delete 対象を広げるため入れない。
    - resource-only merge display package は、destination の direct child snapshot を作ってから hash filter する。最終的には hash/directory index から候補だけを `PackageChartEntry` 化する。
    - folder auto rename は full library chart list を渡さず、target folder 群の direct children snapshot provider で必要分だけ `ChartFile` 化する。ほかの BMS + bmson 混在 folder operation も owned chart view へ寄せる。ただし BMS-only / bmson-only の producer は storage owner view のまま残す。
-   - parent folder cache は owned path snapshot から作る。installed lookup は owned collection 隣接 index に寄せ、full `ChartFile` snapshot を経由しない。playlist owned hash は owned hash index から作る。
+   - parent folder cache は owned path snapshot から作る。installed lookup は owned collection 隣接 index に寄せ、storage row direct build と full `ChartFile` snapshot のどちらも hot path から外す。playlist owned hash は owned hash index から作る。
+   - `ChartFilesNeedResourceFix` / ignored view は `ResourceHealthIndexSnapshot` が current なら full resource maintenance target を作らない。force rescan、index invalidation 後の rebuild、manual full maintenance だけ owned resource maintenance target view から全件 `ChartFile` 化する。
 
 4. **Mutation pipeline の同期化**
    - `LibraryMutationDelta`、install result、merge result、repair result、folder move result に owned chart collection mutation を含める。
