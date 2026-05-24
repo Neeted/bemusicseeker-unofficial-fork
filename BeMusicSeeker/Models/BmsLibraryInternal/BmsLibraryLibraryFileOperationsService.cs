@@ -425,9 +425,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public List<FolderAutoRenamePlan> BuildAutoRenamePlans(
         IEnumerable<ChartFile> selectedCharts,
-        IEnumerable<ChartFile> libraryCharts,
         IEnumerable<string> rootFolders,
         bool renameRootFolder,
+        Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
         Func<IEnumerable<ChartFile>, string, string, string> createFolderPath)
     {
         List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
@@ -435,13 +435,19 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                                       select d)];
         List<string> effectiveRootFolders = [.. (rootFolders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder))];
         List<string> targetFolders = [];
+        var targetFolderSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string folder in sourceFolders.Where(folder => renameRootFolder || !effectiveRootFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
         {
-            if (!targetFolders.Any(existingFolder => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            if (!HasTargetAncestor(folder, targetFolderSet))
             {
                 targetFolders.Add(folder);
+                targetFolderSet.Add(folder);
             }
         }
+        IReadOnlyList<ChartFile> directChildSnapshot = targetFolders.Count == 0
+            ? []
+            : createDirectChildSnapshot?.Invoke(targetFolders) ?? [];
+        Dictionary<string, List<ChartFile>> directChildrenByDirectory = CreateDirectChildrenByDirectory(directChildSnapshot);
         List<FolderAutoRenamePlan> plans = [];
         foreach (string folder in targetFolders)
         {
@@ -456,11 +462,9 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     plans.Add(plan);
                     continue;
                 }
-                List<ChartFile> directChildren = [.. (from chart in libraryCharts ?? []
-                                                      where chart != null
-                                                      && chart.Path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
-                                                      && DirectoryExt.GetDirectoryNameSimple(chart.Path).Equals(folder, StringComparison.OrdinalIgnoreCase)
-                                                      select chart)];
+                List<ChartFile> directChildren = directChildrenByDirectory.TryGetValue(folder, out List<ChartFile> children)
+                    ? children
+                    : [];
                 string longestFileName = (from f in FastDirectoryEnumerator.GetFileNames(folder)
                                           orderby f.Length descending
                                           select f).FirstOrDefault() ?? string.Empty;
@@ -484,6 +488,77 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             plans.Add(plan);
         }
         return plans;
+    }
+
+    private static Dictionary<string, List<ChartFile>> CreateDirectChildrenByDirectory(IEnumerable<ChartFile> charts)
+    {
+        var directChildrenByDirectory = new Dictionary<string, List<ChartFile>>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts ?? [])
+        {
+            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+            {
+                continue;
+            }
+
+            string directory = DirectoryExt.GetDirectoryNameSimple(chart.Path);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                continue;
+            }
+
+            if (!directChildrenByDirectory.TryGetValue(directory, out List<ChartFile> children))
+            {
+                children = [];
+                directChildrenByDirectory[directory] = children;
+            }
+            children.Add(chart);
+        }
+
+        return directChildrenByDirectory;
+    }
+
+    private static bool HasTargetAncestor(string folder, ISet<string> targetFolders)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || targetFolders?.Count > 0 != true)
+        {
+            return false;
+        }
+
+        string parent = GetParentDirectory(folder);
+        while (!string.IsNullOrWhiteSpace(parent))
+        {
+            if (targetFolders.Contains(parent))
+            {
+                return true;
+            }
+
+            string nextParent = GetParentDirectory(parent);
+            if (string.Equals(nextParent, parent, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            parent = nextParent;
+        }
+
+        return false;
+    }
+
+    private static string GetParentDirectory(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            string trimmedPath = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.IsNullOrWhiteSpace(trimmedPath) ? null : Path.GetDirectoryName(trimmedPath);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
     }
 
     public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<LibraryChartRef> selectedCharts, string destinationRootDirectory)

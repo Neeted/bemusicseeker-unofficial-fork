@@ -137,6 +137,29 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateSnapshotForDirectChildDirectories_FiltersBeforeProjectionUsingCurrentOwnerPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string targetDirectory = Path.Combine("C:\\Installed", "Target");
+        var movedBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"));
+        var directBmson = CreateBmsonSong(Path.Combine(targetDirectory, "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var nestedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine(targetDirectory, "Nested", "nested.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([movedBms, nestedBms], [directBmson]);
+        movedBms.path = Path.Combine(targetDirectory, "chart.bms");
+
+        List<ChartFile> snapshot = state.CreateSnapshotForDirectChildDirectories(
+            [targetDirectory],
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(2, snapshot.Count);
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), movedBms)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), directBmson)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), nestedBms)));
+    }
+
+    [TestMethod]
     public void RemoveCharts_UpdateOwnedCollectionMembership()
     {
         TestResourceInitializer.EnsureJapaneseResources();

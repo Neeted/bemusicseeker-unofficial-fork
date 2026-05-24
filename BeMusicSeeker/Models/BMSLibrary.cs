@@ -6580,6 +6580,22 @@ reportProgress,
         }
     }
 
+    private List<ChartFile> CreateOwnedDirectChildChartSnapshot(
+        IEnumerable<string> directoryPaths,
+        bool includeWarningSnapshot,
+        bool includeResourceReferences)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateSnapshotForDirectChildDirectories(
+                directoryPaths,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: false);
+        }
+    }
+
     private List<ChartFile> CreateOwnedBmsChartSnapshot(bool includeResourceReferences)
     {
         return [.. CreateOwnedChartSnapshot(includeResourceReferences)
@@ -11338,9 +11354,14 @@ reportProgress,
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
+                    List<ChartFile> selectedCharts = [.. chartFiles.Where(chart => chart != null)];
                     List<string> rootFolders = getBMSDirectories();
-                    List<ChartFile> chartRows = GetLibraryChartsForFolderOperations();
-                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(chartFiles, chartRows, rootFolders, renameRootFolder, CreateChartFolderPathFromCharts);
+                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(
+                        selectedCharts,
+                        rootFolders,
+                        renameRootFolder,
+                        CreateDirectLibraryChartSnapshotsInFolders,
+                        CreateChartFolderPathFromCharts);
                     if (plans.Any(plan => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
                     {
                         dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -11363,19 +11384,12 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> GetLibraryChartsForFolderOperations()
+    private List<ChartFile> CreateDirectLibraryChartSnapshotsInFolders(IReadOnlyCollection<string> folderPaths)
     {
-        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null).Select(file => ChartFileProjection.FromBmsFile(
-            file,
+        return CreateOwnedDirectChildChartSnapshot(
+            folderPaths,
             includeWarningSnapshot: true,
-            includeResourceReferences: false))];
-        charts.AddRange((BmsonSongs ?? [])
-            .Select(song => ChartFileProjection.FromBmsonSong(
-                song,
-                includeWarningSnapshot: true,
-                includeResourceReferences: false))
-            .Where(chart => chart != null));
-        return charts;
+            includeResourceReferences: false);
     }
 
     /// <summary>

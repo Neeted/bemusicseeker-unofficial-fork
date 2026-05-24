@@ -801,7 +801,7 @@ public sealed class MainWindowContextMenuResourceTests
             "internal void AutoRenameChartFolders");
         string chartsForFolderOperations = ExtractBetween(
             viewModelCode,
-            "private List<ChartFile> GetLibraryChartsForFolderOperations()",
+            "private List<ChartFile> CreateLibraryChartSnapshotsForFolderOperations",
             "internal void AutoRenameChartFolders");
         string cellEditEnded = ExtractBetween(
             mainWindowCode,
@@ -816,10 +816,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
-        StringAssert.Contains(autoRenameAll, "GetLibraryChartsForFolderOperations()");
+        StringAssert.Contains(autoRenameAll, "CreateLibraryChartSnapshotsForFolderOperations(parentDir)");
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
         StringAssert.Contains(chartsForFolderOperations, "files?.BmsonSongs");
         StringAssert.Contains(chartsForFolderOperations, "ChartFileProjection.FromBmsonSong");
+        StringAssert.Contains(chartsForFolderOperations, "IsChartPathUnderDirectory");
         StringAssert.Contains(cellEditEnded, "viewModel.CreateRenameChartFolderTargetSnapshot(target)");
         StringAssert.Contains(cellEditEnded, "viewModel.RenameChartFolder(targetSnapshot, newFolder)");
         Assert.IsFalse(cellEditEnded.Contains("viewModel.RenameChartFolder(target, newFolder)"));

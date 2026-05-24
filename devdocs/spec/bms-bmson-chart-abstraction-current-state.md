@@ -504,7 +504,7 @@ UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっ�
 
 `CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, ...)` は current installed source を検出した場合、owned chart collection の snapshot を返す。しかしこれは「storage row から全件作る」問題を「owned collection から全件 `ChartFile` list を materialize する」問題へ置き換えただけの箇所が残っている。`CreateInstalledChartSnapshot(...)` は汎用全件 helper ではなく、対象と用途を明示した helper 群へ分解する。
 
-`CreateLibraryChartRefSnapshotUnsafe()` は `CreateInstalledChartSnapshot(...)` 経由で current source の owned snapshot を使うが、まだ library ref 用の indexed view ではなく、呼び出しごとに全件 `ChartFile` list を materialize する。duplicate merge / folder move / delete confirmation などは、多くの場合「特定 folder 配下」「入力 chart の canonical resolve」「folder 内 chart count」だけを必要としているため、owned collection の `LibraryChartRef` view / directory index / owner-path lookup から直接解決する。
+`CreateLibraryChartRefSnapshotUnsafe()` は owned collection の `LibraryChartRef` view から直接 ref snapshot を作る。install destination runtime overlay がある ref だけ `ChartFile` snapshot を持たせ、通常 ref は owner / path / hash / kind のまま扱う。ただし、まだ directory index ではなく全件 ref scan なので、duplicate merge / folder move / delete confirmation などは「特定 folder 配下」「入力 chart の canonical resolve」「folder 内 chart count」を directory view / owner-path lookup から解決する余地が残る。
 
 `CreateOwnedResourceMaintenanceCharts()` は owned snapshot を使う。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
 
@@ -529,7 +529,7 @@ owned collection へ寄せる対象は「BMS と bmson が混在する chart-com
 優先する view / index:
 
 - `LibraryChartRef` view: kind、path、owner、primary hash だけで、folder move / delete / merge の canonical resolve に使う。
-- directory view: `directory -> chart refs/counts`。`StartsWith` の全件 scan を避け、merge source、folder move、whole-folder delete 判定、installed package path update に使う。
+- directory view: `directory -> chart refs/counts`。`StartsWith` の全件 scan を避け、merge source、folder move、whole-folder delete 判定、installed package path update に使う。folder auto rename は対象 folder 群の direct children snapshot だけを owned collection から作る。
 - owner/path lookup: input chart を current library chart へ canonical resolve する。delete / repair / rename で使う。
 - hash/directory index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。
 - resource maintenance target view: resource references が必要な subset だけを `ChartFile` 化する。
@@ -696,14 +696,14 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
    - current all chart が本当に必要な場合は `CreateAllInstalledChartSnapshotFor...` のように full operation であることを名前と log に出す。
    - directory / hash / owner / input subset がある caller は、owned collection の filtered view または入力 rows の一時 projection を使う。
    - `OwnedChartCollectionState.CreateSnapshot(...)` は full projection 用として残し、hot path には `Enumerate*View` / `Create*IndexSnapshot` 系を追加する。
-   - `CreateLibraryChartRefSnapshotUnsafe()` は full `ChartFile` list materialize ではなく、owned chart entry から `LibraryChartRef` view / owner-path lookup / directory iterator を作る。
+   - `CreateLibraryChartRefSnapshotUnsafe()` は full `ChartFile` list materialize ではなく、owned chart entry から `LibraryChartRef` view を作る。次は owner-path lookup / directory iterator へ寄せる。
    - `CreateOwnedResourceMaintenanceCharts()` は full rebuild 専用に限定する。通常の install / merge / repair / warning 操作は subset target builder を使う。
 
 3. **Hot path の view / index 化**
    - duplicate merge / folder move は、全件 library refs を渡して service 側で `StartsWith` filter しない。`GetChartRefsUnderDirectory(src)`、`EnumerateInstallDestinationTargetsUnderFolder(src)`、`BuildExistingHashLookupExcluding(sourceCharts)` のような targeted API にする。
    - delete / whole-folder confirmation は、全件 refs から canonical resolve / folder count を作らず、owner/path lookup と directory subtree count を使う。
    - resource-only merge display package は、全件 installed snapshot を hash + destination で filter せず、hash/directory index から候補だけを `PackageChartEntry` 化する。
-   - folder auto rename など BMS + bmson 混在 folder operation は owned chart view へ寄せる。ただし BMS-only / bmson-only の producer は storage owner view のまま残す。
+   - folder auto rename は full library chart list を渡さず、target folder 群の direct children snapshot provider で必要分だけ `ChartFile` 化する。ほかの BMS + bmson 混在 folder operation も owned chart view へ寄せる。ただし BMS-only / bmson-only の producer は storage owner view のまま残す。
    - parent folder cache、playlist owned hash、installed lookup は owned collection 隣接 index に寄せ、full `ChartFile` snapshot を経由しない。
 
 4. **Mutation pipeline の同期化**

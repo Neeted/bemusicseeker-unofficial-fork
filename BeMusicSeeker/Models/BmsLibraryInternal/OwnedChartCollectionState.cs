@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -33,6 +34,30 @@ internal sealed class OwnedChartCollectionState
         bool includeScoreSnapshot = false)
     {
         return [.. charts
+            .Select(chart => ChartFileProjection.FromStorageOwner(
+                chart,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: includeScoreSnapshot))
+            .Where(chart => chart != null)];
+    }
+
+    internal List<ChartFile> CreateSnapshotForDirectChildDirectories(
+        IEnumerable<string> directoryPaths,
+        bool includeWarningSnapshot = false,
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = false)
+    {
+        var directories = new HashSet<string>(
+            (directoryPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
+            System.StringComparer.OrdinalIgnoreCase);
+        if (directories.Count == 0)
+        {
+            return [];
+        }
+
+        return [.. charts
+            .Where(chart => directories.Contains(GetCurrentDirectory(chart)))
             .Select(chart => ChartFileProjection.FromStorageOwner(
                 chart,
                 includeWarningSnapshot: includeWarningSnapshot,
@@ -207,6 +232,29 @@ internal sealed class OwnedChartCollectionState
         return bmsonOwner != null
             ? LibraryChartRef.FromBmsonSong(bmsonOwner)
             : LibraryChartRef.FromChartFile(chart);
+    }
+
+    private static string GetCurrentDirectory(ChartFile chart)
+    {
+        string path = GetCurrentPath(chart);
+        return string.IsNullOrWhiteSpace(path) ? null : DirectoryExt.GetDirectoryNameSimple(path);
+    }
+
+    private static string GetCurrentPath(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return bmsOwner.path;
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        return bmsonOwner != null ? bmsonOwner.path : chart.Path;
     }
 
     private static bool IsRemovedChart(

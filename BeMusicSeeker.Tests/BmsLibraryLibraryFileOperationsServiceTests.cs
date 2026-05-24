@@ -717,9 +717,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 [chart, nestedChart],
-                [chart, nestedChart],
                 [],
                 renameRootFolder: true,
+                folders =>
+                {
+                    CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
+                    return [chart, nestedChart];
+                },
                 (_, parentDir, _) => Path.Combine(parentDir, "Renamed"));
 
             Assert.AreEqual(1, plans.Count(plan => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)));
@@ -748,9 +752,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 [bmsonChart],
-                [bmsonChart],
                 [],
                 renameRootFolder: true,
+                folders =>
+                {
+                    CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
+                    return [bmsonChart];
+                },
                 (children, parentDir, _) => Path.Combine(parentDir, children.First().Title + "_" + children.First().Artist));
 
             Assert.AreEqual(1, plans.Count);
@@ -785,9 +793,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             List<string> directChildTitles = [];
             List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
                 [bmsChart],
-                [bmsChart, bmsonChart],
                 [],
                 renameRootFolder: true,
+                folders =>
+                {
+                    CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
+                    return [bmsChart, bmsonChart];
+                },
                 (children, parentDir, _) =>
                 {
                     directChildTitles = [.. children.Select(child => child.Title).OrderBy(title => title, StringComparer.Ordinal)];
