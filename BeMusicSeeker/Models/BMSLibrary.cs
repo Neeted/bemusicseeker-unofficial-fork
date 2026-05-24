@@ -7582,8 +7582,11 @@ reportProgress,
 
     private List<ChartFile> CreateOwnedResourceMaintenanceCharts()
     {
-        return [.. CreateOwnedChartSnapshot(includeResourceReferences: true)
-            .Where(chart => chart?.Kind != ChartFileKind.Bmson || !string.IsNullOrWhiteSpace(chart.Path))];
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateResourceMaintenanceSnapshot();
+        }
     }
 
     private void InvalidateResourceHealthIndex(string reason)

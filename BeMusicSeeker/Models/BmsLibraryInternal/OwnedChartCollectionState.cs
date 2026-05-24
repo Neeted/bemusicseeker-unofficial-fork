@@ -113,6 +113,18 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal List<ChartFile> CreateResourceMaintenanceSnapshot()
+    {
+        return [.. charts
+            .Where(IsResourceMaintenanceTarget)
+            .Select(chart => ChartFileProjection.FromStorageOwner(
+                chart,
+                includeWarningSnapshot: false,
+                includeResourceReferences: true,
+                includeScoreSnapshot: false))
+            .Where(chart => chart != null)];
+    }
+
     internal List<ChartFile> CreateBmsSnapshot(
         bool includeWarningSnapshot = false,
         bool includeResourceReferences = true,
@@ -399,6 +411,12 @@ internal sealed class OwnedChartCollectionState
 
         LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
         return bmsonOwner != null ? bmsonOwner.path : chart.Path;
+    }
+
+    private static bool IsResourceMaintenanceTarget(ChartFile chart)
+    {
+        return chart != null
+            && (chart.Kind != ChartFileKind.Bmson || !string.IsNullOrWhiteSpace(GetCurrentPath(chart)));
     }
 
     private static string GetCurrentMd5(ChartFile chart)
