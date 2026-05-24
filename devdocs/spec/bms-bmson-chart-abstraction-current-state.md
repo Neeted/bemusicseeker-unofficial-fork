@@ -352,9 +352,9 @@ loose chart 推定の model 入口は `PackageChartEntry` を受け取り、snap
 
 installed directory index は BMS と bmson の両方を扱う。
 
-`BuildInstalledHashToDirectoryMap(...)` は、`IEnumerable<ChartFile>` を受け取り、md5 / sha256 から installed directory を作る。BMS / bmson の storage row 分割は caller 側の installed chart snapshot 作成時だけに閉じ、install estimation service の directory index surface は chart-common にする。
+installed directory index は `InstalledChartLookupIndexState` が md5 / sha256 / primary hash count / directory refs を持つ。初回 build は storage rows または owned collection の lightweight hash/directory view から作り、install estimation service には `IEnumerable<ChartFile>` を受ける lookup build API を置かない。`ChartFile` list を作るのは package resolve や diagnostics で個別 chart projection が必要な境界だけにする。
 
-この領域では「installed chart」という考え方に寄せ、service surface の入力型は `ChartFile` に統一する。map は md5 / sha256 の両方を登録する一方、個別 chart の候補判定や package resolve では `ChartFile.PrimaryLookupHash` を使うため、「常に両 hash で union lookup する」仕様ではない。installed-only package destination / package-level installed directory scoring / pending destination validation は package 内 chart を `PackageChartEntry` として列挙し、BMS-only mutation が必要な境界だけ BMS storage owner を返す。installed-only resource overwrite の skip 診断で原因 chart を探す helper は `ChartFile` を返すため、adapterless entry でも path / primary hash をログへ出せる。
+map は md5 / sha256 の両方を登録する一方、個別 chart の候補判定や package resolve では `ChartFile.PrimaryLookupHash` を使うため、「常に両 hash で union lookup する」仕様ではない。installed-only package destination / package-level installed directory scoring / pending destination validation は package 内 chart を `PackageChartEntry` として列挙し、BMS-only mutation が必要な境界だけ BMS storage owner を返す。installed-only resource overwrite の skip 診断で原因 chart を探す helper は `ChartFile` を返すため、adapterless entry でも path / primary hash をログへ出せる。
 
 ## Playlist
 

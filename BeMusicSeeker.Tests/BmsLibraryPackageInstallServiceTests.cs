@@ -2727,11 +2727,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         return file;
     }
 
-    private static List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> installedFiles)
-    {
-        return CreateInstalledChartSnapshot(installedFiles, []);
-    }
-
     private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookup(IEnumerable<BMSFile> installedFiles)
     {
         return CreateInstalledChartLookup(installedFiles, []);
@@ -2741,20 +2736,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         IEnumerable<BMSFile> installedFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs)
     {
-        return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70)
-            .BuildInstalledHashToDirectoryMap(CreateInstalledChartSnapshot(installedFiles, installedBmsonSongs));
-    }
-
-    private static List<ChartFile> CreateInstalledChartSnapshot(
-        IEnumerable<BMSFile> installedFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs)
-    {
-        return [.. (installedFiles ?? [])
-            .Where(file => file != null)
-            .Select(file => ChartFileProjection.FromBmsFile(file))
-            .Concat((installedBmsonSongs ?? [])
-                .Where(song => song != null)
-                .Select(song => ChartFileProjection.FromBmsonSong(song)))];
+        return InstalledChartLookupIndexState.FromStorageRows(installedFiles, installedBmsonSongs).CreateSnapshot();
     }
 
     private static List<BMSFile> GetAddedBmsFiles(PackageInstallExecutionResult result)

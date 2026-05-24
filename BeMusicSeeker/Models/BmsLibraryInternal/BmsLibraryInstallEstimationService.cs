@@ -346,11 +346,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private readonly int innerWavHealthThreshold = innerWavHealthThreshold;
 
-    public InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<ChartFile> installedCharts)
-    {
-        return InstalledChartLookupIndexState.FromCharts(installedCharts).CreateSnapshot();
-    }
-
     public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
     {
         var result = new InstalledOnlyPackageResolutionResult();

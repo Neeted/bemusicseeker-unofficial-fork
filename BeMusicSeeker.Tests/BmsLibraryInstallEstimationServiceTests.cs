@@ -3179,17 +3179,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     private static InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs = null)
     {
-        return service.BuildInstalledHashToDirectoryMap(CreateInstalledChartSnapshot(installedFiles, installedBmsonSongs));
-    }
-
-    private static List<ChartFile> CreateInstalledChartSnapshot(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs)
-    {
-        return [.. (installedFiles ?? [])
-            .Where(file => file != null)
-            .Select(file => ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false))
-            .Concat((installedBmsonSongs ?? [])
-                .Where(song => song != null)
-                .Select(song => ChartFileProjection.FromBmsonSong(song, includeWarningSnapshot: false)))];
+        _ = service;
+        return InstalledChartLookupIndexState.FromStorageRows(installedFiles, installedBmsonSongs).CreateSnapshot();
     }
 
     private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata>? representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)
