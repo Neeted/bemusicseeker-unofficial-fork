@@ -6587,6 +6587,15 @@ reportProgress,
         }
     }
 
+    private HashSet<string> CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe()
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateInstallDestinationRuntimeStateKeySnapshot();
+        }
+    }
+
     private void EnsureOwnedChartCollectionBuiltUnsafe()
     {
         List<BMSFile> bmsFiles = BMSFiles ?? [];
@@ -7156,13 +7165,7 @@ reportProgress,
             }
         }
 
-        var currentKeys = new HashSet<string>(
-            (BMSFiles ?? [])
-                .SelectMany(file => EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsStorageOwnerIdentity(file)).Select(key => key.Key))
-                .Concat((BmsonSongs ?? [])
-                    .SelectMany(song => EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsonStorageOwnerIdentity(song)).Select(key => key.Key)))
-                .Where(key => !string.IsNullOrWhiteSpace(key)),
-            StringComparer.OrdinalIgnoreCase);
+        HashSet<string> currentKeys = CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe();
 
         lock (installDestinationRuntimeStatesLock)
         {

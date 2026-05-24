@@ -168,6 +168,16 @@ internal sealed class OwnedChartCollectionState
         return state;
     }
 
+    internal HashSet<string> CreateInstallDestinationRuntimeStateKeySnapshot()
+    {
+        var keys = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            AddCurrentRuntimeStateKeys(keys, chart);
+        }
+        return keys;
+    }
+
     internal List<string> CreatePathSnapshot()
     {
         return [.. charts
@@ -369,6 +379,40 @@ internal sealed class OwnedChartCollectionState
 
         LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
         return bmsonOwner != null ? bmsonOwner.md5 : chart.Md5;
+    }
+
+    private static void AddCurrentRuntimeStateKeys(ISet<string> keys, ChartFile chart)
+    {
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            AddRuntimeStateKeys(keys, ChartFileKind.Bms, bmsOwner.path, bmsOwner.hash, bmsOwner.sha256);
+            return;
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        if (bmsonOwner != null)
+        {
+            AddRuntimeStateKeys(keys, ChartFileKind.Bmson, bmsonOwner.path, bmsonOwner.md5, bmsonOwner.sha256);
+            return;
+        }
+
+        AddRuntimeStateKeys(keys, chart.Kind, chart.Path, chart.Md5, chart.Sha256);
+    }
+
+    private static void AddRuntimeStateKeys(ISet<string> keys, ChartFileKind kind, string path, string md5, string sha256)
+    {
+        string primaryKey = ChartFileRuntimeStateKey.Create(kind, path, md5, sha256);
+        if (!string.IsNullOrWhiteSpace(primaryKey))
+        {
+            keys.Add(primaryKey);
+        }
+
+        string pathKey = ChartFileRuntimeStateKey.CreatePathKey(kind, path);
+        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, System.StringComparison.OrdinalIgnoreCase))
+        {
+            keys.Add(pathKey);
+        }
     }
 
     private static bool IsRemovedChart(
