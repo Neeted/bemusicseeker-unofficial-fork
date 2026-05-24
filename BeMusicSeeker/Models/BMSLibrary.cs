@@ -7218,24 +7218,6 @@ reportProgress,
         return knownChartDirectories;
     }
 
-    private IEnumerable<InstalledChartLookupEntry> EnumerateInstalledChartLookupEntriesUnsafe()
-    {
-        foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
-        {
-            if (bmsFile != null)
-            {
-                yield return new InstalledChartLookupEntry(bmsFile.path, bmsFile.hash, bmsFile.sha256);
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-        {
-            if (bmsonSong != null)
-            {
-                yield return new InstalledChartLookupEntry(bmsonSong.path, bmsonSong.md5, bmsonSong.sha256);
-            }
-        }
-    }
-
     private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
     {
         var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -8214,21 +8196,6 @@ reportProgress,
         internal string Artist { get; set; }
 
         internal string Path { get; set; }
-    }
-
-    private readonly struct InstalledChartLookupEntry
-    {
-        internal InstalledChartLookupEntry(string path, string md5, string sha256)
-        {
-            Path = path;
-            PrimaryLookupHash = !string.IsNullOrWhiteSpace(md5)
-                ? md5
-                : string.IsNullOrWhiteSpace(sha256) ? null : sha256;
-        }
-
-        internal string Path { get; }
-
-        internal string PrimaryLookupHash { get; }
     }
 
     private static bool IsChartPathWithinDestinationDirectory(string destinationDirectory, string chartPath)
@@ -11234,11 +11201,14 @@ reportProgress,
         {
             return [];
         }
-        return EnumerateInstalledChartLookupEntriesUnsafe()
-            .Where(installedChart => !string.Equals(installedChart.Path, chart.Path, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(installedChart.PrimaryLookupHash, lookupHash, StringComparison.OrdinalIgnoreCase))
-            .Select(installedChart => installedChart.Path)
-            .Where(path => !string.IsNullOrWhiteSpace(path));
+        EnsureInstalledChartLookupIndexBuiltUnsafe();
+        lock (lockInstalledChartLookupIndex)
+        {
+            return installedChartLookupIndex.GetPathsByPrimaryHash(lookupHash)
+                .Where(path => !string.Equals(path, chart.Path, StringComparison.OrdinalIgnoreCase))
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .ToArray();
+        }
     }
 
     internal void FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts)

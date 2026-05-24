@@ -188,6 +188,8 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     private readonly Dictionary<string, int> primaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, Dictionary<string, int>> primaryHashPathCounts = new(StringComparer.OrdinalIgnoreCase);
+
     private InstalledChartLookupIndexSnapshot snapshot;
 
     private bool snapshotDirty = true;
@@ -211,22 +213,36 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             : 0;
     }
 
+    internal IReadOnlyList<string> GetPathsByPrimaryHash(string lookupHash)
+    {
+        return !string.IsNullOrWhiteSpace(lookupHash)
+            && primaryHashPathCounts.TryGetValue(lookupHash, out Dictionary<string, int> pathCounts)
+            ? [.. pathCounts.Keys
+                .Where(path => !string.IsNullOrWhiteSpace(path))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]
+            : [];
+    }
+
     internal void AddChart(string path, string md5, string sha256)
     {
         string directory = GetDirectory(path);
+        string primaryHash = GetPrimaryHash(md5, sha256);
         AddKnownDirectory(directory);
         AddDirectoryHash(md5DirectoryCounts, md5, directory);
         AddDirectoryHash(sha256DirectoryCounts, sha256, directory);
-        AddPrimaryHash(GetPrimaryHash(md5, sha256));
+        AddPrimaryHash(primaryHash);
+        AddPrimaryHashPath(primaryHash, path);
     }
 
     internal void RemoveChart(string path, string md5, string sha256)
     {
         string directory = GetDirectory(path);
+        string primaryHash = GetPrimaryHash(md5, sha256);
         RemoveKnownDirectory(directory);
         RemoveDirectoryHash(md5DirectoryCounts, md5, directory);
         RemoveDirectoryHash(sha256DirectoryCounts, sha256, directory);
-        RemovePrimaryHash(GetPrimaryHash(md5, sha256));
+        RemovePrimaryHash(primaryHash);
+        RemovePrimaryHashPath(primaryHash, path);
     }
 
     internal void MoveChart(string oldPath, string newPath, string md5, string sha256)
@@ -338,6 +354,34 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         if (!string.IsNullOrWhiteSpace(lookupHash) && Decrement(primaryHashCounts, lookupHash))
         {
             MarkDirty();
+        }
+    }
+
+    private void AddPrimaryHashPath(string lookupHash, string path)
+    {
+        if (string.IsNullOrWhiteSpace(lookupHash) || string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        if (!primaryHashPathCounts.TryGetValue(lookupHash, out Dictionary<string, int> pathCounts))
+        {
+            pathCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            primaryHashPathCounts[lookupHash] = pathCounts;
+        }
+        Increment(pathCounts, path);
+    }
+
+    private void RemovePrimaryHashPath(string lookupHash, string path)
+    {
+        if (string.IsNullOrWhiteSpace(lookupHash) || string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        if (primaryHashPathCounts.TryGetValue(lookupHash, out Dictionary<string, int> pathCounts)
+            && Decrement(pathCounts, path)
+            && pathCounts.Count == 0)
+        {
+            primaryHashPathCounts.Remove(lookupHash);
         }
     }
 

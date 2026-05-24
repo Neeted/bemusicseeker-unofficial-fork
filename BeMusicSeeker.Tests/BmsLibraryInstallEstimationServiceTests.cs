@@ -2087,6 +2087,47 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void InstalledChartLookupIndexState_TracksPathsByPrimaryHash()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string firstPath = Path.Combine("C:\\Installed", "First", "a.bms");
+        string secondPath = Path.Combine("C:\\Installed", "Second", "b.bms");
+        var state = new InstalledChartLookupIndexState();
+
+        state.AddChart(firstPath, hash, null);
+        state.AddChart(secondPath, hash, null);
+
+        CollectionAssert.AreEqual(new[] { firstPath, secondPath }, state.GetPathsByPrimaryHash(hash).ToArray());
+
+        state.RemoveChart(firstPath, hash, null);
+
+        CollectionAssert.AreEqual(new[] { secondPath }, state.GetPathsByPrimaryHash(hash).ToArray());
+    }
+
+    [TestMethod]
+    public void InstalledChartLookupIndexState_KeepsPathUntilDuplicatePathCountIsRemoved()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string path = Path.Combine("C:\\Installed", "Same", "chart.bms");
+        var state = new InstalledChartLookupIndexState();
+
+        state.AddChart(path, hash, null);
+        state.AddChart(path, hash, null);
+
+        state.RemoveChart(path, hash, null);
+
+        CollectionAssert.AreEqual(new[] { path }, state.GetPathsByPrimaryHash(hash).ToArray());
+        Assert.AreEqual(1, state.GetPrimaryHashCount(hash));
+
+        state.RemoveChart(path, hash, null);
+
+        Assert.AreEqual(0, state.GetPathsByPrimaryHash(hash).Count);
+        Assert.AreEqual(0, state.GetPrimaryHashCount(hash));
+    }
+
+    [TestMethod]
     public void InstalledChartLookupIndexState_MoveChartUpdatesDirectoryLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2103,6 +2144,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsFalse(snapshot.KnownChartDirectories.Contains(oldDir));
         Assert.IsTrue(snapshot.KnownChartDirectories.Contains(newDir));
         Assert.AreEqual(1, snapshot.GetPrimaryHashCount(hash));
+        CollectionAssert.AreEqual(new[] { Path.Combine(newDir, "chart.bms") }, state.GetPathsByPrimaryHash(hash).ToArray());
     }
 
     [TestMethod]
