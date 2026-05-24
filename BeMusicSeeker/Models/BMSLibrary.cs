@@ -6603,6 +6603,8 @@ reportProgress,
 
     private sealed class OwnedChartCollectionMutationResult
     {
+        public OwnedChartCollectionStorageMutation StorageMutation { get; } = new();
+
         public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
 
         public InstallDestinationRuntimeStateMutation InstallDestinationRuntimeStateMutation { get; } = new();
@@ -6659,6 +6661,19 @@ reportProgress,
         public bool PruneToCurrentStorageRows { get; set; }
 
         public bool HasStateChanges => PathChanges.Count > 0 || AppliedCharts.Count > 0;
+    }
+
+    private sealed class OwnedChartCollectionStorageMutation
+    {
+        public List<ChartFile> RegisteredCharts { get; } = [];
+
+        public List<ChartFile> UnregisteredCharts { get; } = [];
+
+        public List<LibraryChartPathChange> PathChanges { get; } = [];
+
+        public bool HasChanges => RegisteredCharts.Count > 0 || UnregisteredCharts.Count > 0 || PathChanges.Count > 0;
+
+        public bool HasHashSetChanges => RegisteredCharts.Count > 0 || UnregisteredCharts.Count > 0;
     }
 
     private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
@@ -6902,9 +6917,9 @@ reportProgress,
         }
     }
 
-    private void ApplyOwnedChartCollectionMutation(LibraryMutationDelta delta)
+    private void ApplyOwnedChartCollectionMutation(OwnedChartCollectionStorageMutation mutation)
     {
-        if (delta == null)
+        if (mutation == null)
         {
             return;
         }
@@ -6914,11 +6929,12 @@ reportProgress,
             {
                 return;
             }
-            if (delta.ChartsToUnregister.Count > 0)
+            // LibraryMutationDelta registrations are derived-index payloads; storage-row additions enter via ApplyOwnedChartCollectionUpsert.
+            if (mutation.UnregisteredCharts.Count > 0)
             {
-                ownedChartCollection.RemoveCharts(delta.ChartsToUnregister);
+                ownedChartCollection.RemoveCharts(mutation.UnregisteredCharts);
             }
-            if (delta.ChartPathChanges.Count > 0)
+            if (mutation.PathChanges.Count > 0)
             {
                 ownedChartCollection.InvalidateIndexes();
             }
@@ -7004,25 +7020,43 @@ reportProgress,
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(LibraryMutationDelta delta)
     {
+        OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(delta);
         var result = new OwnedChartCollectionMutationResult
         {
-            InstalledLookupMutation = BuildInstalledChartLookupMutation(delta),
+            InstalledLookupMutation = BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
             ForceInstalledLookupDispatch = delta?.InvalidateInstalledDirectoryIndex == true,
-            AddedCount = delta?.ChartsToRegister.Count ?? 0,
-            RemovedCount = delta?.ChartsToUnregister.Count ?? 0,
-            MovedCount = delta?.ChartPathChanges.Count ?? 0,
+            AddedCount = storageMutation.RegisteredCharts.Count,
+            RemovedCount = storageMutation.UnregisteredCharts.Count,
+            MovedCount = storageMutation.PathChanges.Count,
             InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
             InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
             ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
             DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true,
-            PlaylistSummaryOwnedHashInvalidated = HasPlaylistSummaryOwnedHashChanges(delta),
-            OwnedCollectionChanged = HasOwnedCollectionChanges(delta),
-            ResourceHealthIndexInvalidated = HasOwnedCollectionChanges(delta)
+            PlaylistSummaryOwnedHashInvalidated = storageMutation.HasHashSetChanges,
+            OwnedCollectionChanged = storageMutation.HasChanges,
+            ResourceHealthIndexInvalidated = storageMutation.HasChanges
         };
+        result.StorageMutation.RegisteredCharts.AddRange(storageMutation.RegisteredCharts);
+        result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
+        result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = delta != null;
-        result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(delta?.ChartPathChanges ?? []);
-        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta));
+        result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
+        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta, storageMutation.PathChanges));
         return result;
+    }
+
+    private static OwnedChartCollectionStorageMutation BuildOwnedChartCollectionStorageMutation(LibraryMutationDelta delta)
+    {
+        var mutation = new OwnedChartCollectionStorageMutation();
+        if (delta == null)
+        {
+            return mutation;
+        }
+
+        mutation.RegisteredCharts.AddRange(delta.ChartsToRegister.Where(chart => chart != null));
+        mutation.UnregisteredCharts.AddRange(delta.ChartsToUnregister.Where(chart => chart != null));
+        mutation.PathChanges.AddRange(delta.ChartPathChanges.Where(change => change?.Chart != null));
+        return mutation;
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionUpsertMutationResult(ChartStorageTargetSet addedTargets)
@@ -7122,18 +7156,6 @@ reportProgress,
         result.OwnedCollectionChangeNotified = true;
     }
 
-    private static bool HasOwnedCollectionChanges(LibraryMutationDelta delta)
-    {
-        return delta != null
-            && (delta.ChartsToRegister.Count > 0 || delta.ChartsToUnregister.Count > 0 || delta.ChartPathChanges.Count > 0);
-    }
-
-    private static bool HasPlaylistSummaryOwnedHashChanges(LibraryMutationDelta delta)
-    {
-        return delta != null
-            && (delta.ChartsToRegister.Count > 0 || delta.ChartsToUnregister.Count > 0);
-    }
-
     private static string ToMutationDispatchLogValue(InstalledChartLookupMutation mutation)
     {
         if (mutation == null || !mutation.HasChanges)
@@ -7148,18 +7170,20 @@ reportProgress,
         return invalidated ? "invalidate" : "none";
     }
 
-    private InstalledChartLookupMutation BuildInstalledChartLookupMutation(LibraryMutationDelta delta)
+    private InstalledChartLookupMutation BuildInstalledChartLookupMutation(
+        OwnedChartCollectionStorageMutation storageMutation,
+        IReadOnlyCollection<LibraryFolderPathChange> folderPathChanges)
     {
         var mutation = new InstalledChartLookupMutation();
-        if (delta == null)
+        if (storageMutation == null)
         {
             return mutation;
         }
-        foreach (ChartFile chart in delta.ChartsToUnregister.Where(chart => chart != null))
+        foreach (ChartFile chart in storageMutation.UnregisteredCharts)
         {
             mutation.Removed.Add(CreateInstalledChartLookupMutationEntry(chart));
         }
-        foreach (LibraryChartPathChange pathChange in delta.ChartPathChanges.Where(change => change?.Chart != null))
+        foreach (LibraryChartPathChange pathChange in storageMutation.PathChanges)
         {
             ChartFile chart = pathChange.Chart;
             string oldPath = string.IsNullOrWhiteSpace(pathChange.OldPath) ? chart.Path : pathChange.OldPath;
@@ -7171,11 +7195,11 @@ reportProgress,
             }
             mutation.Moved.Add(new InstalledChartLookupPathMutationEntry(oldPath, newPath, chart.Md5, chart.Sha256));
         }
-        foreach (ChartFile chart in delta.ChartsToRegister.Where(chart => chart != null))
+        foreach (ChartFile chart in storageMutation.RegisteredCharts)
         {
             mutation.Added.Add(CreateInstalledChartLookupMutationEntry(chart));
         }
-        if (delta.FolderPathChanges.Count > 0 && delta.ChartPathChanges.Count == 0)
+        if ((folderPathChanges?.Count ?? 0) > 0 && storageMutation.PathChanges.Count == 0)
         {
             mutation.RequiresFullInvalidate = true;
         }
@@ -7500,7 +7524,9 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> CreateInstallDestinationChangedChartSnapshots(LibraryMutationDelta delta)
+    private List<ChartFile> CreateInstallDestinationChangedChartSnapshots(
+        LibraryMutationDelta delta,
+        IReadOnlyCollection<LibraryChartPathChange> pathChanges)
     {
         var chartsByKey = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
         foreach (ChartFile chart in delta?.CreateAppliedInstallDestinationChartSnapshots() ?? [])
@@ -7508,7 +7534,7 @@ reportProgress,
             AddInstallDestinationChangedChart(chartsByKey, chart);
         }
 
-        foreach (ChartFile chart in CreateMovedInstallDestinationRuntimeStateSnapshots(delta))
+        foreach (ChartFile chart in CreateMovedInstallDestinationRuntimeStateSnapshots(pathChanges))
         {
             AddInstallDestinationChangedChart(chartsByKey, chart);
         }
@@ -7516,14 +7542,14 @@ reportProgress,
         return [.. chartsByKey.Values];
     }
 
-    private IEnumerable<ChartFile> CreateMovedInstallDestinationRuntimeStateSnapshots(LibraryMutationDelta delta)
+    private IEnumerable<ChartFile> CreateMovedInstallDestinationRuntimeStateSnapshots(IEnumerable<LibraryChartPathChange> pathChanges)
     {
-        if (delta?.ChartPathChanges == null)
+        if (pathChanges == null)
         {
             yield break;
         }
 
-        foreach (LibraryChartPathChange pathChange in delta.ChartPathChanges)
+        foreach (LibraryChartPathChange pathChange in pathChanges)
         {
             ChartFile movedChart = CreateMovedInstallDestinationRuntimeStateSnapshot(pathChange);
             if (movedChart != null)
@@ -12324,7 +12350,7 @@ reportProgress,
                     mutationResult.ShouldDeferStateApplierDerivedInvalidation,
                     deferLibraryChartsChanged: mutationResult.OwnedCollectionChanged);
             }
-            ApplyOwnedChartCollectionMutation(delta);
+            ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation);
         }
         catch
         {
