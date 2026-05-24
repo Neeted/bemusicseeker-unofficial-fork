@@ -725,6 +725,10 @@ public class BMSLibrary : NotificationObject
 
     private int bmsParentFolderListDirtyVersion;
 
+    private int suppressParentFolderListInvalidation;
+
+    private int suppressParentFolderListInvalidationThreadId;
+
     private readonly object lockOwnedChartCollection = new();
 
     private OwnedChartCollectionState ownedChartCollection = new();
@@ -756,6 +760,10 @@ public class BMSLibrary : NotificationObject
     private readonly ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedMin = new();
 
     private readonly ReaderWriterLockSlimWrapper rwlockDuplicateChartGroups = new();
+
+    private int suppressDuplicateChartGroupsInvalidation;
+
+    private int suppressDuplicateChartGroupsInvalidationThreadId;
 
     private readonly ReaderWriterLockSlimWrapper rwlockPendingInstallCharts = new();
 
@@ -1054,7 +1062,10 @@ public class BMSLibrary : NotificationObject
                     RaisePropertyChanged("BMSFiles");
                     RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
                 }).Logging("BMSFiles");
-                RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
+                if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
+                {
+                    RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
+                }
             }
         }
     }
@@ -1098,7 +1109,10 @@ public class BMSLibrary : NotificationObject
                     RaisePropertyChanged("BmsonSongs");
                     RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
                 }).Logging("BmsonSongs");
-                RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
+                if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
+                {
+                    RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
+                }
             }
         }
     }
@@ -1129,6 +1143,10 @@ public class BMSLibrary : NotificationObject
 
     private void InvalidateDuplicateChartGroupsCache()
     {
+        if (IsDuplicateChartGroupsInvalidationSuppressedOnCurrentThread())
+        {
+            return;
+        }
         DuplicateChartGroups = null;
     }
 
@@ -1200,10 +1218,82 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     private void InvalidateBMSParentFolderListCache()
     {
+        if (IsParentFolderListInvalidationSuppressedOnCurrentThread())
+        {
+            return;
+        }
         lock (lockParentFolderList)
         {
             bmsParentFolderListDirty = true;
             bmsParentFolderListDirtyVersion++;
+        }
+    }
+
+    private bool IsParentFolderListInvalidationSuppressedOnCurrentThread()
+    {
+        return suppressParentFolderListInvalidation > 0
+            && suppressParentFolderListInvalidationThreadId == Environment.CurrentManagedThreadId;
+    }
+
+    private IDisposable SuppressParentFolderListInvalidationOnCurrentThread()
+    {
+        if (suppressParentFolderListInvalidation == 0)
+        {
+            suppressParentFolderListInvalidationThreadId = Environment.CurrentManagedThreadId;
+        }
+        suppressParentFolderListInvalidation++;
+        return new ParentFolderListInvalidationSuppression(this);
+    }
+
+    private sealed class ParentFolderListInvalidationSuppression(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                owner.suppressParentFolderListInvalidation = Math.Max(0, owner.suppressParentFolderListInvalidation - 1);
+                if (owner.suppressParentFolderListInvalidation == 0)
+                {
+                    owner.suppressParentFolderListInvalidationThreadId = 0;
+                }
+                owner = null;
+            }
+        }
+    }
+
+    private bool IsDuplicateChartGroupsInvalidationSuppressedOnCurrentThread()
+    {
+        return suppressDuplicateChartGroupsInvalidation > 0
+            && suppressDuplicateChartGroupsInvalidationThreadId == Environment.CurrentManagedThreadId;
+    }
+
+    private IDisposable SuppressDuplicateChartGroupsInvalidationOnCurrentThread()
+    {
+        if (suppressDuplicateChartGroupsInvalidation == 0)
+        {
+            suppressDuplicateChartGroupsInvalidationThreadId = Environment.CurrentManagedThreadId;
+        }
+        suppressDuplicateChartGroupsInvalidation++;
+        return new DuplicateChartGroupsInvalidationSuppression(this);
+    }
+
+    private sealed class DuplicateChartGroupsInvalidationSuppression(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                owner.suppressDuplicateChartGroupsInvalidation = Math.Max(0, owner.suppressDuplicateChartGroupsInvalidation - 1);
+                if (owner.suppressDuplicateChartGroupsInvalidation == 0)
+                {
+                    owner.suppressDuplicateChartGroupsInvalidationThreadId = 0;
+                }
+                owner = null;
+            }
         }
     }
 
@@ -1213,6 +1303,15 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     internal void NotifyBMSDirectoriesChanged()
     {
+        InvalidateBMSParentFolderListCacheAndNotify();
+    }
+
+    private void InvalidateBMSParentFolderListCacheAndNotify()
+    {
+        if (IsParentFolderListInvalidationSuppressedOnCurrentThread())
+        {
+            return;
+        }
         InvalidateBMSParentFolderListCache();
         RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
     }
@@ -6434,6 +6533,8 @@ reportProgress,
 
         public bool ShouldDispatchInstalledLookup => ForceInstalledLookupDispatch || InstalledLookupMutation?.HasChanges == true;
 
+        public bool ShouldDeferStateApplierDerivedInvalidation => ParentFolderInvalidated || DuplicateCacheInvalidated;
+
         public bool HasLoggableChanges => AddedCount > 0
             || RemovedCount > 0
             || MovedCount > 0
@@ -6828,6 +6929,14 @@ reportProgress,
         if (result.PruneInstallDestinationRuntimeStates)
         {
             PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+        }
+        if (result.ParentFolderInvalidated)
+        {
+            InvalidateBMSParentFolderListCacheAndNotify();
+        }
+        if (result.DuplicateCacheInvalidated)
+        {
+            InvalidateDuplicateChartGroupsCache();
         }
         if (result.ShouldDispatchInstalledLookup)
         {
@@ -12012,9 +12121,12 @@ reportProgress,
         try
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
+            // StateApplier still mutates storage rows through property setters; during this orchestration, derived index invalidation is dispatched once below.
+            using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
+            using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
-                stateApplier.ApplyLibraryMutationDelta(delta);
+                stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.ShouldDeferStateApplierDerivedInvalidation);
             }
             ApplyOwnedChartCollectionMutation(delta);
             DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
@@ -12024,6 +12136,14 @@ reportProgress,
             if (mutationResult.ShouldDispatchInstalledLookup)
             {
                 InvalidateInstalledDirectoryIndex();
+            }
+            if (mutationResult.ParentFolderInvalidated)
+            {
+                InvalidateBMSParentFolderListCacheAndNotify();
+            }
+            if (mutationResult.DuplicateCacheInvalidated)
+            {
+                InvalidateDuplicateChartGroupsCache();
             }
             InvalidateOwnedChartCollection();
             ClearLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);

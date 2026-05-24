@@ -660,25 +660,172 @@ public sealed class OwnedChartCollectionStateTests
             var library = new BMSLibrary(songDbPath)
             {
                 BMSFiles = [first, second],
-                BmsonSongs = []
+                BmsonSongs = [],
+                DuplicateChartGroups = []
             };
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
             Assert.AreEqual(2, initialSnapshot.Count);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
+            int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
+            int parentFolderVersionChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BMSParentFolderListCacheVersion")
+                {
+                    parentFolderVersionChanged++;
+                }
+            };
             var delta = new LibraryMutationDelta
             {
-                InvalidateInstalledDirectoryIndex = true
+                InvalidateInstalledDirectoryIndex = true,
+                InvalidateParentFolderCache = true,
+                ClearDuplicatedCache = true
             };
             delta.ChartsToUnregister.Add(initialSnapshot[0]);
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
+            Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
+            Assert.AreEqual(1, parentFolderVersionChanged);
+            Assert.IsNull(library.DuplicateChartGroups);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreEqual(1, library.BMSFiles.Count);
             Assert.AreSame(second, library.BMSFiles[0]);
             List<ChartFile> afterSnapshot = InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
             Assert.AreEqual(1, afterSnapshot.Count);
             Assert.AreSame(second, afterSnapshot[0].GetBmsStorageOwner());
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_DispatchesParentFolderOnceAndClearsDuplicateCache()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedMutationDispatch_" + Guid.NewGuid().ToString("N"));
+            string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+            string newDirectoryPath = Path.Combine(tempRootPath, "New");
+            Directory.CreateDirectory(oldDirectoryPath);
+            Directory.CreateDirectory(newDirectoryPath);
+            string oldBmsPath = Path.Combine(oldDirectoryPath, "chart.bms");
+            string newBmsPath = Path.Combine(newDirectoryPath, "chart.bms");
+            string oldBmsonPath = Path.Combine(oldDirectoryPath, "chart.bmson");
+            string newBmsonPath = Path.Combine(newDirectoryPath, "chart.bmson");
+            File.WriteAllText(newBmsPath, "#PLAYER 1");
+            File.WriteAllText(newBmsonPath, "{}");
+            try
+            {
+                TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", newBmsPath);
+                LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(oldBmsonPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                var library = new BMSLibrary(songDbPath)
+                {
+                    BMSFiles = [bmsFile],
+                    BmsonSongs = [bmsonSong],
+                    DuplicateChartGroups = []
+                };
+                int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
+                int parentFolderVersionChanged = 0;
+                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+                {
+                    if (args.PropertyName == "BMSParentFolderListCacheVersion")
+                    {
+                        parentFolderVersionChanged++;
+                    }
+                };
+                var delta = new LibraryMutationDelta
+                {
+                    InvalidateParentFolderCache = true,
+                    ClearDuplicatedCache = true
+                };
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                    OldPath = oldBmsPath,
+                    NewPath = newBmsPath
+                });
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsonSong(bmsonSong),
+                    OldPath = oldBmsonPath,
+                    NewPath = newBmsonPath
+                });
+
+                InvokeApplyLibraryMutationDelta(library, delta);
+
+                Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
+                Assert.AreEqual(1, parentFolderVersionChanged);
+                Assert.IsNull(library.DuplicateChartGroups);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_FallbackInvalidatesParentFolderAndDuplicateCacheOnFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedMutationFailure_" + Guid.NewGuid().ToString("N"));
+            string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+            string newDirectoryPath = Path.Combine(tempRootPath, "New");
+            Directory.CreateDirectory(oldDirectoryPath);
+            Directory.CreateDirectory(newDirectoryPath);
+            string oldBmsPath = Path.Combine(oldDirectoryPath, "chart.bms");
+            string newBmsPath = Path.Combine(newDirectoryPath, "chart.bms");
+            File.WriteAllText(newBmsPath, "#PLAYER 1");
+            try
+            {
+                TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
+                var library = new BMSLibrary(songDbPath)
+                {
+                    BMSFiles = [bmsFile],
+                    BmsonSongs = [],
+                    DuplicateChartGroups = []
+                };
+                int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
+                int parentFolderVersionChanged = 0;
+                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+                {
+                    if (args.PropertyName == "BMSParentFolderListCacheVersion")
+                    {
+                        parentFolderVersionChanged++;
+                    }
+                };
+                var delta = new LibraryMutationDelta
+                {
+                    InvalidateParentFolderCache = true,
+                    ClearDuplicatedCache = true
+                };
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                    OldPath = oldBmsPath,
+                    NewPath = newBmsPath
+                });
+
+                TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
+                    InvokeApplyLibraryMutationDelta(library, delta));
+
+                Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidCastException));
+                Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
+                Assert.AreEqual(1, parentFolderVersionChanged);
+                Assert.IsNull(library.DuplicateChartGroups);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
         });
     }
 
