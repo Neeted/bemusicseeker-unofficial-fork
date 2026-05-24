@@ -724,7 +724,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
    - current installed source の full snapshot、BMS-only zero-note snapshot、resource maintenance full target、folder operation 用 subtree snapshot は owned collection から作る。
    - unregister / install upsert / merge など主要 mutation は owned collection と installed lookup に同期済み。
    - entry は storage owner identity を保持し、snapshot / ref / index 作成時に owner の現在値を再投影する。
-   - 残タスクは、resource health view のような残存 full materialize / full refs copy を用途別 view / index へ移すことと、mutation coverage / diagnostic log をさらに増やすこと。
+   - 残タスクは、mutation coverage / diagnostic log をさらに増やし、残存 full materialize / full refs copy が hot path に戻らないように監視すること。
 
 2. **Full snapshot helper の分解: 進行中**
    - 旧 `CreateInstalledChartSnapshot(...)` は削除済み。current source の full snapshot は `CreateCurrentInstalledChartSnapshot(...)` に限定済み。
@@ -739,7 +739,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
    - playlist detail source build の library hash resolve は model-owned `PlaylistLibraryResolveIndexSnapshot` へ移行済み。ViewModel は snapshot 生成ではなく cache / readiness 表示だけを扱う。
    - normal library sortable column contract は test で検証済み。未対応 sort は default title sort へ reset し、full regular fallback に落とさない。
    - resource-only merge display package は direct child snapshot から hash filter する形をやめ、installed lookup の primary hash -> path lookup で destination 直下候補だけを引き、path-only exact lookup で candidate path だけを `PackageChartEntry` 化する。
-   - 未完了: `ChartFilesNeedResourceFix` / ignored view は `ResourceHealthIndexSnapshot` が current なら full resource maintenance target を作らない形を徹底する。
+   - `ChartFilesNeedResourceFix` / ignored view は、`ResourceHealthIndexSnapshot` が current なら snapshot の active / ignored targets を返し、full resource maintenance target を作らない。force rescan または invalidated index rebuild が必要な場合だけ full target を作る。
 
 4. **Mutation pipeline の同期化: 進行中**
    - `LibraryMutationDelta`、install result、merge result、folder operation の主要経路は owned chart collection / installed lookup と同期済み。
@@ -767,7 +767,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
 - **sortable column coverage の検証方法**: `CustomTableColumn.SortMemberPath` のうち通常 library で表示される列と、`ChartListOrder.GetVirtualSortColumnMetadata()` の対応をテストで検証する。playlist detail / playlist summary 専用列は別 sort engine の責務として除外する。列設定互換や非表示列でも、sort 可能として残るなら登録が必要である。
 - **playlist detail resolve index の所有場所**: md5 / sha256 辞書と representative selection は ViewModel ではなく BMSLibrary / owned collection 隣接 index に置く。代表選択は path 昇順最小、解決順は md5 優先 / sha256 fallback、pathless bmson は owned 判定から除外する。ViewModel は model 側の `PlaylistLibraryResolveIndexSnapshot` を取得し、version / prewarm cache / readiness 表示だけを扱う。
 - **playlist index invalidation boundary**: library charts / bmson changes だけでなく、hash 変更、path 変更、owned collection rebuild、chart digest backfill 後の hash currentness で index を invalidate する。delta で hash / path change が表現できる場合は affected hash bucket だけを更新し、表現できない場合は full invalidate する。`LibraryChartRef` は current owner hash を読むため stale hash を避けられるが、representative path / pathless 除外は index snapshot の責務になる。
-- **resource health currentness**: `ChartFilesNeedResourceFix` / ignored view が full resource target を作ってよい条件を、force rescan / explicit full rebuild / index invalidated のみに限定する。通常表示や warning refresh は `ResourceHealthIndexSnapshot` を正本にする。
+- **resource health currentness**: `ChartFilesNeedResourceFix` / ignored view は current `ResourceHealthIndexSnapshot` を正本にする。full resource target を作ってよい条件は、force rescan / explicit full rebuild / index invalidated に限定する。
 - **direct storage row enumeration の許容範囲**: 通常一覧 virtual source row は ViewModel read model boundary として storage owner から direct source row を作ってよい。ただし BMS / bmson 混在 lookup / snapshot / refs を作るために `BMSFiles` + `BmsonSongs` を caller 側で結合するのは不可とする。
 
 ### 注意点

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -502,6 +503,37 @@ public sealed class BmsLibraryMaintenanceServiceTests
         CollectionAssert.AreEqual(new[] { chart }, snapshot.ActiveTargets.ToArray());
         Assert.IsTrue(snapshot.GetProjection(chart).HasIssues);
         Assert.IsTrue(snapshot.GetProjection(chart).Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+    }
+
+    [TestMethod]
+    public void GetChartsNeedResourceFix_UsesCurrentResourceHealthIndexSnapshot()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var service = new BmsLibraryMaintenanceService();
+            TestableBmsFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            active.path = @"C:\Library\active.bms";
+            active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
+            {
+                hash = active.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1
+            }, suppressPropertyChanged: true);
+            ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
+            ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([activeChart], service, version: 7);
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [],
+                BmsonSongs = []
+            };
+            SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
+            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+
+            List<ChartFile> result = library.GetChartsNeedResourceFix(null);
+
+            CollectionAssert.AreEqual(new[] { activeChart }, result.ToArray());
+        });
     }
 
     [TestMethod]
@@ -2041,6 +2073,39 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     .FirstOrDefault(row => !string.IsNullOrWhiteSpace(chart.Md5) && string.Equals(row.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
                 ?? null!;
         };
+    }
+
+    private static void SetPrivateField(object target, string fieldName, object value)
+    {
+        FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        fieldInfo.SetValue(target, value);
+    }
+
+    private static void WithTemporarySongDb(Action<string> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MaintenanceTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+            testAction(songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
     }
 
     private sealed class TestableBmsFile : BMSFile
