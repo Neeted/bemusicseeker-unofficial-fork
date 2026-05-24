@@ -145,6 +145,23 @@ internal sealed class OwnedChartCollectionState
         return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts, cancellationCheck);
     }
 
+    internal List<LibraryChartRef> CreateLibraryChartRefsForHashes(
+        ISet<string> md5Hashes,
+        ISet<string> sha256Hashes)
+    {
+        bool hasMd5Hashes = md5Hashes?.Count > 0;
+        bool hasSha256Hashes = sha256Hashes?.Count > 0;
+        if (!hasMd5Hashes && !hasSha256Hashes)
+        {
+            return [];
+        }
+
+        return [.. charts
+            .Where(chart => HasHashMatch(chart, md5Hashes, sha256Hashes))
+            .Select(CreateCurrentLibraryChartRef)
+            .Where(chart => chart != null)];
+    }
+
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()
     {
         var snapshot = new OwnedChartHashIndexSnapshot();
@@ -417,6 +434,35 @@ internal sealed class OwnedChartCollectionState
     {
         return chart != null
             && (chart.Kind != ChartFileKind.Bmson || !string.IsNullOrWhiteSpace(GetCurrentPath(chart)));
+    }
+
+    private static bool HasHashMatch(ChartFile chart, ISet<string> md5Hashes, ISet<string> sha256Hashes)
+    {
+        if (chart == null)
+        {
+            return false;
+        }
+
+        string md5 = GetCurrentMd5(chart);
+        if (!string.IsNullOrWhiteSpace(md5) && md5Hashes?.Contains(md5) == true)
+        {
+            return true;
+        }
+
+        string sha256 = GetCurrentSha256(chart);
+        return !string.IsNullOrWhiteSpace(sha256) && sha256Hashes?.Contains(sha256) == true;
+    }
+
+    private static LibraryChartRef CreateCurrentLibraryChartRef(ChartFile chart)
+    {
+        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return LibraryChartRef.FromBmsFile(bmsOwner);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+        return bmsonOwner != null ? LibraryChartRef.FromBmsonSong(bmsonOwner) : LibraryChartRef.FromChartFile(chart);
     }
 
     private static string GetCurrentMd5(ChartFile chart)

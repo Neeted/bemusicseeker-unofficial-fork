@@ -388,6 +388,31 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateLibraryChartRefsForHashes_ReturnsOnlyMatchingCurrentOwnerHashes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var md5Bms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Md5", "chart.bms"), new string('b', 64));
+        var shaBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Sha", "chart.bms"), new string('d', 64));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        bmsonSong.sha256 = new string('f', 64);
+        var unmatchedBms = CreateFile("11111111111111111111111111111111", Path.Combine("C:\\Installed", "Other", "chart.bms"), new string('2', 64));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([md5Bms, shaBms, unmatchedBms], [bmsonSong]);
+        md5Bms.SetHash("33333333333333333333333333333333");
+        shaBms.SetSha256(new string('4', 64));
+        bmsonSong.md5 = "55555555555555555555555555555555";
+
+        List<LibraryChartRef> refs = state.CreateLibraryChartRefsForHashes(
+            new HashSet<string>([md5Bms.hash, bmsonSong.md5], StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>([shaBms.sha256], StringComparer.OrdinalIgnoreCase));
+
+        Assert.AreEqual(3, refs.Count);
+        Assert.IsTrue(refs.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), md5Bms)));
+        Assert.IsTrue(refs.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), shaBms)));
+        Assert.IsTrue(refs.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), bmsonSong)));
+        Assert.IsFalse(refs.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), unmatchedBms)));
+    }
+
+    [TestMethod]
     public void CreateChartInfoHydrationOwnerSummary_ReprojectsCurrentStorageOwnerHashes()
     {
         TestResourceInitializer.EnsureJapaneseResources();
