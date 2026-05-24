@@ -21500,7 +21500,7 @@ public class MainWindowViewModel : ViewModel
 
     public void AutoRenameAllChartFolders(string parentDir = null)
     {
-        List<ChartFile> charts = CreateLibraryChartSnapshotsForFolderOperations(parentDir);
+        List<ChartFile> charts = files?.CreateLibraryChartSnapshotsForFolderOperations(parentDir) ?? [];
         if (charts.Count == 0)
         {
             return;
@@ -21516,29 +21516,6 @@ public class MainWindowViewModel : ViewModel
             files.AutoRenameChartFolders(targetCharts);
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
-    }
-
-    private List<ChartFile> CreateLibraryChartSnapshotsForFolderOperations(string parentDir = null)
-    {
-        List<ChartFile> charts = [.. (BMSFiles ?? []).Where(file => file != null && IsChartPathUnderDirectory(file.path, parentDir)).Select(file => ChartFileProjection.FromBmsFile(
-            file,
-            includeWarningSnapshot: true,
-            includeResourceReferences: false))];
-        charts.AddRange((files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where(song => song != null && IsChartPathUnderDirectory(song.path, parentDir))
-            .Select(song => ChartFileProjection.FromBmsonSong(
-                song,
-                includeWarningSnapshot: true,
-                includeResourceReferences: false))
-            .Where(chart => chart != null));
-        return charts;
-    }
-
-    private static bool IsChartPathUnderDirectory(string path, string parentDir)
-    {
-        return string.IsNullOrWhiteSpace(parentDir)
-            || (!string.IsNullOrWhiteSpace(path)
-                && path.StartsWith(parentDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
     }
 
     internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFilesSource)

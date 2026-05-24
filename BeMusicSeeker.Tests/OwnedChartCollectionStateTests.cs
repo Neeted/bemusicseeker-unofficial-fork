@@ -250,6 +250,31 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateSnapshotForSubtreeDirectory_UsesOwnedRefIndexAndCurrentOwnerPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string targetDirectory = Path.Combine("C:\\Installed", "Target");
+        var movedBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"));
+        var nestedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(targetDirectory, "Nested", "nested.bms"));
+        var siblingPrefixBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "TargetPrefix", "prefix.bms"));
+        var directBmson = CreateBmsonSong(Path.Combine(targetDirectory, "chart.bmson"), "dddddddddddddddddddddddddddddddd");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([movedBms, nestedBms, siblingPrefixBms], [directBmson]);
+        movedBms.path = Path.Combine(targetDirectory, "chart.bms");
+
+        List<ChartFile> snapshot = state.CreateSnapshotForSubtreeDirectory(
+            targetDirectory,
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(3, snapshot.Count);
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), movedBms)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), nestedBms)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), directBmson)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), siblingPrefixBms)));
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree()
     {
         TestResourceInitializer.EnsureJapaneseResources();

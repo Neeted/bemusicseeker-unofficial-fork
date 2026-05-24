@@ -6525,6 +6525,36 @@ reportProgress,
         }
     }
 
+    internal List<ChartFile> CreateLibraryChartSnapshotsForFolderOperations(string parentDir = null)
+    {
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                return CreateOwnedSubtreeChartSnapshot(
+                    parentDir,
+                    includeWarningSnapshot: true,
+                    includeResourceReferences: false);
+            }
+        }
+    }
+
+    private List<ChartFile> CreateOwnedSubtreeChartSnapshot(
+        string directoryPath,
+        bool includeWarningSnapshot,
+        bool includeResourceReferences)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateSnapshotForSubtreeDirectory(
+                directoryPath,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: false);
+        }
+    }
+
     private List<ChartFile> CreateOwnedChartSnapshotForMd5Hashes(
         ISet<string> md5Hashes,
         bool includeWarningSnapshot,

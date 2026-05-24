@@ -67,6 +67,30 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal List<ChartFile> CreateSnapshotForSubtreeDirectory(
+        string directoryPath,
+        bool includeWarningSnapshot = false,
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = false)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return CreateSnapshot(
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: includeScoreSnapshot);
+        }
+
+        List<LibraryChartRef> refs = CreateLibraryChartRefIndexSnapshot().GetChartRefsUnderRealPath(directoryPath);
+        return [.. refs
+            .Select(chart => CreateStorageOwnerSnapshot(
+                chart,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: includeScoreSnapshot))
+            .Where(chart => chart != null)];
+    }
+
     internal List<ChartFile> CreateSnapshotForMd5Hashes(
         ISet<string> md5Hashes,
         bool includeWarningSnapshot = false,
@@ -408,6 +432,39 @@ internal sealed class OwnedChartCollectionState
 
         LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
         return bmsonOwner != null ? bmsonOwner.sha256 : chart.Sha256;
+    }
+
+    private static ChartFile CreateStorageOwnerSnapshot(
+        LibraryChartRef chart,
+        bool includeWarningSnapshot,
+        bool includeResourceReferences,
+        bool includeScoreSnapshot)
+    {
+        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return ChartFileProjection.FromBmsFile(
+                bmsOwner,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: includeScoreSnapshot);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+        if (bmsonOwner != null)
+        {
+            return ChartFileProjection.FromBmsonSong(
+                bmsonOwner,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences);
+        }
+
+        ChartFile chartSnapshot = chart?.GetChartSnapshot();
+        return ChartFileProjection.FromStorageOwner(
+            chartSnapshot,
+            includeWarningSnapshot: includeWarningSnapshot,
+            includeResourceReferences: includeResourceReferences,
+            includeScoreSnapshot: includeScoreSnapshot) ?? chartSnapshot;
     }
 
     private static void ClassifyChartInfoHydrationOwner(
