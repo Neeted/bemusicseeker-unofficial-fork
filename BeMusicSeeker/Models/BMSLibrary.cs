@@ -6571,6 +6571,15 @@ reportProgress,
         }
     }
 
+    private List<LibraryChartRef> CreateOwnedLibraryChartRefSnapshot()
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateLibraryChartRefSnapshot();
+        }
+    }
+
     private List<ChartFile> CreateOwnedBmsChartSnapshot(bool includeResourceReferences)
     {
         return [.. CreateOwnedChartSnapshot(includeResourceReferences)
@@ -6827,6 +6836,20 @@ reportProgress,
         return [.. (charts ?? []).Select(OverlayInstallDestinationRuntimeState).Where(chart => chart != null)];
     }
 
+    private List<LibraryChartRef> OverlayInstallDestinationRuntimeStates(IEnumerable<LibraryChartRef> charts)
+    {
+        List<LibraryChartRef> chartList = [.. (charts ?? []).Where(chart => chart != null)];
+        lock (installDestinationRuntimeStatesLock)
+        {
+            if (installDestinationRuntimeStatesByKey.Count == 0)
+            {
+                return chartList;
+            }
+
+            return [.. chartList.Select(OverlayInstallDestinationRuntimeStateUnsafe).Where(chart => chart != null)];
+        }
+    }
+
     private List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
     {
         lock (installDestinationRuntimeStatesLock)
@@ -6852,6 +6875,34 @@ reportProgress,
             }
         }
         return chart;
+    }
+
+    private LibraryChartRef OverlayInstallDestinationRuntimeStateUnsafe(LibraryChartRef chart)
+    {
+        InstallDestinationRuntimeStateEntry entry = ResolveInstallDestinationRuntimeStateEntryUnsafe(chart);
+        if (entry?.State?.HasState != true)
+        {
+            return chart;
+        }
+
+        return LibraryChartRef.FromChartFile(ChartFileProjection.WithTransientState(
+            chart.ToChartFileIdentity(),
+            entry.State,
+            includeWarningSnapshot: false));
+    }
+
+    private InstallDestinationRuntimeStateEntry ResolveInstallDestinationRuntimeStateEntryUnsafe(LibraryChartRef chart)
+    {
+        foreach (InstallDestinationRuntimeStateKey key in EnumerateChartRuntimeStateLookupKeys(chart))
+        {
+            if (installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry entry)
+                && entry.CanApplyTo(chart.GetBmsStorageOwner(), chart.GetBmsonStorageOwner(), key.RequireOwnerMatch))
+            {
+                return entry;
+            }
+        }
+
+        return null;
     }
 
     private void UpdateInstallDestinationRuntimeStates(LibraryMutationDelta delta, IEnumerable<ChartFile> appliedCharts)
@@ -6922,6 +6973,27 @@ reportProgress,
         }
     }
 
+    private static IEnumerable<InstallDestinationRuntimeStateKey> EnumerateChartRuntimeStateLookupKeys(LibraryChartRef chart)
+    {
+        if (chart == null)
+        {
+            yield break;
+        }
+
+        ChartFileKind chartKind = chart.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
+        string primaryKey = ChartFileRuntimeStateKey.Create(chartKind, chart.Path, chart.Md5, chart.Sha256);
+        if (!string.IsNullOrWhiteSpace(primaryKey))
+        {
+            yield return new InstallDestinationRuntimeStateKey(primaryKey, requireOwnerMatch: false);
+        }
+
+        string pathKey = ChartFileRuntimeStateKey.CreatePathKey(chartKind, chart.Path);
+        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, StringComparison.OrdinalIgnoreCase))
+        {
+            yield return new InstallDestinationRuntimeStateKey(pathKey, requireOwnerMatch: true);
+        }
+    }
+
     private static IEnumerable<InstallDestinationRuntimeStateKey> EnumerateChartRuntimeStateLookupKeys(ChartFile chart)
     {
         string primaryKey = ChartFileRuntimeStateKey.Create(chart);
@@ -6980,6 +7052,14 @@ reportProgress,
 
         internal bool CanApplyTo(ChartFile chart, bool requireOwnerMatch)
         {
+            return CanApplyTo(chart?.GetBmsStorageOwner(), chart?.GetBmsonStorageOwner(), requireOwnerMatch);
+        }
+
+        internal bool CanApplyTo(
+            BMSFile currentBmsOwner,
+            LR2SongDBExtended.bmson_song currentBmsonOwner,
+            bool requireOwnerMatch)
+        {
             if (State?.HasState != true)
             {
                 return false;
@@ -6989,13 +7069,11 @@ reportProgress,
                 return true;
             }
 
-            BMSFile currentBmsOwner = chart?.GetBmsStorageOwner();
             if (bmsOwner != null || currentBmsOwner != null)
             {
                 return ReferenceEquals(bmsOwner, currentBmsOwner);
             }
 
-            LR2SongDBExtended.bmson_song currentBmsonOwner = chart?.GetBmsonStorageOwner();
             return (bmsonOwner != null || currentBmsonOwner != null)
                 && ReferenceEquals(bmsonOwner, currentBmsonOwner);
         }
@@ -11421,9 +11499,7 @@ reportProgress,
 
     private IEnumerable<LibraryChartRef> CreateLibraryChartRefSnapshotUnsafe()
     {
-        return CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false)
-            .Select(LibraryChartRef.FromChartFile)
-            .Where(chart => chart != null);
+        return OverlayInstallDestinationRuntimeStates(CreateOwnedLibraryChartRefSnapshot());
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)

@@ -137,6 +137,11 @@ internal sealed class LibraryChartRef
         return Kind == LibraryChartKind.Bmson ? bmsonSong : null;
     }
 
+    internal ChartFile GetChartSnapshot()
+    {
+        return chartSnapshot;
+    }
+
     internal ChartFile ToChartFile()
     {
         if (chartSnapshot != null)
@@ -147,13 +152,19 @@ internal sealed class LibraryChartRef
         BMSFile bmsFile = GetBmsStorageOwner();
         if (bmsFile != null)
         {
-            return ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false);
+            return ChartFileProjection.FromBmsFile(
+                bmsFile,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
         }
 
         LR2SongDBExtended.bmson_song bmsonSong = GetBmsonStorageOwner();
         if (bmsonSong != null)
         {
-            return ChartFileProjection.FromBmsonSong(bmsonSong, includeResourceReferences: false);
+            return ChartFileProjection.FromBmsonSong(
+                bmsonSong,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false);
         }
 
         return null;

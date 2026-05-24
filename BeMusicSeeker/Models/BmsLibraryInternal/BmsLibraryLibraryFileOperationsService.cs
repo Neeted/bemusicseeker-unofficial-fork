@@ -584,7 +584,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             };
         }
         foreach (ChartFile chart in (libraryCharts ?? [])
-            .Select(ToChartFile)
+            .Select(chart => chart?.GetChartSnapshot())
             .Where(chart => chart != null && IsInstallDestinationUnderFolder(chart.InstallDestination, folderPath)))
         {
             yield return new LibraryInstallDestinationChange

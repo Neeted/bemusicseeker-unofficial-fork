@@ -24,7 +24,7 @@ internal static class ChartFileRuntimeStateKey
         return song == null ? null : Create(ChartFileKind.Bmson, song.path, song.md5, song.sha256);
     }
 
-    private static string Create(ChartFileKind kind, string path, string md5, string sha256)
+    internal static string Create(ChartFileKind kind, string path, string md5, string sha256)
     {
         string kindPrefix = kind.ToString().ToLowerInvariant() + ":";
         string lookupHash = CreatePrimaryLookupHash(md5, sha256);
@@ -55,6 +55,13 @@ internal static class ChartFileRuntimeStateKey
             return null;
         }
 
-        return chart.Kind.ToString().ToLowerInvariant() + ":path:" + chart.Path;
+        return CreatePathKey(chart.Kind, chart.Path);
+    }
+
+    internal static string CreatePathKey(ChartFileKind kind, string path)
+    {
+        return string.IsNullOrWhiteSpace(path)
+            ? null
+            : kind.ToString().ToLowerInvariant() + ":path:" + path;
     }
 }

@@ -41,6 +41,13 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal List<LibraryChartRef> CreateLibraryChartRefSnapshot()
+    {
+        return [.. charts
+            .Select(CreateLibraryChartRef)
+            .Where(chart => chart != null)];
+    }
+
     internal int RemoveCharts(IEnumerable<ChartFile> removedCharts)
     {
         List<ChartFile> removedChartList = [.. (removedCharts ?? []).Where(chart => chart != null)];
@@ -181,6 +188,25 @@ internal sealed class OwnedChartCollectionState
             .OrderBy(chart => chart.Path, System.StringComparer.OrdinalIgnoreCase)];
         charts.RemoveRange(firstBmsonIndex, charts.Count - firstBmsonIndex);
         charts.AddRange(sortedBmsonCharts);
+    }
+
+    private static LibraryChartRef CreateLibraryChartRef(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return LibraryChartRef.FromBmsFile(bmsOwner);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        return bmsonOwner != null
+            ? LibraryChartRef.FromBmsonSong(bmsonOwner)
+            : LibraryChartRef.FromChartFile(chart);
     }
 
     private static bool IsRemovedChart(
