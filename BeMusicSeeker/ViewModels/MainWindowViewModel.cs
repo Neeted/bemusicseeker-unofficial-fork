@@ -10769,21 +10769,6 @@ public class MainWindowViewModel : ViewModel
             includeScoreSnapshot: false);
     }
 
-    private static List<ChartFile> CreateStandardLibraryChartIdentitySnapshot(
-        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
-    {
-        return
-        [
-            .. ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFiles),
-            .. (bmsonSongs ?? [])
-                .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-                .Select(ChartFileProjection.FromBmsonStorageOwnerIdentity)
-                .Where(chart => chart != null)
-        ];
-    }
-
     private static List<ChartFile> CreateBmsChartSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
         return ChartFileProjection.FromBmsFiles(
