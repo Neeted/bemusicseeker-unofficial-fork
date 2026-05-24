@@ -827,6 +827,10 @@ public class BMSLibrary : NotificationObject
 
     private int playlistSummaryOwnedHashSnapshotVersion;
 
+    private int suppressPlaylistSummaryOwnedHashInvalidation;
+
+    private int suppressPlaylistSummaryOwnedHashInvalidationThreadId;
+
     private int chartInfoBackfillRequestedVersion;
 
     private int chartInfoBackfillCompletedVersion;
@@ -6406,9 +6410,47 @@ reportProgress,
 
     private void InvalidatePlaylistSummaryOwnedHashSnapshot()
     {
+        if (IsPlaylistSummaryOwnedHashInvalidationSuppressedOnCurrentThread())
+        {
+            return;
+        }
         lock (lockPlaylistSummaryOwnedHashSnapshot)
         {
             playlistSummaryOwnedHashSnapshot = null;
+        }
+    }
+
+    private bool IsPlaylistSummaryOwnedHashInvalidationSuppressedOnCurrentThread()
+    {
+        return suppressPlaylistSummaryOwnedHashInvalidation > 0
+            && suppressPlaylistSummaryOwnedHashInvalidationThreadId == Environment.CurrentManagedThreadId;
+    }
+
+    private IDisposable SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread()
+    {
+        if (suppressPlaylistSummaryOwnedHashInvalidation == 0)
+        {
+            suppressPlaylistSummaryOwnedHashInvalidationThreadId = Environment.CurrentManagedThreadId;
+        }
+        suppressPlaylistSummaryOwnedHashInvalidation++;
+        return new PlaylistSummaryOwnedHashInvalidationSuppression(this);
+    }
+
+    private sealed class PlaylistSummaryOwnedHashInvalidationSuppression(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                owner.suppressPlaylistSummaryOwnedHashInvalidation = Math.Max(0, owner.suppressPlaylistSummaryOwnedHashInvalidation - 1);
+                if (owner.suppressPlaylistSummaryOwnedHashInvalidation == 0)
+                {
+                    owner.suppressPlaylistSummaryOwnedHashInvalidationThreadId = 0;
+                }
+                owner = null;
+            }
         }
     }
 
@@ -6531,6 +6573,8 @@ reportProgress,
 
         public bool DuplicateCacheInvalidated { get; set; }
 
+        public bool PlaylistSummaryOwnedHashInvalidated { get; set; }
+
         public bool ShouldDispatchInstalledLookup => ForceInstalledLookupDispatch || InstalledLookupMutation?.HasChanges == true;
 
         public bool ShouldDeferStateApplierDerivedInvalidation => ParentFolderInvalidated || DuplicateCacheInvalidated;
@@ -6542,6 +6586,7 @@ reportProgress,
             || InstalledPackagePathChangedCount > 0
             || ParentFolderInvalidated
             || DuplicateCacheInvalidated
+            || PlaylistSummaryOwnedHashInvalidated
             || InstalledLookupMutation?.HasChanges == true;
     }
 
@@ -6835,6 +6880,7 @@ reportProgress,
         try
         {
             using (SuppressInstalledChartLookupInvalidation())
+            using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
                 ApplyInstalledChartStorageRowsUnsafe(addedTargets);
@@ -6845,6 +6891,10 @@ reportProgress,
         catch
         {
             InvalidateInstalledDirectoryIndex();
+            if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
+            {
+                InvalidatePlaylistSummaryOwnedHashSnapshot();
+            }
             InvalidateOwnedChartCollection();
             throw;
         }
@@ -6884,7 +6934,8 @@ reportProgress,
             InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
             InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
             ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
-            DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true
+            DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true,
+            PlaylistSummaryOwnedHashInvalidated = HasPlaylistSummaryOwnedHashChanges(delta)
         };
         result.InstallDestinationChangedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta));
         return result;
@@ -6895,7 +6946,8 @@ reportProgress,
         return new OwnedChartCollectionMutationResult
         {
             InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets?.BmsFiles, addedTargets?.BmsonSongs),
-            AddedCount = (addedTargets?.BmsFiles.Count ?? 0) + (addedTargets?.BmsonSongs.Count ?? 0)
+            AddedCount = (addedTargets?.BmsFiles.Count ?? 0) + (addedTargets?.BmsonSongs.Count ?? 0),
+            PlaylistSummaryOwnedHashInvalidated = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0
         };
     }
 
@@ -6938,6 +6990,10 @@ reportProgress,
         {
             InvalidateDuplicateChartGroupsCache();
         }
+        if (result.PlaylistSummaryOwnedHashInvalidated)
+        {
+            InvalidatePlaylistSummaryOwnedHashSnapshot();
+        }
         if (result.ShouldDispatchInstalledLookup)
         {
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
@@ -6955,8 +7011,15 @@ reportProgress,
                 + " installedLookup=" + ToMutationDispatchLogValue(result.InstalledLookupMutation)
                 + " parentFolder=" + ToInvalidateLogValue(result.ParentFolderInvalidated)
                 + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
+                + " playlistSummaryHash=" + ToInvalidateLogValue(result.PlaylistSummaryOwnedHashInvalidated)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
+    }
+
+    private static bool HasPlaylistSummaryOwnedHashChanges(LibraryMutationDelta delta)
+    {
+        return delta != null
+            && (delta.ChartsToRegister.Count > 0 || delta.ChartsToUnregister.Count > 0);
     }
 
     private static string ToMutationDispatchLogValue(InstalledChartLookupMutation mutation)
@@ -12122,6 +12185,7 @@ reportProgress,
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
             // StateApplier still mutates storage rows through property setters; during this orchestration, derived index invalidation is dispatched once below.
+            using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
             using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
@@ -12144,6 +12208,10 @@ reportProgress,
             if (mutationResult.DuplicateCacheInvalidated)
             {
                 InvalidateDuplicateChartGroupsCache();
+            }
+            if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
+            {
+                InvalidatePlaylistSummaryOwnedHashSnapshot();
             }
             InvalidateOwnedChartCollection();
             ClearLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);

@@ -131,6 +131,53 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
+    public void GetPlaylistSummaryOwnedHashSnapshot_RebuildsAfterLibraryMutationDelta()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            BMSFile removedFile = CreateLibraryFile(@"C:\Songs\removed.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            BMSFile keptFile = CreateLibraryFile(@"C:\Songs\kept.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = [removedFile, keptFile]
+            };
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
+            var delta = new LibraryMutationDelta();
+            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(removedFile));
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();
+
+            Assert.IsTrue(second.Version > first.Version);
+            CollectionAssert.DoesNotContain(new List<string>(second.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            CollectionAssert.Contains(new List<string>(second.Md5Hashes), "cccccccccccccccccccccccccccccccc");
+        });
+    }
+
+    [TestMethod]
+    public void GetPlaylistSummaryOwnedHashSnapshot_RebuildsAfterInstalledChartUpsert()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            const string chartPath = @"C:\Songs\replace.bms";
+            BMSFile replacedFile = CreateLibraryFile(chartPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            BMSFile newFile = CreateLibraryFile(chartPath, "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = [replacedFile]
+            };
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newFile], []));
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();
+
+            Assert.IsTrue(second.Version > first.Version);
+            CollectionAssert.DoesNotContain(new List<string>(second.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            CollectionAssert.Contains(new List<string>(second.Md5Hashes), "cccccccccccccccccccccccccccccccc");
+        });
+    }
+
+    [TestMethod]
     public void PlaylistSummaryDataRefreshDecision_InvalidatesRowsEvenWhenHidden()
     {
         MainWindowViewModel.PlaylistSummaryDataRefreshDecision decision =
@@ -384,6 +431,20 @@ public sealed class PlaylistSummaryAggregationTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BmsonSongs", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         fieldInfo.SetValue(library, songs.ToList());
+    }
+
+    private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [delta]);
+    }
+
+    private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [addedTargets, "test"]);
     }
 
     private static void WithTemporarySongDb(System.Action<string> testAction)
