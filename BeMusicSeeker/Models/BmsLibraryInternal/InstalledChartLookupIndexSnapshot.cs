@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -192,39 +191,6 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
     private InstalledChartLookupIndexSnapshot snapshot;
 
     private bool snapshotDirty = true;
-
-    internal static InstalledChartLookupIndexState FromStorageRows(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
-    {
-        var state = new InstalledChartLookupIndexState();
-        foreach (BMSFile bmsFile in bmsFiles ?? [])
-        {
-            if (bmsFile != null)
-            {
-                state.AddChart(bmsFile.path, bmsFile.hash, bmsFile.sha256);
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song bmsonSong in bmsonSongs ?? [])
-        {
-            if (bmsonSong != null)
-            {
-                state.AddChart(bmsonSong.path, bmsonSong.md5, bmsonSong.sha256);
-            }
-        }
-        return state;
-    }
-
-    internal static InstalledChartLookupIndexState FromCharts(IEnumerable<ChartFile> charts)
-    {
-        var state = new InstalledChartLookupIndexState();
-        foreach (ChartFile chart in charts ?? [])
-        {
-            if (chart != null)
-            {
-                state.AddChart(chart.Path, chart.Md5, chart.Sha256);
-            }
-        }
-        return state;
-    }
 
     public int DistinctPrimaryHashCount => primaryHashCounts.Count;
 

@@ -2736,7 +2736,22 @@ public sealed class BmsLibraryPackageInstallServiceTests
         IEnumerable<BMSFile> installedFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs)
     {
-        return InstalledChartLookupIndexState.FromStorageRows(installedFiles, installedBmsonSongs).CreateSnapshot();
+        var state = new InstalledChartLookupIndexState();
+        foreach (BMSFile file in installedFiles ?? [])
+        {
+            if (file != null)
+            {
+                state.AddChart(file.path, file.hash, file.sha256);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in installedBmsonSongs ?? [])
+        {
+            if (song != null)
+            {
+                state.AddChart(song.path, song.md5, song.sha256);
+            }
+        }
+        return state.CreateSnapshot();
     }
 
     private static List<BMSFile> GetAddedBmsFiles(PackageInstallExecutionResult result)

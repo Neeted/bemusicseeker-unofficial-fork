@@ -2028,7 +2028,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void InstalledChartLookupIndexState_FromStorageRowsBuildsBmsAndBmsonLookup()
+    public void OwnedChartCollectionState_CreateInstalledChartLookupIndexBuildsBmsAndBmsonLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string bmsDir = Path.Combine("C:\\Installed", "Bms");
@@ -2043,10 +2043,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             sha256 = new string('d', 64)
         };
 
-        InstalledChartLookupIndexSnapshot snapshot = InstalledChartLookupIndexState
+        InstalledChartLookupIndexSnapshot snapshot = OwnedChartCollectionState
             .FromStorageRows([bmsFile], [bmsonSong])
+            .CreateInstalledChartLookupIndexState(out int bmsCount, out int bmsonCount)
             .CreateSnapshot();
 
+        Assert.AreEqual(1, bmsCount);
+        Assert.AreEqual(1, bmsonCount);
         CollectionAssert.AreEqual(new[] { bmsDir }, snapshot.Md5Directories[bmsFile.hash].ToArray());
         CollectionAssert.AreEqual(new[] { bmsDir }, snapshot.Sha256Directories[bmsFile.sha256].ToArray());
         CollectionAssert.AreEqual(new[] { bmsonDir }, snapshot.Md5Directories[bmsonSong.md5].ToArray());
@@ -3180,7 +3183,27 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     private static InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs = null)
     {
         _ = service;
-        return InstalledChartLookupIndexState.FromStorageRows(installedFiles, installedBmsonSongs).CreateSnapshot();
+        return CreateInstalledChartLookupIndexSnapshot(installedFiles, installedBmsonSongs);
+    }
+
+    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookupIndexSnapshot(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs)
+    {
+        var state = new InstalledChartLookupIndexState();
+        foreach (BMSFile file in installedFiles ?? [])
+        {
+            if (file != null)
+            {
+                state.AddChart(file.path, file.hash, file.sha256);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in installedBmsonSongs ?? [])
+        {
+            if (song != null)
+            {
+                state.AddChart(song.path, song.md5, song.sha256);
+            }
+        }
+        return state.CreateSnapshot();
     }
 
     private static InstallEstimationResult EstimateLooseChartInstallationDirectory(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> chartFiles, HashSet<string> installedHashes, DirectoryResourceLookupCache? directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata>? representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile>? metadataProfileResolver = null)

@@ -259,7 +259,15 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
     private static InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> installedFiles)
     {
         _ = service;
-        return InstalledChartLookupIndexState.FromStorageRows(installedFiles, []).CreateSnapshot();
+        var state = new InstalledChartLookupIndexState();
+        foreach (BMSFile file in installedFiles ?? [])
+        {
+            if (file != null)
+            {
+                state.AddChart(file.path, file.hash, file.sha256);
+            }
+        }
+        return state.CreateSnapshot();
     }
 
     private static TestableBmsFile CreateInstalledFile(string hash, string path)

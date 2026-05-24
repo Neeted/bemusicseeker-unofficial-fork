@@ -96,6 +96,42 @@ internal sealed class OwnedChartCollectionState
         return snapshot;
     }
 
+    internal InstalledChartLookupIndexState CreateInstalledChartLookupIndexState(out int bmsCount, out int bmsonCount)
+    {
+        var state = new InstalledChartLookupIndexState();
+        bmsCount = 0;
+        bmsonCount = 0;
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            BMSFile bmsOwner = chart.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                state.AddChart(bmsOwner.path, bmsOwner.hash, bmsOwner.sha256);
+                bmsCount++;
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                state.AddChart(bmsonOwner.path, bmsonOwner.md5, bmsonOwner.sha256);
+                bmsonCount++;
+                continue;
+            }
+
+            state.AddChart(chart.Path, chart.Md5, chart.Sha256);
+            if (chart.Kind == ChartFileKind.Bmson)
+            {
+                bmsonCount++;
+            }
+            else
+            {
+                bmsCount++;
+            }
+        }
+        return state;
+    }
+
     internal List<string> CreatePathSnapshot()
     {
         return [.. charts

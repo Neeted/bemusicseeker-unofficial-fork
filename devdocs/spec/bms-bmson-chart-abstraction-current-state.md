@@ -514,7 +514,7 @@ folder operation 向けの full `LibraryChartRef` snapshot helper は削除済�
 
 `CreateOwnedResourceMaintenanceCharts()` は owned snapshot を使う。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
 
-playlist owned hash snapshot は owned chart collection の lightweight hash index から作る。installed chart lookup は projection を避ける storage row direct builder と差分更新 state を持つが、次の段階では owned chart collection から path / md5 / sha256 / primary hash / kind だけを読む隣接 index へ寄せる。ここでも全件 `ChartFile` materialize は不要である。hash / directory / primary count だけを見る index として管理し、package entry や resource target が必要な caller だけ最後に `ChartFile` 化する。
+playlist owned hash snapshot は owned chart collection の lightweight hash index から作る。installed chart lookup は owned chart collection から path / md5 / sha256 / primary hash / kind だけを読む隣接 index として build し、差分更新 state を持つ。ここでも全件 `ChartFile` materialize は不要である。hash / directory / primary count だけを見る index として管理し、package entry や resource target が必要な caller だけ最後に `ChartFile` 化する。
 
 新規 helper を追加する場合は、`BMSFiles` + `BmsonSongs` を直接結合する API を増やさず、owned chart collection の view / index へ置くか、任意 subset / BMS-only / bmson-only / DB 境界であることを API 名で分かるようにする。全件 `ChartFile` list を返す helper は、明示的な full operation 以外では追加しない。
 

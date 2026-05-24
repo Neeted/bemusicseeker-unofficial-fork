@@ -6554,6 +6554,15 @@ reportProgress,
             .Where(chart => chart?.Kind == ChartFileKind.Bms)];
     }
 
+    private InstalledChartLookupIndexState CreateOwnedInstalledChartLookupIndexStateUnsafe(out int bmsCount, out int bmsonCount)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateInstalledChartLookupIndexState(out bmsCount, out bmsonCount);
+        }
+    }
+
     private void EnsureOwnedChartCollectionBuiltUnsafe()
     {
         List<BMSFile> bmsFiles = BMSFiles ?? [];
@@ -7161,12 +7170,10 @@ reportProgress,
                 return;
             }
             var stopwatch = Stopwatch.StartNew();
-            List<BMSFile> bmsFilesSnapshot = [.. (BMSFiles ?? Enumerable.Empty<BMSFile>()).Where(file => file != null)];
-            List<LR2SongDBExtended.bmson_song> bmsonSongsSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
-            InstalledChartLookupIndexState state = InstalledChartLookupIndexState.FromStorageRows(bmsFilesSnapshot, bmsonSongsSnapshot);
+            InstalledChartLookupIndexState state = CreateOwnedInstalledChartLookupIndexStateUnsafe(out int bmsCount, out int bmsonCount);
             RebuildInstalledChartLookupIndexCoreUnsafe(state);
             stopwatch.Stop();
-            LogInstallPerformance("installed_chart_lookup_index build mode=full buildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + state.HashCount + " primaryHashes=" + state.DistinctPrimaryHashCount + " dirRefs=" + state.DirectoryReferenceCount + " files=" + bmsFilesSnapshot.Count + " bmson=" + bmsonSongsSnapshot.Count + " rows=" + (bmsFilesSnapshot.Count + bmsonSongsSnapshot.Count) + " source=storage_rows singleFlight=true");
+            LogInstallPerformance("installed_chart_lookup_index build mode=full buildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + state.HashCount + " primaryHashes=" + state.DistinctPrimaryHashCount + " dirRefs=" + state.DirectoryReferenceCount + " files=" + bmsCount + " bmson=" + bmsonCount + " rows=" + (bmsCount + bmsonCount) + " source=owned_collection_lightweight singleFlight=true");
         }
     }
 
