@@ -895,6 +895,8 @@ public class BMSLibrary : NotificationObject
 
     private bool resourceHealthIndexInvalidated = true;
 
+    private int suppressResourceHealthIndexInvalidation;
+
     private int resourceHealthIndexVersionSeed;
 
     private List<DuplicateGroup> _DuplicateChartGroups;
@@ -7586,7 +7588,40 @@ reportProgress,
     private void InvalidateResourceHealthIndex(string reason)
     {
         _ = reason;
-        Volatile.Write(ref resourceHealthIndexInvalidated, true);
+        lock (resourceHealthIndexLock)
+        {
+            if (suppressResourceHealthIndexInvalidation > 0)
+            {
+                return;
+            }
+            Volatile.Write(ref resourceHealthIndexInvalidated, true);
+        }
+    }
+
+    private IDisposable SuppressResourceHealthIndexInvalidation()
+    {
+        lock (resourceHealthIndexLock)
+        {
+            suppressResourceHealthIndexInvalidation++;
+        }
+        return new ResourceHealthIndexInvalidationSuppression(this);
+    }
+
+    private sealed class ResourceHealthIndexInvalidationSuppression(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                lock (owner.resourceHealthIndexLock)
+                {
+                    owner.suppressResourceHealthIndexInvalidation = Math.Max(0, owner.suppressResourceHealthIndexInvalidation - 1);
+                }
+                owner = null;
+            }
+        }
     }
 
     private bool IsResourceHealthIndexCurrent()
@@ -7645,7 +7680,7 @@ reportProgress,
     {
         snapshot = null;
         ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-        if (currentSnapshot == null || currentSnapshot.TargetCount <= 0)
+        if (Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null || currentSnapshot.TargetCount <= 0)
         {
             return false;
         }
@@ -7659,6 +7694,12 @@ reportProgress,
         snapshot = currentSnapshot.ApplyDelta(updatedTargetList, removedTargetList, maintenanceService, version);
         lock (resourceHealthIndexLock)
         {
+            if (Volatile.Read(ref resourceHealthIndexInvalidated)
+                || !ReferenceEquals(resourceHealthIndexSnapshot, currentSnapshot))
+            {
+                snapshot = null;
+                return false;
+            }
             resourceHealthIndexSnapshot = snapshot;
             Volatile.Write(ref resourceHealthIndexInvalidated, false);
         }
@@ -7770,7 +7811,9 @@ reportProgress,
             var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
             workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
         }
-        bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
+        bool resourceHealthIndexCurrent = IsResourceHealthIndexCurrent();
+        bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
+        bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !resourceHealthIndexCurrent || forceResourceHealthDelta;
         bool resourceHealthDeltaApplied = false;
         bool resourceHealthIndexDeferred = false;
         ResourceHealthIndexSnapshot resourceHealthSnapshot;
@@ -7942,7 +7985,11 @@ reportProgress,
                     List<BMSFileMaintenanceInfo> changes = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
                     dbGateway.UpsertMaintenanceInfos(changes);
                 }
-                RebuildResourceHealthIndexSnapshotLocked(unset ? "resource_health_unignore" : "resource_health_ignore");
+                string reason = unset ? "resource_health_unignore" : "resource_health_ignore";
+                if (!TryApplyResourceHealthIndexDeltaLocked(reason, targets, null, out _))
+                {
+                    RebuildResourceHealthIndexSnapshotLocked(reason);
+                }
             }
         }
         RaisePropertyChanged(() => ChartFilesNeedResourceFix);
@@ -9682,7 +9729,10 @@ reportProgress,
                         dbGateway.DeleteInstallRows(batchResult.InstallRowsToDelete);
                         bool canUseResourceHealthIndexDelta = IsResourceHealthIndexCurrent();
                         var libraryStateApplyStopwatch = Stopwatch.StartNew();
-                        ApplyEstimatedInstallBatchLibraryState(batchApplyContext);
+                        using (canUseResourceHealthIndexDelta ? SuppressResourceHealthIndexInvalidation() : null)
+                        {
+                            ApplyEstimatedInstallBatchLibraryState(batchApplyContext);
+                        }
                         libraryStateApplyStopwatch.Stop();
                         var pendingApplyStopwatch = Stopwatch.StartNew();
                         int pendingCountBeforeApply = ChartPackagesPending.Count;

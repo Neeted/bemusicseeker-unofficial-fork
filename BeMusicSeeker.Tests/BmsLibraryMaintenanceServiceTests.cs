@@ -530,6 +530,28 @@ public sealed class BmsLibraryMaintenanceServiceTests
         ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
         ChartFile ignoredChart = ChartFileProjection.FromBmsFile(ignored);
         var snapshot = ResourceHealthIndexSnapshot.Build([activeChart, ignoredChart], service, version: 1);
+        var duplicateBuild = ResourceHealthIndexSnapshot.Build([activeChart, activeChart], service, version: 0);
+
+        Assert.AreEqual(1, duplicateBuild.TargetCount);
+        CollectionAssert.AreEqual(new[] { activeChart }, duplicateBuild.ActiveTargets.ToArray());
+
+        TestableBmsFile rehashed = CreateFile("dddddddddddddddddddddddddddddddd");
+        rehashed.path = active.path;
+        rehashed.SetMaintenanceInfo(new BMSFileMaintenanceInfo(rehashed)
+        {
+            hash = rehashed.hash,
+            wav_files_defined = 2,
+            wav_files_existing = 1,
+            is_files_warning_ignored = false
+        }, suppressPropertyChanged: true);
+        ChartFile rehashedChart = ChartFileProjection.FromBmsFile(rehashed);
+        ResourceHealthIndexSnapshot afterRehash = snapshot.ApplyDelta([rehashedChart], null, service, version: 2);
+
+        Assert.AreEqual(2, afterRehash.TargetCount);
+        Assert.IsFalse(afterRehash.GetProjection(activeChart).HasIssues);
+        Assert.IsTrue(afterRehash.GetProjection(rehashedChart).HasIssues);
+        CollectionAssert.AreEqual(new[] { rehashedChart }, afterRehash.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart }, afterRehash.IgnoredTargets.ToArray());
 
         active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
         {
@@ -562,7 +584,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
         CollectionAssert.AreEqual(new[] { addedChart }, afterAdd.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(new[] { ignoredChart }, afterAdd.IgnoredTargets.ToArray());
 
-        ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, [ignoredChart], service, version: 4);
+        ResourceHealthIndexSnapshot afterDuplicateUpdate = afterAdd.ApplyDelta([addedChart, addedChart], null, service, version: 4);
+
+        Assert.AreEqual(3, afterDuplicateUpdate.TargetCount);
+        CollectionAssert.AreEqual(new[] { addedChart }, afterDuplicateUpdate.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart }, afterDuplicateUpdate.IgnoredTargets.ToArray());
+
+        ResourceHealthIndexSnapshot afterRemove = afterDuplicateUpdate.ApplyDelta([ignoredChart], [ignoredChart], service, version: 5);
 
         Assert.AreEqual(2, afterRemove.TargetCount);
         Assert.IsFalse(afterRemove.GetProjection(ignoredChart).HasIssues);

@@ -83,19 +83,10 @@ internal sealed class ResourceHealthIndexSnapshot
         List<ChartFile> ignoredTargets = [];
         Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> projections = [];
         HashSet<ResourceHealthChartKey> targetKeys = [];
-        int targetCount = 0;
-        foreach (ChartFile target in targets ?? [])
+        List<ChartFile> uniqueTargets = DistinctValidTargets(targets);
+        foreach (ChartFile target in uniqueTargets)
         {
-            if (target == null)
-            {
-                continue;
-            }
-            targetCount++;
             var key = ResourceHealthChartKey.FromChartFile(target);
-            if (!key.IsValid)
-            {
-                continue;
-            }
             targetKeys.Add(key);
             IReadOnlyList<ChartWarning> warnings = maintenanceService?.BuildResourceHealthWarnings(target) ?? [];
             if (warnings.Count == 0)
@@ -116,7 +107,7 @@ internal sealed class ResourceHealthIndexSnapshot
             }
         }
         stopwatch.Stop();
-        return new ResourceHealthIndexSnapshot(version, activeTargets, ignoredTargets, projections, targetKeys, targetCount, stopwatch.ElapsedMilliseconds);
+        return new ResourceHealthIndexSnapshot(version, activeTargets, ignoredTargets, projections, targetKeys, targetKeys.Count, stopwatch.ElapsedMilliseconds);
     }
 
     internal ResourceHealthIndexSnapshot ApplyDelta(
@@ -129,27 +120,20 @@ internal sealed class ResourceHealthIndexSnapshot
         var nextProjections = new Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection>(projectionsByKey);
         var nextTargetKeys = new HashSet<ResourceHealthChartKey>(targetKeys);
         HashSet<ResourceHealthChartKey> changedKeys = [];
-        foreach (ChartFile removedTarget in removedTargets ?? [])
+        List<ChartFile> uniqueRemovedTargets = DistinctValidTargets(removedTargets);
+        List<ChartFile> uniqueUpdatedTargets = DistinctValidTargets(updatedTargets);
+        HashSet<ResourceHealthChartKey> removedKeys = [.. uniqueRemovedTargets.Select(ResourceHealthChartKey.FromChartFile)];
+        uniqueUpdatedTargets = [.. uniqueUpdatedTargets.Where(target => !removedKeys.Any(removedKey => removedKey.HasSameChartIdentity(ResourceHealthChartKey.FromChartFile(target))))];
+        foreach (ChartFile removedTarget in uniqueRemovedTargets)
         {
             var key = ResourceHealthChartKey.FromChartFile(removedTarget);
-            if (!key.IsValid)
-            {
-                continue;
-            }
-            nextTargetKeys.Remove(key);
-            nextProjections.Remove(key);
-            changedKeys.Add(key);
+            RemoveMatchingChartIdentity(key, nextTargetKeys, nextProjections, changedKeys);
         }
-        foreach (ChartFile updatedTarget in updatedTargets ?? [])
+        foreach (ChartFile updatedTarget in uniqueUpdatedTargets)
         {
             var key = ResourceHealthChartKey.FromChartFile(updatedTarget);
-            if (!key.IsValid)
-            {
-                continue;
-            }
+            RemoveMatchingChartIdentity(key, nextTargetKeys, nextProjections, changedKeys);
             nextTargetKeys.Add(key);
-            nextProjections.Remove(key);
-            changedKeys.Add(key);
             IReadOnlyList<ChartWarning> warnings = maintenanceService?.BuildResourceHealthWarnings(updatedTarget) ?? [];
             if (warnings.Count == 0)
             {
@@ -161,7 +145,7 @@ internal sealed class ResourceHealthIndexSnapshot
         }
         List<ChartFile> activeTargets = [.. ActiveTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromChartFile(file)))];
         List<ChartFile> ignoredTargets = [.. IgnoredTargets.Where(file => !changedKeys.Contains(ResourceHealthChartKey.FromChartFile(file)))];
-        foreach (ChartFile updatedTarget in updatedTargets ?? [])
+        foreach (ChartFile updatedTarget in uniqueUpdatedTargets)
         {
             var key = ResourceHealthChartKey.FromChartFile(updatedTarget);
             if (!key.IsValid || !nextProjections.TryGetValue(key, out ResourceHealthWarningProjection projection))
@@ -179,6 +163,40 @@ internal sealed class ResourceHealthIndexSnapshot
         }
         stopwatch.Stop();
         return new ResourceHealthIndexSnapshot(version, activeTargets, ignoredTargets, nextProjections, nextTargetKeys, nextTargetKeys.Count, stopwatch.ElapsedMilliseconds);
+    }
+
+    private static List<ChartFile> DistinctValidTargets(IEnumerable<ChartFile> targets)
+    {
+        List<ChartFile> result = [];
+        HashSet<ResourceHealthChartKey> keys = [];
+        foreach (ChartFile target in targets ?? [])
+        {
+            var key = ResourceHealthChartKey.FromChartFile(target);
+            if (key.IsValid && keys.Add(key))
+            {
+                result.Add(target);
+            }
+        }
+        return result;
+    }
+
+    private static void RemoveMatchingChartIdentity(
+        ResourceHealthChartKey key,
+        HashSet<ResourceHealthChartKey> nextTargetKeys,
+        Dictionary<ResourceHealthChartKey, ResourceHealthWarningProjection> nextProjections,
+        HashSet<ResourceHealthChartKey> changedKeys)
+    {
+        if (!key.IsValid)
+        {
+            return;
+        }
+        foreach (ResourceHealthChartKey matchingKey in nextTargetKeys.Where(existingKey => existingKey.HasSameChartIdentity(key)).ToList())
+        {
+            nextTargetKeys.Remove(matchingKey);
+            nextProjections.Remove(matchingKey);
+            changedKeys.Add(matchingKey);
+        }
+        changedKeys.Add(key);
     }
 
     internal ResourceHealthWarningProjection GetProjection(ChartFile chart)
@@ -238,6 +256,12 @@ internal sealed class ResourceHealthIndexSnapshot
             return string.Equals(kind, other.kind, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(path, other.path, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(hash, other.hash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal bool HasSameChartIdentity(ResourceHealthChartKey other)
+        {
+            return string.Equals(kind, other.kind, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(path, other.path, StringComparison.OrdinalIgnoreCase);
         }
 
         public override bool Equals(object obj)
