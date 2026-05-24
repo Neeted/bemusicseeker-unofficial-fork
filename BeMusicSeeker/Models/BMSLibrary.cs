@@ -6603,13 +6603,11 @@ reportProgress,
 
     private sealed class OwnedChartCollectionMutationResult
     {
-        public LibraryMutationDelta Delta { get; set; }
-
         public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
 
-        public List<ChartFile> InstallDestinationChangedCharts { get; } = [];
+        public InstallDestinationRuntimeStateMutation InstallDestinationRuntimeStateMutation { get; } = new();
 
-        public bool PruneInstallDestinationRuntimeStates { get; set; }
+        public IReadOnlyList<ChartFile> InstallDestinationChangedCharts => InstallDestinationRuntimeStateMutation.AppliedCharts;
 
         public bool ForceInstalledLookupDispatch { get; set; }
 
@@ -6650,6 +6648,17 @@ reportProgress,
             || OwnedCollectionChanged
             || ResourceHealthIndexInvalidated
             || InstalledLookupMutation?.HasChanges == true;
+    }
+
+    private sealed class InstallDestinationRuntimeStateMutation
+    {
+        public List<LibraryChartPathChange> PathChanges { get; } = [];
+
+        public List<ChartFile> AppliedCharts { get; } = [];
+
+        public bool PruneToCurrentStorageRows { get; set; }
+
+        public bool HasStateChanges => PathChanges.Count > 0 || AppliedCharts.Count > 0;
     }
 
     private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
@@ -6997,9 +7006,7 @@ reportProgress,
     {
         var result = new OwnedChartCollectionMutationResult
         {
-            Delta = delta,
             InstalledLookupMutation = BuildInstalledChartLookupMutation(delta),
-            PruneInstallDestinationRuntimeStates = delta != null,
             ForceInstalledLookupDispatch = delta?.InvalidateInstalledDirectoryIndex == true,
             AddedCount = delta?.ChartsToRegister.Count ?? 0,
             RemovedCount = delta?.ChartsToUnregister.Count ?? 0,
@@ -7012,7 +7019,9 @@ reportProgress,
             OwnedCollectionChanged = HasOwnedCollectionChanges(delta),
             ResourceHealthIndexInvalidated = HasOwnedCollectionChanges(delta)
         };
-        result.InstallDestinationChangedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta));
+        result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = delta != null;
+        result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(delta?.ChartPathChanges ?? []);
+        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta));
         return result;
     }
 
@@ -7051,11 +7060,11 @@ reportProgress,
         }
 
         var stopwatch = Stopwatch.StartNew();
-        if (result.Delta != null)
+        if (result.InstallDestinationRuntimeStateMutation.HasStateChanges)
         {
-            UpdateInstallDestinationRuntimeStates(result.Delta, result.InstallDestinationChangedCharts);
+            UpdateInstallDestinationRuntimeStates(result.InstallDestinationRuntimeStateMutation);
         }
-        if (result.PruneInstallDestinationRuntimeStates)
+        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows)
         {
             PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
         }
@@ -7319,16 +7328,20 @@ reportProgress,
         return chart;
     }
 
-    private void UpdateInstallDestinationRuntimeStates(LibraryMutationDelta delta, IEnumerable<ChartFile> appliedCharts)
+    private void UpdateInstallDestinationRuntimeStates(InstallDestinationRuntimeStateMutation mutation)
     {
+        if (mutation == null || !mutation.HasStateChanges)
+        {
+            return;
+        }
         lock (installDestinationRuntimeStatesLock)
         {
-            foreach (LibraryChartPathChange pathChange in delta?.ChartPathChanges ?? [])
+            foreach (LibraryChartPathChange pathChange in mutation.PathChanges)
             {
                 MoveInstallDestinationRuntimeState(pathChange);
             }
 
-            foreach (ChartFile chart in appliedCharts ?? [])
+            foreach (ChartFile chart in mutation.AppliedCharts)
             {
                 ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
                     chart,
