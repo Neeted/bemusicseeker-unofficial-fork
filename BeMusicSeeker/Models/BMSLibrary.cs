@@ -6496,7 +6496,12 @@ reportProgress,
         }
     }
 
-    internal List<LibraryChartRef> CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex(CancellationToken cancellationToken)
+    /// <summary>
+    /// playlist detail の entry hash 解決に使う owned collection 隣接 index を作成します。
+    /// </summary>
+    /// <param name="cancellationToken">構築中の cancellation token。</param>
+    /// <returns>playlist detail 用 resolve index。</returns>
+    internal PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         using (rwlockBMSFiles.GetReaderGuard())
@@ -6504,9 +6509,7 @@ reportProgress,
             EnsureOwnedChartCollectionBuiltUnsafe();
             lock (lockOwnedChartCollection)
             {
-                LibraryChartRefIndexSnapshot snapshot = ownedChartCollection.CreateLibraryChartRefIndexSnapshot(cancellationToken.ThrowIfCancellationRequested);
-                cancellationToken.ThrowIfCancellationRequested();
-                return snapshot.CreateAllChartRefsSnapshot();
+                return ownedChartCollection.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken.ThrowIfCancellationRequested);
             }
         }
     }

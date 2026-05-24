@@ -5007,9 +5007,7 @@ public class MainWindowViewModel : ViewModel
 
         internal long BuildElapsedMs;
 
-        internal Dictionary<string, LibraryChartRef> ChartsByMd5 = new(StringComparer.OrdinalIgnoreCase);
-
-        internal Dictionary<string, LibraryChartRef> ChartsBySha256 = new(StringComparer.OrdinalIgnoreCase);
+        internal PlaylistLibraryResolveIndexSnapshot ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty;
     }
 
     /// <summary>
@@ -6744,7 +6742,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     prewarmToken.ThrowIfCancellationRequested();
                     PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(prewarmToken, targetVersion);
-                    LogPlaylistWorker("playlist_library_index_prewarm completed version=" + targetVersion + " chartsByMd5Count=" + snapshot.ChartsByMd5.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
+                    LogPlaylistWorker("playlist_library_index_prewarm completed version=" + targetVersion + " chartsByMd5Count=" + (snapshot.ResolveIndex?.ChartsByMd5.Count ?? 0) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
                     return snapshot;
                 }
                 catch (OperationCanceledException)
@@ -6766,91 +6764,6 @@ public class MainWindowViewModel : ViewModel
     {
         return string.Equals(reason, "library_charts_changed", StringComparison.OrdinalIgnoreCase)
             || string.Equals(reason, "library_bmsons_changed", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// 現在のライブラリから playlist 用 hash index snapshot を構築します。
-    /// </summary>
-    /// <returns>構築された snapshot。</returns>
-    /// <summary>
-    /// playlist library index 内で同じ hash に一致した chart representative を選択します。
-    /// </summary>
-    /// <param name="existing">現在の代表 chart。</param>
-    /// <param name="candidate">新しい候補 chart。</param>
-    /// <returns>採用する代表 chart。</returns>
-    internal static LibraryChartRef ChoosePreferredPlaylistChartRepresentative(LibraryChartRef existing, LibraryChartRef candidate)
-    {
-        if (existing == null)
-        {
-            return candidate;
-        }
-        if (candidate == null)
-        {
-            return existing;
-        }
-        return string.Compare(candidate.Path ?? string.Empty, existing.Path ?? string.Empty, StringComparison.OrdinalIgnoreCase) < 0 ? candidate : existing;
-    }
-
-    /// <summary>
-    /// playlist entry の md5 / sha256 から、現在ライブラリに存在する chart を解決します。
-    /// </summary>
-    /// <param name="entry">解決対象の playlist entry。</param>
-    /// <param name="chartsByMd5">md5 で引ける chart index。</param>
-    /// <param name="chartsBySha256">sha256 で引ける chart index。</param>
-    /// <returns>一致した chart。見つからない場合は null。</returns>
-    internal static LibraryChartRef ResolveChartForPlaylistEntry(
-        BMSTableEntry entry,
-        IReadOnlyDictionary<string, LibraryChartRef> chartsByMd5,
-        IReadOnlyDictionary<string, LibraryChartRef> chartsBySha256)
-    {
-        if (entry == null)
-        {
-            return null;
-        }
-        LibraryChartRef resolvedByMd5 = null;
-        if (!string.IsNullOrWhiteSpace(entry.md5) && chartsByMd5 != null)
-        {
-            chartsByMd5.TryGetValue(entry.md5, out resolvedByMd5);
-        }
-        if (resolvedByMd5 != null)
-        {
-            return resolvedByMd5;
-        }
-        LibraryChartRef resolvedBySha256 = null;
-        if (!string.IsNullOrWhiteSpace(entry.sha256) && chartsBySha256 != null)
-        {
-            chartsBySha256.TryGetValue(entry.sha256, out resolvedBySha256);
-        }
-        return resolvedBySha256;
-    }
-
-    /// <summary>
-    /// playlist library index へ chart を md5 / sha256 の両方で登録します。
-    /// </summary>
-    /// <param name="chartsByMd5">md5 index。</param>
-    /// <param name="chartsBySha256">sha256 index。</param>
-    /// <param name="chart">登録対象 chart。</param>
-    private static void AddPlaylistLibraryIndexChart(
-        Dictionary<string, LibraryChartRef> chartsByMd5,
-        Dictionary<string, LibraryChartRef> chartsBySha256,
-        LibraryChartRef chart)
-    {
-        if (chart == null)
-        {
-            return;
-        }
-        if (!string.IsNullOrWhiteSpace(chart.Md5))
-        {
-            chartsByMd5[chart.Md5] = ChoosePreferredPlaylistChartRepresentative(
-                chartsByMd5.TryGetValue(chart.Md5, out LibraryChartRef existingByMd5) ? existingByMd5 : null,
-                chart);
-        }
-        if (!string.IsNullOrWhiteSpace(chart.Sha256))
-        {
-            chartsBySha256[chart.Sha256] = ChoosePreferredPlaylistChartRepresentative(
-                chartsBySha256.TryGetValue(chart.Sha256, out LibraryChartRef existingBySha256) ? existingBySha256 : null,
-                chart);
-        }
     }
 
     internal static LR2SongDBExtended.chart_info ResolveChartInfoForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256)
@@ -6954,28 +6867,13 @@ public class MainWindowViewModel : ViewModel
     {
         var stopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
-        var chartsByMd5 = new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
-        var chartsBySha256 = new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
-        foreach (LibraryChartRef chart in files?.CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex(cancellationToken) ?? [])
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (chart == null
-                || (chart.Kind == LibraryChartKind.Bmson && string.IsNullOrWhiteSpace(chart.Path)))
-            {
-                continue;
-            }
-            AddPlaylistLibraryIndexChart(
-                chartsByMd5,
-                chartsBySha256,
-                chart);
-        }
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = files?.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken) ?? PlaylistLibraryResolveIndexSnapshot.Empty;
         cancellationToken.ThrowIfCancellationRequested();
         var newSnapshot = new PlaylistLibraryIndexSnapshot
         {
             Version = targetVersion,
             BuildElapsedMs = stopwatch.ElapsedMilliseconds,
-            ChartsByMd5 = chartsByMd5,
-            ChartsBySha256 = chartsBySha256
+            ResolveIndex = resolveIndex
         };
         lock (playlistLibraryIndexSync)
         {
@@ -15736,8 +15634,7 @@ public class MainWindowViewModel : ViewModel
         tables?.EnsurePlaylistEntriesLoaded(bmsTable, "BuildPlaylistSourceRows");
         entryHydrationStopwatch.Stop();
         cancellationToken.ThrowIfCancellationRequested();
-        Dictionary<string, LibraryChartRef> chartsByMd5 = libraryIndexSnapshot?.ChartsByMd5 ?? new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, LibraryChartRef> chartsBySha256 = libraryIndexSnapshot?.ChartsBySha256 ?? new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
+        PlaylistLibraryResolveIndexSnapshot libraryResolveIndex = libraryIndexSnapshot?.ResolveIndex ?? PlaylistLibraryResolveIndexSnapshot.Empty;
         BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Lr2
             ? scoreSnapshot.ScoresByHash
@@ -15756,7 +15653,7 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            LibraryChartRef resolvedChart = ResolveChartForPlaylistEntry(entry, chartsByMd5, chartsBySha256);
+            LibraryChartRef resolvedChart = libraryResolveIndex.ResolveChartForPlaylistEntry(entry);
             bool isOwned = !string.IsNullOrWhiteSpace(resolvedChart?.Path);
             if (onlyNotOwned && isOwned)
             {

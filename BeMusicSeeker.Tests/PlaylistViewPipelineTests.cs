@@ -2616,20 +2616,19 @@ public sealed class PlaylistViewPipelineTests
             sha256 = entry.sha256
         };
 
-        LibraryChartRef laterChart = LibraryChartRef.FromBmsonSong(laterPath);
-        LibraryChartRef earlierChart = LibraryChartRef.FromBmsonSong(earlierPath);
-        LibraryChartRef bmsLaterChart = LibraryChartRef.FromBmsFile(bmsMd5LaterPath);
-        LibraryChartRef preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
-            MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(laterChart, earlierChart),
-            bmsLaterChart);
-        LibraryChartRef resolvedMd5First = MainWindowViewModel.ResolveChartForPlaylistEntry(
-            entry,
-            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
-            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, bmsLaterChart } });
-        LibraryChartRef resolvedBmson = MainWindowViewModel.ResolveChartForPlaylistEntry(
-            entry,
-            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, LibraryChartRef.FromBmsonSong(shaOnly) } });
+        PlaylistLibraryResolveIndexSnapshot md5Index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        [
+            LibraryChartRef.FromBmsonSong(laterPath),
+            LibraryChartRef.FromBmsonSong(earlierPath),
+            LibraryChartRef.FromBmsFile(bmsMd5LaterPath)
+        ]);
+        LibraryChartRef preferred = md5Index.ChartsByMd5[entry.md5];
+        LibraryChartRef resolvedMd5First = md5Index.ResolveChartForPlaylistEntry(entry);
+        PlaylistLibraryResolveIndexSnapshot shaIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        [
+            LibraryChartRef.FromBmsonSong(shaOnly)
+        ]);
+        LibraryChartRef resolvedBmson = shaIndex.ResolveChartForPlaylistEntry(entry);
 
         Assert.AreSame(earlierPath, preferred.GetBmsonStorageOwner());
         Assert.AreSame(earlierPath, resolvedMd5First.GetBmsonStorageOwner());
@@ -2652,13 +2651,13 @@ public sealed class PlaylistViewPipelineTests
             sha256 = entry.sha256
         };
 
-        LibraryChartRef preferred = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+        PlaylistLibraryResolveIndexSnapshot index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        [
             LibraryChartRef.FromBmsFile(laterBms),
-            LibraryChartRef.FromBmsonSong(earlierBmson));
-        LibraryChartRef resolved = MainWindowViewModel.ResolveChartForPlaylistEntry(
-            entry,
-            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, preferred } });
+            LibraryChartRef.FromBmsonSong(earlierBmson)
+        ]);
+        LibraryChartRef preferred = index.ChartsBySha256[entry.sha256];
+        LibraryChartRef resolved = index.ResolveChartForPlaylistEntry(entry);
 
         Assert.AreSame(earlierBmson, preferred.GetBmsonStorageOwner());
         Assert.AreSame(earlierBmson, resolved.GetBmsonStorageOwner());
@@ -2678,9 +2677,12 @@ public sealed class PlaylistViewPipelineTests
             md5 = entry.md5,
             sha256 = new string('2', 64)
         };
-        LibraryChartRef representativeRef = MainWindowViewModel.ChoosePreferredPlaylistChartRepresentative(
+        PlaylistLibraryResolveIndexSnapshot index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        [
             LibraryChartRef.FromBmsFile(laterBms),
-            LibraryChartRef.FromBmsonSong(earlierBmson));
+            LibraryChartRef.FromBmsonSong(earlierBmson)
+        ]);
+        LibraryChartRef representativeRef = index.ResolveChartForPlaylistEntry(entry);
         ChartFile representative = representativeRef.ToChartFileIdentity();
         var bmsonScore = new BMSScore
         {

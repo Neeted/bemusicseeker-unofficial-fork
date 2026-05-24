@@ -145,6 +145,16 @@ internal sealed class OwnedChartCollectionState
         return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts, cancellationCheck);
     }
 
+    /// <summary>
+    /// playlist detail の entry hash 解決に使う owned 隣接 index を作成します。
+    /// </summary>
+    /// <param name="cancellationCheck">構築中に呼び出す cancellation callback。</param>
+    /// <returns>playlist detail 用 resolve index。</returns>
+    internal PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(Action cancellationCheck = null)
+    {
+        return PlaylistLibraryResolveIndexSnapshot.FromStorageOwnerCharts(charts, cancellationCheck);
+    }
+
     internal List<LibraryChartRef> CreateLibraryChartRefsForHashes(
         ISet<string> md5Hashes,
         ISet<string> sha256Hashes)

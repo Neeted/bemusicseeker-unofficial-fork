@@ -828,7 +828,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void PlaylistLibraryIndexUsesOwnedChartRefs()
+    public void PlaylistLibraryIndexUsesOwnedResolveIndex()
     {
         string root = FindRepositoryRoot();
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
@@ -837,16 +837,16 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot",
             "private PlaylistLibraryIndexSnapshot GetOrCreatePlaylistLibraryIndexSnapshot");
-        string snapshotHelper = ExtractBetween(
+        string resolveIndexHelper = ExtractBetween(
             bmsLibraryCode,
-            "internal List<LibraryChartRef> CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex",
+            "internal PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot",
             "private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe");
 
-        StringAssert.Contains(createPlaylistLibraryIndex, "CreateLibraryChartRefsSnapshotForPlaylistLibraryIndex(cancellationToken)");
+        StringAssert.Contains(createPlaylistLibraryIndex, "CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken)");
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles"));
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("files?.BmsonSongs"));
-        StringAssert.Contains(snapshotHelper, "CreateLibraryChartRefIndexSnapshot(cancellationToken.ThrowIfCancellationRequested)");
-        StringAssert.Contains(snapshotHelper, "CreateAllChartRefsSnapshot()");
+        Assert.IsFalse(createPlaylistLibraryIndex.Contains("CreateAllChartRefsSnapshot()"));
+        StringAssert.Contains(resolveIndexHelper, "ownedChartCollection.CreatePlaylistLibraryResolveIndexSnapshot(cancellationToken.ThrowIfCancellationRequested)");
     }
 
     [TestMethod]
