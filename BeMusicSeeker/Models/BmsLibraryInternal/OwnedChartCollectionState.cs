@@ -72,6 +72,30 @@ internal sealed class OwnedChartCollectionState
         return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts);
     }
 
+    internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()
+    {
+        var snapshot = new OwnedChartHashIndexSnapshot();
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            BMSFile bmsOwner = chart.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                AddHashes(snapshot, bmsOwner.hash, bmsOwner.sha256);
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                AddHashes(snapshot, bmsonOwner.md5, bmsonOwner.sha256);
+                continue;
+            }
+
+            AddHashes(snapshot, chart.Md5, chart.Sha256);
+        }
+        return snapshot;
+    }
+
     internal void InvalidateIndexes()
     {
         libraryChartRefIndexSnapshot = null;
@@ -282,5 +306,17 @@ internal sealed class OwnedChartCollectionState
             ChartFileKind.Bmson => bmsonPaths.Contains(chart.Path),
             _ => false
         };
+    }
+
+    private static void AddHashes(OwnedChartHashIndexSnapshot snapshot, string md5, string sha256)
+    {
+        if (!string.IsNullOrWhiteSpace(md5))
+        {
+            snapshot.Md5Hashes.Add(md5);
+        }
+        if (!string.IsNullOrWhiteSpace(sha256))
+        {
+            snapshot.Sha256Hashes.Add(sha256);
+        }
     }
 }

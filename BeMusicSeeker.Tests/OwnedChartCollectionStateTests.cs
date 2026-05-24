@@ -231,6 +231,29 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateOwnedHashIndexSnapshot_ReprojectsCurrentStorageOwnerHashes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        bmsonSong.sha256 = new string('d', 64);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+        bmsFile.SetHash("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        bmsFile.SetSha256(new string('f', 64));
+        bmsonSong.md5 = "11111111111111111111111111111111";
+        bmsonSong.sha256 = new string('2', 64);
+
+        OwnedChartHashIndexSnapshot snapshot = state.CreateOwnedHashIndexSnapshot();
+
+        CollectionAssert.DoesNotContain(new List<string>(snapshot.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        CollectionAssert.DoesNotContain(new List<string>(snapshot.Md5Hashes), "cccccccccccccccccccccccccccccccc");
+        CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), bmsFile.hash);
+        CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), bmsonSong.md5);
+        CollectionAssert.Contains(new List<string>(snapshot.Sha256Hashes), bmsFile.sha256);
+        CollectionAssert.Contains(new List<string>(snapshot.Sha256Hashes), bmsonSong.sha256);
+    }
+
+    [TestMethod]
     public void RemoveCharts_UpdateOwnedCollectionMembership()
     {
         TestResourceInitializer.EnsureJapaneseResources();

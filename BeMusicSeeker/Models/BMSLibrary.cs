@@ -116,7 +116,7 @@ public class BMSLibrary : NotificationObject
 
     /// <summary>
     /// プレイリストサマリー集計で再利用する所持譜面ハッシュ一覧の snapshot です。
-    /// BMSFiles 全体から毎回 HashSet を作り直す一時 allocation を避けるために使用します。
+    /// owned chart collection から hash だけを抽出し、集計ごとの一時 allocation を避けるために使用します。
     /// </summary>
     internal sealed class PlaylistSummaryOwnedHashSnapshot
     {
@@ -6489,48 +6489,31 @@ reportProgress,
             return snapshot;
         }
         var stopwatch = Stopwatch.StartNew();
-        var md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        List<BMSFile> bmsFilesSnapshot;
-        List<LR2SongDBExtended.bmson_song> bmsonSongsSnapshot;
+        OwnedChartHashIndexSnapshot ownedHashSnapshot;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : [.. BMSFiles.Where(file => file != null)]);
-            bmsonSongsSnapshot = ((BmsonSongs == null) ? new List<LR2SongDBExtended.bmson_song>() : [.. BmsonSongs.Where(song => song != null)]);
-        }
-        foreach (BMSFile item in bmsFilesSnapshot)
-        {
-            if (!string.IsNullOrWhiteSpace(item.hash))
-            {
-                md5Hashes.Add(item.hash);
-            }
-            if (!string.IsNullOrWhiteSpace(item.sha256))
-            {
-                sha256Hashes.Add(item.sha256);
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song item2 in bmsonSongsSnapshot)
-        {
-            if (!string.IsNullOrWhiteSpace(item2.md5))
-            {
-                md5Hashes.Add(item2.md5);
-            }
-            if (!string.IsNullOrWhiteSpace(item2.sha256))
-            {
-                sha256Hashes.Add(item2.sha256);
-            }
+            ownedHashSnapshot = CreateOwnedHashIndexSnapshotUnsafe();
         }
         var rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot
         {
             Version = Interlocked.Increment(ref playlistSummaryOwnedHashSnapshotVersion),
             BuildElapsedMs = stopwatch.ElapsedMilliseconds,
-            Md5Hashes = md5Hashes,
-            Sha256Hashes = sha256Hashes
+            Md5Hashes = ownedHashSnapshot.Md5Hashes,
+            Sha256Hashes = ownedHashSnapshot.Sha256Hashes
         };
         lock (lockPlaylistSummaryOwnedHashSnapshot)
         {
             playlistSummaryOwnedHashSnapshot ??= rebuiltSnapshot;
             return playlistSummaryOwnedHashSnapshot;
+        }
+    }
+
+    private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe()
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateOwnedHashIndexSnapshot();
         }
     }
 
