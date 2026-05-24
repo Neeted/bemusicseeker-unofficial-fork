@@ -542,7 +542,7 @@ owned collection へ寄せる対象は「BMS と bmson が混在する chart-com
 - real path directory view: `directory -> direct chart refs`、sorted direct directory keys からの prefix range、`directory -> subtree chart count`。directory bucket 全走査を避け、merge source、folder move、whole-folder delete 判定に使う。folder auto rename は対象 folder 群の direct children snapshot だけを owned collection から作る。install destination はこの view に含めない。
 - install destination overlay directory view: runtime install destination state と pending package entry の overlay view。folder move / merge では destination path rewrite、delete では destination clear にだけ使う。real path directory count や source chart selection には使わない。pending package entry は owned chart lookup へ通さず、entry identity のまま返す。
 - owner/path canonical lookup: input chart を current library chart へ canonical resolve する。delete / repair / rename で使う。owner reference がある場合は owner match、path-only input は kind + canonical path の exact match に限定する。複数候補は ambiguous / unresolved として扱う。
-- hash/directory index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。owned collection の current path/hash を source にし、`primaryHashCounts`、`md5 -> directories`、`sha256 -> directories`、`known chart directories` を差分更新する。`CreateExcludingLookup` はこの index の primary hash count から作り、merge source 自身を除外する時も full chart snapshot を作らない。
+- hash/directory/path index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。owned collection の current path/hash を source にし、`primaryHashCounts`、`primaryHash -> paths`、`md5 -> directories`、`sha256 -> directories`、`known chart directories` を差分更新する。`CreateExcludingLookup` はこの index の primary hash count から作り、merge source 自身を除外する時も full chart snapshot を作らない。resource-only merge display は original package の primary hash から candidate path を引き、destination 直下の candidate だけを path-only exact lookup で `PackageChartEntry` 化する。この path-only materialize は同一 path の複数 owner も保持し、canonical resolve の ambiguous 扱いとは分ける。
 - resource maintenance target view: resource references が必要な subset だけを `ChartFile` 化する。full target は resource health full rebuild、手動 full rescan、明示的な full maintenance operation に限定する。通常 view は `ResourceHealthIndexSnapshot` を正本にし、cache が current なら full target を作らない。
 - path snapshot view: parent folder cache の candidate rebuild など、path だけが必要な処理に使う。
 - full chart snapshot: chart_info full backfill や resource health full rebuild のように、処理自体が全件 chart projection を必要とする明示的 full operation に限定する。
@@ -684,11 +684,13 @@ folder operation service へ渡す入力も、full library ref snapshot では�
 
 - merge / folder move: `sourceChartsUnderRealPath`, `installDestinationTargetsUnderSource`, `installedPackagesUnderSource`
 - delete confirmation / delete execution: `canonicalCharts`, `subtreeChartCountByFolder`, `installDestinationTargetsUnderDeletedFolder`
-- auto rename / resource-only merge display: `directChildChartsForFolders`
+- auto rename: `directChildChartsForFolders`
+- resource-only merge display: `installedPrimaryHashPathCandidates`
 
 派生 index は owned chart collection の内部または隣接 state として管理する。
 
 - primary hash count
+- primary hash -> current path lookup
 - md5 / sha256 -> directory lookup
 - known chart directory set
 - real path direct child lookup
@@ -707,7 +709,7 @@ folder operation service へ渡す入力も、full library ref snapshot では�
 
 index は collection mutation に同期して差分更新する。丸ごと DB reload、外部 setter による collection replacement、表現できない mutation だけ full invalidate / rebuild に落とす。
 
-installed lookup は owned collection の current installed source に隣接する hash/directory/path index として扱う。初回 build は `BMSFiles` / `BmsonSongs` を直接列挙せず、owned collection の lightweight entry view から行う。mutation では unregister / install upsert / merge path change / folder move を add / remove / move / hash change として表現し、表現できない外部 replacement だけ full invalidate する。API は `IPrimaryHashLookup` と `IInstalledChartLookupIndex` の用途を分け、重複 skip や安全削除は primary hash lookup、install destination 推定は directory lookup snapshot を読む。primary hash から修復候補 path だけを引く用途は state の隣接 path lookup を使い、directory snapshot に全 path list を載せて重くしない。
+installed lookup は owned collection の current installed source に隣接する hash/directory/path index として扱う。初回 build は `BMSFiles` / `BmsonSongs` を直接列挙せず、owned collection の lightweight entry view から行う。mutation では unregister / install upsert / merge path change / folder move を add / remove / move / hash change として表現し、表現できない外部 replacement だけ full invalidate する。API は `IPrimaryHashLookup` と `IInstalledChartLookupIndex` の用途を分け、重複 skip や安全削除は primary hash lookup、install destination 推定は directory lookup snapshot を読む。primary hash から修復候補 path や resource-only merge display の候補 path だけを引く用途は state の隣接 path lookup を使い、directory snapshot に全 path list を載せて重くしない。
 
 playlist detail resolve index は owned collection の current hash / path / representative rule に隣接する index として扱う。ViewModel は md5 / sha256 辞書を構築する責務を持たず、playlist entry の md5 / sha256 と filter 種別だけを渡して解決結果を受け取る。index は md5 と sha256 の両方を持つが、解決は md5 優先、sha256 fallback とし、同一 hash の代表は path 昇順最小で固定する。代表選択を ViewModel に残すと model 側の owned collection と UI cache が別々の正本になりやすいため、代表選択は model/index 側へ移す。
 
@@ -722,7 +724,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
    - current installed source の full snapshot、BMS-only zero-note snapshot、resource maintenance full target、folder operation 用 subtree snapshot は owned collection から作る。
    - unregister / install upsert / merge など主要 mutation は owned collection と installed lookup に同期済み。
    - entry は storage owner identity を保持し、snapshot / ref / index 作成時に owner の現在値を再投影する。
-   - 残タスクは、resource-only merge display や resource health view のような残存 full materialize / full refs copy を用途別 view / index へ移すことと、mutation coverage / diagnostic log をさらに増やすこと。
+   - 残タスクは、resource health view のような残存 full materialize / full refs copy を用途別 view / index へ移すことと、mutation coverage / diagnostic log をさらに増やすこと。
 
 2. **Full snapshot helper の分解: 進行中**
    - 旧 `CreateInstalledChartSnapshot(...)` は削除済み。current source の full snapshot は `CreateCurrentInstalledChartSnapshot(...)` に限定済み。
@@ -736,7 +738,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
    - duplicate merge / folder move / delete / folder auto rename は、全件 refs を渡して service 側で `StartsWith` filter する方向から、targeted input / subtree view / overlay target へ移行済み。
    - playlist detail source build の library hash resolve は model-owned `PlaylistLibraryResolveIndexSnapshot` へ移行済み。ViewModel は snapshot 生成ではなく cache / readiness 表示だけを扱う。
    - normal library sortable column contract は test で検証済み。未対応 sort は default title sort へ reset し、full regular fallback に落とさない。
-   - 未完了: resource-only merge display package は direct child snapshot から hash filter しており、最終的には installed hash/directory index から候補だけを `PackageChartEntry` 化する余地がある。
+   - resource-only merge display package は direct child snapshot から hash filter する形をやめ、installed lookup の primary hash -> path lookup で destination 直下候補だけを引き、path-only exact lookup で candidate path だけを `PackageChartEntry` 化する。
    - 未完了: `ChartFilesNeedResourceFix` / ignored view は `ResourceHealthIndexSnapshot` が current なら full resource maintenance target を作らない形を徹底する。
 
 4. **Mutation pipeline の同期化: 進行中**

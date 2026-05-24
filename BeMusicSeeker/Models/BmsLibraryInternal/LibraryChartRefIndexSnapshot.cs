@@ -14,6 +14,7 @@ internal sealed class LibraryChartRefIndexSnapshot
         new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase),
         [],
         [],
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
@@ -23,6 +24,7 @@ internal sealed class LibraryChartRefIndexSnapshot
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference;
     private readonly Dictionary<string, LibraryChartRef> byKindAndPath;
     private readonly HashSet<string> ambiguousKindAndPathKeys;
+    private readonly Dictionary<string, List<LibraryChartRef>> refsByPath;
     private readonly Dictionary<string, List<LibraryChartRef>> directRefsByDirectory;
     private readonly List<string> sortedDirectDirectories;
     private readonly List<LibraryChartRef> allChartRefs;
@@ -34,6 +36,7 @@ internal sealed class LibraryChartRefIndexSnapshot
         Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference,
         Dictionary<string, LibraryChartRef> byKindAndPath,
         HashSet<string> ambiguousKindAndPathKeys,
+        Dictionary<string, List<LibraryChartRef>> refsByPath,
         Dictionary<string, List<LibraryChartRef>> directRefsByDirectory,
         List<string> sortedDirectDirectories,
         List<LibraryChartRef> allChartRefs,
@@ -44,6 +47,7 @@ internal sealed class LibraryChartRefIndexSnapshot
         this.bmsonByReference = bmsonByReference;
         this.byKindAndPath = byKindAndPath;
         this.ambiguousKindAndPathKeys = ambiguousKindAndPathKeys;
+        this.refsByPath = refsByPath;
         this.directRefsByDirectory = directRefsByDirectory;
         this.sortedDirectDirectories = sortedDirectDirectories;
         this.allChartRefs = allChartRefs;
@@ -71,6 +75,7 @@ internal sealed class LibraryChartRefIndexSnapshot
         var bmsonByReference = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef>();
         var byKindAndPath = new Dictionary<string, LibraryChartRef>(StringComparer.OrdinalIgnoreCase);
         var ambiguousKindAndPathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var refsByPath = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var directRefsByDirectory = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var subtreeCountsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var pathCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -101,6 +106,7 @@ internal sealed class LibraryChartRefIndexSnapshot
             if (!string.IsNullOrWhiteSpace(pathKey))
             {
                 AddPathLookup(chart, pathKey, byKindAndPath, ambiguousKindAndPathKeys);
+                AddPathRefLookup(chart, pathKey, refsByPath);
                 Increment(pathCounts, pathKey);
             }
 
@@ -129,6 +135,7 @@ internal sealed class LibraryChartRefIndexSnapshot
             bmsonByReference,
             byKindAndPath,
             ambiguousKindAndPathKeys,
+            refsByPath,
             directRefsByDirectory,
             sortedDirectDirectories,
             allChartRefs,
@@ -202,6 +209,30 @@ internal sealed class LibraryChartRefIndexSnapshot
             }
 
             refs.AddRange(directRefsByDirectory[directoryKey]);
+        }
+        return refs;
+    }
+
+    internal List<LibraryChartRef> GetChartRefsByPaths(IEnumerable<string> paths)
+    {
+        var refs = new List<LibraryChartRef>();
+        var addedRefs = new HashSet<LibraryChartRef>();
+        foreach (string path in paths ?? [])
+        {
+            string pathKey = CreatePathKey(path);
+            if (string.IsNullOrWhiteSpace(pathKey)
+                || !refsByPath.TryGetValue(pathKey, out List<LibraryChartRef> pathRefs))
+            {
+                continue;
+            }
+
+            foreach (LibraryChartRef chart in pathRefs)
+            {
+                if (chart != null && addedRefs.Add(chart))
+                {
+                    refs.Add(chart);
+                }
+            }
         }
         return refs;
     }
@@ -287,6 +318,23 @@ internal sealed class LibraryChartRefIndexSnapshot
         }
 
         byKindAndPath[key] = chart;
+    }
+
+    private static void AddPathRefLookup(
+        LibraryChartRef chart,
+        string pathKey,
+        Dictionary<string, List<LibraryChartRef>> refsByPath)
+    {
+        if (chart == null || string.IsNullOrWhiteSpace(pathKey))
+        {
+            return;
+        }
+        if (!refsByPath.TryGetValue(pathKey, out List<LibraryChartRef> refs))
+        {
+            refs = [];
+            refsByPath[pathKey] = refs;
+        }
+        refs.Add(chart);
     }
 
     private static LibraryChartRef CreateStorageOwnerRef(ChartFile chart)

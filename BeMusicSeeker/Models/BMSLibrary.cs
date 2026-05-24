@@ -6589,6 +6589,22 @@ reportProgress,
         }
     }
 
+    private List<ChartFile> CreateOwnedChartSnapshotForPaths(
+        IEnumerable<string> paths,
+        bool includeWarningSnapshot,
+        bool includeResourceReferences)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateSnapshotForPaths(
+                paths,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: false);
+        }
+    }
+
     private List<ChartFile> CreateOwnedBmsChartSnapshot(bool includeResourceReferences)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
@@ -7264,6 +7280,83 @@ reportProgress,
             }
         }
         return knownChartDirectories;
+    }
+
+    private List<string> GetInstalledDirectChildPathsByPrimaryHashesUnsafe(
+        IEnumerable<string> primaryHashes,
+        string destinationDirectory)
+    {
+        var hashes = new HashSet<string>(
+            (primaryHashes ?? []).Where(hash => !string.IsNullOrWhiteSpace(hash)),
+            StringComparer.OrdinalIgnoreCase);
+        string destinationDirectoryKey = CreateDirectChildDirectoryComparisonKey(destinationDirectory);
+        if (hashes.Count == 0 || string.IsNullOrWhiteSpace(destinationDirectoryKey))
+        {
+            return [];
+        }
+
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        EnsureInstalledChartLookupIndexBuiltUnsafe();
+        lock (lockInstalledChartLookupIndex)
+        {
+            foreach (string hash in hashes)
+            {
+                foreach (string path in installedChartLookupIndex.GetPathsByPrimaryHash(hash))
+                {
+                    if (IsDirectChildPathOfDirectory(path, destinationDirectoryKey))
+                    {
+                        paths.Add(path);
+                    }
+                }
+            }
+        }
+
+        return [.. paths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static bool IsDirectChildPathOfDirectory(string path, string destinationDirectoryKey)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(destinationDirectoryKey))
+        {
+            return false;
+        }
+
+        string directory;
+        try
+        {
+            directory = DirectoryExt.GetDirectoryNameSimple(path);
+        }
+        catch
+        {
+            return false;
+        }
+        string directoryKey = CreateDirectChildDirectoryComparisonKey(directory);
+        return !string.IsNullOrWhiteSpace(directoryKey)
+            && string.Equals(directoryKey, destinationDirectoryKey, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string CreateDirectChildDirectoryComparisonKey(string directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return null;
+        }
+
+        try
+        {
+            string fullPath = Path.GetFullPath(directory.Trim());
+            string root = Path.GetPathRoot(fullPath);
+            string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string rootTrimmed = root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return !string.IsNullOrWhiteSpace(rootTrimmed)
+                && string.Equals(trimmed, rootTrimmed, StringComparison.OrdinalIgnoreCase)
+                ? root
+                : trimmed;
+        }
+        catch
+        {
+            return directory.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
     }
 
     private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
@@ -9640,7 +9733,7 @@ reportProgress,
 
     private ChartPackage CreateInstalledDisplayPackageForResourceOnlyMerge(ChartPackage originalPackage, string destinationDirectory)
     {
-        if (originalPackage == null || string.IsNullOrWhiteSpace(destinationDirectory) || BMSFiles == null)
+        if (originalPackage == null || string.IsNullOrWhiteSpace(destinationDirectory))
         {
             return null;
         }
@@ -9651,8 +9744,13 @@ reportProgress,
         {
             return null;
         }
-        List<ChartFile> destinationCharts = OverlayInstallDestinationRuntimeStates(CreateOwnedDirectChildChartSnapshot(
-            [destinationDirectory],
+        List<string> destinationPaths = GetInstalledDirectChildPathsByPrimaryHashesUnsafe(hashSet, destinationDirectory);
+        if (destinationPaths.Count == 0)
+        {
+            return null;
+        }
+        List<ChartFile> destinationCharts = OverlayInstallDestinationRuntimeStates(CreateOwnedChartSnapshotForPaths(
+            destinationPaths,
             includeWarningSnapshot: false,
             includeResourceReferences: false));
         List<PackageChartEntry> entries = [.. destinationCharts.Where(delegate (ChartFile chart)
@@ -9698,12 +9796,6 @@ reportProgress,
                 {
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        if (BMSFiles == null)
-                        {
-                            totalStopwatch.Stop();
-                            LogInstallPerformance("install_pending_packages_to_estimated_destinations skipped reason=BMSFiles_null totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                            return;
-                        }
                         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
                         PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
                             packages,

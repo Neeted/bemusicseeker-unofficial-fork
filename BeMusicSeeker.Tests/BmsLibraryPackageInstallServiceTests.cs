@@ -73,6 +73,62 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_ResourceOnlyBmsonWorksWithoutBmsFiles()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "installed");
+            string pendingDirectoryPath = Path.Combine(tempRootPath, "pending");
+            Directory.CreateDirectory(destinationDirectoryPath);
+            Directory.CreateDirectory(pendingDirectoryPath);
+            string installedBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            string pendingBmsonPath = Path.Combine(pendingDirectoryPath, "chart.bmson");
+            string pendingResourcePath = Path.Combine(pendingDirectoryPath, "sound.wav");
+            File.WriteAllText(installedBmsonPath, "{}");
+            File.WriteAllText(pendingBmsonPath, "{}");
+            File.WriteAllText(pendingResourcePath, "resource");
+            var installedBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = installedBmsonPath,
+                folder = destinationDirectoryPath,
+                title = "Installed",
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                sha256 = new string('b', 64)
+            };
+            var pendingBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = pendingBmsonPath,
+                folder = pendingDirectoryPath,
+                title = "Pending",
+                md5 = installedBmson.md5,
+                sha256 = installedBmson.sha256
+            };
+            PackageChartEntry pendingEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(pendingBmson, includeWarningSnapshot: false, includeResourceReferences: false));
+            pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
+            ChartPackage pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
+            pendingPackage.path = pendingDirectoryPath;
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = null,
+                BmsonSongs = [installedBmson],
+                ChartPackagesPending = CreatePackageCollection([pendingPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
+
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+            ChartPackage displayPackage = library.ChartPackagesInstalled.Single();
+            Assert.AreEqual(destinationDirectoryPath, displayPackage.path);
+            ChartFile displayChart = displayPackage.ChartEntries.Single().Chart;
+            Assert.AreSame(installedBmson, displayChart.GetBmsonStorageOwner());
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
+        });
+    }
+
+    [TestMethod]
     public void BuildComponentMovePlan_SkipsExcludedPaths()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -113,6 +113,27 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal List<ChartFile> CreateSnapshotForPaths(
+        IEnumerable<string> paths,
+        bool includeWarningSnapshot = false,
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = false)
+    {
+        List<LibraryChartRef> refs = CreateLibraryChartRefIndexSnapshot().GetChartRefsByPaths(paths);
+        if (refs.Count == 0)
+        {
+            return [];
+        }
+
+        return [.. refs
+            .Select(chart => CreateStorageOwnerSnapshot(
+                chart,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: includeScoreSnapshot))
+            .Where(chart => chart != null)];
+    }
+
     internal List<ChartFile> CreateResourceMaintenanceSnapshot()
     {
         return [.. charts

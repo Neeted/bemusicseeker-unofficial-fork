@@ -227,6 +227,47 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateSnapshotForPaths_ProjectsOnlyRequestedPaths()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var firstBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Target", "first.bms"), new string('b', 64));
+        var secondBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "second.bms"), new string('d', 64));
+        var targetBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Target", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([firstBms, secondBms], [targetBmson]);
+
+        List<ChartFile> snapshot = state.CreateSnapshotForPaths(
+            [Path.Combine("C:\\Installed", "Target", ".", "first.bms"), targetBmson.path, targetBmson.path],
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(2, snapshot.Count);
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), firstBms)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), targetBmson)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), secondBms)));
+    }
+
+    [TestMethod]
+    public void CreateSnapshotForPaths_PreservesSamePathOwners()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
+        var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, second], []);
+
+        List<ChartFile> snapshot = state.CreateSnapshotForPaths(
+            [sharedPath],
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(2, snapshot.Count);
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), first)));
+        Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), second)));
+    }
+
+    [TestMethod]
     public void CreateBmsSnapshot_ProjectsOnlyCurrentBmsOwners()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -783,6 +824,39 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreSame(destinationBmson, displayBmson.GetBmsonStorageOwner());
             Assert.IsFalse(displayCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), sameHashOtherBms)));
             Assert.IsFalse(displayCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), nestedBms)));
+        });
+    }
+
+    [TestMethod]
+    public void CreateInstalledDisplayPackageForResourceOnlyMerge_UsesBmsonOnlyOwnedLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string destinationDirectory = Path.Combine("C:\\Installed", "Destination");
+            var destinationBmson = CreateBmsonSong(Path.Combine(destinationDirectory, "chart.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            destinationBmson.sha256 = new string('b', 64);
+            var otherBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Other", "chart.bmson"), destinationBmson.md5);
+            otherBmson.sha256 = destinationBmson.sha256;
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = null,
+                BmsonSongs = [destinationBmson, otherBmson]
+            };
+            var originalPackage = ChartPackage.FromChartEntries([
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(destinationBmson, includeWarningSnapshot: false, includeResourceReferences: false))
+            ]);
+
+            ChartPackage displayPackage = InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(
+                library,
+                originalPackage,
+                destinationDirectory);
+
+            Assert.IsNotNull(displayPackage);
+            List<ChartFile> displayCharts = [.. displayPackage.ChartEntries.Select(entry => entry.Chart)];
+            Assert.AreEqual(1, displayCharts.Count);
+            Assert.AreSame(destinationBmson, displayCharts[0].GetBmsonStorageOwner());
+            Assert.IsFalse(displayCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), otherBmson)));
         });
     }
 
