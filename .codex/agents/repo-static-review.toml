@@ -1,7 +1,4 @@
-# Repo-local subagent presets.
-# Review-only requests should use this preset when the client exposes custom agents.
-
-[agents.repo-static-review]
+name = "repo-static-review"
 description = "Read-only static review of the current uncommitted diff."
 sandbox_mode = "read-only"
 approval_policy = "never"
