@@ -6702,7 +6702,8 @@ public class MainWindowViewModel : ViewModel
     private static bool ShouldDebouncePlaylistLibraryIndexPrewarm(string reason)
     {
         return string.Equals(reason, "library_charts_changed", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(reason, "library_bmsons_changed", StringComparison.OrdinalIgnoreCase);
+            || string.Equals(reason, "library_bmsons_changed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(reason, "owned_collection_changed", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static LR2SongDBExtended.chart_info ResolveChartInfoForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256)
@@ -14227,10 +14228,13 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
         listenerForBMSPlaylist = new PropertyChangedEventListener(tables);
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
+        listenerForBMSLibrary.RegisterHandler(() => files.OwnedChartCollectionVersion, delegate
+        {
+            InvalidatePlaylistLibraryIndexSnapshot("owned_collection_changed");
+        });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
             UpdateSharedChartTransientStates(files?.ConsumeLatestInstallDestinationChangedCharts(), forceInstallDestinationProjection: true);
-            InvalidatePlaylistLibraryIndexSnapshot("library_charts_changed");
             PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
             IncrementNormalLibrarySourceGeneration("library_charts_changed");
             ResetRegularDerivedViewCaches();
@@ -14261,7 +14265,6 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {
             UpdateSharedChartTransientStates(files?.ConsumeLatestInstallDestinationChangedCharts(), forceInstallDestinationProjection: true);
-            InvalidatePlaylistLibraryIndexSnapshot("library_bmsons_changed");
             BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (syncResult.SortKeyChanged)
             {

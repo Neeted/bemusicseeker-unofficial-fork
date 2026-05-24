@@ -82,7 +82,7 @@ internal sealed class BmsLibraryStateApplier(
         dbGateway.DeleteInstallRows(installPathsToDelete);
     }
 
-    public void ApplyLibraryMutationDelta(LibraryMutationDelta delta, bool deferDerivedIndexInvalidation = false)
+    public void ApplyLibraryMutationDelta(LibraryMutationDelta delta, bool deferDerivedIndexInvalidation = false, bool deferLibraryChartsChanged = false)
     {
         if (delta == null)
         {
@@ -159,7 +159,7 @@ internal sealed class BmsLibraryStateApplier(
             clearDuplicatedCache();
         }
 
-        if (delta.RaiseLibraryChartsChanged)
+        if (delta.RaiseLibraryChartsChanged && !deferLibraryChartsChanged)
         {
             raiseLibraryChartsChanged();
         }

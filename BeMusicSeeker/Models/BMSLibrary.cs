@@ -737,6 +737,12 @@ public class BMSLibrary : NotificationObject
 
     private int suppressOwnedChartCollectionInvalidation;
 
+    private int suppressOwnedChartCollectionChangeNotification;
+
+    private int suppressOwnedChartCollectionChangeNotificationThreadId;
+
+    private int ownedChartCollectionVersion;
+
     private readonly object lockInstalledChartLookupIndex = new();
 
     private InstalledChartLookupIndexState installedChartLookupIndex = new();
@@ -1056,6 +1062,7 @@ public class BMSLibrary : NotificationObject
                 _BMSFiles = value;
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateOwnedChartCollection();
+                NotifyOwnedChartCollectionChanged();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateDuplicateChartGroupsCache();
@@ -1086,6 +1093,8 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    internal int OwnedChartCollectionVersion => Volatile.Read(ref ownedChartCollectionVersion);
+
     internal IEnumerable<ChartFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
 
     public List<LR2SongDBExtended.bmson_song> BmsonSongs
@@ -1102,6 +1111,7 @@ public class BMSLibrary : NotificationObject
                 _BmsonSongs = normalized;
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateOwnedChartCollection();
+                NotifyOwnedChartCollectionChanged();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateInstallEstimationMetadataProfileCache();
@@ -6467,6 +6477,50 @@ reportProgress,
         }
     }
 
+    private void NotifyOwnedChartCollectionChanged()
+    {
+        if (IsOwnedChartCollectionChangeNotificationSuppressedOnCurrentThread())
+        {
+            return;
+        }
+        Interlocked.Increment(ref ownedChartCollectionVersion);
+        RaisePropertyChanged(() => OwnedChartCollectionVersion);
+    }
+
+    private bool IsOwnedChartCollectionChangeNotificationSuppressedOnCurrentThread()
+    {
+        return suppressOwnedChartCollectionChangeNotification > 0
+            && suppressOwnedChartCollectionChangeNotificationThreadId == Environment.CurrentManagedThreadId;
+    }
+
+    private IDisposable SuppressOwnedChartCollectionChangeNotificationOnCurrentThread()
+    {
+        if (suppressOwnedChartCollectionChangeNotification == 0)
+        {
+            suppressOwnedChartCollectionChangeNotificationThreadId = Environment.CurrentManagedThreadId;
+        }
+        suppressOwnedChartCollectionChangeNotification++;
+        return new OwnedChartCollectionChangeNotificationSuppression(this);
+    }
+
+    private sealed class OwnedChartCollectionChangeNotificationSuppression(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                owner.suppressOwnedChartCollectionChangeNotification = Math.Max(0, owner.suppressOwnedChartCollectionChangeNotification - 1);
+                if (owner.suppressOwnedChartCollectionChangeNotification == 0)
+                {
+                    owner.suppressOwnedChartCollectionChangeNotificationThreadId = 0;
+                }
+                owner = null;
+            }
+        }
+    }
+
     private IDisposable SuppressOwnedChartCollectionInvalidation()
     {
         Monitor.Enter(lockOwnedChartCollection);
@@ -6575,6 +6629,10 @@ reportProgress,
 
         public bool PlaylistSummaryOwnedHashInvalidated { get; set; }
 
+        public bool OwnedCollectionChanged { get; set; }
+
+        public bool OwnedCollectionChangeNotified { get; set; }
+
         public bool ShouldDispatchInstalledLookup => ForceInstalledLookupDispatch || InstalledLookupMutation?.HasChanges == true;
 
         public bool ShouldDeferStateApplierDerivedInvalidation => ParentFolderInvalidated || DuplicateCacheInvalidated;
@@ -6587,6 +6645,7 @@ reportProgress,
             || ParentFolderInvalidated
             || DuplicateCacheInvalidated
             || PlaylistSummaryOwnedHashInvalidated
+            || OwnedCollectionChanged
             || InstalledLookupMutation?.HasChanges == true;
     }
 
@@ -6877,9 +6936,11 @@ reportProgress,
             return;
         }
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionUpsertMutationResult(addedTargets);
+        PublishOwnedCollectionChangeNotification(mutationResult);
         try
         {
             using (SuppressInstalledChartLookupInvalidation())
+            using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
             using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
@@ -6894,6 +6955,10 @@ reportProgress,
             if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
             {
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
+            }
+            if (mutationResult.OwnedCollectionChanged)
+            {
+                PublishOwnedCollectionChangeNotification(mutationResult);
             }
             InvalidateOwnedChartCollection();
             throw;
@@ -6935,7 +7000,8 @@ reportProgress,
             InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
             ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
             DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true,
-            PlaylistSummaryOwnedHashInvalidated = HasPlaylistSummaryOwnedHashChanges(delta)
+            PlaylistSummaryOwnedHashInvalidated = HasPlaylistSummaryOwnedHashChanges(delta),
+            OwnedCollectionChanged = HasOwnedCollectionChanges(delta)
         };
         result.InstallDestinationChangedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta));
         return result;
@@ -6947,7 +7013,8 @@ reportProgress,
         {
             InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets?.BmsFiles, addedTargets?.BmsonSongs),
             AddedCount = (addedTargets?.BmsFiles.Count ?? 0) + (addedTargets?.BmsonSongs.Count ?? 0),
-            PlaylistSummaryOwnedHashInvalidated = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0
+            PlaylistSummaryOwnedHashInvalidated = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0,
+            OwnedCollectionChanged = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0
         };
     }
 
@@ -6994,6 +7061,10 @@ reportProgress,
         {
             InvalidatePlaylistSummaryOwnedHashSnapshot();
         }
+        if (result.OwnedCollectionChanged)
+        {
+            PublishOwnedCollectionChangeNotification(result);
+        }
         if (result.ShouldDispatchInstalledLookup)
         {
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
@@ -7012,8 +7083,25 @@ reportProgress,
                 + " parentFolder=" + ToInvalidateLogValue(result.ParentFolderInvalidated)
                 + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
                 + " playlistSummaryHash=" + ToInvalidateLogValue(result.PlaylistSummaryOwnedHashInvalidated)
+                + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
+    }
+
+    private void PublishOwnedCollectionChangeNotification(OwnedChartCollectionMutationResult result)
+    {
+        if (result?.OwnedCollectionChanged != true || result.OwnedCollectionChangeNotified)
+        {
+            return;
+        }
+        NotifyOwnedChartCollectionChanged();
+        result.OwnedCollectionChangeNotified = true;
+    }
+
+    private static bool HasOwnedCollectionChanges(LibraryMutationDelta delta)
+    {
+        return delta != null
+            && (delta.ChartsToRegister.Count > 0 || delta.ChartsToUnregister.Count > 0 || delta.ChartPathChanges.Count > 0);
     }
 
     private static bool HasPlaylistSummaryOwnedHashChanges(LibraryMutationDelta delta)
@@ -12181,19 +12269,23 @@ reportProgress,
     {
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMutationResult(delta);
         PublishLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);
+        PublishOwnedCollectionChangeNotification(mutationResult);
         try
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
             // StateApplier still mutates storage rows through property setters; during this orchestration, derived index invalidation is dispatched once below.
+            using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
             using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
             using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
-                stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.ShouldDeferStateApplierDerivedInvalidation);
+                stateApplier.ApplyLibraryMutationDelta(
+                    delta,
+                    mutationResult.ShouldDeferStateApplierDerivedInvalidation,
+                    deferLibraryChartsChanged: mutationResult.OwnedCollectionChanged);
             }
             ApplyOwnedChartCollectionMutation(delta);
-            DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
         }
         catch
         {
@@ -12213,9 +12305,18 @@ reportProgress,
             {
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
             }
+            if (mutationResult.OwnedCollectionChanged)
+            {
+                PublishOwnedCollectionChangeNotification(mutationResult);
+            }
             InvalidateOwnedChartCollection();
             ClearLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);
             throw;
+        }
+        DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
+        if (delta?.RaiseLibraryChartsChanged == true && mutationResult.OwnedCollectionChanged)
+        {
+            RaisePropertyChanged(() => BMSFiles);
         }
     }
 

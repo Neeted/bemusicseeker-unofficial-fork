@@ -720,14 +720,27 @@ public sealed class OwnedChartCollectionStateTests
                 LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(oldBmsonPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
                 var library = new BMSLibrary(songDbPath)
                 {
-                    BMSFiles = [bmsFile],
-                    BmsonSongs = [bmsonSong],
                     DuplicateChartGroups = []
                 };
+                SetLibraryFilesWithoutNotification(library, [bmsFile]);
+                SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
+                int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+                int ownedCollectionVersionChanged = 0;
+                int bmsFilesChanged = 0;
+                string? firstChange = null;
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
                 int parentFolderVersionChanged = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
+                    firstChange ??= args.PropertyName;
+                    if (args.PropertyName == "OwnedChartCollectionVersion")
+                    {
+                        ownedCollectionVersionChanged++;
+                    }
+                    if (args.PropertyName == "BMSFiles")
+                    {
+                        bmsFilesChanged++;
+                    }
                     if (args.PropertyName == "BMSParentFolderListCacheVersion")
                     {
                         parentFolderVersionChanged++;
@@ -736,7 +749,8 @@ public sealed class OwnedChartCollectionStateTests
                 var delta = new LibraryMutationDelta
                 {
                     InvalidateParentFolderCache = true,
-                    ClearDuplicatedCache = true
+                    ClearDuplicatedCache = true,
+                    RaiseLibraryChartsChanged = true
                 };
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
@@ -753,6 +767,10 @@ public sealed class OwnedChartCollectionStateTests
 
                 InvokeApplyLibraryMutationDelta(library, delta);
 
+                Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
+                Assert.AreEqual(1, ownedCollectionVersionChanged);
+                Assert.AreEqual(1, bmsFilesChanged);
+                Assert.AreEqual("OwnedChartCollectionVersion", firstChange);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);
@@ -843,17 +861,26 @@ public sealed class OwnedChartCollectionStateTests
             var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "aaa.bmson"), "dddddddddddddddddddddddddddddddd");
             var replacedBmson = CreateBmsonSong(replacedBmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
             var newBmson = CreateBmsonSong(replacedBmsonPath, "ffffffffffffffffffffffffffffffff");
-            var library = new BMSLibrary(songDbPath)
-            {
-                BMSFiles = [keptBms, replacedBms],
-                BmsonSongs = [replacedBmson, keptBmson]
-            };
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [keptBms, replacedBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, [replacedBmson, keptBmson]);
             InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
             object ownedStateBefore = GetOwnedChartCollectionState(library);
+            int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+            int ownedCollectionVersionChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "OwnedChartCollectionVersion")
+                {
+                    ownedCollectionVersionChanged++;
+                }
+            };
 
             InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
             List<ChartFile> snapshot = InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
 
+            Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
+            Assert.AreEqual(1, ownedCollectionVersionChanged);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
             Assert.AreEqual(4, snapshot.Count);
@@ -1067,6 +1094,20 @@ public sealed class OwnedChartCollectionStateTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollection", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         return fieldInfo.GetValue(library);
+    }
+
+    private static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BMSFiles", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        fieldInfo.SetValue(library, files.ToList());
+    }
+
+    private static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BmsonSongs", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        fieldInfo.SetValue(library, songs.ToList());
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
