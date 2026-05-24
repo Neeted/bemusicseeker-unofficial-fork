@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class OwnedChartCollectionState
 {
     private readonly List<ChartFile> charts;
+    private LibraryChartRefIndexSnapshot libraryChartRefIndexSnapshot;
 
     internal OwnedChartCollectionState()
         : this(new List<ChartFile>())
@@ -73,6 +74,16 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshot()
+    {
+        return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts);
+    }
+
+    internal void InvalidateIndexes()
+    {
+        libraryChartRefIndexSnapshot = null;
+    }
+
     internal int RemoveCharts(IEnumerable<ChartFile> removedCharts)
     {
         List<ChartFile> removedChartList = [.. (removedCharts ?? []).Where(chart => chart != null)];
@@ -99,7 +110,12 @@ internal sealed class OwnedChartCollectionState
                 .Select(chart => chart.Path)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
-        return charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths));
+        int removed = charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths));
+        if (removed > 0)
+        {
+            InvalidateIndexes();
+        }
+        return removed;
     }
 
     internal void UpsertStorageRows(
@@ -118,6 +134,7 @@ internal sealed class OwnedChartCollectionState
         InsertBmsChartsBeforeBmson(ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFileList));
         charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongList));
         SortBmsonChartsByPath();
+        InvalidateIndexes();
     }
 
     internal bool MatchesStorageRows(
@@ -177,7 +194,10 @@ internal sealed class OwnedChartCollectionState
             bmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
 
-        charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths));
+        if (charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths)) > 0)
+        {
+            InvalidateIndexes();
+        }
     }
 
     private void InsertBmsChartsBeforeBmson(IEnumerable<ChartFile> bmsCharts)

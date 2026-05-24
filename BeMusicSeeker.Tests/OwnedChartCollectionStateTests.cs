@@ -160,6 +160,51 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string targetDirectory = Path.Combine("C:\\Installed", "Target");
+        string nestedDirectory = Path.Combine(targetDirectory, "Nested");
+        var directBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(targetDirectory, "direct.bms"));
+        var nestedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(nestedDirectory, "nested.bms"));
+        var otherBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "other.bms"));
+        var bmsonSong = CreateBmsonSong(Path.Combine(targetDirectory, "chart.bmson"), "dddddddddddddddddddddddddddddddd");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([directBms, nestedBms, otherBms], [bmsonSong]);
+
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([
+            LibraryChartRef.FromPath(LibraryChartKind.Bms, Path.Combine(targetDirectory, ".", "direct.bms"), directBms.hash, directBms.sha256),
+            LibraryChartRef.FromPath(LibraryChartKind.Bmson, bmsonSong.path, bmsonSong.md5, bmsonSong.sha256)
+        ]);
+
+        Assert.AreEqual(2, resolveResult.CanonicalCharts.Count);
+        Assert.AreSame(directBms, resolveResult.CanonicalCharts.Single(chart => chart.Kind == LibraryChartKind.Bms).GetBmsStorageOwner());
+        Assert.AreSame(bmsonSong, resolveResult.CanonicalCharts.Single(chart => chart.Kind == LibraryChartKind.Bmson).GetBmsonStorageOwner());
+        Assert.AreEqual(3, index.CountChartRefsUnderRealPath(targetDirectory, null));
+        Assert.AreEqual(2, index.CountChartRefsUnderRealPath(targetDirectory, new HashSet<string>([directBms.path], StringComparer.OrdinalIgnoreCase)));
+        Assert.AreEqual(3, index.GetChartRefsUnderRealPath(targetDirectory).Count);
+        Assert.AreEqual(0, index.GetChartRefsUnderRealPath(Path.Combine("C:\\Installed", "Missing")).Count);
+    }
+
+    [TestMethod]
+    public void CreateLibraryChartRefIndexSnapshot_DoesNotResolveAmbiguousSameKindPathOnlyInput()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
+        var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, second], []);
+
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([
+            LibraryChartRef.FromPath(LibraryChartKind.Bms, sharedPath, first.hash, first.sha256)
+        ]);
+
+        Assert.AreEqual(0, resolveResult.CanonicalCharts.Count);
+        Assert.AreEqual(1, resolveResult.UnresolvedCharts.Count);
+    }
+
+    [TestMethod]
     public void RemoveCharts_UpdateOwnedCollectionMembership()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -399,6 +444,34 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateInstallDestinationOverlayChartRefSnapshotUnsafe_DeduplicatesRuntimeStateKeys()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = []
+            };
+            var delta = new LibraryMutationDelta();
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
+                NewInstallDestination = Path.Combine("C:\\Install", "Bms")
+            });
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            List<LibraryChartRef> refs = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+
+            Assert.AreEqual(1, refs.Count);
+            Assert.AreSame(bmsFile, refs[0].GetBmsStorageOwner());
+            Assert.AreEqual(Path.Combine("C:\\Install", "Bms"), refs[0].ToChartFile().InstallDestination);
+        });
+    }
+
+    [TestMethod]
     public void CreateInstalledDisplayPackageForResourceOnlyMerge_UsesDestinationDirectChildrenOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -475,6 +548,13 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLibraryChartRefSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return [.. (IEnumerable<LibraryChartRef>)methodInfo.Invoke(library, [])];
+    }
+
+    private static List<LibraryChartRef> InvokeCreateInstallDestinationOverlayChartRefSnapshot(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstallDestinationOverlayChartRefSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (List<LibraryChartRef>)methodInfo.Invoke(library, []);
     }
 
     private static ChartPackage InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(

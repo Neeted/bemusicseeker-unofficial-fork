@@ -338,7 +338,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [libraryRef, LibraryChartRef.FromBmsonSong(bmsonSong)],
-                [libraryRef, LibraryChartRef.FromBmsonSong(bmsonSong)],
+                CreateLibraryChartRefLookup([libraryRef, LibraryChartRef.FromBmsonSong(bmsonSong)]),
+                [libraryRef],
                 [pendingPackage],
                 lookupCache,
                 false,
@@ -389,7 +390,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsonSong(song)],
-                [LibraryChartRef.FromBmsonSong(song)],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsonSong(song)]),
+                [],
                 [],
                 lookupCache,
                 false,
@@ -424,7 +426,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256)],
-                [LibraryChartRef.FromBmsFile(canonicalFile)],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(canonicalFile)]),
+                [],
                 [],
                 lookupCache,
                 true,
@@ -460,7 +463,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, staleChartPath, null, null)],
-                [LibraryChartRef.FromBmsFile(catalogFile)],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(catalogFile)]),
+                [],
                 [],
                 new DirectoryResourceLookupCache(),
                 true,
@@ -494,7 +498,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsFile(nonCanonicalFile)],
-                [LibraryChartRef.FromBmsFile(canonicalFile)],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(canonicalFile)]),
+                [],
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -526,7 +531,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256)],
-                [LibraryChartRef.FromBmsFile(catalogFile)],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(catalogFile)]),
+                [],
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -562,7 +568,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 [LibraryChartRef.FromBmsFile(libraryFile)],
-                [LibraryChartRef.FromBmsFile(libraryFile)],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(libraryFile)]),
+                [],
                 [],
                 new DirectoryResourceLookupCache(),
                 false,
@@ -598,7 +605,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, libraryFile.hash, libraryFile.sha256)],
-                [LibraryChartRef.FromBmsFile(libraryFile)]);
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(libraryFile)]));
 
             Assert.AreEqual(1, paths.Count);
             Assert.AreEqual(folderPath, paths[0]);
@@ -621,7 +628,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
                 [LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256)],
-                [LibraryChartRef.FromBmsFile(catalogFile)]);
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(catalogFile)]));
 
             Assert.AreEqual(0, paths.Count);
         });
@@ -644,7 +651,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
                 [LibraryChartRef.FromBmsFile(selectedFile)],
-                [LibraryChartRef.FromBmsFile(selectedFile), LibraryChartRef.FromBmsFile(remainingFile)]);
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(selectedFile), LibraryChartRef.FromBmsFile(remainingFile)]));
 
             Assert.AreEqual(0, paths.Count);
         });
@@ -1242,6 +1249,11 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         return [.. (bmsFiles ?? []).Select(LibraryChartRef.FromBmsFile)
             .Concat((bmsonSongs ?? []).Select(LibraryChartRef.FromBmsonSong))
             .Where(chart => chart != null)];
+    }
+
+    private static LibraryChartRefIndexSnapshot CreateLibraryChartRefLookup(IEnumerable<LibraryChartRef> charts)
+    {
+        return LibraryChartRefIndexSnapshot.FromLibraryChartRefs(charts);
     }
 
     private static LibraryChartRef CreateLibraryChartRefWithInstallDestination(

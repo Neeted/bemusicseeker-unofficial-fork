@@ -6580,6 +6580,15 @@ reportProgress,
         }
     }
 
+    private LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshotUnsafe()
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateLibraryChartRefIndexSnapshot();
+        }
+    }
+
     private List<ChartFile> CreateOwnedDirectChildChartSnapshot(
         IEnumerable<string> directoryPaths,
         bool includeWarningSnapshot,
@@ -6634,6 +6643,10 @@ reportProgress,
             if (delta.ChartsToUnregister.Count > 0)
             {
                 ownedChartCollection.RemoveCharts(delta.ChartsToUnregister);
+            }
+            if (delta.ChartPathChanges.Count > 0)
+            {
+                ownedChartCollection.InvalidateIndexes();
             }
         }
     }
@@ -11520,6 +11533,33 @@ reportProgress,
         return OverlayInstallDestinationRuntimeStates(CreateOwnedLibraryChartRefSnapshot());
     }
 
+    private List<LibraryChartRef> CreateInstallDestinationOverlayChartRefSnapshotUnsafe()
+    {
+        return [.. CreateCurrentInstallDestinationCleanupCharts()
+            .Select(LibraryChartRef.FromChartFile)
+            .Where(chart => chart != null)
+            .GroupBy(CreateLibraryChartRefRuntimeKey, StringComparer.OrdinalIgnoreCase)
+            .Where(group => !string.IsNullOrWhiteSpace(group.Key))
+            .Select(group => group.First())];
+    }
+
+    private static string CreateLibraryChartRefRuntimeKey(LibraryChartRef chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+
+        ChartFileKind chartKind = chart.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
+        string primaryKey = ChartFileRuntimeStateKey.Create(chartKind, chart.Path, chart.Md5, chart.Sha256);
+        if (!string.IsNullOrWhiteSpace(primaryKey))
+        {
+            return primaryKey;
+        }
+
+        return ChartFileRuntimeStateKey.CreatePathKey(chartKind, chart.Path);
+    }
+
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
     {
         _ = removeFromLibraryOnSuccess;
@@ -11622,7 +11662,7 @@ reportProgress,
             {
                 return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
                     charts,
-                    CreateLibraryChartRefSnapshotUnsafe());
+                    CreateLibraryChartRefIndexSnapshotUnsafe());
             }
         }
     }
@@ -11640,7 +11680,8 @@ reportProgress,
                 {
                     LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
                         charts,
-                        CreateLibraryChartRefSnapshotUnsafe(),
+                        CreateLibraryChartRefIndexSnapshotUnsafe(),
+                        CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
                         ChartPackagesPending,
                         directoryResourceLookupCache,
                         sendToRecycleBin,
