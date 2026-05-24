@@ -78,7 +78,7 @@ resource references、`HasFreshResourceReferences`、`MaintenanceInfo` は `bmso
 
 `BMSLibrary.BmsonSongs` の丸ごと置換も DB load / external refresh の境界として扱い、owned chart collection と派生 index を full invalidate する。通常 mutation では `ChartFile.Kind == Bmson` の owned chart entry と `bmson_song` storage row を同じ意味で更新する方向へ移行中である。parent folder cache version の変更通知は BMS / bmson の両方で発行する。
 
-parent folder cache は UI / settings の語彙としては BMS root / BMS directory の名前を残すが、candidate rebuild は `getBMSDirectories()` と installed `ChartFile` snapshot を入力にする。したがって、bmson だけを含む root でも、譜面が存在する root として candidate に残る。
+parent folder cache は UI / settings の語彙としては BMS root / BMS directory の名前を残すが、candidate rebuild は `getBMSDirectories()` と owned path snapshot を入力にする。したがって、bmson だけを含む root でも、譜面が存在する root として candidate に残る。
 
 ### 共通 table
 
@@ -540,6 +540,7 @@ owned collection へ寄せる対象は「BMS と bmson が混在する chart-com
 - owner/path canonical lookup: input chart を current library chart へ canonical resolve する。delete / repair / rename で使う。owner reference がある場合は owner match、path-only input は kind + canonical path の exact match に限定する。複数候補は ambiguous / unresolved として扱う。
 - hash/directory index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。
 - resource maintenance target view: resource references が必要な subset だけを `ChartFile` 化する。
+- path snapshot view: parent folder cache の candidate rebuild など、path だけが必要な処理に使う。
 - full chart snapshot: chart_info full backfill や resource health full rebuild のように、処理自体が全件 chart projection を必要とする明示的 full operation に限定する。
 
 全所持譜面を見る必要がある処理でも、既に session cache / index がある場合はそちらを正本にする。例として、resource health は `ResourceHealthIndexSnapshot`、duplicate group は `DuplicateChartGroups` cache、playlist hash は playlist owned hash snapshot、installed hash/directory は installed lookup state、parent folder は parent folder cache、chart_info は chart_info index、score は score snapshot を見る。owned collection から full `ChartFile` list を作って同じ情報を再計算しない。
@@ -722,7 +723,7 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
    - delete / whole-folder confirmation は、全件 refs から canonical resolve / folder count を作らず、owner/path lookup と real path subtree count を使う。hash-only resolve は delete 対象を広げるため入れない。
    - resource-only merge display package は、destination の direct child snapshot を作ってから hash filter する。最終的には hash/directory index から候補だけを `PackageChartEntry` 化する。
    - folder auto rename は full library chart list を渡さず、target folder 群の direct children snapshot provider で必要分だけ `ChartFile` 化する。ほかの BMS + bmson 混在 folder operation も owned chart view へ寄せる。ただし BMS-only / bmson-only の producer は storage owner view のまま残す。
-   - parent folder cache と installed lookup は owned collection 隣接 index に寄せ、full `ChartFile` snapshot を経由しない。playlist owned hash は owned hash index から作る。
+   - parent folder cache は owned path snapshot から作る。installed lookup は owned collection 隣接 index に寄せ、full `ChartFile` snapshot を経由しない。playlist owned hash は owned hash index から作る。
 
 4. **Mutation pipeline の同期化**
    - `LibraryMutationDelta`、install result、merge result、repair result、folder move result に owned chart collection mutation を含める。

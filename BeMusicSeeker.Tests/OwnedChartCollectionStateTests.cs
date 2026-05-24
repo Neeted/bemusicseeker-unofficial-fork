@@ -254,6 +254,26 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreatePathSnapshot_ReprojectsCurrentStorageOwnerPaths()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "OldBms", "chart.bms"));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "OldBmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+        string newBmsPath = Path.Combine("C:\\Installed", "NewBms", "chart.bms");
+        string newBmsonPath = Path.Combine("C:\\Installed", "NewBmson", "chart.bmson");
+        bmsFile.path = newBmsPath;
+        bmsonSong.path = newBmsonPath;
+
+        List<string> paths = state.CreatePathSnapshot();
+
+        CollectionAssert.Contains(paths, newBmsPath);
+        CollectionAssert.Contains(paths, newBmsonPath);
+        CollectionAssert.DoesNotContain(paths, Path.Combine("C:\\Installed", "OldBms", "chart.bms"));
+        CollectionAssert.DoesNotContain(paths, Path.Combine("C:\\Installed", "OldBmson", "chart.bmson"));
+    }
+
+    [TestMethod]
     public void RemoveCharts_UpdateOwnedCollectionMembership()
     {
         TestResourceInitializer.EnsureJapaneseResources();

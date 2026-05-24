@@ -1228,25 +1228,19 @@ public class BMSLibrary : NotificationObject
 
     private List<string> CreateInstalledChartPathSnapshotForParentFolderCache()
     {
-        List<string> paths = [];
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            foreach (BMSFile file in BMSFiles ?? [])
-            {
-                if (!string.IsNullOrWhiteSpace(file?.path))
-                {
-                    paths.Add(file.path);
-                }
-            }
+            return CreateOwnedChartPathSnapshotUnsafe();
         }
-        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? [])
+    }
+
+    private List<string> CreateOwnedChartPathSnapshotUnsafe()
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
         {
-            if (!string.IsNullOrWhiteSpace(song?.path))
-            {
-                paths.Add(song.path);
-            }
+            return ownedChartCollection.CreatePathSnapshot();
         }
-        return paths;
     }
 
     /// <summary>
@@ -1313,31 +1307,26 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     internal IReadOnlyList<string> GetBMSParentFolderListSnapshot()
     {
-        lock (lockParentFolderList)
+        while (true)
         {
-            RefreshBMSParentFolderListCacheUnsafe();
-            return [.. bmsParentFolderListCache];
-        }
-    }
+            lock (lockParentFolderList)
+            {
+                if (!bmsParentFolderListDirty)
+                {
+                    return [.. bmsParentFolderListCache];
+                }
+            }
 
-    /// <summary>
-    /// 親フォルダ一覧キャッシュを同期的に再構築します（ロック外から呼ばれることを前提としない）。
-    /// </summary>
-    private void RefreshBMSParentFolderListCacheUnsafe()
-    {
-        if (!bmsParentFolderListDirty)
-        {
-            return;
+            ParentFolderListCacheSnapshot snapshot = BuildBMSParentFolderListCacheSnapshot();
+            if (snapshot == null)
+            {
+                lock (lockParentFolderList)
+                {
+                    return [.. bmsParentFolderListCache];
+                }
+            }
+            TryApplyBMSParentFolderListCacheSnapshot(snapshot);
         }
-        List<string> installedChartPaths = CreateInstalledChartPathSnapshotForParentFolderCache();
-        var stopwatch = Stopwatch.StartNew();
-        IEnumerable<string> enumerable = BuildBMSParentFolderCandidates(installedChartPaths);
-        List<string> items = [.. enumerable.Except(bmsParentFolderListCache)];
-        List<string> items2 = [.. bmsParentFolderListCache.Except(enumerable)];
-        bmsParentFolderListCache = [.. enumerable];
-        bmsParentFolderListDirty = false;
-        stopwatch.Stop();
-        LogInstallPerformance("parent_folder_cache rebuildMs=" + stopwatch.ElapsedMilliseconds + " added=" + items.Count + " removed=" + items2.Count + " total=" + bmsParentFolderListCache.Count);
     }
 
     private List<BMSScore> BMSScores

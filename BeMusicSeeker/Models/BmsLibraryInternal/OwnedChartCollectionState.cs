@@ -96,6 +96,13 @@ internal sealed class OwnedChartCollectionState
         return snapshot;
     }
 
+    internal List<string> CreatePathSnapshot()
+    {
+        return [.. charts
+            .Select(GetCurrentPath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))];
+    }
+
     internal void InvalidateIndexes()
     {
         libraryChartRefIndexSnapshot = null;
