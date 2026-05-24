@@ -702,7 +702,7 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
 3. **Hot path の view / index 化**
    - duplicate merge / folder move は、全件 library refs を渡して service 側で `StartsWith` filter しない。`GetChartRefsUnderDirectory(src)`、`EnumerateInstallDestinationTargetsUnderFolder(src)`、`BuildExistingHashLookupExcluding(sourceCharts)` のような targeted API にする。
    - delete / whole-folder confirmation は、全件 refs から canonical resolve / folder count を作らず、owner/path lookup と directory subtree count を使う。
-   - resource-only merge display package は、全件 installed snapshot を hash + destination で filter せず、hash/directory index から候補だけを `PackageChartEntry` 化する。
+   - resource-only merge display package は、destination の direct child snapshot を作ってから hash filter する。最終的には hash/directory index から候補だけを `PackageChartEntry` 化する。
    - folder auto rename は full library chart list を渡さず、target folder 群の direct children snapshot provider で必要分だけ `ChartFile` 化する。ほかの BMS + bmson 混在 folder operation も owned chart view へ寄せる。ただし BMS-only / bmson-only の producer は storage owner view のまま残す。
    - parent folder cache、playlist owned hash、installed lookup は owned collection 隣接 index に寄せ、full `ChartFile` snapshot を経由しない。
 

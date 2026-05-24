@@ -398,6 +398,57 @@ public sealed class OwnedChartCollectionStateTests
         });
     }
 
+    [TestMethod]
+    public void CreateInstalledDisplayPackageForResourceOnlyMerge_UsesDestinationDirectChildrenOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string destinationDirectory = Path.Combine("C:\\Installed", "Destination");
+            string otherDirectory = Path.Combine("C:\\Installed", "Other");
+            var destinationBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(destinationDirectory, "chart.bms"), new string('b', 64));
+            var sameHashOtherBms = CreateFile(destinationBms.hash, Path.Combine(otherDirectory, "chart.bms"), destinationBms.sha256);
+            var nestedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine(destinationDirectory, "Nested", "nested.bms"), new string('d', 64));
+            var destinationBmson = CreateBmsonSong(Path.Combine(destinationDirectory, "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            destinationBmson.sha256 = new string('f', 64);
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [destinationBms, sameHashOtherBms, nestedBms],
+                BmsonSongs = [destinationBmson]
+            };
+            var overlayDelta = new LibraryMutationDelta();
+            overlayDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(destinationBms, includeWarningSnapshot: false, includeResourceReferences: false),
+                NewInstallDestination = Path.Combine("C:\\Overlay", "Bms")
+            });
+            InvokeApplyLibraryMutationDelta(library, overlayDelta);
+            var originalPackage = ChartPackage.FromChartEntries([
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(destinationBms, includeWarningSnapshot: false, includeResourceReferences: false)),
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(nestedBms, includeWarningSnapshot: false, includeResourceReferences: false)),
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(destinationBmson, includeWarningSnapshot: false, includeResourceReferences: false))
+            ]);
+
+            ChartPackage displayPackage = InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(
+                library,
+                originalPackage,
+                destinationDirectory);
+
+            Assert.IsNotNull(displayPackage);
+            Assert.AreEqual(destinationDirectory, displayPackage.path);
+            Assert.IsFalse(displayPackage.delete_parent);
+            List<ChartFile> displayCharts = [.. displayPackage.ChartEntries.Select(entry => entry.Chart)];
+            Assert.AreEqual(2, displayCharts.Count);
+            ChartFile displayBms = displayCharts.Single(chart => chart.Kind == ChartFileKind.Bms);
+            ChartFile displayBmson = displayCharts.Single(chart => chart.Kind == ChartFileKind.Bmson);
+            Assert.AreSame(destinationBms, displayBms.GetBmsStorageOwner());
+            Assert.AreEqual(Path.Combine("C:\\Overlay", "Bms"), displayBms.InstallDestination);
+            Assert.AreSame(destinationBmson, displayBmson.GetBmsonStorageOwner());
+            Assert.IsFalse(displayCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), sameHashOtherBms)));
+            Assert.IsFalse(displayCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), nestedBms)));
+        });
+    }
+
     private static void AssertChartSnapshotParity(IReadOnlyList<ChartFile> expected, IReadOnlyList<ChartFile> actual)
     {
         Assert.AreEqual(expected.Count, actual.Count);
@@ -424,6 +475,16 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLibraryChartRefSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return [.. (IEnumerable<LibraryChartRef>)methodInfo.Invoke(library, [])];
+    }
+
+    private static ChartPackage InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(
+        BMSLibrary library,
+        ChartPackage originalPackage,
+        string destinationDirectory)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledDisplayPackageForResourceOnlyMerge", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (ChartPackage)methodInfo.Invoke(library, [originalPackage, destinationDirectory]);
     }
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)

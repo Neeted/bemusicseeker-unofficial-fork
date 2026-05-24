@@ -9688,7 +9688,11 @@ reportProgress,
         {
             return null;
         }
-        List<PackageChartEntry> entries = [.. CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, includeResourceReferences: false).Where(delegate (ChartFile chart)
+        List<ChartFile> destinationCharts = OverlayInstallDestinationRuntimeStates(CreateOwnedDirectChildChartSnapshot(
+            [destinationDirectory],
+            includeWarningSnapshot: false,
+            includeResourceReferences: false));
+        List<PackageChartEntry> entries = [.. destinationCharts.Where(delegate (ChartFile chart)
         {
             if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
             {
@@ -9699,7 +9703,7 @@ reportProgress,
             {
                 return false;
             }
-            return string.Equals(DirectoryExt.GetDirectoryNameSimple(chart.Path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
+            return true;
         }).Select(PackageChartEntry.FromChart).Where(entry => entry?.Chart != null)];
         if (entries.Count == 0)
         {
