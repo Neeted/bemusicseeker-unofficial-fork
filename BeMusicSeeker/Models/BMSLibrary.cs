@@ -5558,14 +5558,14 @@ reportProgress,
                 int setModeTargetCount = 0;
                 var maintenanceResult = new MaintenanceWorkflowResult();
                 List<BMSFile> filesSnapshot = null;
-                List<LR2SongDBExtended.bmson_song> bmsonSnapshot = null;
+                int bmsonSnapshotCount = 0;
                 try
                 {
                     using (rwlockBMSFiles.GetReaderGuard())
                     {
                         filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-                        bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
-                        snapshotCount = filesSnapshot.Count + bmsonSnapshot.Count;
+                        bmsonSnapshotCount = (BmsonSongs ?? []).Count(song => song != null);
+                        snapshotCount = filesSnapshot.Count + bmsonSnapshotCount;
                     }
                     LogInstallPerformance("installable_maintenance_deferred run version=" + requestVersion
                         + " snapshotCount=" + snapshotCount
