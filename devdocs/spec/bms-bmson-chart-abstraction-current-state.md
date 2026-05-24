@@ -693,7 +693,7 @@ folder operation service へ渡す入力も、full library ref snapshot では�
 - owner/path canonical lookup
 - playlist reference apply 用 all library ref view
 - chart_info parse failure 用 md5 subset view
-- kind partition
+- BMS-only zero-note / maintenance check 用 kind partition
 - playlist owned hash snapshot
 - parent folder candidate view
 - resource health warning index

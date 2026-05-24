@@ -6568,8 +6568,14 @@ reportProgress,
 
     private List<ChartFile> CreateOwnedBmsChartSnapshot(bool includeResourceReferences)
     {
-        return [.. CreateOwnedChartSnapshot(includeResourceReferences)
-            .Where(chart => chart?.Kind == ChartFileKind.Bms)];
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateBmsSnapshot(
+                includeWarningSnapshot: false,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: false);
+        }
     }
 
     private InstalledChartLookupIndexState CreateOwnedInstalledChartLookupIndexStateUnsafe(out int bmsCount, out int bmsonCount)

@@ -204,6 +204,29 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateBmsSnapshot_ProjectsOnlyCurrentBmsOwners()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"), new string('b', 64));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+        string newBmsPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        bmsFile.path = newBmsPath;
+        bmsFile.SetHash("dddddddddddddddddddddddddddddddd");
+
+        List<ChartFile> snapshot = state.CreateBmsSnapshot(
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(1, snapshot.Count);
+        Assert.AreEqual(ChartFileKind.Bms, snapshot[0].Kind);
+        Assert.AreSame(bmsFile, snapshot[0].GetBmsStorageOwner());
+        Assert.AreEqual(newBmsPath, snapshot[0].Path);
+        Assert.AreEqual("dddddddddddddddddddddddddddddddd", snapshot[0].Md5);
+    }
+
+    [TestMethod]
     public void CreateSnapshotForDirectChildDirectories_FiltersBeforeProjectionUsingCurrentOwnerPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();

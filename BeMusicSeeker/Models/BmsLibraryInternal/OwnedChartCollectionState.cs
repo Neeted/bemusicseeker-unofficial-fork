@@ -88,6 +88,21 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal List<ChartFile> CreateBmsSnapshot(
+        bool includeWarningSnapshot = false,
+        bool includeResourceReferences = true,
+        bool includeScoreSnapshot = false)
+    {
+        return [.. charts
+            .Where(chart => chart?.Kind == ChartFileKind.Bms)
+            .Select(chart => ChartFileProjection.FromStorageOwner(
+                chart,
+                includeWarningSnapshot: includeWarningSnapshot,
+                includeResourceReferences: includeResourceReferences,
+                includeScoreSnapshot: includeScoreSnapshot))
+            .Where(chart => chart != null)];
+    }
+
     internal LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshot()
     {
         return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts);
