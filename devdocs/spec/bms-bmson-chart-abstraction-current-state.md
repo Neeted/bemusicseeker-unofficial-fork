@@ -691,6 +691,7 @@ folder operation service へ渡す入力も、full library ref snapshot では�
 - real path subtree refs lookup
 - real path subtree chart counts
 - owner/path canonical lookup
+- playlist reference apply 用 all library ref view
 - kind partition
 - playlist owned hash snapshot
 - parent folder candidate view

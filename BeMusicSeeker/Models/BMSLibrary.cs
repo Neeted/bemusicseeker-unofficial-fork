@@ -10609,17 +10609,11 @@ reportProgress,
 
     private List<LibraryChartRef> SnapshotLibraryChartRefsForPlaylistReferenceApply()
     {
-        if ((BMSFiles == null || BMSFiles.Count == 0) && (BmsonSongs == null || BmsonSongs.Count == 0))
-        {
-            return null;
-        }
-        var charts = new List<LibraryChartRef>();
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            charts.AddRange((BMSFiles ?? []).Select(LibraryChartRef.FromBmsFile).Where(chart => chart != null));
+            List<LibraryChartRef> charts = CreateLibraryChartRefIndexSnapshotUnsafe().CreateAllChartRefsSnapshot();
+            return charts.Count == 0 ? null : charts;
         }
-        charts.AddRange((BmsonSongs ?? []).Select(LibraryChartRef.FromBmsonSong).Where(chart => chart != null));
-        return charts.Count == 0 ? null : charts;
     }
 
     private List<PackageChartEntry> SnapshotPendingChartEntriesForPlaylistReferenceApply(PlaylistReferenceMaps referenceMaps)

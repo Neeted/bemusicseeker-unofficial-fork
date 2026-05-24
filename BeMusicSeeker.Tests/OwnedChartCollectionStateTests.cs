@@ -127,9 +127,13 @@ public sealed class OwnedChartCollectionStateTests
         ]);
 
         List<LibraryChartRef> refs = resolveResult.CanonicalCharts;
+        List<LibraryChartRef> allRefs = state.CreateLibraryChartRefIndexSnapshot().CreateAllChartRefsSnapshot();
         Assert.AreEqual(2, refs.Count);
+        Assert.AreEqual(2, allRefs.Count);
         LibraryChartRef bmsRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bms);
         LibraryChartRef bmsonRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bmson);
+        Assert.IsTrue(allRefs.Any(chart => chart.Kind == LibraryChartKind.Bms && string.Equals(chart.Path, newBmsPath, StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(allRefs.Any(chart => chart.Kind == LibraryChartKind.Bmson && string.Equals(chart.Path, newBmsonPath, StringComparison.OrdinalIgnoreCase)));
         Assert.AreEqual(newBmsPath, bmsRef.Path);
         Assert.AreEqual(bmsFile.hash, bmsRef.Md5);
         Assert.AreEqual(bmsFile.sha256, bmsRef.Sha256);
