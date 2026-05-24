@@ -7845,6 +7845,12 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
+                if (useOwnedSnapshot && !forceUpdate)
+                {
+                    ResourceHealthIndexSnapshot currentSnapshot = GetResourceHealthIndexSnapshot("resource_health_filter");
+                    return [.. (isInIgnoredList ? currentSnapshot.IgnoredTargets : currentSnapshot.ActiveTargets)];
+                }
+
                 List<ChartFile> targets = useOwnedSnapshot
                     ? CreateOwnedResourceMaintenanceCharts()
                     : CreateResourceMaintenanceCharts(charts);
