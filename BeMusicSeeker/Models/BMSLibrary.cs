@@ -6933,7 +6933,7 @@ reportProgress,
             }
             if (mutation.PathChanges.Count > 0)
             {
-                ownedChartCollection.InvalidateIndexes();
+                ownedChartCollection.ApplyPathChanges(mutation.PathChanges);
             }
         }
     }

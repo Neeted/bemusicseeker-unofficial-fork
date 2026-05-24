@@ -110,37 +110,48 @@ internal sealed class LibraryChartRef
 
     internal static LibraryChartRef FromChartFile(ChartFile chart)
     {
+        return FromChartFile(chart, null, preserveOwnerSnapshot: true);
+    }
+
+    internal static LibraryChartRef FromStorageOwnerChartFile(ChartFile chart, string pathOverride)
+    {
+        return FromChartFile(chart, pathOverride, preserveOwnerSnapshot: false);
+    }
+
+    private static LibraryChartRef FromChartFile(ChartFile chart, string pathOverride, bool preserveOwnerSnapshot)
+    {
         if (chart == null)
         {
             return null;
         }
+        string path = string.IsNullOrWhiteSpace(pathOverride) ? chart.Path : pathOverride;
         BMSFile bmsFile = chart.GetBmsStorageOwner();
         if (bmsFile != null)
         {
             return new LibraryChartRef(
                 LibraryChartKind.Bms,
-                chart.Path,
+                path,
                 chart.Md5,
                 chart.Sha256,
                 bmsFile,
                 null,
-                chart);
+                preserveOwnerSnapshot ? chart : null);
         }
         LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
         if (bmsonSong != null)
         {
             return new LibraryChartRef(
                 LibraryChartKind.Bmson,
-                chart.Path,
+                path,
                 chart.Md5,
                 chart.Sha256,
                 null,
                 bmsonSong,
-                chart);
+                preserveOwnerSnapshot ? chart : null);
         }
         return FromPath(
             chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
-            chart.Path,
+            path,
             chart.Md5,
             chart.Sha256);
     }

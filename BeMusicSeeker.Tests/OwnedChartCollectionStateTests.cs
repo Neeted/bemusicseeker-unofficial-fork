@@ -402,6 +402,307 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyPathChanges_UpdatesCachedLibraryChartRefIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
+        string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+
+        bmsFile.path = newPath;
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
+        List<LibraryChartRef> newPathRefs = index.GetChartRefsByPaths([newPath]);
+        Assert.AreEqual(1, newPathRefs.Count);
+        Assert.AreSame(bmsFile, newPathRefs[0].GetBmsStorageOwner());
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
+        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+    }
+
+    [TestMethod]
+    public void ApplyPathChanges_DoesNotReAddRemovedChartsToCachedIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
+        string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        ChartFile removedChart = ChartFileProjection.FromBmsFile(bmsFile);
+
+        state.RemoveCharts([removedChart]);
+        bmsFile.path = newPath;
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath, newPath]).Count);
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+    }
+
+    [TestMethod]
+    public void RemoveCharts_RemovesMovedOwnerFromCachedIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
+        string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        bmsFile.path = newPath;
+        ChartFile movedChartSnapshot = ChartFileProjection.FromBmsFile(bmsFile);
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = movedChartSnapshot,
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+
+        state.RemoveCharts([movedChartSnapshot]);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath, newPath]).Count);
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+    }
+
+    [TestMethod]
+    public void ApplyPathChanges_IgnoresDuplicateMoveAfterOldPathWasRemoved()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
+        string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        bmsFile.path = newPath;
+
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = newPath
+            },
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
+        Assert.AreEqual(1, index.GetChartRefsByPaths([newPath]).Count);
+        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+    }
+
+    [TestMethod]
+    public void ApplyPathChanges_UsesCachedOwnerPathWhenOldPathIsMissing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
+        string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        bmsFile.path = newPath;
+
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = null,
+                NewPath = newPath
+            }
+        ]);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
+        Assert.AreEqual(1, index.GetChartRefsByPaths([newPath]).Count);
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
+        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+    }
+
+    [TestMethod]
+    public void ApplyPathChanges_CachedRefsProjectCurrentStorageOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
+        string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        bmsFile.path = newPath;
+
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+
+        LibraryChartRef movedRef = index.GetChartRefsByPaths([newPath]).Single();
+        ChartFile currentChart = movedRef.ToChartFile();
+        Assert.AreEqual(newPath, movedRef.Path);
+        Assert.AreEqual(newPath, currentChart.Path);
+        Assert.AreSame(bmsFile, currentChart.GetBmsStorageOwner());
+    }
+
+    [TestMethod]
+    public void ApplyPathChanges_AddsPathlessOwnerWhenPathAppears()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        bmsFile.path = newPath;
+
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = null,
+                NewPath = newPath
+            },
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = null,
+                NewPath = newPath
+            }
+        ]);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        List<LibraryChartRef> refs = index.GetChartRefsByPaths([newPath]);
+        Assert.AreEqual(1, refs.Count);
+        Assert.AreSame(bmsFile, refs[0].GetBmsStorageOwner());
+        Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+    }
+
+    [TestMethod]
+    public void ApplyPathChanges_RemovesOwnerWhenPathDisappears()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Old", "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        bmsFile.path = null;
+
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = null
+            }
+        ]);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
+        Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
+    }
+
+    [TestMethod]
+    public void RemoveCharts_UpdatesCachedLibraryChartRefIndexAmbiguity()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
+        var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
+        LibraryChartRefIndexSnapshot index = LibraryChartRefIndexSnapshot.FromLibraryChartRefs([
+            LibraryChartRef.FromBmsFile(first),
+            LibraryChartRef.FromBmsFile(second)
+        ]);
+
+        index.RemoveCharts([ChartFileProjection.FromBmsFile(first)]);
+        CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([
+            LibraryChartRef.FromPath(LibraryChartKind.Bms, sharedPath, second.hash, second.sha256)
+        ]);
+
+        Assert.AreEqual(1, resolveResult.CanonicalCharts.Count);
+        Assert.AreSame(second, resolveResult.CanonicalCharts[0].GetBmsStorageOwner());
+        Assert.AreEqual(1, index.GetChartRefsByPaths([sharedPath]).Count);
+    }
+
+    [TestMethod]
+    public void UpsertStorageRows_UpdatesCachedLibraryChartRefIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string replacedPath = Path.Combine("C:\\Installed", "Bms", "replace.bms");
+        var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+        var replacedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", replacedPath);
+        var newBms = CreateFile("cccccccccccccccccccccccccccccccc", replacedPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([keptBms, replacedBms], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+
+        state.UpsertStorageRows([newBms], []);
+
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        List<LibraryChartRef> refs = index.GetChartRefsByPaths([replacedPath]);
+        Assert.AreEqual(1, refs.Count);
+        Assert.AreSame(newBms, refs[0].GetBmsStorageOwner());
+        Assert.AreEqual(2, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(replacedPath), null));
+    }
+
+    [TestMethod]
+    public void UpsertStorageRows_PreservesFullBuildSubtreeOrder()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string directoryPath = Path.Combine("C:\\Installed", "Mixed");
+        var bmsonSong = CreateBmsonSong(Path.Combine(directoryPath, "chart.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var bmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(directoryPath, "chart.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([], [bmsonSong]);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+
+        state.UpsertStorageRows([bmsFile], []);
+        List<ChartFile> cachedSnapshot = state.CreateSnapshotForSubtreeDirectory(
+            directoryPath,
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+        List<ChartFile> rebuiltSnapshot = OwnedChartCollectionState
+            .FromStorageRows([bmsFile], [bmsonSong])
+            .CreateSnapshotForSubtreeDirectory(
+                directoryPath,
+                includeWarningSnapshot: false,
+                includeResourceReferences: false,
+                includeScoreSnapshot: false);
+
+        List<string> rebuiltPaths = rebuiltSnapshot.Select(chart => chart.Path).ToList();
+        List<string> cachedPaths = cachedSnapshot.Select(chart => chart.Path).ToList();
+        Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
+        Assert.AreEqual(
+            string.Join("|", rebuiltPaths),
+            string.Join("|", cachedPaths));
+    }
+
+    [TestMethod]
     public void CreateOwnedHashIndexSnapshot_ReprojectsCurrentStorageOwnerHashes()
     {
         TestResourceInitializer.EnsureJapaneseResources();

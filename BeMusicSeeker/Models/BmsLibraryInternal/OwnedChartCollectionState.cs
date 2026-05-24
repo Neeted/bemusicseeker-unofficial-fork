@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -282,9 +283,18 @@ internal sealed class OwnedChartCollectionState
             .Where(path => !string.IsNullOrWhiteSpace(path))];
     }
 
-    internal void InvalidateIndexes()
+    internal void ApplyPathChanges(IEnumerable<LibraryChartPathChange> pathChanges)
     {
-        libraryChartRefIndexSnapshot = null;
+        if (libraryChartRefIndexSnapshot == null)
+        {
+            return;
+        }
+
+        List<LibraryChartPathChange> currentPathChanges = [.. GetPathChangesForCurrentCharts(pathChanges)];
+        libraryChartRefIndexSnapshot.MoveCharts(currentPathChanges);
+        libraryChartRefIndexSnapshot.ReorderAffectedPathsByStorageOrder(
+            charts,
+            currentPathChanges.Select(change => change.OldPath).Concat(currentPathChanges.Select(change => change.NewPath)));
     }
 
     internal int RemoveCharts(IEnumerable<ChartFile> removedCharts)
@@ -313,10 +323,11 @@ internal sealed class OwnedChartCollectionState
                 .Select(chart => chart.Path)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
-        int removed = charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths));
+        List<ChartFile> actualRemovedCharts = [.. charts.Where(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths))];
+        int removed = charts.RemoveAll(actualRemovedCharts.Contains);
         if (removed > 0)
         {
-            InvalidateIndexes();
+            libraryChartRefIndexSnapshot?.RemoveCharts(actualRemovedCharts);
         }
         return removed;
     }
@@ -333,11 +344,23 @@ internal sealed class OwnedChartCollectionState
             return;
         }
 
-        RemoveMatchingStorageRows(bmsFileList, bmsonSongList);
-        InsertBmsChartsBeforeBmson(ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFileList));
-        charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongList));
+        List<ChartFile> removedCharts = RemoveMatchingStorageRows(bmsFileList, bmsonSongList);
+        List<ChartFile> addedBmsCharts = ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFileList);
+        List<ChartFile> addedBmsonCharts = ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongList);
+        InsertBmsChartsBeforeBmson(addedBmsCharts);
+        charts.AddRange(addedBmsonCharts);
         SortBmsonChartsByPath();
-        InvalidateIndexes();
+        if (libraryChartRefIndexSnapshot != null)
+        {
+            libraryChartRefIndexSnapshot.RemoveCharts(removedCharts);
+            libraryChartRefIndexSnapshot.AddCharts(addedBmsCharts);
+            libraryChartRefIndexSnapshot.AddCharts(addedBmsonCharts);
+            libraryChartRefIndexSnapshot.ReorderAffectedPathsByStorageOrder(
+                charts,
+                removedCharts.Select(GetCurrentPath)
+                    .Concat(addedBmsCharts.Select(GetCurrentPath))
+                    .Concat(addedBmsonCharts.Select(GetCurrentPath)));
+        }
     }
 
     internal bool MatchesStorageRows(
@@ -384,7 +407,7 @@ internal sealed class OwnedChartCollectionState
         return chartIndex == charts.Count;
     }
 
-    private void RemoveMatchingStorageRows(
+    private List<ChartFile> RemoveMatchingStorageRows(
         IReadOnlyCollection<BMSFile> bmsFiles,
         IReadOnlyCollection<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
@@ -397,10 +420,9 @@ internal sealed class OwnedChartCollectionState
             bmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
             System.StringComparer.OrdinalIgnoreCase);
 
-        if (charts.RemoveAll(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths)) > 0)
-        {
-            InvalidateIndexes();
-        }
+        List<ChartFile> removedCharts = [.. charts.Where(chart => IsRemovedChart(chart, bmsOwners, bmsonOwners, bmsPaths, bmsonPaths))];
+        charts.RemoveAll(removedCharts.Contains);
+        return removedCharts;
     }
 
     private void InsertBmsChartsBeforeBmson(IEnumerable<ChartFile> bmsCharts)
@@ -482,6 +504,21 @@ internal sealed class OwnedChartCollectionState
 
         string sha256 = GetCurrentSha256(chart);
         return !string.IsNullOrWhiteSpace(sha256) && sha256Hashes?.Contains(sha256) == true;
+    }
+
+    private IEnumerable<LibraryChartPathChange> GetPathChangesForCurrentCharts(IEnumerable<LibraryChartPathChange> pathChanges)
+    {
+        var currentKeys = new HashSet<string>(
+            charts.Select(CreateStorageIdentityKey).Where(key => !string.IsNullOrWhiteSpace(key)),
+            System.StringComparer.OrdinalIgnoreCase);
+        foreach (LibraryChartPathChange pathChange in pathChanges ?? [])
+        {
+            string key = CreateStorageIdentityKey(pathChange?.Chart);
+            if (!string.IsNullOrWhiteSpace(key) && currentKeys.Contains(key))
+            {
+                yield return pathChange;
+            }
+        }
     }
 
     private static LibraryChartRef CreateCurrentLibraryChartRef(ChartFile chart)
@@ -654,6 +691,28 @@ internal sealed class OwnedChartCollectionState
             ChartFileKind.Bmson => bmsonPaths.Contains(chart.Path),
             _ => false
         };
+    }
+
+    private static string CreateStorageIdentityKey(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return "bms-owner:" + RuntimeHelpers.GetHashCode(bmsOwner);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        if (bmsonOwner != null)
+        {
+            return "bmson-owner:" + RuntimeHelpers.GetHashCode(bmsonOwner);
+        }
+
+        return (chart.Kind == ChartFileKind.Bmson ? "bmson-path:" : "bms-path:") + chart.Path;
     }
 
     private static void AddHashes(OwnedChartHashIndexSnapshot snapshot, string md5, string sha256)
