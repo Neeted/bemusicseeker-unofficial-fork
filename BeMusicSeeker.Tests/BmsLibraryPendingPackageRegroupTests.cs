@@ -1094,6 +1094,38 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void ResolveInstallDestinationRepresentativeMetadata_UsesOwnedSubtreeBmsonRefs()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonSubtree");
+            string nestedDirectoryPath = Path.Combine(destinationDirectoryPath, "Nested");
+            string installedBmsonPath = CreateBmsonFile(nestedDirectoryPath, "installed.bmson", "Installed Bmson", "Installed Artist");
+            library.BMSFiles = [];
+            library.BmsonSongs = [BmsonSongParser.Parse(installedBmsonPath)];
+
+            InstallDestinationRepresentativeMetadata metadata = InvokeResolveInstallDestinationRepresentativeMetadataUnsafe(
+                library,
+                destinationDirectoryPath);
+
+            Assert.AreEqual("Installed Bmson", metadata.Title);
+            Assert.AreEqual("Installed Artist", metadata.Artist);
+        });
+    }
+
+    [TestMethod]
+    public void NormalizeInstallDestinationDirectoryForLookup_PreservesDriveRoot()
+    {
+        string rootPath = Path.GetPathRoot(Path.GetFullPath(Directory.GetCurrentDirectory()));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(rootPath));
+
+        string normalized = InvokeNormalizeInstallDestinationDirectoryForLookup(rootPath);
+
+        Assert.AreEqual(rootPath, normalized);
+    }
+
+    [TestMethod]
     public void SetPendingInstallDestination_AllowsStandaloneLibraryFileForFullScan()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1439,6 +1471,20 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo, fieldName);
         fieldInfo.SetValue(target, value);
+    }
+
+    private static InstallDestinationRepresentativeMetadata InvokeResolveInstallDestinationRepresentativeMetadataUnsafe(BMSLibrary library, string destinationDirectory)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ResolveInstallDestinationRepresentativeMetadataUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (InstallDestinationRepresentativeMetadata)methodInfo.Invoke(library, [destinationDirectory]);
+    }
+
+    private static string InvokeNormalizeInstallDestinationDirectoryForLookup(string destinationDirectory)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("NormalizeInstallDestinationDirectoryForLookup", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (string)methodInfo.Invoke(null, [destinationDirectory]);
     }
 
     private static DirectoryResourceLookupCache BuildDirectoryLookupCache(params string[] directories)

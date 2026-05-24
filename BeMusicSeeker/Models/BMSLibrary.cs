@@ -8209,42 +8209,74 @@ reportProgress,
         internal string Path { get; set; }
     }
 
-    private static bool IsChartPathWithinDestinationDirectory(string destinationDirectory, string chartPath)
-    {
-        if (string.IsNullOrWhiteSpace(destinationDirectory) || string.IsNullOrWhiteSpace(chartPath))
-        {
-            return false;
-        }
-        string chartDirectory = DirectoryExt.GetDirectoryNameSimple(chartPath);
-        if (string.IsNullOrWhiteSpace(chartDirectory))
-        {
-            return false;
-        }
-        if (string.Equals(chartDirectory, destinationDirectory, StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-        return (chartDirectory + Path.DirectorySeparatorChar).StartsWith(destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-    }
-
     private IEnumerable<InstalledChartMetadataCandidate> EnumerateInstalledChartMetadataCandidatesUnsafe(string normalizedDestinationDirectory)
     {
-        return (BMSFiles ?? [])
-            .Where(file => file != null && IsChartPathWithinDestinationDirectory(normalizedDestinationDirectory, file.path))
-            .Select(file => new InstalledChartMetadataCandidate
+        if (string.IsNullOrWhiteSpace(normalizedDestinationDirectory))
+        {
+            return [];
+        }
+
+        return CreateLibraryChartRefIndexSnapshotUnsafe()
+            .GetChartRefsUnderRealPath(normalizedDestinationDirectory)
+            .Select(CreateInstalledChartMetadataCandidate)
+            .Where(candidate => candidate != null);
+    }
+
+    private static InstalledChartMetadataCandidate CreateInstalledChartMetadataCandidate(LibraryChartRef chartRef)
+    {
+        BMSFile bmsFile = chartRef?.GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            return new InstalledChartMetadataCandidate
             {
-                Title = file.Title ?? string.Empty,
-                Artist = file.Artist ?? string.Empty,
-                Path = file.path ?? string.Empty
-            })
-            .Concat((BmsonSongs ?? [])
-                .Where(song => song != null && IsChartPathWithinDestinationDirectory(normalizedDestinationDirectory, song.path))
-                .Select(song => new InstalledChartMetadataCandidate
-                {
-                    Title = BmsonSongParser.ComposeDisplayTitle(song),
-                    Artist = song.artist ?? string.Empty,
-                    Path = song.path ?? string.Empty
-                }));
+                Title = bmsFile.Title ?? string.Empty,
+                Artist = bmsFile.Artist ?? string.Empty,
+                Path = bmsFile.path ?? string.Empty
+            };
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = chartRef?.GetBmsonStorageOwner();
+        if (bmsonSong != null)
+        {
+            return new InstalledChartMetadataCandidate
+            {
+                Title = BmsonSongParser.ComposeDisplayTitle(bmsonSong),
+                Artist = bmsonSong.artist ?? string.Empty,
+                Path = bmsonSong.path ?? string.Empty
+            };
+        }
+
+        return null;
+    }
+
+    private static string NormalizeInstallDestinationDirectoryForLookup(string destinationDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            return null;
+        }
+
+        string normalizedPath;
+        try
+        {
+            normalizedPath = Path.GetFullPath(destinationDirectory.Trim());
+        }
+        catch
+        {
+            normalizedPath = destinationDirectory.Trim();
+        }
+
+        string rootPath = Path.GetPathRoot(normalizedPath);
+        string trimmedPath = normalizedPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (string.IsNullOrWhiteSpace(trimmedPath))
+        {
+            return normalizedPath;
+        }
+
+        string rootTrimmed = rootPath?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return !string.IsNullOrWhiteSpace(rootTrimmed) && string.Equals(trimmedPath, rootTrimmed, StringComparison.OrdinalIgnoreCase)
+            ? rootPath
+            : trimmedPath;
     }
 
     private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataUnsafe(string destinationDirectory)
@@ -8253,7 +8285,7 @@ reportProgress,
         {
             return InstallDestinationRepresentativeMetadata.Empty;
         }
-        string normalizedDestinationDirectory = destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedDestinationDirectory = NormalizeInstallDestinationDirectoryForLookup(destinationDirectory);
         InstalledChartMetadataCandidate representativeChart = EnumerateInstalledChartMetadataCandidatesUnsafe(normalizedDestinationDirectory)
             .OrderByDescending(candidate => !string.IsNullOrWhiteSpace(candidate.Title))
             .ThenByDescending(candidate => !string.IsNullOrWhiteSpace(candidate.Artist))
@@ -8277,7 +8309,7 @@ reportProgress,
             return InstallEstimationMetadataProfile.Empty;
         }
 
-        string normalizedDestinationDirectory = destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedDestinationDirectory = NormalizeInstallDestinationDirectoryForLookup(destinationDirectory);
         lock (lockInstallEstimationMetadataProfileCache)
         {
             if (installEstimationMetadataProfileCache.TryGetValue(normalizedDestinationDirectory, out InstallEstimationMetadataProfile cachedProfile))
