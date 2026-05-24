@@ -6633,6 +6633,8 @@ reportProgress,
 
         public bool OwnedCollectionChangeNotified { get; set; }
 
+        public bool ResourceHealthIndexInvalidated { get; set; }
+
         public bool ShouldDispatchInstalledLookup => ForceInstalledLookupDispatch || InstalledLookupMutation?.HasChanges == true;
 
         public bool ShouldDeferStateApplierDerivedInvalidation => ParentFolderInvalidated || DuplicateCacheInvalidated;
@@ -6646,6 +6648,7 @@ reportProgress,
             || DuplicateCacheInvalidated
             || PlaylistSummaryOwnedHashInvalidated
             || OwnedCollectionChanged
+            || ResourceHealthIndexInvalidated
             || InstalledLookupMutation?.HasChanges == true;
     }
 
@@ -6942,6 +6945,7 @@ reportProgress,
             using (SuppressInstalledChartLookupInvalidation())
             using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
             using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
+            using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
                 ApplyInstalledChartStorageRowsUnsafe(addedTargets);
@@ -6959,6 +6963,10 @@ reportProgress,
             if (mutationResult.OwnedCollectionChanged)
             {
                 PublishOwnedCollectionChangeNotification(mutationResult);
+            }
+            if (mutationResult.ResourceHealthIndexInvalidated)
+            {
+                ForceInvalidateResourceHealthIndex("install_package_failed");
             }
             InvalidateOwnedChartCollection();
             throw;
@@ -7001,7 +7009,8 @@ reportProgress,
             ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
             DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true,
             PlaylistSummaryOwnedHashInvalidated = HasPlaylistSummaryOwnedHashChanges(delta),
-            OwnedCollectionChanged = HasOwnedCollectionChanges(delta)
+            OwnedCollectionChanged = HasOwnedCollectionChanges(delta),
+            ResourceHealthIndexInvalidated = HasOwnedCollectionChanges(delta)
         };
         result.InstallDestinationChangedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta));
         return result;
@@ -7014,7 +7023,8 @@ reportProgress,
             InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets?.BmsFiles, addedTargets?.BmsonSongs),
             AddedCount = (addedTargets?.BmsFiles.Count ?? 0) + (addedTargets?.BmsonSongs.Count ?? 0),
             PlaylistSummaryOwnedHashInvalidated = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0,
-            OwnedCollectionChanged = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0
+            OwnedCollectionChanged = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0,
+            ResourceHealthIndexInvalidated = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0
         };
     }
 
@@ -7065,6 +7075,10 @@ reportProgress,
         {
             PublishOwnedCollectionChangeNotification(result);
         }
+        if (result.ResourceHealthIndexInvalidated)
+        {
+            InvalidateResourceHealthIndex(reason);
+        }
         if (result.ShouldDispatchInstalledLookup)
         {
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
@@ -7084,6 +7098,7 @@ reportProgress,
                 + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
                 + " playlistSummaryHash=" + ToInvalidateLogValue(result.PlaylistSummaryOwnedHashInvalidated)
                 + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
+                + " resourceHealth=" + ToInvalidateLogValue(result.ResourceHealthIndexInvalidated)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
     }
@@ -8075,10 +8090,20 @@ reportProgress,
 
     private void InvalidateResourceHealthIndex(string reason)
     {
+        InvalidateResourceHealthIndexCore(reason, ignoreSuppression: false);
+    }
+
+    private void ForceInvalidateResourceHealthIndex(string reason)
+    {
+        InvalidateResourceHealthIndexCore(reason, ignoreSuppression: true);
+    }
+
+    private void InvalidateResourceHealthIndexCore(string reason, bool ignoreSuppression)
+    {
         _ = reason;
         lock (resourceHealthIndexLock)
         {
-            if (suppressResourceHealthIndexInvalidation > 0)
+            if (!ignoreSuppression && suppressResourceHealthIndexInvalidation > 0)
             {
                 return;
             }
@@ -12276,6 +12301,7 @@ reportProgress,
             // StateApplier still mutates storage rows through property setters; during this orchestration, derived index invalidation is dispatched once below.
             using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
             using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
+            using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
             using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
@@ -12308,6 +12334,10 @@ reportProgress,
             if (mutationResult.OwnedCollectionChanged)
             {
                 PublishOwnedCollectionChangeNotification(mutationResult);
+            }
+            if (mutationResult.ResourceHealthIndexInvalidated)
+            {
+                ForceInvalidateResourceHealthIndex("library_delta_failed");
             }
             InvalidateOwnedChartCollection();
             ClearLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);

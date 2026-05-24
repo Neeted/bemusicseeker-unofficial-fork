@@ -698,6 +698,90 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_UnregisterInvalidatesCurrentResourceHealthIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Resource", "chart.bms"));
+            bmsFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(bmsFile)
+            {
+                hash = bmsFile.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1
+            }, suppressPropertyChanged: true);
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile)]);
+            Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            var delta = new LibraryMutationDelta();
+            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(bmsFile));
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_PathChangeInvalidatesCurrentResourceHealthIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ResourceMutation_" + Guid.NewGuid().ToString("N"));
+            string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+            string newDirectoryPath = Path.Combine(tempRootPath, "New");
+            Directory.CreateDirectory(oldDirectoryPath);
+            Directory.CreateDirectory(newDirectoryPath);
+            string oldBmsPath = Path.Combine(oldDirectoryPath, "chart.bms");
+            string newBmsPath = Path.Combine(newDirectoryPath, "chart.bms");
+            File.WriteAllText(newBmsPath, "#PLAYER 1");
+            try
+            {
+                var oldSnapshotFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
+                oldSnapshotFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(oldSnapshotFile)
+                {
+                    hash = oldSnapshotFile.hash,
+                    wav_files_defined = 2,
+                    wav_files_existing = 1
+                }, suppressPropertyChanged: true);
+                TestableBmsFile bmsFile = CreateFile(oldSnapshotFile.hash, newBmsPath);
+                bmsFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(bmsFile)
+                {
+                    hash = bmsFile.hash,
+                    wav_files_defined = 2,
+                    wav_files_existing = 1
+                }, suppressPropertyChanged: true);
+                var library = new BMSLibrary(songDbPath);
+                SetLibraryFilesWithoutNotification(library, [bmsFile]);
+                SetLibraryBmsonSongsWithoutNotification(library, []);
+                SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(oldSnapshotFile)]);
+                Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+                var delta = new LibraryMutationDelta();
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                    OldPath = oldBmsPath,
+                    NewPath = newBmsPath
+                });
+
+                InvokeApplyLibraryMutationDelta(library, delta);
+
+                Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_DispatchesParentFolderOnceAndClearsDuplicateCache()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -718,12 +802,10 @@ public sealed class OwnedChartCollectionStateTests
             {
                 TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", newBmsPath);
                 LR2SongDBExtended.bmson_song bmsonSong = CreateBmsonSong(oldBmsonPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-                var library = new BMSLibrary(songDbPath)
-                {
-                    DuplicateChartGroups = []
-                };
+                var library = new BMSLibrary(songDbPath);
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
+                SetDuplicateChartGroupsWithoutNotification(library, []);
                 int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
                 int ownedCollectionVersionChanged = 0;
                 int bmsFilesChanged = 0;
@@ -808,6 +890,8 @@ public sealed class OwnedChartCollectionStateTests
                     BmsonSongs = [],
                     DuplicateChartGroups = []
                 };
+                SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile)]);
+                Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
                 int parentFolderVersionChanged = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -836,6 +920,7 @@ public sealed class OwnedChartCollectionStateTests
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);
+                Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             }
             finally
             {
@@ -866,6 +951,8 @@ public sealed class OwnedChartCollectionStateTests
             SetLibraryBmsonSongsWithoutNotification(library, [replacedBmson, keptBmson]);
             InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
             object ownedStateBefore = GetOwnedChartCollectionState(library);
+            SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(replacedBms)]);
+            Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
             int ownedCollectionVersionChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -881,6 +968,7 @@ public sealed class OwnedChartCollectionStateTests
 
             Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
             Assert.AreEqual(1, ownedCollectionVersionChanged);
+            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
             Assert.AreEqual(4, snapshot.Count);
@@ -915,6 +1003,38 @@ public sealed class OwnedChartCollectionStateTests
 
             Assert.IsInstanceOfType(exception.InnerException, typeof(ArgumentException));
             Assert.IsFalse(IsOwnedChartCollectionInitialized(library));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_ForceInvalidatesResourceHealthIndexOnFailureDuringSuppression()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+            var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
+            string duplicateBmsonPath = Path.Combine("C:\\Installed", "Bmson", "duplicate.bmson");
+            var duplicateBmsonA = CreateBmsonSong(duplicateBmsonPath, "cccccccccccccccccccccccccccccccc");
+            var duplicateBmsonB = CreateBmsonSong(duplicateBmsonPath, "dddddddddddddddddddddddddddddddd");
+            var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "added.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [keptBms],
+                BmsonSongs = [duplicateBmsonA, duplicateBmsonB]
+            };
+            SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(keptBms)]);
+            Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+
+            TargetInvocationException exception;
+            using (InvokeSuppressResourceHealthIndexInvalidation(library))
+            {
+                exception = Assert.ThrowsException<TargetInvocationException>(() =>
+                    InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms], [addedBmson])));
+            }
+
+            Assert.IsInstanceOfType(exception.InnerException, typeof(ArgumentException));
+            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
         });
     }
 
@@ -1082,6 +1202,13 @@ public sealed class OwnedChartCollectionStateTests
         methodInfo.Invoke(library, [addedTargets, "test"]);
     }
 
+    private static IDisposable InvokeSuppressResourceHealthIndexInvalidation(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("SuppressResourceHealthIndexInvalidation", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (IDisposable)methodInfo.Invoke(library, []);
+    }
+
     private static bool IsOwnedChartCollectionInitialized(BMSLibrary library)
     {
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollectionInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -1108,6 +1235,27 @@ public sealed class OwnedChartCollectionStateTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BmsonSongs", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         fieldInfo.SetValue(library, songs.ToList());
+    }
+
+    private static void SetDuplicateChartGroupsWithoutNotification(BMSLibrary library, IEnumerable<DuplicateGroup> groups)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_DuplicateChartGroups", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        fieldInfo.SetValue(library, groups.ToList());
+    }
+
+    private static void SetCurrentResourceHealthIndex(BMSLibrary library, IEnumerable<ChartFile> charts)
+    {
+        var snapshot = ResourceHealthIndexSnapshot.Build(charts, new BmsLibraryMaintenanceService(), version: 1);
+        SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
+        SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+    }
+
+    private static void SetPrivateField(BMSLibrary library, string fieldName, object value)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        fieldInfo.SetValue(library, value);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
