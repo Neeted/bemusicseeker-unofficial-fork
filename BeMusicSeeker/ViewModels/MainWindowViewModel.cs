@@ -42,73 +42,6 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal readonly struct LibraryRowsBuildMetrics
-{
-    internal LibraryRowsBuildMetrics(
-        int sourceBmsCount,
-        int sourceBmsonCount,
-        int filteredBmsCount,
-        int filteredBmsonCount,
-        bool folderFilterApplied,
-        long regularFilterMs,
-        long bmsonFilterMs,
-        long regularRowMaterializeMs,
-        long bmsonRowMaterializeMs,
-        long concatToListMs,
-        long folderMs,
-        int folderCount,
-        int regularRowCacheHitCount = 0,
-        int regularRowCacheMissCount = 0,
-        int regularRowCachePrunedCount = 0)
-    {
-        SourceBmsCount = sourceBmsCount;
-        SourceBmsonCount = sourceBmsonCount;
-        FilteredBmsCount = filteredBmsCount;
-        FilteredBmsonCount = filteredBmsonCount;
-        FolderFilterApplied = folderFilterApplied;
-        RegularFilterMs = regularFilterMs;
-        BmsonFilterMs = bmsonFilterMs;
-        RegularRowMaterializeMs = regularRowMaterializeMs;
-        BmsonRowMaterializeMs = bmsonRowMaterializeMs;
-        ConcatToListMs = concatToListMs;
-        FolderMs = folderMs;
-        FolderCount = folderCount;
-        RegularRowCacheHitCount = regularRowCacheHitCount;
-        RegularRowCacheMissCount = regularRowCacheMissCount;
-        RegularRowCachePrunedCount = regularRowCachePrunedCount;
-    }
-
-    internal int SourceBmsCount { get; }
-
-    internal int SourceBmsonCount { get; }
-
-    internal int FilteredBmsCount { get; }
-
-    internal int FilteredBmsonCount { get; }
-
-    internal bool FolderFilterApplied { get; }
-
-    internal long RegularFilterMs { get; }
-
-    internal long BmsonFilterMs { get; }
-
-    internal long RegularRowMaterializeMs { get; }
-
-    internal long BmsonRowMaterializeMs { get; }
-
-    internal long ConcatToListMs { get; }
-
-    internal long FolderMs { get; }
-
-    internal int FolderCount { get; }
-
-    internal int RegularRowCacheHitCount { get; }
-
-    internal int RegularRowCacheMissCount { get; }
-
-    internal int RegularRowCachePrunedCount { get; }
-}
-
 /// <summary>
 /// Holds package chart sources accepted by the virtual chart-list pipeline.
 /// </summary>
@@ -5745,8 +5678,6 @@ public class MainWindowViewModel : ViewModel
 
     private viewUpdateMode? lastAppliedMainColumnSettingMode;
 
-    private int pendingRegularBmsRowCachePrunedCount;
-
     private readonly Dictionary<string, ChartFileTransientState> chartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly object mainSummaryFolderCountCacheLock = new();
@@ -6063,6 +5994,14 @@ public class MainWindowViewModel : ViewModel
         if (installPerformanceLoggingEnabled)
         {
             installPerformanceLogger.Info(message);
+        }
+    }
+
+    private static void LogMainViewBuildWarning(string message)
+    {
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Warn(message);
         }
     }
 
@@ -10063,9 +10002,7 @@ public class MainWindowViewModel : ViewModel
         {
             return 0;
         }
-        int pruned = regularBmsLibraryRowCache.PruneBmsFiles(currentFiles);
-        pendingRegularBmsRowCachePrunedCount += pruned;
-        return pruned;
+        return regularBmsLibraryRowCache.PruneBmsFiles(currentFiles);
     }
 
     private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(ChartFile chart)
@@ -10073,37 +10010,6 @@ public class MainWindowViewModel : ViewModel
         var row = LibraryChartRow.FromChartFile(chart);
         ApplyLibraryChartRowProviders(row);
         return row;
-    }
-
-    private LibraryChartRow GetOrCreateRegularBmsLibraryRow(ChartFile chart, LibraryRowCacheBuildStats stats)
-    {
-        LibraryChartRow row = regularBmsLibraryRowCache.GetOrCreate(chart, stats);
-        ApplyLibraryChartRowProviders(row);
-        return row;
-    }
-
-    private LibraryChartRow GetOrCreateStandardLibraryRow(ChartFile chart, LibraryRowCacheBuildStats stats)
-    {
-        if (chart == null)
-        {
-            return null;
-        }
-        BeMusicSeeker.Models.BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            return GetOrCreateRegularBmsLibraryRow(chart, stats);
-        }
-        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-        if (bmsonSong != null)
-        {
-            LibraryChartRow row = regularBmsLibraryRowCache.GetOrCreate(chart, stats) ?? LibraryChartRow.FromBmsonSong(bmsonSong);
-            ApplyLibraryChartRowProviders(row);
-            return row;
-        }
-
-        LibraryChartRow projectedRow = LibraryChartRow.FromChartFile(chart);
-        ApplyLibraryChartRowProviders(projectedRow);
-        return projectedRow;
     }
 
     private void ApplyLibraryChartRowProviders(LibraryChartRow row)
@@ -10656,20 +10562,6 @@ public class MainWindowViewModel : ViewModel
         row?.SetChartInfoProjectionProvider(ResolveChartInfoForProjection);
         ApplyPlaylistReferenceDisplayProvider(row);
         return row;
-    }
-
-    private static List<ChartFile> CreateStandardLibraryChartSnapshot(
-        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
-    {
-        return ChartFileProjection.FromStorageRows(
-            bmsFiles,
-            bmsonSongs,
-            includeWarningSnapshot: false,
-            requireBmsonPath: true,
-            orderBmsonByPath: true,
-            includeResourceReferences: false,
-            includeScoreSnapshot: false);
     }
 
     private static List<ChartFile> CreateBmsChartSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -11339,6 +11231,20 @@ public class MainWindowViewModel : ViewModel
             + " includeBmsonRows=" + includeBmsonRows);
     }
 
+    private void LogVirtualNormalLibraryRequiredFailure(viewUpdateMode mode, viewUpdateMode requestedMode, bool includeBmsonRows)
+    {
+        LogMainViewBuildWarning("main_view_virtual_required_failed"
+            + " mode=" + mode
+            + " requestedMode=" + requestedMode
+            + " treeMode=" + treeViewFilterTypeSelected
+            + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
+            + " sortDirection=" + (SortParameters?.Direction.ToString() ?? "Ascending")
+            + " folderFilterApplied=" + (virtualNormalLibraryTreeFilter != null)
+            + " keywordLength=" + (KeywordFilter?.Length ?? 0)
+            + " modeFilter=" + ModeFilter
+            + " includeBmsonRows=" + includeBmsonRows);
+    }
+
     private void LogVirtualNormalLibrarySortReset(viewUpdateMode mode, viewUpdateMode requestedMode, bool includeBmsonRows, string reason, string appliedSortColumn, ListSortDirection appliedSortDirection)
     {
         if (string.IsNullOrWhiteSpace(reason)
@@ -11346,7 +11252,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        LogMainViewBuild("main_view_virtual_sort_reset reason=" + reason
+        LogMainViewBuildWarning("main_view_virtual_sort_reset reason=" + reason
             + " mode=" + mode
             + " requestedMode=" + requestedMode
             + " treeMode=" + treeViewFilterTypeSelected
@@ -16319,25 +16225,9 @@ public class MainWindowViewModel : ViewModel
         switch (mode)
         {
             case viewUpdateMode.FolderFilterSelected:
-                LibraryRowCacheBuildStats folderRowCacheStats = CreateRegularRowCacheBuildStats();
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(
-                    CreateStandardLibraryChartSnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
-                    virtualNormalLibraryTreeFilter,
-                    chart => GetOrCreateStandardLibraryRow(chart, folderRowCacheStats),
-                    folderRowCacheStats,
-                    out LibraryRowsBuildMetrics folderMetrics);
-                LogMainViewFolderDetail(mode, folderMetrics);
-                break;
             case viewUpdateMode.FullScanAllChartsFilterSelected:
-                LibraryRowCacheBuildStats fullScanRowCacheStats = CreateRegularRowCacheBuildStats();
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(
-                    CreateStandardLibraryChartSnapshot(BMSFiles, includeBmsonRows ? files?.BmsonSongs : null),
-                    null,
-                    chart => GetOrCreateStandardLibraryRow(chart, fullScanRowCacheStats),
-                    fullScanRowCacheStats,
-                    out LibraryRowsBuildMetrics fullScanMetrics);
-                LogMainViewFolderDetail(mode, fullScanMetrics);
-                LogResourceHealthProjection(mode, ChartRowsFolderView);
+                LogVirtualNormalLibraryRequiredFailure(mode, requestedMode, includeBmsonRows);
+                ChartRowsFolderView = [];
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
                 ChartRowsFolderView = ToLibraryChartRows(ChartFilesNeedResourceFix, CreateLibraryChartRowWithResourceHealthProjection);
@@ -16670,86 +16560,6 @@ public class MainWindowViewModel : ViewModel
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " prepareSwapMs=" + prepareSwapMs + " columnSettingMs=" + columnSettingMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
-    internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
-        IEnumerable<ChartFile> charts,
-        NormalLibraryTreeFilter folderFilter,
-        Func<ChartFile, LibraryChartRow> rowFactory,
-        LibraryRowCacheBuildStats rowCacheStats,
-        out LibraryRowsBuildMetrics metrics)
-    {
-        var totalStopwatch = Stopwatch.StartNew();
-        long regularFilterMs = 0L;
-        long bmsonFilterMs = 0L;
-        long regularRowMaterializeMs;
-        long bmsonRowMaterializeMs = 0L;
-        long concatToListMs;
-        List<ChartFile> sourceCharts = [.. (charts ?? []).Where(chart => chart != null)];
-        int sourceBmsCount = sourceCharts.Count(chart => chart.Kind == ChartFileKind.Bms);
-        int sourceBmsonCount = sourceCharts.Count(chart => chart.Kind == ChartFileKind.Bmson);
-        IEnumerable<ChartFile> regularCharts = sourceCharts.Where(chart => chart.Kind == ChartFileKind.Bms);
-        IEnumerable<ChartFile> bmsonCharts = sourceCharts.Where(chart => chart.Kind == ChartFileKind.Bmson);
-        if (folderFilter != null)
-        {
-            var filterStopwatch = Stopwatch.StartNew();
-            regularCharts = regularCharts.AsParallel().Where(folderFilter.Matches);
-            List<ChartFile> filteredRegularRows = [.. regularCharts];
-            filterStopwatch.Stop();
-            regularFilterMs = filterStopwatch.ElapsedMilliseconds;
-            regularCharts = filteredRegularRows;
-
-            filterStopwatch.Restart();
-            bmsonCharts = bmsonCharts.AsParallel().Where(folderFilter.Matches);
-            List<ChartFile> filteredBmsonRows = [.. bmsonCharts];
-            filterStopwatch.Stop();
-            bmsonFilterMs = filterStopwatch.ElapsedMilliseconds;
-            bmsonCharts = filteredBmsonRows;
-        }
-
-        var materializeStopwatch = Stopwatch.StartNew();
-        List<LibraryChartRow> regularLibraryRows = MaterializeLibraryChartRows(regularCharts, rowFactory ?? (chart => LibraryChartRow.FromChartFile(chart)));
-        materializeStopwatch.Stop();
-        regularRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
-
-        materializeStopwatch.Restart();
-        List<LibraryChartRow> bmsonLibraryRows = MaterializeLibraryChartRows(bmsonCharts, rowFactory ?? (chart => LibraryChartRow.FromChartFile(chart)));
-        materializeStopwatch.Stop();
-        bmsonRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
-
-        var concatStopwatch = Stopwatch.StartNew();
-        List<LibraryChartRow> rows = [.. regularLibraryRows, .. bmsonLibraryRows];
-        concatStopwatch.Stop();
-        concatToListMs = concatStopwatch.ElapsedMilliseconds;
-        totalStopwatch.Stop();
-
-        metrics = new LibraryRowsBuildMetrics(
-            sourceBmsCount,
-            sourceBmsonCount,
-            regularLibraryRows.Count,
-            bmsonLibraryRows.Count,
-            folderFilter != null,
-            regularFilterMs,
-            bmsonFilterMs,
-            regularRowMaterializeMs,
-            bmsonRowMaterializeMs,
-            concatToListMs,
-            totalStopwatch.ElapsedMilliseconds,
-            rows.Count,
-            rowCacheStats?.HitCount ?? 0,
-            rowCacheStats?.MissCount ?? 0,
-            rowCacheStats?.PrunedCount ?? 0);
-        return rows;
-    }
-
-    private LibraryRowCacheBuildStats CreateRegularRowCacheBuildStats()
-    {
-        var stats = new LibraryRowCacheBuildStats
-        {
-            PrunedCount = pendingRegularBmsRowCachePrunedCount
-        };
-        pendingRegularBmsRowCachePrunedCount = 0;
-        return stats;
-    }
-
     private static int CountIfCheap<T>(IEnumerable<T> source)
     {
         if (source == null)
@@ -16765,26 +16575,6 @@ public class MainWindowViewModel : ViewModel
             return collection.Count;
         }
         return -1;
-    }
-
-    private static void LogMainViewFolderDetail(viewUpdateMode mode, LibraryRowsBuildMetrics metrics)
-    {
-        LogMainViewBuild("main_view_folder_detail mode=" + mode
-            + " folderFilterApplied=" + metrics.FolderFilterApplied
-            + " sourceBmsCount=" + metrics.SourceBmsCount
-            + " sourceBmsonCount=" + metrics.SourceBmsonCount
-            + " filteredBmsCount=" + metrics.FilteredBmsCount
-            + " filteredBmsonCount=" + metrics.FilteredBmsonCount
-            + " regularFilterMs=" + metrics.RegularFilterMs
-            + " bmsonFilterMs=" + metrics.BmsonFilterMs
-            + " regularRowMaterializeMs=" + metrics.RegularRowMaterializeMs
-            + " bmsonRowMaterializeMs=" + metrics.BmsonRowMaterializeMs
-            + " concatToListMs=" + metrics.ConcatToListMs
-            + " regularRowCacheHitCount=" + metrics.RegularRowCacheHitCount
-            + " regularRowCacheMissCount=" + metrics.RegularRowCacheMissCount
-            + " regularRowCachePrunedCount=" + metrics.RegularRowCachePrunedCount
-            + " folderMs=" + metrics.FolderMs
-            + " folderCount=" + metrics.FolderCount);
     }
 
     private void LogResourceHealthProjection(viewUpdateMode mode, IEnumerable<LibraryChartRow> rows)

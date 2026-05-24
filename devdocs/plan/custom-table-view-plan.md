@@ -658,8 +658,8 @@ Phase 3 完了判断:
   - `main_view_build totalMs=1543` が支配的で、内訳は `folderMs=1034`, `sortMs=506`。
   - 描画は `columns_changed renderWorkMs=652` で、無視はできないが表示前 pipeline の方が大きい。
 - 追加ログ後の通常ライブラリ:
-  - `main_view_folder_detail` では、フォルダなしの通常ライブラリ表示で `regularRowMaterializeMs` が 1 秒台後半まで伸びるケースが見えた。CustomTableView 描画とは別に、20 万件の `LibraryChartRow` 生成が支配的になりうる。
-  - `main_sort_detail` では、`PATH` / `TITLE` の大規模 sort が 800ms 前後になるケースがあり、row 生成の次に大きい候補になっている。
+  - 旧 regular view では、フォルダなしの通常ライブラリ表示で `regularRowMaterializeMs` が 1 秒台後半まで伸びるケースが見えた。現在の通常ライブラリ root / folder / fullscan は virtual view を正規経路にし、全件 `LibraryChartRow` materialize に戻さない。
+  - `main_sort_detail` では、`PATH` / `TITLE` の大規模 sort が 800ms 前後になるケースがあり、row 生成の次に大きい候補になっていた。現在は virtual order cache / source row cache の hit と `orderBuildMs=0` を確認する。
 - `textCacheHitRate` は通常ライブラリで `0.99` 近くまで出ているため、`FormattedText` 生成 miss だけが描画コストの主因ではない。全セルの背景・罫線・テキスト描画、全面 redraw そのものが効いている可能性が高い。
 
 改善順序:
@@ -681,15 +681,11 @@ Phase 3 完了判断:
    - 目標: `buildToVisibleRenderMs` から 500ms 前後の捨て描画を削る。
    - 実装済み: `PrepareForItemsSourceSwap()` から明示 redraw を削除し、active editor commit 時の `edit` redraw は維持する。
 
-3. 通常ライブラリの `main_view_build folderMs` を分解し、row materialize を削る。
-   - `folderMs=1034` の内訳を追加ログで分ける。
-   - 候補: 対象 row 抽出、`LibraryChartRow` materialize、bmson/BMS 共通 row 化、mode/tag/keyword 前処理、リストコピー。
-   - ここは CustomTableView 描画とは別作業として扱うが、ユーザー体感の初回表示には最も効く。
-   - 実装済み: `main_view_folder_detail` を追加し、`sourceBmsCount`, `sourceBmsonCount`, `filteredBmsCount`, `filteredBmsonCount`, `regularFilterMs`, `bmsonFilterMs`, `regularRowMaterializeMs`, `bmsonRowMaterializeMs`, `concatToListMs`, `folderMs`, `folderCount` を出す。
-   - 追加実装: 通常ライブラリ用の `BMSFile -> LibraryChartRow` cache を追加し、全件表示やフィルター解除時に BMS row wrapper を再利用する。
-   - 追加実装: `main_view_folder_detail` に `regularRowCacheHitCount`, `regularRowCacheMissCount`, `regularRowCachePrunedCount` を追加し、20 万件 row materialize が cache hit で下がるか確認できるようにする。
-   - 削除済み `BMSFile` を保持しないよう、`BMSFiles` membership 変更時に row cache を prune する。
-   - 検索・フィルターで変化する result set の高速化は後続とし、まず未絞り込み通常ライブラリの軽い遷移を優先する。
+3. 通常ライブラリの full row materialize を通常経路から外す。
+   - `folderMs=1034` の主因だった全件 `LibraryChartRow` materialize は、通常 library root / folder / fullscan の virtual view 化で通常経路から外れた。
+   - 現在の確認対象は `main_view_build virtual=True`, `sourceRowsReuse`, `sortReuse`, `viewRowsCreated`, `main_sort_detail orderBuildMs` である。
+   - virtual view が取れない通常 library route は `main_view_virtual_required_failed` として warning を出し、full materialize fallback で隠さない。
+   - 検索・フィルターで変化する result set の高速化は virtual source row / order cache 側で扱う。
 
 4. 通常ライブラリの `sortMs` をさらに削る。
    - `sortMs=506` は 20 万行規模では十分大きい。

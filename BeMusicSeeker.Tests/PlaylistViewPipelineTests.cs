@@ -2937,60 +2937,6 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void BuildStandardLibraryRowsForView_MixesBmsAndBmsonRowsAndAppliesFolderFilter()
-    {
-        var keepBms = new TestableBmsFile();
-        keepBms.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Keep Bms", 7);
-        keepBms.path = "C:\\Keep\\bms\\chart.bms";
-        var skipBms = new TestableBmsFile();
-        skipBms.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Skip Bms", 7);
-        skipBms.path = "C:\\Skip\\bms\\chart.bms";
-        var keepBmson = new LR2SongDBExtended.bmson_song
-        {
-            path = "C:\\Keep\\bmson\\chart.bmson",
-            folder = "C:\\Keep\\bmson",
-            title = "Keep Bmson",
-            artist = "Artist",
-            md5 = "cccccccccccccccccccccccccccccccc",
-            sha256 = new string('c', 64)
-        };
-        var skipBmson = new LR2SongDBExtended.bmson_song
-        {
-            path = "C:\\Skip\\bmson\\chart.bmson",
-            folder = "C:\\Skip\\bmson",
-            title = "Skip Bmson",
-            artist = "Artist",
-            md5 = "dddddddddddddddddddddddddddddddd",
-            sha256 = new string('d', 64)
-        };
-        List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
-            [
-                ChartFileProjection.FromBmsFile(keepBms),
-                ChartFileProjection.FromBmsFile(skipBms),
-                ChartFileProjection.FromBmsonSong(keepBmson),
-                ChartFileProjection.FromBmsonSong(skipBmson),
-            ],
-            MainWindowViewModel.NormalLibraryTreeFilter.Create(MainWindowViewModel.FolderFilterType.DirectoryFilter, "C:\\Keep"),
-            chart => LibraryChartRow.FromChartFile(chart),
-            null,
-            out LibraryRowsBuildMetrics metrics);
-
-        Assert.AreEqual(2, rows.Count);
-        CollectionAssert.AreEquivalent(new[] { "Keep Bms", "Keep Bmson" }, rows.Select(row => row.Title).ToArray());
-        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bms && row.GetBmsStorageOwner() == keepBms));
-        Assert.IsTrue(rows.Any(row => row.Chart.Kind == ChartFileKind.Bmson && row.GetBmsonStorageOwner() == keepBmson));
-        Assert.IsFalse(rows.Any(row => row.Title == "Skip Bms" || row.Title == "Skip Bmson"));
-        Assert.IsTrue(rows.All(row => row.GetType() == typeof(LibraryChartRow)));
-        Assert.IsTrue(metrics.FolderFilterApplied);
-        Assert.AreEqual(2, metrics.SourceBmsCount);
-        Assert.AreEqual(2, metrics.SourceBmsonCount);
-        Assert.AreEqual(1, metrics.FilteredBmsCount);
-        Assert.AreEqual(1, metrics.FilteredBmsonCount);
-        Assert.AreEqual(2, metrics.FolderCount);
-        Assert.IsTrue(metrics.FolderMs >= 0);
-    }
-
-    [TestMethod]
     public void NormalLibraryRowCache_ReusesRowsAndPrunesRemovedFiles()
     {
         var fileA = new TestableBmsFile();
@@ -3127,32 +3073,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(
             LibraryChartRowSourceNotificationGroups.None,
             LibraryChartRowSourceNotificationMapper.MapBmsStorageProperty(nameof(BMSFile.path)));
-    }
-
-    [TestMethod]
-    public void BuildStandardLibraryRowsForView_UsesProvidedBmsRowFactoryAndReportsCacheMetrics()
-    {
-        var file = new TestableBmsFile();
-        file.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
-        var cachedRow = LibraryChartRow.FromBmsFile(file);
-        var stats = new LibraryRowCacheBuildStats
-        {
-            HitCount = 1,
-            PrunedCount = 2
-        };
-
-        List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
-            [ChartFileProjection.FromBmsFile(file)],
-            null,
-            _ => cachedRow,
-            stats,
-            out LibraryRowsBuildMetrics metrics);
-
-        Assert.AreEqual(1, rows.Count);
-        Assert.AreSame(cachedRow, rows[0]);
-        Assert.AreEqual(1, metrics.RegularRowCacheHitCount);
-        Assert.AreEqual(0, metrics.RegularRowCacheMissCount);
-        Assert.AreEqual(2, metrics.RegularRowCachePrunedCount);
     }
 
     private static LR2SongDBExtended.bmson_song CreateBmsonCacheSong(string path, string title)
