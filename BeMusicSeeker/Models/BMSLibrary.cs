@@ -6667,13 +6667,23 @@ reportProgress,
 
     private sealed class OwnedChartCollectionStorageMutation
     {
+        public List<BMSFile> AddedBmsFiles { get; } = [];
+
+        public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
+
         public List<ChartFile> UnregisteredCharts { get; } = [];
 
         public List<LibraryChartPathChange> PathChanges { get; } = [];
 
-        public bool HasChanges => UnregisteredCharts.Count > 0 || PathChanges.Count > 0;
+        public int AddedCount => AddedBmsFiles.Count + AddedBmsonSongs.Count;
 
-        public bool HasHashSetChanges => UnregisteredCharts.Count > 0;
+        public int RemovedCount => UnregisteredCharts.Count;
+
+        public int MovedCount => PathChanges.Count;
+
+        public bool HasChanges => AddedCount > 0 || RemovedCount > 0 || MovedCount > 0;
+
+        public bool HasHashSetChanges => AddedCount > 0 || RemovedCount > 0;
     }
 
     private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
@@ -6937,22 +6947,10 @@ reportProgress,
             {
                 ownedChartCollection.ApplyPathChanges(mutation.PathChanges);
             }
-        }
-    }
-
-    private void ApplyOwnedChartCollectionUpsert(ChartStorageTargetSet addedTargets)
-    {
-        if (addedTargets == null)
-        {
-            return;
-        }
-        lock (lockOwnedChartCollection)
-        {
-            if (!ownedChartCollectionInitialized)
+            if (mutation.AddedCount > 0)
             {
-                return;
+                ownedChartCollection.UpsertStorageRows(mutation.AddedBmsFiles, mutation.AddedBmsonSongs);
             }
-            ownedChartCollection.UpsertStorageRows(addedTargets.BmsFiles, addedTargets.BmsonSongs);
         }
     }
 
@@ -6973,7 +6971,7 @@ reportProgress,
             using (SuppressOwnedChartCollectionInvalidation())
             {
                 ApplyInstalledChartStorageRowsUnsafe(addedTargets);
-                ApplyOwnedChartCollectionUpsert(addedTargets);
+                ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation);
             }
             DispatchOwnedChartCollectionMutation(mutationResult, lookupReason);
         }
@@ -7024,9 +7022,9 @@ reportProgress,
         {
             InstalledLookupMutation = BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
             ForceInstalledLookupDispatch = delta?.InvalidateInstalledDirectoryIndex == true,
-            AddedCount = 0,
-            RemovedCount = storageMutation.UnregisteredCharts.Count,
-            MovedCount = storageMutation.PathChanges.Count,
+            AddedCount = storageMutation.AddedCount,
+            RemovedCount = storageMutation.RemovedCount,
+            MovedCount = storageMutation.MovedCount,
             InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
             InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
             ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
@@ -7035,6 +7033,8 @@ reportProgress,
             OwnedCollectionChanged = storageMutation.HasChanges,
             ResourceHealthIndexInvalidated = storageMutation.HasChanges
         };
+        result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
+        result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
         result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
         result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = delta != null;
@@ -7058,14 +7058,17 @@ reportProgress,
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionUpsertMutationResult(ChartStorageTargetSet addedTargets)
     {
-        return new OwnedChartCollectionMutationResult
+        var result = new OwnedChartCollectionMutationResult
         {
-            InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets?.BmsFiles, addedTargets?.BmsonSongs),
-            AddedCount = (addedTargets?.BmsFiles.Count ?? 0) + (addedTargets?.BmsonSongs.Count ?? 0),
-            PlaylistSummaryOwnedHashInvalidated = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0,
-            OwnedCollectionChanged = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0,
-            ResourceHealthIndexInvalidated = (addedTargets?.BmsFiles.Count ?? 0) > 0 || (addedTargets?.BmsonSongs.Count ?? 0) > 0
+            InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets?.BmsFiles, addedTargets?.BmsonSongs)
         };
+        result.StorageMutation.AddedBmsFiles.AddRange(addedTargets?.BmsFiles ?? []);
+        result.StorageMutation.AddedBmsonSongs.AddRange(addedTargets?.BmsonSongs ?? []);
+        result.AddedCount = result.StorageMutation.AddedCount;
+        result.PlaylistSummaryOwnedHashInvalidated = result.StorageMutation.HasHashSetChanges;
+        result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
+        result.ResourceHealthIndexInvalidated = result.StorageMutation.HasChanges;
+        return result;
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionInstalledLookupMutationResult(
