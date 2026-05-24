@@ -498,19 +498,19 @@ UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっ�
 
 ただし、これはまだ完全な runtime 正本ではない。storage row setter / DB reload / external refresh では collection を full invalidate し、次回利用時に storage row から再構築する。差分同期も unregister と install upsert が中心で、すべての chart-common index / mutation payload が collection から派生しているわけではない。
 
-本筋の移行では、この層を「storage owner から作る lazy cache」ではなく、chart-common の collection / index / mutation の primary source にする。storage row は永続化 owner と BMS / bmson 固有 producer として残す。
+本筋の移行では、この層を「storage owner から作る lazy cache」ではなく、chart-common の collection / index / mutation の primary source にする。ただし primary source とは、全件 `ChartFile` list を毎回作るという意味ではない。owned collection は identity / owner / path / hash / kind を持つ集合と用途別 view / index を提供し、`ChartFile` は caller が表示 state、resource references、maintenance target、package entry などを本当に必要とする時だけ materialize する。
 
 ### snapshot / lookup helper
 
-`CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, ...)` は current installed source を検出した場合、owned chart collection の snapshot を返す。任意 subset を渡された場合は、まだ collection view として表現できないため `ChartFileProjection.FromStorageRows(...)` に fallback する。
+`CreateInstalledChartSnapshot(BMSFiles, BmsonSongs, ...)` は current installed source を検出した場合、owned chart collection の snapshot を返す。しかしこれは「storage row から全件作る」問題を「owned collection から全件 `ChartFile` list を materialize する」問題へ置き換えただけの箇所が残っている。`CreateInstalledChartSnapshot(...)` は汎用全件 helper ではなく、対象と用途を明示した helper 群へ分解する。
 
-`CreateLibraryChartRefSnapshotUnsafe()` は `CreateInstalledChartSnapshot(...)` 経由で current source の owned snapshot を使うが、まだ library ref 用の indexed view ではなく、呼び出しごとに `ChartFile` list を materialize する。duplicate merge / folder move などの準備処理では、この materialize cost と service 側の analysis cost が残る。
+`CreateLibraryChartRefSnapshotUnsafe()` は `CreateInstalledChartSnapshot(...)` 経由で current source の owned snapshot を使うが、まだ library ref 用の indexed view ではなく、呼び出しごとに全件 `ChartFile` list を materialize する。duplicate merge / folder move / delete confirmation などは、多くの場合「特定 folder 配下」「入力 chart の canonical resolve」「folder 内 chart count」だけを必要としているため、owned collection の `LibraryChartRef` view / directory index / owner-path lookup から直接解決する。
 
-`CreateOwnedResourceMaintenanceCharts()` は owned snapshot を使う。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。
+`CreateOwnedResourceMaintenanceCharts()` は owned snapshot を使う。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
 
-playlist owned hash snapshot と installed chart lookup はまだ owned chart collection の index ではない。playlist owned hash は storage row を直接走査し、installed chart lookup は projection を避ける storage row direct builder と差分更新 state を持つ。どちらも最終設計では owned chart collection の隣接 index へ寄せる。
+playlist owned hash snapshot と installed chart lookup はまだ owned chart collection の index ではない。playlist owned hash は storage row を直接走査し、installed chart lookup は projection を避ける storage row direct builder と差分更新 state を持つ。どちらも最終設計では owned chart collection の隣接 index へ寄せるが、ここでも全件 `ChartFile` materialize は不要である。hash / directory / primary count だけを見る index として管理する。
 
-新規 helper を追加する場合は、`BMSFiles` + `BmsonSongs` を直接結合する API を増やさず、owned chart collection の view / index へ置くか、任意 subset / BMS-only / bmson-only / DB 境界であることを API 名で分かるようにする。
+新規 helper を追加する場合は、`BMSFiles` + `BmsonSongs` を直接結合する API を増やさず、owned chart collection の view / index へ置くか、任意 subset / BMS-only / bmson-only / DB 境界であることを API 名で分かるようにする。全件 `ChartFile` list を返す helper は、明示的な full operation 以外では追加しない。
 
 ### 残る subset projection 境界
 
@@ -521,6 +521,23 @@ owned chart collection は current installed source の全体集合を表すた�
 - resource maintenance 用 target: `maintenance` / resource health 更新に必要な resource references を持つ target。全件 index build は owned snapshot を使えるが、install 後、merge 後、repair 後、delta update では対象 subset だけを resource references 付きで作る。
 
 これらを collection 化する場合は、全件 `CreateSnapshot(...)` の後に caller 側で filter するのではなく、owned collection 側に filtered view / target builder を用意する。target が storage row 由来の場合は、その呼び出しが BMS-only / bmson-only / DB 境界なのか、chart-common subset なのかを先に名前で分ける。
+
+### owned collection への寄せ方
+
+owned collection へ寄せる対象は「BMS と bmson が混在する chart-common 処理」である。BMS-only / bmson-only の producer、DB load-save、LR2 互換処理、encoding / LR2IR / score viewer などは、無理に `ChartFile` materialize を挟まない。混在処理でも、必要な情報が path / hash / kind / owner だけなら lightweight view / index を使い、`ChartFile` は最後の projection にする。
+
+優先する view / index:
+
+- `LibraryChartRef` view: kind、path、owner、primary hash だけで、folder move / delete / merge の canonical resolve に使う。
+- directory view: `directory -> chart refs/counts`。`StartsWith` の全件 scan を避け、merge source、folder move、whole-folder delete 判定、installed package path update に使う。
+- owner/path lookup: input chart を current library chart へ canonical resolve する。delete / repair / rename で使う。
+- hash/directory index: installed lookup、duplicate merge の existing hash、install estimation、resource-only merge display package に使う。
+- resource maintenance target view: resource references が必要な subset だけを `ChartFile` 化する。
+- full chart snapshot: chart_info full backfill や resource health full rebuild のように、処理自体が全件 chart projection を必要とする明示的 full operation に限定する。
+
+全所持譜面を見る必要がある処理でも、既に session cache / index がある場合はそちらを正本にする。例として、resource health は `ResourceHealthIndexSnapshot`、duplicate group は `DuplicateChartGroups` cache、playlist hash は playlist owned hash snapshot、installed hash/directory は installed lookup state、parent folder は parent folder cache、chart_info は chart_info index、score は score snapshot を見る。owned collection から full `ChartFile` list を作って同じ情報を再計算しない。
+
+API 命名では、`CreateSnapshot` は full materialize の印象が強いため hot path へ増やさない。`EnumerateLibraryChartRefs`、`EnumerateChartRefsUnderDirectory`、`ResolveOwnedChartRefs`、`CreateOwnedHashIndexSnapshot`、`CreateInstalledLookupSnapshot`、`EnumerateResourceMaintenanceTargets` のように、返す情報量と対象範囲が分かる名前を使う。
 
 ### `ChartPackage` adapter materialization boundary
 
@@ -584,7 +601,7 @@ Kind ごとの storage 境界は次の通り。
 | BMS | `BMSFile` | LR2 `song` / `folder`、app-owned `chart_digest_map` など | LR2 `song` row として保存できる BMS 専用 data と、BMS parser / score attachment / BMS-only helper を持つ。install destination state は chart-common runtime state へ移し、`BMSFile` には残さない。 |
 | bmson | `LR2SongDBExtended.bmson_song` | app-owned `bmson_song` | path / folder / md5 / sha256 / title / subtitle / artist / genre / level / mode_hint / image/audio metadata / updated_at など bmson catalog 保存に特化する。resource refs / chart_info / maintenance は runtime owner として持つが table へは保存しない。 |
 
-したがって、単純に `BMSFile` を `ChartFile` へ rename すると、LR2 `song` row という永続化境界と、BMS / bmson 共通の operation/read model 境界が混ざったまま名前だけ変わる。整理の主眼は、`BMSFile` / `bmson_song` を storage owner として残しつつ、`BMSLibrary` が操作する所持譜面集合を `ChartFile` collection として一元化することである。
+したがって、単純に `BMSFile` を `ChartFile` へ rename すると、LR2 `song` row という永続化境界と、BMS / bmson 共通の operation/read model 境界が混ざったまま名前だけ変わる。整理の主眼は、`BMSFile` / `bmson_song` を storage owner として残しつつ、`BMSLibrary` が操作する所持譜面集合を owned chart collection の identity / view / index として一元化することである。
 
 永続化 storage は二本立てを維持する。BMS は `BMSFile` または将来の BMS song row 型、bmson は `bmson_song` が永続正本である。一方、アプリ実行中の chart-common 処理では、storage row list を都度束ねるのではなく、owned chart collection を差分更新された runtime 正本として使う。
 
@@ -617,15 +634,16 @@ production に残る `Compatibility` 名は playlist summary column settings の
 
 ## Active migration plan
 
-この節は、これから進める本筋の active plan である。前段の adapter / compatibility 境界整理は完了扱いとする。`OwnedChartCollectionState` は導入済みなので、今後はこれを lazy identity cache から chart-common collection / index / mutation の primary source へ育てる。
+この節は、これから進める本筋の active plan である。前段の adapter / compatibility 境界整理は完了扱いとする。`OwnedChartCollectionState` は導入済みなので、今後はこれを lazy identity cache から chart-common collection / view / index / mutation の primary source へ育てる。
 
 ### 目標
 
-- `BMSLibrary` が保持する所持譜面集合の primary source を、`BMSFiles` / `BmsonSongs` の二本立て storage row collection から、`ChartFile` を要素とする owned chart collection へ移す。
-- `BMSFiles` / `BmsonSongs` は DB 永続化 owner、外部互換 property、BMS / bmson 固有 producer の境界として残す。chart-common の snapshot / lookup / mutation / read model は storage row list を都度結合しない。
-- `CreateInstalledChartSnapshot(...)`、`CreateLibraryChartRefSnapshotUnsafe()`、resource maintenance target 作成、playlist owned hash snapshot、installed chart lookup などは owned chart collection の view / index から作る。
+- `BMSLibrary` が保持する所持譜面集合の primary source を、`BMSFiles` / `BmsonSongs` の二本立て storage row collection から、owned chart collection の identity / view / index へ移す。
+- `BMSFiles` / `BmsonSongs` は DB 永続化 owner、外部互換 property、BMS / bmson 固有 producer の境界として残す。BMS-only / bmson-only 処理は無理に `ChartFile` 経由にしない。
+- BMS と bmson が混在する chart-common 処理は owned chart collection を入口にする。ただし、入口は必ず `List<ChartFile>` ではなく、用途に応じて `LibraryChartRef` view、directory index、hash index、storage owner view、resource maintenance target view を使う。
+- `CreateInstalledChartSnapshot(...)`、`CreateLibraryChartRefSnapshotUnsafe()`、resource maintenance target 作成、playlist owned hash snapshot、installed chart lookup などは、全件 `ChartFile` list を都度作らず、対象を絞った owned view / index または入力 rows の一時 projection から作る。
 - install / uninstall / merge / repair / folder move / path rename は owned chart collection と storage row owner を同じ mutation として差分更新する。
-- large library での全件 projection を減らし、初回 build と繰り返し mutation の両方で O(N) rebuild を避ける。
+- large library での不要な全件 materialize を減らし、初回 build、繰り返し mutation、folder / merge 操作のいずれでも O(N) rebuild / scan を hot path に置かない。
 
 ### 非目標
 
@@ -634,15 +652,17 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - settings 名、UI 文言、playlist DB / JSON、LR2 互換 schema は抽象化だけを理由に変更しない。
 - BMS-only 処理を chart-common 処理へ無理に広げない。encoding / zero-note / LR2IR / score viewer / ranking update / invalid extension rename / audio convert は capability で BMS-only として残す。
 - startup 直後に不要な heavy prewarm を増やさない。必要な index は lazy build か mutation 同期で用意する。
+- `ChartFile` を全件 collection の唯一の runtime object として常時 rich projection しない。resource refs / warning / score / maintenance を含む projection は用途別に遅延または subset に限定する。
 
 ### Target architecture
 
 `BMSLibrary` には `OwnedChartCollectionState` がある。現行 v1 は owner identity list と snapshot factory であり、最終的な責務は次の通りである。
 
 - 初回利用時または DB reload 後に `BMSFiles` / `BmsonSongs` から `ChartFile` entry を構築する。
-- 各 entry は `Kind`、path、md5、sha256、storage owner、必要な runtime projection key を持つ。
+- 各 entry は `Kind`、path、directory、md5、sha256、primary lookup hash、storage owner、必要な runtime projection key を持つ。
 - collection は stable identity として、kind + storage owner identity、path、primary lookup hash を扱える。
-- collection は read-only snapshot / filtered view / index view を提供し、呼び出し側に mutable internal collection を渡さない。
+- collection は read-only full snapshot だけでなく、filtered view / iterator / index view を提供し、呼び出し側に mutable internal collection を渡さない。
+- collection view は `ChartFile` materialize を必須にしない。path / hash / owner / kind だけで足りる処理には lightweight entry / `LibraryChartRef` / count / lookup result を返す。
 - collection は add / remove / move / upsert / hash change / storage owner replace を差分 mutation として受ける。
 - collection から BMS storage row view と bmson storage row view を取得できるが、それは永続化・互換境界用の view であり、chart-common 処理の primary input ではない。
 
@@ -656,6 +676,9 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - playlist owned hash snapshot
 - parent folder candidate view
 - resource maintenance target view
+- library chart ref owner/path lookup
+- directory subtree chart counts
+- install destination runtime overlay key lookup
 
 index は collection mutation に同期して差分更新する。丸ごと DB reload、外部 setter による collection replacement、表現できない mutation だけ full invalidate / rebuild に落とす。
 
@@ -666,30 +689,39 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
    - current installed source の `CreateInstalledChartSnapshot(...)` と BMS-only zero-note snapshot は owned collection から作る。
    - unregister と install upsert は owned collection と同期済み。
    - entry は storage owner identity を保持し、snapshot 作成時に owner の現在値を再投影する。
-   - 残タスクは、mutation coverage と派生 index を増やし、storage row list parity 確認と診断 log を整えること。
+   - 残タスクは、full snapshot factory 依存を減らし、mutation coverage と派生 index を増やし、storage row list parity 確認と診断 log を整えること。
 
-2. **全件 snapshot helper の置換**
-   - `CreateInstalledChartSnapshot(...)` の current source 経路は owned collection 利用済み。任意 subset fallback は、collection-backed filtered view を用意してから縮小する。
-   - `CreateLibraryChartRefSnapshotUnsafe()` は full `ChartFile` list materialize ではなく、owned chart entry から `LibraryChartRef` view / iterator を作る。
-   - `CreateOwnedResourceMaintenanceCharts()` は owned snapshot 利用済み。resource maintenance 用 target は、subset の意味を残したまま collection-backed target view へ寄せる。
-   - playlist owned hash snapshot、parent folder cache、install destination cleanup、installed chart lookup は collection view / index から作る。
-   - `BMSFiles` + `BmsonSongs` を直接結合して `ChartFileProjection.FromStorageRows(...)` へ渡す新規経路を増やさない。残す場合は任意 subset / BMS-only / bmson-only / DB 境界として明示する。
+2. **Full snapshot helper の分解**
+   - `CreateInstalledChartSnapshot(...)` を汎用全件 helper として使わない。caller の用途を名前に出した API へ分ける。
+   - current all chart が本当に必要な場合は `CreateAllInstalledChartSnapshotFor...` のように full operation であることを名前と log に出す。
+   - directory / hash / owner / input subset がある caller は、owned collection の filtered view または入力 rows の一時 projection を使う。
+   - `OwnedChartCollectionState.CreateSnapshot(...)` は full projection 用として残し、hot path には `Enumerate*View` / `Create*IndexSnapshot` 系を追加する。
+   - `CreateLibraryChartRefSnapshotUnsafe()` は full `ChartFile` list materialize ではなく、owned chart entry から `LibraryChartRef` view / owner-path lookup / directory iterator を作る。
+   - `CreateOwnedResourceMaintenanceCharts()` は full rebuild 専用に限定する。通常の install / merge / repair / warning 操作は subset target builder を使う。
 
-3. **Mutation pipeline の同期化**
+3. **Hot path の view / index 化**
+   - duplicate merge / folder move は、全件 library refs を渡して service 側で `StartsWith` filter しない。`GetChartRefsUnderDirectory(src)`、`EnumerateInstallDestinationTargetsUnderFolder(src)`、`BuildExistingHashLookupExcluding(sourceCharts)` のような targeted API にする。
+   - delete / whole-folder confirmation は、全件 refs から canonical resolve / folder count を作らず、owner/path lookup と directory subtree count を使う。
+   - resource-only merge display package は、全件 installed snapshot を hash + destination で filter せず、hash/directory index から候補だけを `PackageChartEntry` 化する。
+   - folder auto rename など BMS + bmson 混在 folder operation は owned chart view へ寄せる。ただし BMS-only / bmson-only の producer は storage owner view のまま残す。
+   - parent folder cache、playlist owned hash、installed lookup は owned collection 隣接 index に寄せ、full `ChartFile` snapshot を経由しない。
+
+4. **Mutation pipeline の同期化**
    - `LibraryMutationDelta`、install result、merge result、repair result、folder move result に owned chart collection mutation を含める。
    - `BmsLibraryStateApplier` と storage row upsert 経路は、owned chart collection も同じ transaction boundary で更新する。
    - internal mutation では `BMSFiles` / `BmsonSongs` setter による full invalidation を避け、collection と派生 index を差分更新する。
    - external replacement / DB reload は full rebuild として明示し、log に reason を残す。
 
-4. **Read model / service input の collection 化**
+5. **Read model / service input の collection 化**
    - 通常一覧 root / folder / keyword / virtual subset は owned chart collection または collection-backed source row から作る。
-   - duplicate search、resource maintenance、install estimation、playlist reference apply は owned chart collection の snapshot / view を入口にする。
+   - duplicate search、resource maintenance、install estimation、playlist reference apply は owned chart collection の snapshot / view / index を入口にする。
    - `ChartListSourceRow` の hot path では、必要な projection だけを遅延構築し、全件 `ChartFile` の再 materialize を避ける。
 
-5. **Storage row collection の役割縮小**
+6. **Storage row collection の役割縮小**
    - `BMSFiles` / `BmsonSongs` は DB commit、BMS-only producer、既存 binding 互換、外部 refresh の境界に限定する。
    - chart-common 処理から直接 `BMSFiles` / `BmsonSongs` を enumerate して lookup / snapshot / refs を作る箇所をなくす。
    - 残す direct enumeration は BMS-only / bmson-only / DB load-save / compatibility boundary としてコメントまたは API 名で分かるようにする。
+   - 追加 bmson だけ、入力 rows だけ、BMS-only repair だけのように明確に対象が限定された経路は、一時 projection として残してよい。
 
 ### 注意点
 
@@ -699,7 +731,9 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
 - install destination は storage row 永続列ではなく chart-common runtime / pending state である。owned chart collection と ViewModel transient state の key がずれないようにする。
 - path move / folder merge / repair fix では、old path と new path の両方を mutation payload に残す。BMS と bmson で DB update safety check の前提が違うため、storage owner へ降りる直前まで kind を保持する。
 - playlist reference、chart_info、score はそれぞれ専用 index / provider を正本にする。owned chart collection に短命 hydration result を attach して producer boundary を曖昧にしない。
-- 21万譜面規模では per-chart object / dictionary の増加が効く。owned chart collection 導入時は memory、startup、main view first render、merge / install の repeated mutation log を必ず見る。
+- 21万譜面規模では per-chart object / dictionary の増加が効く。owned chart collection 導入時は memory、startup、main view first render、merge / install の repeated mutation log を必ず見る。特に「full `ChartFile` materialize 回数」と「full materialize 後に caller 側で filter していないか」を確認する。
+- `ChartFile` を通すこと自体を目的にしない。BMS-only / bmson-only の処理は storage owner 境界を保ち、BMS + bmson 混在処理だけ owned chart view / chart projection へ寄せる。
+- 任意 subset、追加 bmson だけ、resource maintenance 用 target は、明確に対象を絞った owned collection view か、入力 rows の一時 projection として扱う。全件 owned snapshot を作ってから subset 化しない。
 - `Compatibility*` / `Adapter` / `PendingChartEntry` 由来の production surface は復活させない。必要な場合は BMS storage owner helper、`ChartFile`、`PackageChartEntry`、`LibraryChartRef` のどれかに責務を置く。
 
 ### 性能確認
@@ -716,27 +750,29 @@ index は collection mutation に同期して差分更新する。丸ごと DB r
 - `duplicate_merge_model prepare_done`
 - `SearchDuplicateChartGroups`
 - `playlist_library_index_prewarm`
+- full installed chart snapshot / owned chart materialize count
 
 成功目安:
 
 - 初回 owned chart collection build が、従来の全件 projection より明確に重くならない。
 - merge / install / repair の 2 回目以降で、owned chart collection と installed lookup の full rebuild が出ない。
-- `CreateInstalledChartSnapshot(...)` / `CreateLibraryChartRefSnapshotUnsafe()` 相当の処理が、全件 storage row projection として log に現れない。
+- `CreateInstalledChartSnapshot(...)` / `CreateLibraryChartRefSnapshotUnsafe()` 相当の処理が、全件 storage row projection または全件 `ChartFile` materialize として hot path に現れない。
+- folder / merge / delete 操作では、対象 directory / input chart に応じた view / index が使われ、全件 materialize 後 filter にならない。
 - 通常一覧 root / folder 切替で可視行以外の heavy projection が増えない。
 
 ### 完了条件
 
 - `BMSLibrary` の chart-common 処理が owned chart collection を primary source にしている。
 - `BMSFiles` / `BmsonSongs` の直接 enumeration は DB load-save、external full refresh、BMS-only / bmson-only producer に限定されている。
-- `CreateInstalledChartSnapshot(...)` と `CreateLibraryChartRefSnapshotUnsafe()` は storage row list から全件 projection しない。
-- owned chart collection、installed lookup、playlist owned hash、parent folder cache、resource maintenance target が同じ mutation から差分更新される。
+- `CreateInstalledChartSnapshot(...)` と `CreateLibraryChartRefSnapshotUnsafe()` は、storage row list からの全件 projectionにも owned collection からの全件 `ChartFile` materializeにも依存しない。
+- owned chart collection、installed lookup、playlist owned hash、parent folder cache、directory view、resource maintenance target が同じ mutation から差分更新される。
 - BMS / bmson の install、uninstall、merge、repair、folder move、path rename、maintenance、playlist reference、duplicate search の既存挙動が維持される。
 - 既存の LR2 DB、app-owned bmson DB、playlist DB / JSON、settings、UI 文言の互換性を壊していない。
 
 ## 今後の仕様整理で守る境界
 
 1. 永続化 storage は BMS / bmson の二本立てを維持する。
-2. `BMSLibrary` の runtime 所持譜面集合は `ChartFile` collection を正本にする。
+2. `BMSLibrary` の runtime 所持譜面集合は owned chart collection の identity / view / index を正本にする。全件 `ChartFile` list は必要な時だけ materialize する。
 3. UI / operation / chart-common service の入口は chart target に寄せる。
 4. BMS-only 処理は capability で明示する。
 5. `BMSFile` 型を chart 共通処理の種別判定に使わない。production では `BMSFile` を BMS storage row / BMS-only 処理に閉じ込め、chart 共通処理は `ChartFile.Kind` を確認する。
