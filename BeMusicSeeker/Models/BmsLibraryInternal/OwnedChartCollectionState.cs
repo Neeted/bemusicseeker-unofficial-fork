@@ -168,6 +168,18 @@ internal sealed class OwnedChartCollectionState
         return state;
     }
 
+    internal ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummary(
+        ISet<string> currentChartInfoSha256s,
+        ISet<string> currentParseFailureMd5s)
+    {
+        var summary = new ChartInfoHydrationOwnerSummary();
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            ClassifyChartInfoHydrationOwner(summary, GetCurrentSha256(chart), GetCurrentMd5(chart), currentChartInfoSha256s, currentParseFailureMd5s);
+        }
+        return summary;
+    }
+
     internal HashSet<string> CreateInstallDestinationRuntimeStateKeySnapshot()
     {
         var keys = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
@@ -379,6 +391,49 @@ internal sealed class OwnedChartCollectionState
 
         LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
         return bmsonOwner != null ? bmsonOwner.md5 : chart.Md5;
+    }
+
+    private static string GetCurrentSha256(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return bmsOwner.sha256;
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        return bmsonOwner != null ? bmsonOwner.sha256 : chart.Sha256;
+    }
+
+    private static void ClassifyChartInfoHydrationOwner(
+        ChartInfoHydrationOwnerSummary summary,
+        string sha256,
+        string md5,
+        ISet<string> currentChartInfoSha256s,
+        ISet<string> currentParseFailureMd5s)
+    {
+        summary.OwnerCount++;
+        if (!string.IsNullOrWhiteSpace(sha256)
+            && currentChartInfoSha256s != null
+            && currentChartInfoSha256s.Contains(sha256))
+        {
+            summary.CurrentChartInfoOwnerCount++;
+            summary.OwnerApplySkippedCount++;
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(md5)
+            && currentParseFailureMd5s != null
+            && currentParseFailureMd5s.Contains(md5))
+        {
+            summary.CurrentParseFailureOwnerCount++;
+            return;
+        }
+        summary.BackfillCandidateOwnerCount++;
     }
 
     private static void AddCurrentRuntimeStateKeys(ISet<string> keys, ChartFile chart)

@@ -340,6 +340,29 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateChartInfoHydrationOwnerSummary_ReprojectsCurrentStorageOwnerHashes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var currentChartInfoFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Info", "chart.bms"), new string('b', 64));
+        var parseFailureSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Failure", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        var backfillFile = CreateFile("dddddddddddddddddddddddddddddddd", Path.Combine("C:\\Installed", "Backfill", "chart.bms"), new string('e', 64));
+        parseFailureSong.sha256 = new string('f', 64);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([currentChartInfoFile, backfillFile], [parseFailureSong]);
+        currentChartInfoFile.SetSha256(new string('1', 64));
+        parseFailureSong.md5 = "22222222222222222222222222222222";
+
+        ChartInfoHydrationOwnerSummary summary = state.CreateChartInfoHydrationOwnerSummary(
+            new HashSet<string>([currentChartInfoFile.sha256], StringComparer.OrdinalIgnoreCase),
+            new HashSet<string>([parseFailureSong.md5], StringComparer.OrdinalIgnoreCase));
+
+        Assert.AreEqual(3, summary.OwnerCount);
+        Assert.AreEqual(1, summary.CurrentChartInfoOwnerCount);
+        Assert.AreEqual(1, summary.CurrentParseFailureOwnerCount);
+        Assert.AreEqual(1, summary.BackfillCandidateOwnerCount);
+        Assert.AreEqual(1, summary.OwnerApplySkippedCount);
+    }
+
+    [TestMethod]
     public void CreatePathSnapshot_ReprojectsCurrentStorageOwnerPaths()
     {
         TestResourceInitializer.EnsureJapaneseResources();

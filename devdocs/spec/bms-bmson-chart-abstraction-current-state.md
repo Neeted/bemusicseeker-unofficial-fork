@@ -732,6 +732,7 @@ resource maintenance は installed lookup と違い、実際の health 計算で
    - resource-only merge display package は、destination の direct child snapshot を作ってから hash filter する。最終的には hash/directory index から候補だけを `PackageChartEntry` 化する。
    - folder auto rename は full library chart list を渡さず、target folder 群の direct children snapshot provider で必要分だけ `ChartFile` 化する。ほかの BMS + bmson 混在 folder operation も owned chart view へ寄せる。ただし BMS-only / bmson-only の producer は storage owner view のまま残す。
    - parent folder cache は owned path snapshot から作る。install destination runtime state の prune は owned runtime-state key snapshot から行い、全件 storage row projection を caller 側で作らない。installed lookup は owned collection 隣接 index に寄せ、storage row direct build と full `ChartFile` snapshot のどちらも hot path から外す。playlist owned hash は owned hash index から作る。
+   - chart_info hydration の owner 分類は owned hash summary から作り、BMS / bmson storage row list を caller 側で結合しない。
    - `ChartFilesNeedResourceFix` / ignored view は `ResourceHealthIndexSnapshot` が current なら full resource maintenance target を作らない。force rescan、index invalidation 後の rebuild、manual full maintenance だけ owned resource maintenance target view から全件 `ChartFile` 化する。
 
 4. **Mutation pipeline の同期化**
