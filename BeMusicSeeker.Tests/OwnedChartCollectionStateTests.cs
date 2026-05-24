@@ -127,13 +127,13 @@ public sealed class OwnedChartCollectionStateTests
         ]);
 
         List<LibraryChartRef> refs = resolveResult.CanonicalCharts;
-        List<LibraryChartRef> allRefs = state.CreateLibraryChartRefIndexSnapshot().CreateAllChartRefsSnapshot();
+        List<LibraryChartRef> pathRefs = state.CreateLibraryChartRefIndexSnapshot().GetChartRefsByPaths([newBmsPath, newBmsonPath]);
         Assert.AreEqual(2, refs.Count);
-        Assert.AreEqual(2, allRefs.Count);
+        Assert.AreEqual(2, pathRefs.Count);
         LibraryChartRef bmsRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bms);
         LibraryChartRef bmsonRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bmson);
-        Assert.IsTrue(allRefs.Any(chart => chart.Kind == LibraryChartKind.Bms && string.Equals(chart.Path, newBmsPath, StringComparison.OrdinalIgnoreCase)));
-        Assert.IsTrue(allRefs.Any(chart => chart.Kind == LibraryChartKind.Bmson && string.Equals(chart.Path, newBmsonPath, StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(pathRefs.Any(chart => chart.Kind == LibraryChartKind.Bms && string.Equals(chart.Path, newBmsPath, StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(pathRefs.Any(chart => chart.Kind == LibraryChartKind.Bmson && string.Equals(chart.Path, newBmsonPath, StringComparison.OrdinalIgnoreCase)));
         Assert.AreEqual(newBmsPath, bmsRef.Path);
         Assert.AreEqual(bmsFile.hash, bmsRef.Md5);
         Assert.AreEqual(bmsFile.sha256, bmsRef.Sha256);
@@ -158,7 +158,7 @@ public sealed class OwnedChartCollectionStateTests
         bmsonSong.md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
         bmsonSong.sha256 = new string('f', 64);
 
-        List<LibraryChartRef> refs = index.CreateAllChartRefsSnapshot();
+        List<LibraryChartRef> refs = index.GetChartRefsByPaths([bmsFile.path, bmsonSong.path]);
         LibraryChartRef bmsRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bms);
         LibraryChartRef bmsonRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bmson);
         Assert.AreEqual(bmsFile.hash, bmsRef.Md5);
@@ -168,7 +168,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void CreateLibraryChartRefIndexSnapshot_AllRefsIncludesPathlessRows()
+    public void CreateLibraryChartRefIndexSnapshot_PathlessRowsAreNotPathLookupTargets()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, new string('b', 64));
@@ -179,11 +179,7 @@ public sealed class OwnedChartCollectionStateTests
             LibraryChartRef.FromBmsonSong(bmsonSong)
         ]);
 
-        List<LibraryChartRef> refs = index.CreateAllChartRefsSnapshot();
-
-        Assert.AreEqual(2, refs.Count);
-        Assert.IsTrue(refs.Any(chart => chart.Kind == LibraryChartKind.Bms && chart.GetBmsStorageOwner() == bmsFile));
-        Assert.IsTrue(refs.Any(chart => chart.Kind == LibraryChartKind.Bmson && chart.GetBmsonStorageOwner() == bmsonSong));
+        Assert.AreEqual(0, index.GetChartRefsByPaths([bmsFile.path, bmsonSong.path]).Count);
         Assert.AreEqual(0, index.CountChartRefsUnderRealPath("C:\\Installed", null));
     }
 

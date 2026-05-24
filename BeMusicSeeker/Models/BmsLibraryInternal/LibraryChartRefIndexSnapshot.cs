@@ -16,7 +16,6 @@ internal sealed class LibraryChartRefIndexSnapshot
         new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase),
         [],
-        [],
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
 
@@ -27,7 +26,6 @@ internal sealed class LibraryChartRefIndexSnapshot
     private readonly Dictionary<string, List<LibraryChartRef>> refsByPath;
     private readonly Dictionary<string, List<LibraryChartRef>> directRefsByDirectory;
     private readonly List<string> sortedDirectDirectories;
-    private readonly List<LibraryChartRef> allChartRefs;
     private readonly Dictionary<string, int> subtreeCountsByDirectory;
     private readonly Dictionary<string, int> pathCounts;
 
@@ -39,7 +37,6 @@ internal sealed class LibraryChartRefIndexSnapshot
         Dictionary<string, List<LibraryChartRef>> refsByPath,
         Dictionary<string, List<LibraryChartRef>> directRefsByDirectory,
         List<string> sortedDirectDirectories,
-        List<LibraryChartRef> allChartRefs,
         Dictionary<string, int> subtreeCountsByDirectory,
         Dictionary<string, int> pathCounts)
     {
@@ -50,7 +47,6 @@ internal sealed class LibraryChartRefIndexSnapshot
         this.refsByPath = refsByPath;
         this.directRefsByDirectory = directRefsByDirectory;
         this.sortedDirectDirectories = sortedDirectDirectories;
-        this.allChartRefs = allChartRefs;
         this.subtreeCountsByDirectory = subtreeCountsByDirectory;
         this.pathCounts = pathCounts;
     }
@@ -79,12 +75,10 @@ internal sealed class LibraryChartRefIndexSnapshot
         var directRefsByDirectory = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
         var subtreeCountsByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var pathCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var allChartRefs = new List<LibraryChartRef>();
 
         foreach (LibraryChartRef chart in (charts ?? []).Where(chart => chart != null))
         {
             cancellationCheck?.Invoke();
-            allChartRefs.Add(chart);
             if (string.IsNullOrWhiteSpace(chart.Path))
             {
                 continue;
@@ -138,14 +132,8 @@ internal sealed class LibraryChartRefIndexSnapshot
             refsByPath,
             directRefsByDirectory,
             sortedDirectDirectories,
-            allChartRefs,
             subtreeCountsByDirectory,
             pathCounts);
-    }
-
-    internal List<LibraryChartRef> CreateAllChartRefsSnapshot()
-    {
-        return [.. allChartRefs];
     }
 
     internal CanonicalChartResolveResult ResolveCanonicalCharts(IEnumerable<LibraryChartRef> inputCharts)
