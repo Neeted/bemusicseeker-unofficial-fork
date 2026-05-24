@@ -6571,15 +6571,6 @@ reportProgress,
         }
     }
 
-    private List<LibraryChartRef> CreateOwnedLibraryChartRefSnapshot()
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return ownedChartCollection.CreateLibraryChartRefSnapshot();
-        }
-    }
-
     private LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshotUnsafe()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
@@ -6865,20 +6856,6 @@ reportProgress,
         return [.. (charts ?? []).Select(OverlayInstallDestinationRuntimeState).Where(chart => chart != null)];
     }
 
-    private List<LibraryChartRef> OverlayInstallDestinationRuntimeStates(IEnumerable<LibraryChartRef> charts)
-    {
-        List<LibraryChartRef> chartList = [.. (charts ?? []).Where(chart => chart != null)];
-        lock (installDestinationRuntimeStatesLock)
-        {
-            if (installDestinationRuntimeStatesByKey.Count == 0)
-            {
-                return chartList;
-            }
-
-            return [.. chartList.Select(OverlayInstallDestinationRuntimeStateUnsafe).Where(chart => chart != null)];
-        }
-    }
-
     private List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
     {
         lock (installDestinationRuntimeStatesLock)
@@ -6904,34 +6881,6 @@ reportProgress,
             }
         }
         return chart;
-    }
-
-    private LibraryChartRef OverlayInstallDestinationRuntimeStateUnsafe(LibraryChartRef chart)
-    {
-        InstallDestinationRuntimeStateEntry entry = ResolveInstallDestinationRuntimeStateEntryUnsafe(chart);
-        if (entry?.State?.HasState != true)
-        {
-            return chart;
-        }
-
-        return LibraryChartRef.FromChartFile(ChartFileProjection.WithTransientState(
-            chart.ToChartFileIdentity(),
-            entry.State,
-            includeWarningSnapshot: false));
-    }
-
-    private InstallDestinationRuntimeStateEntry ResolveInstallDestinationRuntimeStateEntryUnsafe(LibraryChartRef chart)
-    {
-        foreach (InstallDestinationRuntimeStateKey key in EnumerateChartRuntimeStateLookupKeys(chart))
-        {
-            if (installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry entry)
-                && entry.CanApplyTo(chart.GetBmsStorageOwner(), chart.GetBmsonStorageOwner(), key.RequireOwnerMatch))
-            {
-                return entry;
-            }
-        }
-
-        return null;
     }
 
     private void UpdateInstallDestinationRuntimeStates(LibraryMutationDelta delta, IEnumerable<ChartFile> appliedCharts)
@@ -6999,27 +6948,6 @@ reportProgress,
                     yield return ownerKey.Key;
                 }
             }
-        }
-    }
-
-    private static IEnumerable<InstallDestinationRuntimeStateKey> EnumerateChartRuntimeStateLookupKeys(LibraryChartRef chart)
-    {
-        if (chart == null)
-        {
-            yield break;
-        }
-
-        ChartFileKind chartKind = chart.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
-        string primaryKey = ChartFileRuntimeStateKey.Create(chartKind, chart.Path, chart.Md5, chart.Sha256);
-        if (!string.IsNullOrWhiteSpace(primaryKey))
-        {
-            yield return new InstallDestinationRuntimeStateKey(primaryKey, requireOwnerMatch: false);
-        }
-
-        string pathKey = ChartFileRuntimeStateKey.CreatePathKey(chartKind, chart.Path);
-        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new InstallDestinationRuntimeStateKey(pathKey, requireOwnerMatch: true);
         }
     }
 
@@ -11535,11 +11463,6 @@ reportProgress,
             unregister == true,
             raiseLibraryChartsChanged: raiseLibraryChartsChanged);
         ApplyLibraryMutationDelta(delta);
-    }
-
-    private IEnumerable<LibraryChartRef> CreateLibraryChartRefSnapshotUnsafe()
-    {
-        return OverlayInstallDestinationRuntimeStates(CreateOwnedLibraryChartRefSnapshot());
     }
 
     private List<LibraryChartRef> CreateInstallDestinationOverlayChartRefSnapshotUnsafe()

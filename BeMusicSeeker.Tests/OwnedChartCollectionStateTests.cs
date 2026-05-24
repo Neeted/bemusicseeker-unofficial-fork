@@ -106,7 +106,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void CreateLibraryChartRefSnapshot_ReprojectsCurrentStorageOwnerValues()
+    public void CreateLibraryChartRefIndexSnapshot_ReprojectsCurrentStorageOwnerValues()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "BmsOld", "chart.bms"), new string('b', 64));
@@ -121,8 +121,12 @@ public sealed class OwnedChartCollectionStateTests
         bmsonSong.md5 = "ffffffffffffffffffffffffffffffff";
         bmsonSong.sha256 = new string('1', 64);
 
-        List<LibraryChartRef> refs = state.CreateLibraryChartRefSnapshot();
+        CanonicalChartResolveResult resolveResult = state.CreateLibraryChartRefIndexSnapshot().ResolveCanonicalCharts([
+            LibraryChartRef.FromPath(LibraryChartKind.Bms, newBmsPath, bmsFile.hash, bmsFile.sha256),
+            LibraryChartRef.FromPath(LibraryChartKind.Bmson, newBmsonPath, bmsonSong.md5, bmsonSong.sha256)
+        ]);
 
+        List<LibraryChartRef> refs = resolveResult.CanonicalCharts;
         Assert.AreEqual(2, refs.Count);
         LibraryChartRef bmsRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bms);
         LibraryChartRef bmsonRef = refs.Single(chart => chart.Kind == LibraryChartKind.Bmson);
@@ -405,45 +409,6 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void CreateLibraryChartRefSnapshotUnsafe_PreservesInstallDestinationRuntimeOverlay()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Library", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
-            bmsonSong.sha256 = new string('d', 64);
-            var library = new BMSLibrary(songDbPath)
-            {
-                BMSFiles = [bmsFile],
-                BmsonSongs = [bmsonSong]
-            };
-            var delta = new LibraryMutationDelta();
-            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-            {
-                Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
-                NewInstallDestination = Path.Combine("C:\\Install", "Bms")
-            });
-            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-            {
-                Chart = ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false, includeResourceReferences: false),
-                NewInstallDestination = Path.Combine("C:\\Install", "Bmson")
-            });
-            InvokeApplyLibraryMutationDelta(library, delta);
-
-            List<LibraryChartRef> refs = InvokeCreateLibraryChartRefSnapshot(library);
-
-            Assert.AreEqual(2, refs.Count);
-            ChartFile bmsChart = refs.Single(chart => chart.Kind == LibraryChartKind.Bms).ToChartFile();
-            ChartFile bmsonChart = refs.Single(chart => chart.Kind == LibraryChartKind.Bmson).ToChartFile();
-            Assert.AreSame(bmsFile, bmsChart.GetBmsStorageOwner());
-            Assert.AreEqual(Path.Combine("C:\\Install", "Bms"), bmsChart.InstallDestination);
-            Assert.AreSame(bmsonSong, bmsonChart.GetBmsonStorageOwner());
-            Assert.AreEqual(Path.Combine("C:\\Install", "Bmson"), bmsonChart.InstallDestination);
-        });
-    }
-
-    [TestMethod]
     public void CreateInstallDestinationOverlayChartRefSnapshotUnsafe_DeduplicatesRuntimeStateKeys()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -541,13 +506,6 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (List<ChartFile>)methodInfo.Invoke(library, [library.BMSFiles, library.BmsonSongs, includeResourceReferences]);
-    }
-
-    private static List<LibraryChartRef> InvokeCreateLibraryChartRefSnapshot(BMSLibrary library)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLibraryChartRefSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return [.. (IEnumerable<LibraryChartRef>)methodInfo.Invoke(library, [])];
     }
 
     private static List<LibraryChartRef> InvokeCreateInstallDestinationOverlayChartRefSnapshot(BMSLibrary library)
