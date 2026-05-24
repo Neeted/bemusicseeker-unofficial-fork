@@ -6406,6 +6406,44 @@ reportProgress,
         public bool HasChanges => RequiresFullInvalidate || Removed.Count > 0 || Added.Count > 0 || Moved.Count > 0;
     }
 
+    private sealed class OwnedChartCollectionMutationResult
+    {
+        public LibraryMutationDelta Delta { get; set; }
+
+        public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
+
+        public List<ChartFile> InstallDestinationChangedCharts { get; } = [];
+
+        public bool PruneInstallDestinationRuntimeStates { get; set; }
+
+        public bool ForceInstalledLookupDispatch { get; set; }
+
+        public int AddedCount { get; set; }
+
+        public int RemovedCount { get; set; }
+
+        public int MovedCount { get; set; }
+
+        public int InstallDestinationChangedCount { get; set; }
+
+        public int InstalledPackagePathChangedCount { get; set; }
+
+        public bool ParentFolderInvalidated { get; set; }
+
+        public bool DuplicateCacheInvalidated { get; set; }
+
+        public bool ShouldDispatchInstalledLookup => ForceInstalledLookupDispatch || InstalledLookupMutation?.HasChanges == true;
+
+        public bool HasLoggableChanges => AddedCount > 0
+            || RemovedCount > 0
+            || MovedCount > 0
+            || InstallDestinationChangedCount > 0
+            || InstalledPackagePathChangedCount > 0
+            || ParentFolderInvalidated
+            || DuplicateCacheInvalidated
+            || InstalledLookupMutation?.HasChanges == true;
+    }
+
     private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
     {
         public string Path { get; } = path;
@@ -6692,7 +6730,7 @@ reportProgress,
         {
             return;
         }
-        InstalledChartLookupMutation lookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets.BmsFiles, addedTargets.BmsonSongs);
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionUpsertMutationResult(addedTargets);
         try
         {
             using (SuppressInstalledChartLookupInvalidation())
@@ -6701,7 +6739,7 @@ reportProgress,
                 ApplyInstalledChartStorageRowsUnsafe(addedTargets);
                 ApplyOwnedChartCollectionUpsert(addedTargets);
             }
-            ApplyInstalledChartLookupMutation(lookupMutation, lookupReason);
+            DispatchOwnedChartCollectionMutation(mutationResult, lookupReason);
         }
         catch
         {
@@ -6729,6 +6767,101 @@ reportProgress,
             }
             BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
         }
+    }
+
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(LibraryMutationDelta delta)
+    {
+        var result = new OwnedChartCollectionMutationResult
+        {
+            Delta = delta,
+            InstalledLookupMutation = BuildInstalledChartLookupMutation(delta),
+            PruneInstallDestinationRuntimeStates = delta != null,
+            ForceInstalledLookupDispatch = delta?.InvalidateInstalledDirectoryIndex == true,
+            AddedCount = delta?.ChartsToRegister.Count ?? 0,
+            RemovedCount = delta?.ChartsToUnregister.Count ?? 0,
+            MovedCount = delta?.ChartPathChanges.Count ?? 0,
+            InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
+            InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
+            ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
+            DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true
+        };
+        result.InstallDestinationChangedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta));
+        return result;
+    }
+
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionUpsertMutationResult(ChartStorageTargetSet addedTargets)
+    {
+        return new OwnedChartCollectionMutationResult
+        {
+            InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets?.BmsFiles, addedTargets?.BmsonSongs),
+            AddedCount = (addedTargets?.BmsFiles.Count ?? 0) + (addedTargets?.BmsonSongs.Count ?? 0)
+        };
+    }
+
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionInstalledLookupMutationResult(
+        InstalledChartLookupMutation installedLookupMutation,
+        int addedCount = 0,
+        int removedCount = 0,
+        int movedCount = 0)
+    {
+        return new OwnedChartCollectionMutationResult
+        {
+            InstalledLookupMutation = installedLookupMutation ?? new InstalledChartLookupMutation(),
+            AddedCount = addedCount,
+            RemovedCount = removedCount,
+            MovedCount = movedCount
+        };
+    }
+
+    private void DispatchOwnedChartCollectionMutation(OwnedChartCollectionMutationResult result, string reason)
+    {
+        if (result == null)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        if (result.Delta != null)
+        {
+            UpdateInstallDestinationRuntimeStates(result.Delta, result.InstallDestinationChangedCharts);
+        }
+        if (result.PruneInstallDestinationRuntimeStates)
+        {
+            PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+        }
+        if (result.ShouldDispatchInstalledLookup)
+        {
+            ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
+        }
+        stopwatch.Stop();
+
+        if (result.HasLoggableChanges)
+        {
+            LogInstallPerformance("owned_collection_mutation_dispatch reason=" + (reason ?? "unknown")
+                + " added=" + result.AddedCount
+                + " removed=" + result.RemovedCount
+                + " moved=" + result.MovedCount
+                + " installDestinations=" + result.InstallDestinationChangedCount
+                + " installedPackagePaths=" + result.InstalledPackagePathChangedCount
+                + " installedLookup=" + ToMutationDispatchLogValue(result.InstalledLookupMutation)
+                + " parentFolder=" + ToInvalidateLogValue(result.ParentFolderInvalidated)
+                + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+    }
+
+    private static string ToMutationDispatchLogValue(InstalledChartLookupMutation mutation)
+    {
+        if (mutation == null || !mutation.HasChanges)
+        {
+            return "none";
+        }
+        return mutation.RequiresFullInvalidate ? "invalidate" : "delta";
+    }
+
+    private static string ToInvalidateLogValue(bool invalidated)
+    {
+        return invalidated ? "invalidate" : "none";
     }
 
     private InstalledChartLookupMutation BuildInstalledChartLookupMutation(LibraryMutationDelta delta)
@@ -11315,7 +11448,12 @@ reportProgress,
                             + " elapsedMs=" + movedSnapshotStopwatch.ElapsedMilliseconds
                             + " bms=" + movedBmsFiles.Count
                             + " bmson=" + movedBmsonSongs.Count);
-                        ApplyInstalledChartLookupMutation(BuildInstalledChartLookupMutation(mergeResult.SourceCharts.Select(chart => chart?.ToChartFile()), movedPackageEntries.Select(entry => entry?.Chart)), "merge_folder");
+                        DispatchOwnedChartCollectionMutation(
+                            BuildOwnedChartCollectionInstalledLookupMutationResult(
+                                BuildInstalledChartLookupMutation(mergeResult.SourceCharts.Select(chart => chart?.ToChartFile()), movedPackageEntries.Select(entry => entry?.Chart)),
+                                addedCount: movedPackageEntries.Count,
+                                removedCount: mergeResult.SourceCharts.Count),
+                            "merge_folder");
                         var dbStopwatch = Stopwatch.StartNew();
                         dbGateway.UpsertSongs(movedBmsFiles);
                         if (movedBmsonSongs.Count > 0)
@@ -11869,9 +12007,8 @@ reportProgress,
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
-        InstalledChartLookupMutation installedLookupMutation = BuildInstalledChartLookupMutation(delta);
-        List<ChartFile> installDestinationChangedCharts = CreateInstallDestinationChangedChartSnapshots(delta);
-        PublishLatestInstallDestinationChangedCharts(installDestinationChangedCharts);
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMutationResult(delta);
+        PublishLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);
         try
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
@@ -11880,21 +12017,16 @@ reportProgress,
                 stateApplier.ApplyLibraryMutationDelta(delta);
             }
             ApplyOwnedChartCollectionMutation(delta);
-            UpdateInstallDestinationRuntimeStates(delta, installDestinationChangedCharts);
-            PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
-            if (delta?.InvalidateInstalledDirectoryIndex == true || installedLookupMutation.HasChanges)
-            {
-                ApplyInstalledChartLookupMutation(installedLookupMutation, "library_delta");
-            }
+            DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
         }
         catch
         {
-            if (delta?.InvalidateInstalledDirectoryIndex == true || installedLookupMutation.HasChanges)
+            if (mutationResult.ShouldDispatchInstalledLookup)
             {
                 InvalidateInstalledDirectoryIndex();
             }
             InvalidateOwnedChartCollection();
-            ClearLatestInstallDestinationChangedCharts(installDestinationChangedCharts);
+            ClearLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);
             throw;
         }
     }
