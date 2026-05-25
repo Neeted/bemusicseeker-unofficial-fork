@@ -7894,7 +7894,7 @@ reportProgress,
     private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
     {
         var knownChartDirectories = new HashSet<string>((directoryResourceLookupCache?.Keys ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        foreach (string directory in CreateInstalledChartLookupSnapshotUnsafe().KnownChartDirectories)
+        foreach (string directory in CreateInstalledChartKnownDirectorySnapshotUnsafe())
         {
             if (!string.IsNullOrWhiteSpace(directory))
             {
@@ -7902,6 +7902,33 @@ reportProgress,
             }
         }
         return knownChartDirectories;
+    }
+
+    private IReadOnlyCollection<string> CreateInstalledChartKnownDirectorySnapshotUnsafe()
+    {
+        EnsureInstalledChartLookupIndexBuiltUnsafe();
+        lock (lockInstalledChartLookupIndex)
+        {
+            return installedChartLookupIndex.CreateKnownChartDirectorySnapshot();
+        }
+    }
+
+    private List<string> GetDistinctInstalledDirectoriesByHashUnsafe(ChartFile chart)
+    {
+        return GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(chart?.PrimaryLookupHash);
+    }
+
+    private List<string> GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(string lookupHash)
+    {
+        if (string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return [];
+        }
+        EnsureInstalledChartLookupIndexBuiltUnsafe();
+        lock (lockInstalledChartLookupIndex)
+        {
+            return [.. installedChartLookupIndex.GetDistinctDirectoriesByPrimaryHash(lookupHash)];
+        }
     }
 
     private List<string> GetInstalledDirectChildPathsByPrimaryHashesUnsafe(
@@ -10096,7 +10123,7 @@ reportProgress,
                 {
                     if (ContainsInstalledChartUnsafe(chartEntry.Chart))
                     {
-                        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(CreateInstalledChartLookupSnapshotUnsafe(), chartEntry.Chart);
+                        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHashUnsafe(chartEntry.Chart);
                         if (installedDirectories.Count == 1)
                         {
                             ApplyResolvedInstallDestinationToEntries([chartEntry], installedDirectories[0]);
@@ -11247,7 +11274,7 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<string> installedDirectories = [.. BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(CreateInstalledChartLookupSnapshotUnsafe(), hash)
+                List<string> installedDirectories = [.. GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(hash)
                     .Where(dir => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
                     .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
                 if (installedDirectories.Count == 0)

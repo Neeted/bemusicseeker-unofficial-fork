@@ -223,6 +223,30 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             : [];
     }
 
+    internal IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash)
+    {
+        if (string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return [];
+        }
+        if (md5DirectoryCounts.TryGetValue(lookupHash, out Dictionary<string, int> md5Directories) && md5Directories != null)
+        {
+            return CreateDirectoryList(md5Directories);
+        }
+        if (sha256DirectoryCounts.TryGetValue(lookupHash, out Dictionary<string, int> sha256Directories) && sha256Directories != null)
+        {
+            return CreateDirectoryList(sha256Directories);
+        }
+        return [];
+    }
+
+    internal IReadOnlyCollection<string> CreateKnownChartDirectorySnapshot()
+    {
+        return [.. knownChartDirectoryCounts.Keys
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase)];
+    }
+
     internal void AddChart(string path, string md5, string sha256)
     {
         string directory = GetDirectory(path);
@@ -282,6 +306,17 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             result[item.Key] = new HashSet<string>(item.Value.Keys, StringComparer.OrdinalIgnoreCase);
         }
         return result;
+    }
+
+    private static IReadOnlyList<string> CreateDirectoryList(Dictionary<string, int> directoryCounts)
+    {
+        IEnumerable<string> directories = directoryCounts == null
+            ? []
+            : directoryCounts.Keys;
+        return [.. directories
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase)];
     }
 
     private void AddKnownDirectory(string directory)
