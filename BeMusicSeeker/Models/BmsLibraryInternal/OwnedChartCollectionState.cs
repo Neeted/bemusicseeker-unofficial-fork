@@ -576,50 +576,6 @@ internal sealed class OwnedChartCollectionState
         }
     }
 
-    internal bool MatchesStorageRows(
-        IReadOnlyList<BMSFile> bmsFiles,
-        IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonSongs)
-    {
-        int chartIndex = 0;
-        if (bmsFiles != null)
-        {
-            for (int i = 0; i < bmsFiles.Count; i++)
-            {
-                BMSFile bmsFile = bmsFiles[i];
-                if (bmsFile == null)
-                {
-                    continue;
-                }
-                if (chartIndex >= charts.Count
-                    || charts[chartIndex]?.Kind != ChartFileKind.Bms
-                    || !ReferenceEquals(charts[chartIndex].GetBmsStorageOwner(), bmsFile))
-                {
-                    return false;
-                }
-                chartIndex++;
-            }
-        }
-        if (bmsonSongs != null)
-        {
-            for (int i = 0; i < bmsonSongs.Count; i++)
-            {
-                LR2SongDBExtended.bmson_song bmsonSong = bmsonSongs[i];
-                if (bmsonSong == null)
-                {
-                    continue;
-                }
-                if (chartIndex >= charts.Count
-                    || charts[chartIndex]?.Kind != ChartFileKind.Bmson
-                    || !ReferenceEquals(charts[chartIndex].GetBmsonStorageOwner(), bmsonSong))
-                {
-                    return false;
-                }
-                chartIndex++;
-            }
-        }
-        return chartIndex == charts.Count;
-    }
-
     private List<ChartFile> RemoveMatchingStorageRows(
         IReadOnlyCollection<BMSFile> bmsFiles,
         IReadOnlyCollection<LR2SongDBExtended.bmson_song> bmsonSongs)

@@ -1834,9 +1834,10 @@ public sealed class MainWindowContextMenuResourceTests
         string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyLibraryFileScanStorageMutation");
         string buildMethod = ExtractMethodBody(libraryCode, "private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult");
 
-        StringAssert.Contains(applyMethod, "List<ChartFile> removedCharts = CreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(fileCheckResult);");
-        StringAssert.Contains(applyMethod, "mutationResult = BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, removedCharts);");
+        StringAssert.Contains(applyMethod, "bool removedPayloadAvailable = TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(fileCheckResult, out List<ChartFile> removedCharts);");
+        StringAssert.Contains(applyMethod, "mutationResult = BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, removedCharts, removedPayloadAvailable);");
         Assert.IsFalse(applyMethod.Contains("BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, BMSFiles, BmsonSongs)"));
+        StringAssert.Contains(buildMethod, "if (removedPayloadAvailable)");
         StringAssert.Contains(buildMethod, "storageMutation.UnregisteredCharts.AddRange(removedCharts ?? [])");
         Assert.IsFalse(buildMethod.Contains("IReadOnlyList<BMSFile> currentBmsFiles"));
         Assert.IsFalse(buildMethod.Contains("IReadOnlyList<LR2SongDBExtended.bmson_song> currentBmsonSongs"));
