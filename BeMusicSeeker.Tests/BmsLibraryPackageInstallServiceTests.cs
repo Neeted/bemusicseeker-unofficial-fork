@@ -1784,16 +1784,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
                         deleteAllContents: deleteSourceContentsAfterSuccessfulInstall,
                         existingHashes: existingHashes,
                         excludedComponentPaths: excludedComponentPaths),
-                result => storageRows.AddRange(result.AddedBmsonSongs),
-                result => maintenanceTargets.AddRange(result.AddedBmsonSongs),
+                result => storageRows.AddRange(GetAddedBmsonSongs(result)),
+                result => maintenanceTargets.AddRange(GetAddedBmsonSongs(result)),
                 _ => { },
-                result => applyTargets.AddRange(result.AddedBmsonSongs));
+                result => applyTargets.AddRange(GetAddedBmsonSongs(result)));
 
             Assert.AreEqual(1, result.AddedEntries.Count);
             Assert.AreEqual(1, result.AddedCharts.Count);
             Assert.AreEqual(0, GetAddedBmsFiles(result).Count);
-            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
-            Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
+            Assert.AreEqual(1, GetAddedBmsonSongs(result).Count);
+            Assert.AreSame(bmsonSong, GetAddedBmsonSongs(result)[0]);
             CollectionAssert.AreEqual(new[] { bmsonSong }, storageRows);
             CollectionAssert.AreEqual(new[] { bmsonSong }, maintenanceTargets);
             CollectionAssert.AreEqual(new[] { bmsonSong }, applyTargets);
@@ -1856,8 +1856,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.AddedEntries.Count);
             Assert.AreEqual(1, result.AddedCharts.Count);
             Assert.AreEqual(0, GetAddedBmsFiles(result).Count);
-            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
-            Assert.AreSame(bmsonSong, result.AddedBmsonSongs[0]);
+            Assert.AreEqual(1, GetAddedBmsonSongs(result).Count);
+            Assert.AreSame(bmsonSong, GetAddedBmsonSongs(result)[0]);
             Assert.AreEqual(0, songUpserts.Count);
             Assert.AreEqual(0, maintenanceTargets.Count);
             Assert.AreEqual(0, scoreTargets.Count);
@@ -2815,6 +2815,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
         return [.. (result?.AddedCharts ?? [])
             .Select(chart => chart?.GetBmsStorageOwner())
             .Where(ChartFileKindResolver.IsBmsChartFile)];
+    }
+
+    private static List<LR2SongDBExtended.bmson_song> GetAddedBmsonSongs(PackageInstallExecutionResult result)
+    {
+        return [.. (result?.AddedCharts ?? [])
+            .Select(chart => chart?.GetBmsonStorageOwner())
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
     }
 
     private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<BMSFile> targetFiles)

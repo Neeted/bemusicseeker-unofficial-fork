@@ -1,6 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -9,10 +7,6 @@ internal sealed class PackageInstallExecutionResult
     public List<PackageChartEntry> AddedEntries { get; } = [];
 
     public List<ChartFile> AddedCharts { get; } = [];
-
-    public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs => [.. AddedCharts
-        .Select(chart => chart?.GetBmsonStorageOwner())
-        .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
 
     public List<ChartPackage> FailedPackages { get; } = [];
 
