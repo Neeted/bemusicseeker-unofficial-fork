@@ -784,6 +784,36 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void MaintenanceResourceHealthDelta_InvalidatesInsteadOfFullRebuildWhenDeltaCannotApply()
+    {
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.path = @"C:\Library\delta.bms";
+        ChartFile chart = ChartFileProjection.FromBmsFile(file);
+
+        object currentMutation = InvokeBuildMaintenanceResourceHealthIndexMutation(
+            [chart],
+            maintenanceTargetIsFullOwned: false,
+            updateModeName: "DeltaOnUpdates",
+            resourceHealthIndexCurrent: true,
+            workflowHasUpdates: true);
+        Assert.IsFalse(GetBoolProperty(currentMutation, "RebuildFull"));
+        Assert.IsFalse(GetBoolProperty(currentMutation, "Invalidate"));
+        Assert.IsTrue(GetBoolProperty(currentMutation, "InvalidateIfDeltaFails"));
+        Assert.AreEqual(1, GetListCountProperty(currentMutation, "UpdatedTargets"));
+
+        object unavailableMutation = InvokeBuildMaintenanceResourceHealthIndexMutation(
+            [chart],
+            maintenanceTargetIsFullOwned: false,
+            updateModeName: "DeltaOnUpdates",
+            resourceHealthIndexCurrent: false,
+            workflowHasUpdates: true);
+        Assert.IsFalse(GetBoolProperty(unavailableMutation, "RebuildFull"));
+        Assert.IsTrue(GetBoolProperty(unavailableMutation, "Invalidate"));
+        Assert.IsFalse(GetBoolProperty(unavailableMutation, "InvalidateIfDeltaFails"));
+        Assert.AreEqual(0, GetListCountProperty(unavailableMutation, "UpdatedTargets"));
+    }
+
+    [TestMethod]
     public void GetZeroNoteCharts_FiltersOnlyZeroNoteCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2252,6 +2282,38 @@ public sealed class BmsLibraryMaintenanceServiceTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyMaintenanceHydrationResult", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [result]);
+    }
+
+    private static object InvokeBuildMaintenanceResourceHealthIndexMutation(
+        List<ChartFile> charts,
+        bool maintenanceTargetIsFullOwned,
+        string updateModeName,
+        bool resourceHealthIndexCurrent,
+        bool workflowHasUpdates)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BuildMaintenanceResourceHealthIndexMutation", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        Type updateModeType = typeof(BMSLibrary).GetNestedType("ResourceHealthIndexUpdateMode", BindingFlags.NonPublic);
+        Assert.IsNotNull(updateModeType);
+        object updateMode = Enum.Parse(updateModeType, updateModeName);
+        object mutation = methodInfo.Invoke(null, [charts, maintenanceTargetIsFullOwned, updateMode, resourceHealthIndexCurrent, workflowHasUpdates]);
+        Assert.IsNotNull(mutation);
+        return mutation;
+    }
+
+    private static bool GetBoolProperty(object target, string propertyName)
+    {
+        PropertyInfo propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        Assert.IsNotNull(propertyInfo);
+        return (bool)propertyInfo.GetValue(target);
+    }
+
+    private static int GetListCountProperty(object target, string propertyName)
+    {
+        PropertyInfo propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        Assert.IsNotNull(propertyInfo);
+        var value = (System.Collections.ICollection)propertyInfo.GetValue(target);
+        return value?.Count ?? 0;
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

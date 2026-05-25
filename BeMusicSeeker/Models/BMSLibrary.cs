@@ -9163,9 +9163,17 @@ completeFileEnumerationOnce,
             mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
             return mutation;
         }
-        if (resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent)
+        if (resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates)
         {
-            mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
+            if (resourceHealthIndexCurrent)
+            {
+                mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
+                mutation.InvalidateIfDeltaFails = true;
+            }
+            else
+            {
+                mutation.Invalidate = true;
+            }
             return mutation;
         }
         mutation.RebuildFull = true;
