@@ -907,6 +907,8 @@ public class BMSLibrary : NotificationObject
 
     private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> installDestinationRuntimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
+    private int suppressInstallDestinationRuntimeStatePruning;
+
     private InstallDestinationOverlayChartRefSnapshot installDestinationOverlayChartRefSnapshot;
 
     private readonly object resourceHealthIndexLock = new();
@@ -7090,7 +7092,7 @@ reportProgress,
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
         result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
         result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
-        result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = delta != null;
+        result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = storageMutation.RemovedCount > 0;
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta, storageMutation.PathChanges));
         return result;
@@ -7660,6 +7662,11 @@ reportProgress,
     {
         lock (installDestinationRuntimeStatesLock)
         {
+            if (suppressInstallDestinationRuntimeStatePruning > 0)
+            {
+                return;
+            }
+
             // Startup assigns the full storage row sets before any runtime install
             // destination overlay exists. Avoid building 210k+ ChartFile projection
             // keys for that empty-cache case.
@@ -7685,6 +7692,32 @@ reportProgress,
             if (removedAny)
             {
                 InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe();
+            }
+        }
+    }
+
+    private IDisposable SuppressInstallDestinationRuntimeStatePruning()
+    {
+        lock (installDestinationRuntimeStatesLock)
+        {
+            suppressInstallDestinationRuntimeStatePruning++;
+        }
+        return new InstallDestinationRuntimeStatePruningSuppression(this);
+    }
+
+    private sealed class InstallDestinationRuntimeStatePruningSuppression(BMSLibrary owner) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                lock (owner.installDestinationRuntimeStatesLock)
+                {
+                    owner.suppressInstallDestinationRuntimeStatePruning = Math.Max(0, owner.suppressInstallDestinationRuntimeStatePruning - 1);
+                }
+                owner = null;
             }
         }
     }
@@ -12412,6 +12445,7 @@ reportProgress,
             using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
             using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
+            using (mutationResult.InstallDestinationRuntimeStateMutation.HasStateChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
                 stateApplier.ApplyLibraryMutationDelta(delta);
@@ -12447,6 +12481,10 @@ reportProgress,
             if (mutationResult.ResourceHealthIndexInvalidated)
             {
                 ForceInvalidateResourceHealthIndex("library_delta_failed");
+            }
+            if (mutationResult.InstallDestinationRuntimeStateMutation.HasStateChanges)
+            {
+                PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
             }
             InvalidateOwnedChartCollection();
             ClearLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);

@@ -1495,6 +1495,35 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_UnregisterPrunesInstallDestinationOverlayByAffectedChart()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string sharedPath = Path.Combine("C:\\Library", "Bms", "chart.bms");
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
+            var duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile, duplicateOwner],
+                BmsonSongs = []
+            };
+            string installDestination = Path.Combine("C:\\Install", "Bms");
+            ApplyInstallDestinationChange(library, duplicateOwner, installDestination);
+            InstallDestinationOverlayChartRefSnapshot initialSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+            Assert.AreEqual(1, initialSnapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
+
+            var delta = new LibraryMutationDelta();
+            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsStorageOwnerIdentity(bmsFile));
+            InvokeApplyLibraryMutationDelta(library, delta);
+            InstallDestinationOverlayChartRefSnapshot afterSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+
+            Assert.AreEqual(0, afterSnapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
+            Assert.AreEqual(0, library.BMSFiles.Count);
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_OverlayOnlyClearsMetadataCacheAndRaisesLibraryChartsChangedWithoutLookupRebuild()
     {
         TestResourceInitializer.EnsureJapaneseResources();

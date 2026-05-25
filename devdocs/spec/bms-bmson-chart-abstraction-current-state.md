@@ -830,6 +830,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - owner/path canonical lookup と path-only exact lookup は用途を分ける。canonical lookup は ambiguous path を正規化規則で扱い、path-only exact lookup は同一 path の複数 ownerを保持する bounded materialize 用に使う。
    - real path directory view / subtree counts は folder operation の正本にし、caller 側で full ref list を作って `StartsWith` filter しない。BMSLibrary からの入口は `CreateOwnedRealPathChartRefsUnsafe(...)` / `CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(...)` のように用途名を持たせる。direct child snapshot も owned ref index の direct directory bucket から作る。
    - install destination overlay directory view は storage owner の実 path index と統合しない。runtime overlay / pending package state の隣接 index として、owned mutation と overlay mutation の両方から prune / update する。
+   - internal mutation で表現できる path change / install destination change は install destination runtime state mutation に載せ、affected key だけ move / apply する。unregister は storage applier が同一 path の別 owner を落とす場合があるため、成功後に current storage key snapshot で full prune する。外部 setter による full replacement も従来どおり full prune する。
    - この phase の実装単位では、既存 lazy view を dispatcher dirty 化へ寄せるか、差分 bucket update へ進めるかを index ごとに選ぶ。ただし同じ意味の index を複数作らない。
 
 4. **Resource / maintenance target の dispatcher contract 化: 継続**
