@@ -1131,7 +1131,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterInvalidatesCurrentResourceHealthIndex()
+    public void ApplyLibraryMutationDelta_UnregisterAppliesCurrentResourceHealthIndexDelta()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1154,6 +1154,7 @@ public sealed class OwnedChartCollectionStateTests
             InvokeApplyLibraryMutationDelta(library, delta);
 
             Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            Assert.IsFalse(IsResourceHealthIndexInvalidated(library));
         });
     }
 
@@ -1203,6 +1204,7 @@ public sealed class OwnedChartCollectionStateTests
                 InvokeApplyLibraryMutationDelta(library, delta);
 
                 Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+                Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
             }
             finally
             {
@@ -1429,7 +1431,8 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(1, bmsFilesChanged);
             Assert.AreEqual(1, bmsonSongsChanged);
             Assert.IsNull(library.DuplicateChartGroups);
-            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            Assert.AreEqual(2, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            Assert.IsFalse(IsResourceHealthIndexInvalidated(library));
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
             Assert.AreEqual(4, snapshot.Count);
@@ -1437,6 +1440,27 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreSame(newBms, snapshot[1].GetBmsStorageOwner());
             Assert.AreSame(keptBmson, snapshot[2].GetBmsonStorageOwner());
             Assert.AreSame(newBmson, snapshot[3].GetBmsonStorageOwner());
+        });
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_InvalidatedResourceHealthIndexDoesNotRebuildForDeltaFallback()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+            var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [keptBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(keptBms)]);
+            SetPrivateField(library, "resourceHealthIndexInvalidated", true);
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms], []));
+
+            Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
+            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
         });
     }
 
@@ -2163,6 +2187,13 @@ public sealed class OwnedChartCollectionStateTests
         var snapshot = ResourceHealthIndexSnapshot.Build(charts, new BmsLibraryMaintenanceService(), version: 1);
         SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
         SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+    }
+
+    private static bool IsResourceHealthIndexInvalidated(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("resourceHealthIndexInvalidated", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return (bool)fieldInfo.GetValue(library);
     }
 
     private static void SetPrivateField(BMSLibrary library, string fieldName, object value)

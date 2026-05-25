@@ -6881,6 +6881,8 @@ completeFileEnumerationOnce,
 
         public bool Defer { get; set; }
 
+        public bool InvalidateIfDeltaFails { get; set; }
+
         public int UpdateTargetCount => UpdatedTargets.Count + RemovedTargets.Count;
 
         public bool HasDeltaTargets => UpdatedTargets.Count > 0 || RemovedTargets.Count > 0;
@@ -7262,7 +7264,7 @@ completeFileEnumerationOnce,
             {
                 PublishOwnedCollectionChangeNotification(mutationResult);
             }
-            if (mutationResult.ResourceHealthIndexInvalidated)
+            if (mutationResult.ResourceHealthMutation.HasChanges)
             {
                 ForceInvalidateResourceHealthIndex("install_package_failed");
             }
@@ -7319,7 +7321,6 @@ completeFileEnumerationOnce,
             DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true,
             PlaylistSummaryOwnedHashInvalidated = storageMutation.HasHashSetChanges,
             OwnedCollectionChanged = storageMutation.HasChanges,
-            ResourceHealthIndexInvalidated = storageMutation.HasChanges,
             WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
             BmsFilesPropertyChanged = HasBmsStorageRowCollectionChange(storageMutation)
                 || (delta?.RaiseLibraryChartsChanged == true && HasBmsStorageRowPathChange(storageMutation)),
@@ -7333,6 +7334,7 @@ completeFileEnumerationOnce,
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = storageMutation.RemovedCount > 0;
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta, storageMutation.PathChanges));
+        ConfigureResourceHealthMutationForStorageMutation(result, storageMutation);
         return result;
     }
 
@@ -7385,12 +7387,33 @@ completeFileEnumerationOnce,
         result.DuplicateCacheInvalidated = result.StorageMutation.AddedCount > 0;
         result.PlaylistSummaryOwnedHashInvalidated = result.StorageMutation.HasHashSetChanges;
         result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
-        result.ResourceHealthIndexInvalidated = result.StorageMutation.HasChanges;
         result.WarningPresentationChanged = result.StorageMutation.HasChanges;
         result.BmsFilesPropertyChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
         result.BmsonSongsPropertyChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = result.StorageMutation.AddedCount > 0;
+        ConfigureResourceHealthMutationForStorageMutation(result, result.StorageMutation);
         return result;
+    }
+
+    private void ConfigureResourceHealthMutationForStorageMutation(
+        OwnedChartCollectionMutationResult result,
+        OwnedChartCollectionStorageMutation storageMutation)
+    {
+        if (result == null || storageMutation?.HasChanges != true)
+        {
+            return;
+        }
+        if (!IsResourceHealthIndexCurrent() || storageMutation.PathChanges.Count > 0)
+        {
+            result.ResourceHealthIndexInvalidated = true;
+            return;
+        }
+
+        result.ResourceHealthMutation.RemovedTargets.AddRange(storageMutation.UnregisteredCharts.Where(chart => chart != null));
+        result.ResourceHealthMutation.UpdatedTargets.AddRange(CreateResourceMaintenanceTargetCharts(
+            storageMutation.AddedBmsFiles,
+            storageMutation.AddedBmsonSongs));
+        result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionHashMutationResult(
@@ -7470,6 +7493,7 @@ completeFileEnumerationOnce,
         destination.Invalidate = source.Invalidate;
         destination.RebuildFull = source.RebuildFull;
         destination.Defer = source.Defer;
+        destination.InvalidateIfDeltaFails = source.InvalidateIfDeltaFails;
     }
 
     private static OwnedChartCollectionMutationResult BuildResourceHealthWarningPresentationMutationResult(
@@ -8808,7 +8832,7 @@ completeFileEnumerationOnce,
     {
         snapshot = null;
         ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-        if (Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null || currentSnapshot.TargetCount <= 0)
+        if (Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null)
         {
             return false;
         }
@@ -8877,6 +8901,12 @@ completeFileEnumerationOnce,
             result.Snapshot = deltaSnapshot;
             result.DeltaApplied = true;
             result.IndexMs = deltaSnapshot.BuildMs;
+            return result;
+        }
+        if (!mutation.RebuildFull && mutation.HasDeltaTargets && mutation.InvalidateIfDeltaFails)
+        {
+            InvalidateResourceHealthIndex(reason);
+            result.Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
             return result;
         }
         if (mutation.RebuildFull || mutation.HasDeltaTargets)
@@ -13043,7 +13073,7 @@ completeFileEnumerationOnce,
             {
                 PublishOwnedCollectionChangeNotification(mutationResult);
             }
-            if (mutationResult.ResourceHealthIndexInvalidated)
+            if (mutationResult.ResourceHealthMutation.HasChanges)
             {
                 ForceInvalidateResourceHealthIndex("library_delta_failed");
             }
