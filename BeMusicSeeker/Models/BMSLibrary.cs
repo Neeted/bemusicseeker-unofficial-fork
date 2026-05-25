@@ -7966,6 +7966,7 @@ completeFileEnumerationOnce,
             WarningPresentationChanged = true
         };
         result.ResourceHealthMutation.UpdatedTargets.AddRange((updatedTargets ?? []).Where(chart => chart != null));
+        result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
         return result;
     }
 
@@ -9468,7 +9469,8 @@ completeFileEnumerationOnce,
         bool forceUpdate = false,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
-        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates)
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.DeltaOnUpdates,
+        string resourceHealthMutationReason = null)
     {
         if (charts == null)
         {
@@ -9484,6 +9486,7 @@ completeFileEnumerationOnce,
                 progressReporter,
                 cancellationToken,
                 resourceHealthIndexUpdateMode,
+                resourceHealthMutationReason,
                 out _);
         }
     }
@@ -9493,7 +9496,8 @@ completeFileEnumerationOnce,
         bool forceUpdate = false,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
-        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates)
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates,
+        string resourceHealthMutationReason = null)
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
@@ -9504,6 +9508,7 @@ completeFileEnumerationOnce,
                 progressReporter,
                 cancellationToken,
                 resourceHealthIndexUpdateMode,
+                resourceHealthMutationReason ?? reason,
                 out _);
         }
     }
@@ -9515,6 +9520,7 @@ completeFileEnumerationOnce,
         Action<MaintenanceWorkflowProgress> progressReporter,
         CancellationToken cancellationToken,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
+        string resourceHealthMutationReason,
         out List<ChartFile> currentMaintenanceTargetCharts)
     {
         currentMaintenanceTargetCharts = maintenanceTargetCharts ?? [];
@@ -9559,9 +9565,9 @@ completeFileEnumerationOnce,
             resourceHealthIndexUpdateMode,
             resourceHealthIndexCurrent,
             workflowResult.HasUpdates);
-        string resourceHealthMutationReason = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
-            ? "install_package_estimated"
-            : "setMaintenanceInfo";
+        resourceHealthMutationReason = string.IsNullOrWhiteSpace(resourceHealthMutationReason)
+            ? "setMaintenanceInfo"
+            : resourceHealthMutationReason;
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
             workflowResult.HashChanges,
             resourceHealthMutation,
@@ -9638,6 +9644,9 @@ completeFileEnumerationOnce,
                 List<ChartFile> targets = useOwnedSnapshot
                     ? CreateFullOwnedResourceMaintenanceTargetCharts("force_resource_health_filter")
                     : CreateResourceMaintenanceTargetCharts(charts);
+                string resourceHealthReason = useOwnedSnapshot && forceUpdate
+                    ? "force_resource_health_filter"
+                    : "resource_health_filter";
                 if (forceUpdate)
                 {
                     setMaintenanceInfoCoreLocked(
@@ -9646,17 +9655,23 @@ completeFileEnumerationOnce,
                         forceUpdate: true,
                         progressReporter: null,
                         cancellationToken: default,
-                        resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.FullOnUpdates,
+                        resourceHealthIndexUpdateMode: useOwnedSnapshot ? ResourceHealthIndexUpdateMode.FullOnUpdates : ResourceHealthIndexUpdateMode.DeltaOnUpdates,
+                        resourceHealthMutationReason: resourceHealthReason,
                         currentMaintenanceTargetCharts: out targets);
                 }
-                ResourceHealthIndexSnapshot snapshot = GetResourceHealthIndexSnapshot(forceUpdate ? "force_resource_health_filter" : "resource_health_filter");
                 if (useOwnedSnapshot)
                 {
-                    return [.. (isInIgnoredList ? snapshot.IgnoredTargets : snapshot.ActiveTargets)];
+                    ResourceHealthIndexSnapshot ownedSnapshot = GetResourceHealthIndexSnapshot(resourceHealthReason);
+                    return [.. (isInIgnoredList ? ownedSnapshot.IgnoredTargets : ownedSnapshot.ActiveTargets)];
                 }
                 if (targets.Count == 0)
                 {
                     return [];
+                }
+                ResourceHealthIndexSnapshot snapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
+                if (Volatile.Read(ref resourceHealthIndexInvalidated) || snapshot == null)
+                {
+                    snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version: 0);
                 }
                 return [.. targets.Where(chart =>
                 {
@@ -9680,7 +9695,12 @@ completeFileEnumerationOnce,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        MaintenanceWorkflowResult result = setMaintenanceInfo(charts, forceUpdate: true, progressReporter: progressReporter, cancellationToken: cancellationToken);
+        MaintenanceWorkflowResult result = setMaintenanceInfo(
+            charts,
+            forceUpdate: true,
+            progressReporter: progressReporter,
+            cancellationToken: cancellationToken,
+            resourceHealthMutationReason: "resource_health_rescan");
         return result;
     }
 
@@ -9743,7 +9763,10 @@ completeFileEnumerationOnce,
             {
                 if (forceUpdate)
                 {
-                    setMaintenanceInfo(CreateBmsResourceMaintenanceTargetCharts(bmsFiles), forceUpdate);
+                    setMaintenanceInfo(
+                        CreateBmsResourceMaintenanceTargetCharts(bmsFiles),
+                        forceUpdate,
+                        resourceHealthMutationReason: "garbled_filter");
                 }
                 return maintenanceService.GetGarbledFiles(bmsFiles, isInFixedList);
             }
@@ -10555,7 +10578,10 @@ completeFileEnumerationOnce,
             }
             if (addedCharts.Count > 0)
             {
-                setMaintenanceInfo(addedCharts, forceUpdate: true);
+                setMaintenanceInfo(
+                    addedCharts,
+                    forceUpdate: true,
+                    resourceHealthMutationReason: "install_package");
             }
         }
 
@@ -11481,7 +11507,8 @@ completeFileEnumerationOnce,
                             setMaintenanceInfo(
                                 estimatedInstallMaintenanceTargets,
                                 forceUpdate: true,
-                                resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates);
+                                resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
+                                resourceHealthMutationReason: "install_package_estimated");
                         }
                         List<ChartFile> estimatedInstallInlineTargets = BuildEstimatedInstallMaintenanceTargets(
                             estimatedInstallMaintenanceTargets.Concat(
@@ -12933,7 +12960,8 @@ completeFileEnumerationOnce,
                         setMaintenanceInfo(
                             maintenanceTargets.Charts,
                             forceUpdate: true,
-                            resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates);
+                            resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
+                            resourceHealthMutationReason: "merge_folder");
                         LogInstallPerformance("duplicate_merge_model maintenance_done op=" + operationId + " elapsedMs=" + maintenanceStopwatch.ElapsedMilliseconds);
                         var upsertStopwatch = Stopwatch.StartNew();
                         ApplyInstalledChartStorageTargets(movedTargets, "merge_folder");
@@ -13019,7 +13047,10 @@ completeFileEnumerationOnce,
                 List<ChartFile> maintenanceTargets = CreateResourceMaintenanceTargetCharts(result.MaintenanceCharts);
                 if (maintenanceTargets.Count > 0)
                 {
-                    setMaintenanceInfo(maintenanceTargets, forceUpdate: true);
+                    setMaintenanceInfo(
+                        maintenanceTargets,
+                        forceUpdate: true,
+                        resourceHealthMutationReason: "fix_installation_directory");
                 }
             }
         }

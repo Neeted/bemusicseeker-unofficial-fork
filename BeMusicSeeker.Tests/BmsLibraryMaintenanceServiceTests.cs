@@ -571,6 +571,82 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void RescanResourceHealthCharts_UpdatesCurrentResourceHealthIndexByDelta()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string root = Path.GetDirectoryName(songDbPath);
+            string targetPath = Path.Combine(root, "target.bms");
+            string unrelatedPath = Path.Combine(root, "unrelated.bms");
+            File.WriteAllText(targetPath, "#PLAYER 1\r\n#TITLE target\r\n", Encoding.ASCII);
+            File.WriteAllText(unrelatedPath, "#PLAYER 1\r\n#TITLE unrelated\r\n", Encoding.ASCII);
+            TestableBmsFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            target.path = targetPath;
+            target.SetMaintenanceInfo(new BMSFileMaintenanceInfo(target)
+            {
+                hash = target.hash,
+                wav_files_defined = 1,
+                wav_files_existing = 0
+            }, suppressPropertyChanged: true);
+            TestableBmsFile unrelated = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            unrelated.path = unrelatedPath;
+            unrelated.SetMaintenanceInfo(new BMSFileMaintenanceInfo(unrelated)
+            {
+                hash = unrelated.hash,
+                wav_files_defined = 1,
+                wav_files_existing = 0
+            }, suppressPropertyChanged: true);
+            ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
+            ResourceHealthIndexSnapshot currentSnapshot = ResourceHealthIndexSnapshot.Build([targetChart], new BmsLibraryMaintenanceService(), version: 3);
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetPrivateField(library, "resourceHealthIndexSnapshot", currentSnapshot);
+            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+
+            MaintenanceWorkflowResult result = library.RescanResourceHealthCharts([targetChart]);
+            ResourceHealthIndexSnapshot updatedSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(1, updatedSnapshot.TargetCount);
+            Assert.IsFalse(updatedSnapshot.GetProjection(targetChart).HasIssues);
+            Assert.AreEqual(0, updatedSnapshot.ActiveTargets.Count);
+        });
+    }
+
+    [TestMethod]
+    public void GetChartsNeedResourceFix_SubsetForceUpdateDoesNotBuildFullOwnedIndexWhenCurrentIndexUnavailable()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string root = Path.GetDirectoryName(songDbPath);
+            string targetPath = Path.Combine(root, "target-missing.bms");
+            string unrelatedPath = Path.Combine(root, "unrelated-missing.bms");
+            File.WriteAllText(targetPath, "#PLAYER 1\r\n#TITLE target\r\n#WAV01 missing.wav\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(unrelatedPath, "#PLAYER 1\r\n#TITLE unrelated\r\n#WAV01 missing.wav\r\n#00111:01\r\n", Encoding.ASCII);
+            TestableBmsFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            target.path = targetPath;
+            TestableBmsFile unrelated = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            unrelated.path = unrelatedPath;
+            ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetPrivateField(library, "resourceHealthIndexSnapshot", ResourceHealthIndexSnapshot.Empty);
+            SetPrivateField(library, "resourceHealthIndexInvalidated", true);
+
+            List<ChartFile> result = library.GetChartsNeedResourceFix([targetChart], forceUpdate: true);
+            ResourceHealthIndexSnapshot currentSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+
+            Assert.AreEqual(1, result.Count);
+            Assert.AreEqual(targetPath, result[0].Path);
+            Assert.AreEqual(0, currentSnapshot.TargetCount);
+        });
+    }
+
+    [TestMethod]
     public void ApplyMaintenanceHydrationResult_PublishesMaintenanceRefreshThroughOwnedDispatcher()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -650,6 +726,45 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, refreshNotificationChanged);
             Assert.AreEqual(0, updatedSnapshot.ActiveTargets.Count);
             Assert.AreEqual(1, updatedSnapshot.IgnoredTargets.Count);
+        });
+    }
+
+    [TestMethod]
+    public void SetChartResourceWarningsIgnored_InvalidatesInsteadOfFullRebuildWhenCurrentIndexUnavailable()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestableBmsFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            target.path = @"C:\Library\target-warning.bms";
+            target.SetMaintenanceInfo(new BMSFileMaintenanceInfo(target)
+            {
+                hash = target.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1,
+                is_files_warning_ignored = false
+            }, suppressPropertyChanged: true);
+            TestableBmsFile unrelated = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            unrelated.path = @"C:\Library\unrelated-warning.bms";
+            unrelated.SetMaintenanceInfo(new BMSFileMaintenanceInfo(unrelated)
+            {
+                hash = unrelated.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1,
+                is_files_warning_ignored = false
+            }, suppressPropertyChanged: true);
+            ChartFile targetChart = ChartFileProjection.FromBmsFile(target);
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetPrivateField(library, "resourceHealthIndexSnapshot", ResourceHealthIndexSnapshot.Empty);
+            SetPrivateField(library, "resourceHealthIndexInvalidated", true);
+
+            library.SetChartResourceWarningsIgnored([targetChart], unset: false);
+
+            ResourceHealthIndexSnapshot currentSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.AreEqual(0, currentSnapshot.TargetCount);
+            Assert.IsTrue(target.maintenanceInfo.is_files_warning_ignored);
         });
     }
 

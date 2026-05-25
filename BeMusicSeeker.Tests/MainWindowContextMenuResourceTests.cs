@@ -1744,6 +1744,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");
         StringAssert.Contains(libraryCode, "setMaintenanceInfo(");
         StringAssert.Contains(libraryCode, "estimatedInstallMaintenanceTargets,");
+        StringAssert.Contains(libraryCode, "resourceHealthMutationReason: \"install_package_estimated\"");
         StringAssert.Contains(resourceHealthCode, "internal ResourceHealthIndexSnapshot ApplyDelta(");
         StringAssert.Contains(resourceHealthCode, "HashSet<ResourceHealthChartKey> targetKeys");
 
@@ -1763,8 +1764,8 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(libraryCode, "DeferOnUpdates");
         StringAssert.Contains(libraryCode, "ResourceHealthIndexUpdateMode.DeltaOnUpdates");
-        StringAssert.Contains(libraryCode, "? \"install_package_estimated\"");
-        StringAssert.Contains(libraryCode, ": \"setMaintenanceInfo\"");
+        StringAssert.Contains(libraryCode, "resourceHealthMutationReason = string.IsNullOrWhiteSpace(resourceHealthMutationReason)");
+        StringAssert.Contains(libraryCode, "? \"setMaintenanceInfo\"");
         StringAssert.Contains(libraryCode, "BuildOwnedChartCollectionMaintenanceMutationResult(");
         StringAssert.Contains(libraryCode, "DispatchOwnedChartCollectionMutation(mutationResult, resourceHealthMutationReason)");
         StringAssert.Contains(mergeMethod, "ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts");
@@ -1775,6 +1776,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mergeMethod.Contains("CreateResourceMaintenanceTargetCharts(maintenanceTargets"));
         Assert.IsFalse(mergeMethod.Contains("ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs)"));
         StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
+        StringAssert.Contains(mergeMethod, "resourceHealthMutationReason: \"merge_folder\"");
         StringAssert.Contains(duplicateSearchMethod, "CreateOwnedDuplicateChartRowSnapshotUnsafe()");
         StringAssert.Contains(duplicateSearchMethod, "ownedSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");
