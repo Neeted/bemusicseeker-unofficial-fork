@@ -26,10 +26,6 @@ internal sealed class BmsLibraryStateApplier(
     Action<DispatcherCollection<ChartPackage>> setPendingPackages,
     Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
     Action<DispatcherCollection<ChartPackage>> setInstalledPackages,
-    Action invalidateInstalledDirectoryIndex,
-    Action invalidateParentFolderCache,
-    Action clearDuplicatedCache,
-    Action raiseLibraryChartsChanged,
     Action raiseInstalledPackagesChanged)
 {
     private readonly BmsLibraryDbGateway dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
@@ -49,14 +45,6 @@ internal sealed class BmsLibraryStateApplier(
     private readonly Func<DispatcherCollection<ChartPackage>> getInstalledPackages = getInstalledPackages ?? throw new ArgumentNullException(nameof(getInstalledPackages));
 
     private readonly Action<DispatcherCollection<ChartPackage>> setInstalledPackages = setInstalledPackages ?? throw new ArgumentNullException(nameof(setInstalledPackages));
-
-    private readonly Action invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
-
-    private readonly Action invalidateParentFolderCache = invalidateParentFolderCache ?? throw new ArgumentNullException(nameof(invalidateParentFolderCache));
-
-    private readonly Action clearDuplicatedCache = clearDuplicatedCache ?? throw new ArgumentNullException(nameof(clearDuplicatedCache));
-
-    private readonly Action raiseLibraryChartsChanged = raiseLibraryChartsChanged ?? throw new ArgumentNullException(nameof(raiseLibraryChartsChanged));
 
     private readonly Action raiseInstalledPackagesChanged = raiseInstalledPackagesChanged ?? throw new ArgumentNullException(nameof(raiseInstalledPackagesChanged));
 
@@ -82,7 +70,7 @@ internal sealed class BmsLibraryStateApplier(
         dbGateway.DeleteInstallRows(installPathsToDelete);
     }
 
-    public void ApplyLibraryMutationDelta(LibraryMutationDelta delta, bool deferDerivedIndexInvalidation = false, bool deferLibraryChartsChanged = false)
+    public void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
         if (delta == null)
         {
@@ -99,14 +87,14 @@ internal sealed class BmsLibraryStateApplier(
             BMSFile bmsFile = chartPathChange?.GetBmsStorageOwner();
             if (bmsFile != null)
             {
-                ReplaceBmsFilePath(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath, chartPathChange.CalcFolderParent, deferDerivedIndexInvalidation);
+                ReplaceBmsFilePath(bmsFile, chartPathChange.NewPath, chartPathChange.OldPath, chartPathChange.CalcFolderParent);
             }
             else
             {
                 LR2SongDBExtended.bmson_song bmsonSong = chartPathChange?.GetBmsonStorageOwner();
                 if (bmsonSong != null)
                 {
-                    ReplaceBmsonSongPath(bmsonSong, chartPathChange.NewPath, chartPathChange.OldPath, deferDerivedIndexInvalidation);
+                    ReplaceBmsonSongPath(bmsonSong, chartPathChange.NewPath, chartPathChange.OldPath);
                 }
             }
         }
@@ -139,29 +127,9 @@ internal sealed class BmsLibraryStateApplier(
             UnregisterCharts(delta.ChartsToUnregister);
         }
 
-        if (delta.InvalidateInstalledDirectoryIndex)
-        {
-            invalidateInstalledDirectoryIndex();
-        }
-
-        if (delta.InvalidateParentFolderCache && !deferDerivedIndexInvalidation)
-        {
-            invalidateParentFolderCache();
-        }
-
         if (delta.RaiseInstalledPackagesChanged)
         {
             raiseInstalledPackagesChanged();
-        }
-
-        if (delta.ClearDuplicatedCache && !deferDerivedIndexInvalidation)
-        {
-            clearDuplicatedCache();
-        }
-
-        if (delta.RaiseLibraryChartsChanged && !deferLibraryChartsChanged)
-        {
-            raiseLibraryChartsChanged();
         }
     }
 
@@ -295,7 +263,7 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    private void ReplaceBmsFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true, bool deferDerivedIndexInvalidation = false)
+    private void ReplaceBmsFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)
     {
         if (bmsFile == null)
         {
@@ -348,15 +316,10 @@ internal sealed class BmsLibraryStateApplier(
             bmsFile.date = null;
         }
 
-        invalidateInstalledDirectoryIndex();
-        if (!deferDerivedIndexInvalidation)
-        {
-            invalidateParentFolderCache();
-        }
         dbGateway.ReplaceSongPathWithMaintenance(bmsFile, oldPath);
     }
 
-    private void ReplaceBmsonSongPath(LR2SongDBExtended.bmson_song bmsonSong, string newPath, string oldPath = null, bool deferDerivedIndexInvalidation = false)
+    private void ReplaceBmsonSongPath(LR2SongDBExtended.bmson_song bmsonSong, string newPath, string oldPath = null)
     {
         if (bmsonSong == null)
         {
@@ -388,11 +351,6 @@ internal sealed class BmsLibraryStateApplier(
         bmsonSong.path = newPath;
         bmsonSong.folder = Path.GetDirectoryName(newPath) ?? string.Empty;
         bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
-        invalidateInstalledDirectoryIndex();
-        if (!deferDerivedIndexInvalidation)
-        {
-            invalidateParentFolderCache();
-        }
         dbGateway.ReplaceBmsonSongPath(bmsonSong, oldPath);
     }
 

@@ -60,7 +60,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UpdatesPathsAndRaisesInvalidations()
+    public void ApplyLibraryMutationDelta_UpdatesStorageRowsAndInstalledPackages()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -133,11 +133,7 @@ public sealed class BmsLibraryStateApplierTests
                 BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta
                 {
-                    RaiseLibraryChartsChanged = true,
-                    RaiseInstalledPackagesChanged = true,
-                    InvalidateInstalledDirectoryIndex = true,
-                    InvalidateParentFolderCache = true,
-                    ClearDuplicatedCache = true
+                    RaiseInstalledPackagesChanged = true
                 };
                 delta.FolderPathChanges.Add(new LibraryFolderPathChange
                 {
@@ -183,10 +179,6 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual("Old destination artist", appliedInstallDestinationChart.InstallDestinationArtist);
                 CollectionAssert.AreEqual(new[] { Path.Combine(tempRootPath, "Candidate") }, appliedInstallDestinationChart.InstallDestinationSuggestions.ToArray());
                 Assert.AreEqual(newDirectoryPath, installedPackage.path);
-                Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
-                Assert.IsTrue(callbacks.ParentFolderInvalidationCount >= 1);
-                Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
-                Assert.AreEqual(1, callbacks.LibraryChartsChangedCount);
                 Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
                 Assert.AreEqual(0, callbacks.BmsonSongsSetCount);
                 Assert.AreEqual(newBmsonPath, bmsonSongs[0].path);
@@ -226,12 +218,7 @@ public sealed class BmsLibraryStateApplierTests
             DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
-            var delta = new LibraryMutationDelta
-            {
-                InvalidateInstalledDirectoryIndex = true,
-                ClearDuplicatedCache = true,
-                RaiseLibraryChartsChanged = true
-            };
+            var delta = new LibraryMutationDelta();
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {
                 Chart = ChartFileProjection.WithPackageState(
@@ -255,9 +242,6 @@ public sealed class BmsLibraryStateApplierTests
             Assert.AreEqual(string.Empty, appliedChart.InstallDestinationArtist);
             Assert.AreEqual(0, appliedChart.InstallDestinationSuggestions.Count);
             Assert.IsFalse(appliedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
-            Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
-            Assert.AreEqual(1, callbacks.LibraryChartsChangedCount);
         });
     }
 
@@ -516,9 +500,6 @@ public sealed class BmsLibraryStateApplierTests
             verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
             Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == removedSong.path));
             Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == keptSong.path));
-            Assert.AreEqual(1, callbacks.InstalledDirectoryInvalidationCount);
-            Assert.AreEqual(1, callbacks.ParentFolderInvalidationCount);
-            Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
         });
     }
 
@@ -642,21 +623,13 @@ public sealed class BmsLibraryStateApplierTests
             DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
-            var delta = new LibraryMutationDelta
-            {
-                InvalidateInstalledDirectoryIndex = true,
-                InvalidateParentFolderCache = true,
-                ClearDuplicatedCache = true
-            };
+            var delta = new LibraryMutationDelta();
             delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsonSong(removedSong));
 
             applier.ApplyLibraryMutationDelta(delta);
 
             Assert.AreEqual(0, bmsonSongs.Count);
             Assert.AreEqual(1, callbacks.BmsonSongsSetCount);
-            Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
-            Assert.IsTrue(callbacks.ParentFolderInvalidationCount >= 1);
-            Assert.IsTrue(callbacks.ClearDuplicatedCount >= 1);
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
             Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == removedSong.path));
@@ -701,10 +674,6 @@ public sealed class BmsLibraryStateApplierTests
                 callbacks.InstalledPackagesSetCount++;
                 setInstalledPackages(packages);
             },
-            () => callbacks.InstalledDirectoryInvalidationCount++,
-            () => callbacks.ParentFolderInvalidationCount++,
-            () => callbacks.ClearDuplicatedCount++,
-            () => callbacks.LibraryChartsChangedCount++,
             () => callbacks.InstalledPackagesChangedCount++);
     }
 
@@ -715,12 +684,7 @@ public sealed class BmsLibraryStateApplierTests
 
     private static LibraryMutationDelta CreateUnregisterDelta(IEnumerable<ChartFile> charts)
     {
-        var delta = new LibraryMutationDelta
-        {
-            InvalidateInstalledDirectoryIndex = true,
-            InvalidateParentFolderCache = true,
-            ClearDuplicatedCache = true
-        };
+        var delta = new LibraryMutationDelta();
         delta.ChartsToUnregister.AddRange((charts ?? []).Where(chart => chart != null));
         return delta;
     }
@@ -753,14 +717,6 @@ public sealed class BmsLibraryStateApplierTests
         public int InstalledPackagesSetCount { get; set; }
 
         public int BmsonSongsSetCount { get; set; }
-
-        public int InstalledDirectoryInvalidationCount { get; set; }
-
-        public int ParentFolderInvalidationCount { get; set; }
-
-        public int ClearDuplicatedCount { get; set; }
-
-        public int LibraryChartsChangedCount { get; set; }
 
         public int InstalledPackagesChangedCount { get; set; }
     }

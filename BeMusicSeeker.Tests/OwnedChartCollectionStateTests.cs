@@ -1457,6 +1457,63 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_OverlayOnlyClearsMetadataCacheAndRaisesLibraryChartsChangedWithoutLookupRebuild()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, new string('b', 64));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = []
+            };
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(bmsFile.hash));
+            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+            InvokeResolveInstallDestinationMetadataProfile(library, chartDirectory);
+            Assert.AreEqual(1, GetInstallEstimationMetadataProfileCacheCount(library));
+            int bmsFilesChanged = 0;
+            int ownedCollectionVersionChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BMSFiles")
+                {
+                    bmsFilesChanged++;
+                }
+                if (args.PropertyName == "OwnedChartCollectionVersion")
+                {
+                    ownedCollectionVersionChanged++;
+                }
+            };
+            var delta = new LibraryMutationDelta
+            {
+                InvalidateInstalledDirectoryIndex = true,
+                RaiseLibraryChartsChanged = true
+            };
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
+                NewInstallDestination = Path.Combine(chartDirectory, "Overlay")
+            });
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+
+            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(bmsFile.hash));
+            CollectionAssert.AreEqual(initialLookup.Md5Directories[bmsFile.hash].ToArray(), updatedLookup.Md5Directories[bmsFile.hash].ToArray());
+            Assert.AreEqual(0, GetInstallEstimationMetadataProfileCacheCount(library));
+            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.AreEqual(0, ownedCollectionVersionChanged);
+        });
+    }
+
+    [TestMethod]
     public void CreateInstalledDisplayPackageForResourceOnlyMerge_UsesDestinationDirectChildrenOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1573,6 +1630,28 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartLookupSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (InstalledChartLookupIndexSnapshot)methodInfo.Invoke(library, []);
+    }
+
+    private static void InvokeResolveInstallDestinationMetadataProfile(BMSLibrary library, string destinationDirectory)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ResolveInstallDestinationMetadataProfileUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [destinationDirectory]);
+    }
+
+    private static int GetInstallEstimationMetadataProfileCacheCount(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installEstimationMetadataProfileCache", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        var cache = (System.Collections.ICollection)fieldInfo.GetValue(library);
+        return cache.Count;
+    }
+
+    private static bool IsInstalledChartLookupIndexInitialized(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installedChartLookupIndexInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        return (bool)fieldInfo.GetValue(library);
     }
 
     private static ChartPackage InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(

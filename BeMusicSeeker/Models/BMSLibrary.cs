@@ -2640,10 +2640,6 @@ public class BMSLibrary : NotificationObject
             pendingPackages => ChartPackagesPending = pendingPackages,
             () => ChartPackagesInstalled,
             installedPackages => ChartPackagesInstalled = installedPackages,
-            InvalidateInstalledDirectoryIndex,
-            InvalidateBMSParentFolderListCache,
-            InvalidateDuplicateChartGroupsCache,
-            () => RaisePropertyChanged(() => BMSFiles),
             () => RaisePropertyChanged(() => ChartPackagesInstalled));
         pendingInstallEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(ProcessPendingInstallEstimateBatch, UpdatePendingEstimateQueueStatus, HandlePendingEstimateBatchException);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
@@ -6613,7 +6609,7 @@ reportProgress,
 
         public IReadOnlyList<ChartFile> InstallDestinationChangedCharts => InstallDestinationRuntimeStateMutation.AppliedCharts;
 
-        public bool ForceInstalledLookupDispatch { get; set; }
+        public bool InstallEstimationMetadataProfileCacheInvalidated { get; set; }
 
         public int AddedCount { get; set; }
 
@@ -6637,9 +6633,7 @@ reportProgress,
 
         public bool ResourceHealthIndexInvalidated { get; set; }
 
-        public bool ShouldDispatchInstalledLookup => ForceInstalledLookupDispatch || InstalledLookupMutation?.HasChanges == true;
-
-        public bool ShouldDeferStateApplierDerivedInvalidation => ParentFolderInvalidated || DuplicateCacheInvalidated;
+        public bool ShouldDispatchInstalledLookup => InstalledLookupMutation?.HasChanges == true;
 
         public bool HasLoggableChanges => AddedCount > 0
             || RemovedCount > 0
@@ -6651,6 +6645,7 @@ reportProgress,
             || PlaylistSummaryOwnedHashInvalidated
             || OwnedCollectionChanged
             || ResourceHealthIndexInvalidated
+            || InstallEstimationMetadataProfileCacheInvalidated
             || InstalledLookupMutation?.HasChanges == true;
     }
 
@@ -7039,7 +7034,7 @@ reportProgress,
         var result = new OwnedChartCollectionMutationResult
         {
             InstalledLookupMutation = BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
-            ForceInstalledLookupDispatch = delta?.InvalidateInstalledDirectoryIndex == true,
+            InstallEstimationMetadataProfileCacheInvalidated = delta?.InvalidateInstalledDirectoryIndex == true,
             AddedCount = storageMutation.AddedCount,
             RemovedCount = storageMutation.RemovedCount,
             MovedCount = storageMutation.MovedCount,
@@ -7125,6 +7120,11 @@ reportProgress,
         {
             InvalidateResourceHealthIndex(reason);
         }
+        bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
+        if (installMetadataProfileCacheInvalidated)
+        {
+            InvalidateInstallEstimationMetadataProfileCache();
+        }
         if (result.ShouldDispatchInstalledLookup)
         {
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
@@ -7145,6 +7145,7 @@ reportProgress,
                 + " playlistSummaryHash=" + ToInvalidateLogValue(result.PlaylistSummaryOwnedHashInvalidated)
                 + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " resourceHealth=" + ToInvalidateLogValue(result.ResourceHealthIndexInvalidated)
+                + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
     }
@@ -7242,7 +7243,6 @@ reportProgress,
         {
             return;
         }
-        InvalidateInstallEstimationMetadataProfileCache();
         lock (lockInstalledChartLookupIndex)
         {
             if (!installedChartLookupIndexInitialized)
@@ -12270,7 +12270,6 @@ reportProgress,
         try
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
-            // StateApplier still mutates storage rows through property setters; during this orchestration, derived index invalidation is dispatched once below.
             using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
             using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
             using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
@@ -12278,10 +12277,7 @@ reportProgress,
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
-                stateApplier.ApplyLibraryMutationDelta(
-                    delta,
-                    mutationResult.ShouldDeferStateApplierDerivedInvalidation,
-                    deferLibraryChartsChanged: mutationResult.OwnedCollectionChanged);
+                stateApplier.ApplyLibraryMutationDelta(delta);
             }
             ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation);
         }
@@ -12290,6 +12286,10 @@ reportProgress,
             if (mutationResult.ShouldDispatchInstalledLookup)
             {
                 InvalidateInstalledDirectoryIndex();
+            }
+            else if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
+            {
+                InvalidateInstallEstimationMetadataProfileCache();
             }
             if (mutationResult.ParentFolderInvalidated)
             {
@@ -12316,7 +12316,7 @@ reportProgress,
             throw;
         }
         DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
-        if (delta?.RaiseLibraryChartsChanged == true && mutationResult.OwnedCollectionChanged)
+        if (delta?.RaiseLibraryChartsChanged == true)
         {
             RaisePropertyChanged(() => BMSFiles);
         }
