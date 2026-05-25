@@ -7336,9 +7336,6 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = storageMutation.HasChanges,
             ResourceHealthIndexInvalidated = storageMutation.HasChanges,
             WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
-            WarningPresentationPropertiesChanged = delta?.RaiseLibraryChartsChanged == true
-                || delta?.ClearDuplicatedCache == true
-                || storageMutation.HasChanges,
             BmsFilesPropertyChanged = delta?.RaiseLibraryChartsChanged == true || HasBmsStorageRowCollectionChange(storageMutation),
             BmsonSongsPropertyChanged = HasBmsonStorageRowCollectionChange(storageMutation)
                 || (delta?.RaiseLibraryChartsChanged == true && HasBmsonStorageRowPathChange(storageMutation))
@@ -7399,7 +7396,6 @@ completeFileEnumerationOnce,
         result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
         result.ResourceHealthIndexInvalidated = result.StorageMutation.HasChanges;
         result.WarningPresentationChanged = result.StorageMutation.HasChanges;
-        result.WarningPresentationPropertiesChanged = result.StorageMutation.HasChanges;
         result.BmsFilesPropertyChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
         result.BmsonSongsPropertyChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = result.StorageMutation.AddedCount > 0;
@@ -7423,7 +7419,6 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = anyChanges,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
             WarningPresentationChanged = primaryHashChanged || (resourceHealthIndexInvalidated && md5Changed),
-            WarningPresentationPropertiesChanged = anyChanges,
             BmsFilesPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
             BmsonSongsPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
         };
@@ -7449,7 +7444,6 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = true,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
             WarningPresentationChanged = resourceHealthIndexInvalidated,
-            WarningPresentationPropertiesChanged = true,
             BmsFilesPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
             BmsonSongsPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
         };
@@ -7617,7 +7611,6 @@ completeFileEnumerationOnce,
         {
             RaisePropertyChanged(() => BmsonSongs);
         }
-        RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
     }
 
     private void PublishOwnedCollectionChangeNotification(OwnedChartCollectionMutationResult result)

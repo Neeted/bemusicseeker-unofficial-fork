@@ -1724,6 +1724,7 @@ public sealed class OwnedChartCollectionStateTests
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot initialSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
             SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsFilesChanged = 0;
             int ownedCollectionVersionChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -1745,9 +1746,12 @@ public sealed class OwnedChartCollectionStateTests
 
             InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot updatedSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.AreEqual(1, result.HashChanges.Count);
             Assert.AreEqual(snapshot.Md5, bmsFile.hash);
             Assert.AreEqual(snapshot.Sha256, bmsFile.sha256);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
             Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
             Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsFalse(updatedLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
