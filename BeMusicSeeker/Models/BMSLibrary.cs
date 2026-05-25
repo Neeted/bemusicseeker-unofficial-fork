@@ -59,13 +59,18 @@ internal sealed class NormalLibraryRefreshNotification
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool notifiesStorageRows,
         bool notifiesInstallDestinationOverlayProperties,
-        bool resetsPriorNotifications)
+        bool resetsPriorNotifications,
+        bool notifiesBmsFiles = false,
+        bool notifiesBmsonSongs = false)
     {
         Version = version;
         OwnedCollectionVersion = ownedCollectionVersion;
         Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
-        NotifiesStorageRows = notifiesStorageRows;
+        bool hasSpecificStorageRowNotification = notifiesBmsFiles || notifiesBmsonSongs;
+        NotifiesBmsFiles = notifiesBmsFiles || (notifiesStorageRows && !hasSpecificStorageRowNotification);
+        NotifiesBmsonSongs = notifiesBmsonSongs || (notifiesStorageRows && !hasSpecificStorageRowNotification);
+        NotifiesStorageRows = notifiesStorageRows || NotifiesBmsFiles || NotifiesBmsonSongs;
         NotifiesInstallDestinationOverlayProperties = notifiesInstallDestinationOverlayProperties;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
@@ -79,6 +84,10 @@ internal sealed class NormalLibraryRefreshNotification
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
 
     internal bool NotifiesStorageRows { get; }
+
+    internal bool NotifiesBmsFiles { get; }
+
+    internal bool NotifiesBmsonSongs { get; }
 
     internal bool NotifiesInstallDestinationOverlayProperties { get; }
 
@@ -103,13 +112,18 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool notifiesStorageRows,
         bool notifiesInstallDestinationOverlayProperties,
-        bool resetsPriorNotifications)
+        bool resetsPriorNotifications,
+        bool notifiesBmsFiles = false,
+        bool notifiesBmsonSongs = false)
     {
         LatestVersion = latestVersion;
         OwnedCollectionVersion = ownedCollectionVersion;
         Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
-        NotifiesStorageRows = notifiesStorageRows;
+        bool hasSpecificStorageRowNotification = notifiesBmsFiles || notifiesBmsonSongs;
+        NotifiesBmsFiles = notifiesBmsFiles || (notifiesStorageRows && !hasSpecificStorageRowNotification);
+        NotifiesBmsonSongs = notifiesBmsonSongs || (notifiesStorageRows && !hasSpecificStorageRowNotification);
+        NotifiesStorageRows = notifiesStorageRows || NotifiesBmsFiles || NotifiesBmsonSongs;
         NotifiesInstallDestinationOverlayProperties = notifiesInstallDestinationOverlayProperties;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
@@ -123,6 +137,10 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
 
     internal bool NotifiesStorageRows { get; }
+
+    internal bool NotifiesBmsFiles { get; }
+
+    internal bool NotifiesBmsonSongs { get; }
 
     internal bool NotifiesInstallDestinationOverlayProperties { get; }
 
@@ -1180,7 +1198,9 @@ public class BMSLibrary : NotificationObject
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateOwnedChartCollection();
                 NotifyOwnedChartCollectionChanged();
-                PublishExternalReplacementNormalLibraryRefreshNotification();
+                PublishExternalReplacementNormalLibraryRefreshNotification(
+                    notifiesBmsFiles: true,
+                    notifiesBmsonSongs: false);
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateDuplicateChartGroupsCache();
@@ -1232,6 +1252,8 @@ public class BMSLibrary : NotificationObject
                 LibraryChartRefreshEffects.None,
                 (current, notification) => current | notification.Effects);
             bool notifiesStorageRows = notifications.Any(notification => notification.NotifiesStorageRows);
+            bool notifiesBmsFiles = notifications.Any(notification => notification.NotifiesBmsFiles);
+            bool notifiesBmsonSongs = notifications.Any(notification => notification.NotifiesBmsonSongs);
             bool notifiesInstallDestinationOverlayProperties = AreEffectsCoveredByLegacyProperties(
                 notifications,
                 LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
@@ -1246,7 +1268,9 @@ public class BMSLibrary : NotificationObject
                 DistinctChartsByNotificationKey(installDestinationChangedCharts),
                 notifiesStorageRows,
                 notifiesInstallDestinationOverlayProperties,
-                resetsPriorNotifications);
+                resetsPriorNotifications,
+                notifiesBmsFiles,
+                notifiesBmsonSongs);
         }
     }
 
@@ -1279,7 +1303,9 @@ public class BMSLibrary : NotificationObject
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateOwnedChartCollection();
                 NotifyOwnedChartCollectionChanged();
-                PublishExternalReplacementNormalLibraryRefreshNotification();
+                PublishExternalReplacementNormalLibraryRefreshNotification(
+                    notifiesBmsFiles: false,
+                    notifiesBmsonSongs: true);
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateInstallEstimationMetadataProfileCache();
@@ -13294,7 +13320,9 @@ completeFileEnumerationOnce,
             installDestinationChangedCharts,
             result.StorageRowPropertyChanged,
             notifiesInstallDestinationOverlayProperties: false,
-            resetsPriorNotifications: false);
+            resetsPriorNotifications: false,
+            notifiesBmsFiles: result.BmsFilesPropertyChanged,
+            notifiesBmsonSongs: result.BmsonSongsPropertyChanged);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
             latestNormalLibraryRefreshNotification = notification;
@@ -13328,17 +13356,20 @@ completeFileEnumerationOnce,
         return effects;
     }
 
-    private void PublishNormalLibraryRefreshResetNotification()
+    private void PublishNormalLibraryRefreshResetNotification(bool notifiesBmsFiles, bool notifiesBmsonSongs)
     {
         int version = Interlocked.Increment(ref latestNormalLibraryRefreshNotificationVersion);
+        bool notifiesStorageRows = notifiesBmsFiles || notifiesBmsonSongs;
         var notification = new NormalLibraryRefreshNotification(
             version,
             OwnedChartCollectionVersion,
             LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
             [],
-            notifiesStorageRows: true,
+            notifiesStorageRows: notifiesStorageRows,
             notifiesInstallDestinationOverlayProperties: true,
-            resetsPriorNotifications: true);
+            resetsPriorNotifications: true,
+            notifiesBmsFiles: notifiesBmsFiles,
+            notifiesBmsonSongs: notifiesBmsonSongs);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
             latestNormalLibraryRefreshNotification = notification;
@@ -13347,13 +13378,13 @@ completeFileEnumerationOnce,
         RaisePropertyChanged(() => NormalLibraryRefreshNotificationVersion);
     }
 
-    private void PublishExternalReplacementNormalLibraryRefreshNotification()
+    private void PublishExternalReplacementNormalLibraryRefreshNotification(bool notifiesBmsFiles, bool notifiesBmsonSongs)
     {
         if (IsOwnedChartCollectionInvalidationSuppressed())
         {
             return;
         }
-        PublishNormalLibraryRefreshResetNotification();
+        PublishNormalLibraryRefreshResetNotification(notifiesBmsFiles, notifiesBmsonSongs);
     }
 
     private static IReadOnlyList<ChartFile> DistinctChartsByNotificationKey(IEnumerable<ChartFile> charts)

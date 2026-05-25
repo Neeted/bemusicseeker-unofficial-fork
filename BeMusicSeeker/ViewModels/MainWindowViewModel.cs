@@ -5681,7 +5681,9 @@ public class MainWindowViewModel : ViewModel
 
     private int normalLibraryRefreshHandledNotificationVersion;
 
-    private int normalLibraryRefreshNotificationVersionHandledBySignalBeforeStorageRefresh;
+    private int normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsFilesRefresh;
+
+    private int normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsonSongsRefresh;
 
     private viewUpdateMode? lastAppliedMainColumnSettingMode;
 
@@ -9865,25 +9867,135 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void RefreshNormalLibraryAfterSourceChanged(string reason)
+    {
+        ResetRegularDerivedViewCaches();
+        if (TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            RefreshPlaylistSummaryIfVisible(reason);
+            return;
+        }
+        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, reason))
+        {
+            RequestDeferredPlaylistSummaryRefresh();
+            return;
+        }
+        if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+        {
+            var type = (MaintenanceFilterType)treeViewFilterTypeSelected;
+            if (type != MaintenanceFilterType.DuplicateFilter)
+            {
+                ExecMaintenanceFilter(type);
+            }
+            RefreshPlaylistSummaryIfVisible(reason);
+            return;
+        }
+        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshPlaylistSummaryIfVisible(reason);
+    }
+
     private void MarkNormalLibraryRefreshSignalHandledBeforeStorageRefresh(NormalLibraryRefreshNotificationBatch notificationBatch)
     {
-        if (notificationBatch?.HasRefreshNotification == true
-            && notificationBatch.NotifiesStorageRows)
+        if (notificationBatch?.HasRefreshNotification != true)
         {
-            normalLibraryRefreshNotificationVersionHandledBySignalBeforeStorageRefresh = notificationBatch.LatestVersion;
+            return;
+        }
+        if (notificationBatch.NotifiesBmsFiles)
+        {
+            normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsFilesRefresh = notificationBatch.LatestVersion;
+        }
+        if (notificationBatch.NotifiesBmsonSongs)
+        {
+            normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsonSongsRefresh = notificationBatch.LatestVersion;
         }
     }
 
-    private bool ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefresh(NormalLibraryRefreshNotificationBatch notificationBatch)
+    private bool ShouldFallbackToCurrentOwnedCollectionVersionForBmsFilesRefresh(NormalLibraryRefreshNotificationBatch notificationBatch)
     {
-        return notificationBatch?.HasRefreshNotification != true
-            && (normalLibraryRefreshNotificationVersionHandledBySignalBeforeStorageRefresh <= 0
-                || normalLibraryRefreshNotificationVersionHandledBySignalBeforeStorageRefresh != normalLibraryRefreshHandledNotificationVersion);
+        return ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefresh(
+            notificationBatch,
+            normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsFilesRefresh,
+            normalLibraryRefreshHandledNotificationVersion);
     }
 
-    private void ClearNormalLibraryRefreshSignalHandledBeforeStorageRefresh()
+    private bool ShouldFallbackToCurrentOwnedCollectionVersionForBmsonSongsRefresh(NormalLibraryRefreshNotificationBatch notificationBatch)
     {
-        normalLibraryRefreshNotificationVersionHandledBySignalBeforeStorageRefresh = 0;
+        return ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefresh(
+            notificationBatch,
+            normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsonSongsRefresh,
+            normalLibraryRefreshHandledNotificationVersion);
+    }
+
+    private static bool ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefresh(
+        NormalLibraryRefreshNotificationBatch notificationBatch,
+        int signalHandledNotificationVersionBeforeStorageRefresh,
+        int normalLibraryRefreshHandledNotificationVersion)
+    {
+        return notificationBatch?.HasRefreshNotification != true
+            && (signalHandledNotificationVersionBeforeStorageRefresh <= 0
+                || signalHandledNotificationVersionBeforeStorageRefresh != normalLibraryRefreshHandledNotificationVersion);
+    }
+
+    private static bool ShouldRefreshLibraryMainViewAfterStorageRowsChanged(
+        bool sourceGenerationChanged,
+        NormalLibraryRefreshNotificationBatch notificationBatch,
+        bool fallbackToCurrentOwnedCollectionVersion)
+    {
+        return sourceGenerationChanged
+            || notificationBatch?.HasRefreshNotification == true
+            || fallbackToCurrentOwnedCollectionVersion;
+    }
+
+    internal static bool ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
+        bool sourceGenerationChanged,
+        bool hasRefreshNotification,
+        bool fallbackToCurrentOwnedCollectionVersion)
+    {
+        NormalLibraryRefreshNotificationBatch notificationBatch = hasRefreshNotification
+            ? new NormalLibraryRefreshNotificationBatch(
+                latestVersion: 1,
+                ownedCollectionVersion: 1,
+                LibraryChartRefreshEffects.SourceChanged,
+                [],
+                notifiesStorageRows: true,
+                notifiesInstallDestinationOverlayProperties: false,
+                resetsPriorNotifications: false)
+            : NormalLibraryRefreshNotificationBatch.Empty;
+        return ShouldRefreshLibraryMainViewAfterStorageRowsChanged(
+            sourceGenerationChanged,
+            notificationBatch,
+            fallbackToCurrentOwnedCollectionVersion);
+    }
+
+    internal static bool ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefreshForTest(
+        bool hasRefreshNotification,
+        int signalHandledNotificationVersionBeforeStorageRefresh,
+        int normalLibraryRefreshHandledNotificationVersion)
+    {
+        NormalLibraryRefreshNotificationBatch notificationBatch = hasRefreshNotification
+            ? new NormalLibraryRefreshNotificationBatch(
+                latestVersion: 1,
+                ownedCollectionVersion: 1,
+                LibraryChartRefreshEffects.SourceChanged,
+                [],
+                notifiesStorageRows: true,
+                notifiesInstallDestinationOverlayProperties: false,
+                resetsPriorNotifications: false)
+            : NormalLibraryRefreshNotificationBatch.Empty;
+        return ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefresh(
+            notificationBatch,
+            signalHandledNotificationVersionBeforeStorageRefresh,
+            normalLibraryRefreshHandledNotificationVersion);
+    }
+
+    private void ClearNormalLibraryRefreshSignalHandledBeforeBmsFilesRefresh()
+    {
+        normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsFilesRefresh = 0;
+    }
+
+    private void ClearNormalLibraryRefreshSignalHandledBeforeBmsonSongsRefresh()
+    {
+        normalLibraryRefreshNotificationVersionHandledBySignalBeforeBmsonSongsRefresh = 0;
     }
 
     private void IncrementNormalLibrarySourceGenerationForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
@@ -14493,44 +14605,37 @@ public class MainWindowViewModel : ViewModel
                 fallbackToCurrentOwnedCollectionVersion: false,
                 out _,
                 out _);
-            RefreshNormalLibraryForNotificationPresentationEffects(refreshNotification);
+            if (refreshNotification.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+            {
+                RefreshNormalLibraryAfterSourceChanged("normal_library_refresh");
+            }
+            else
+            {
+                RefreshNormalLibraryForNotificationPresentationEffects(refreshNotification);
+            }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
             NormalLibraryRefreshNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
-            bool fallbackToCurrentOwnedCollectionVersion = ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefresh(refreshNotification);
-            ClearNormalLibraryRefreshSignalHandledBeforeStorageRefresh();
+            bool fallbackToCurrentOwnedCollectionVersion = ShouldFallbackToCurrentOwnedCollectionVersionForBmsFilesRefresh(refreshNotification);
+            ClearNormalLibraryRefreshSignalHandledBeforeBmsFilesRefresh();
             PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
             ApplyNormalLibraryRefreshNotificationEffects(
                 refreshNotification,
                 "library_charts_changed",
                 fallbackToCurrentOwnedCollectionVersion,
-                out _,
+                out bool sourceGenerationChanged,
                 out _);
-            ResetRegularDerivedViewCaches();
-            if (TrySuppress(UiRefreshChannel.LibraryMainView))
+            bool refreshLibraryMainView = ShouldRefreshLibraryMainViewAfterStorageRowsChanged(
+                sourceGenerationChanged,
+                refreshNotification,
+                fallbackToCurrentOwnedCollectionVersion);
+            if (!refreshLibraryMainView)
             {
                 RefreshPlaylistSummaryIfVisible("library_charts_changed");
                 return;
             }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "library_charts_changed"))
-            {
-                RequestDeferredPlaylistSummaryRefresh();
-                return;
-            }
-            if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
-            {
-                var type = (MaintenanceFilterType)treeViewFilterTypeSelected;
-                if (type != MaintenanceFilterType.DuplicateFilter)
-                {
-                    ExecMaintenanceFilter(type);
-                }
-            }
-            else
-            {
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-            RefreshPlaylistSummaryIfVisible("library_charts_changed");
+            RefreshNormalLibraryAfterSourceChanged("library_charts_changed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {
@@ -14540,21 +14645,29 @@ public class MainWindowViewModel : ViewModel
                 InvalidateNormalLibrarySortKeysForBmsonSync(syncResult);
             }
             NormalLibraryRefreshNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
-            bool fallbackToCurrentOwnedCollectionVersion = ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefresh(refreshNotification);
-            ClearNormalLibraryRefreshSignalHandledBeforeStorageRefresh();
+            bool fallbackToCurrentOwnedCollectionVersion = ShouldFallbackToCurrentOwnedCollectionVersionForBmsonSongsRefresh(refreshNotification);
+            ClearNormalLibraryRefreshSignalHandledBeforeBmsonSongsRefresh();
             bool sourceChanged = ConsumeNormalLibrarySourceChangeForBmsonSync(
                 syncResult,
                 refreshNotification,
                 "library_bmsons",
                 fallbackToCurrentOwnedCollectionVersion,
-                out _);
+                out bool sourceGenerationChanged);
             ApplyNormalLibraryRefreshNotificationEffects(
                 refreshNotification,
                 "library_bmsons",
                 fallbackToCurrentOwnedCollectionVersion,
-                out _,
+                out bool sourceGenerationChangedFromNotification,
                 out _);
+            bool refreshLibraryMainView = ShouldRefreshLibraryMainViewAfterStorageRowsChanged(
+                sourceChanged ? sourceGenerationChanged : sourceGenerationChangedFromNotification,
+                refreshNotification,
+                fallbackToCurrentOwnedCollectionVersion);
             RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
+            if (!refreshLibraryMainView)
+            {
+                return;
+            }
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
@@ -14578,11 +14691,8 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            if (sourceChanged)
-            {
-                ResetRegularDerivedViewCaches();
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
+            ResetRegularDerivedViewCaches();
+            RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress, delegate
         {

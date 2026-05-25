@@ -1849,6 +1849,8 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(1, normalLibraryRefreshNotifications);
             Assert.IsFalse(batch.ResetsPriorNotifications);
             Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsTrue(batch.NotifiesBmsFiles);
+            Assert.IsTrue(batch.NotifiesBmsonSongs);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
@@ -2003,6 +2005,8 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(1, normalLibraryRefreshNotifications);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsFalse(batch.NotifiesStorageRows);
+            Assert.IsFalse(batch.NotifiesBmsFiles);
+            Assert.IsFalse(batch.NotifiesBmsonSongs);
             Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
@@ -2043,6 +2047,8 @@ public sealed class OwnedChartCollectionStateTests
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsTrue(batch.NotifiesBmsFiles);
+            Assert.IsFalse(batch.NotifiesBmsonSongs);
             Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
         });
     }
@@ -2087,6 +2093,8 @@ public sealed class OwnedChartCollectionStateTests
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsTrue(batch.NotifiesBmsFiles);
+            Assert.IsFalse(batch.NotifiesBmsonSongs);
             Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
         });
     }
