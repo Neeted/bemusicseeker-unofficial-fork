@@ -6762,13 +6762,18 @@ reportProgress,
         }
     }
 
-    private LibraryChartRefIndexSnapshot CreateLibraryChartRefIndexSnapshotUnsafe()
+    private LibraryChartRefIndexSnapshot CreateOwnedPathChartRefIndexUnsafe()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
             return ownedChartCollection.CreateLibraryChartRefIndexSnapshot();
         }
+    }
+
+    private List<LibraryChartRef> CreateOwnedRealPathChartRefsUnsafe(string directoryPath)
+    {
+        return CreateOwnedPathChartRefIndexUnsafe().GetChartRefsUnderRealPath(directoryPath);
     }
 
     private ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(string directoryPath)
@@ -8749,8 +8754,7 @@ reportProgress,
             return [];
         }
 
-        return CreateLibraryChartRefIndexSnapshotUnsafe()
-            .GetChartRefsUnderRealPath(normalizedDestinationDirectory)
+        return CreateOwnedRealPathChartRefsUnsafe(normalizedDestinationDirectory)
             .Select(CreateInstalledChartMetadataCandidate)
             .Where(candidate => candidate != null);
     }
@@ -11648,7 +11652,7 @@ reportProgress,
                         LibraryMergeResult mergeResult = libraryFileOperationsService.PrepareMergeDirectory(
                             src,
                             dst,
-                            CreateLibraryChartRefIndexSnapshotUnsafe().GetChartRefsUnderRealPath(src),
+                            CreateOwnedRealPathChartRefsUnsafe(src),
                             CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
                             ChartPackagesPending,
                             ChartPackagesInstalled,
@@ -12028,7 +12032,7 @@ reportProgress,
         LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(
             srcDir,
             dstDir,
-            CreateLibraryChartRefIndexSnapshotUnsafe().GetChartRefsUnderRealPath(srcDir),
+            CreateOwnedRealPathChartRefsUnsafe(srcDir),
             CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
             ChartPackagesPending,
             ChartPackagesInstalled,
@@ -12148,7 +12152,7 @@ reportProgress,
             {
                 return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
                     charts,
-                    CreateLibraryChartRefIndexSnapshotUnsafe());
+                    CreateOwnedPathChartRefIndexUnsafe());
             }
         }
     }
@@ -12166,7 +12170,7 @@ reportProgress,
                 {
                     LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
                         charts,
-                        CreateLibraryChartRefIndexSnapshotUnsafe(),
+                        CreateOwnedPathChartRefIndexUnsafe(),
                         CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
                         ChartPackagesPending,
                         directoryResourceLookupCache,
