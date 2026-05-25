@@ -8,40 +8,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class BmsLibraryDuplicateService
 {
     /// <summary>
-    /// ChartFile projection から重複判定用 snapshot を作成します。
-    /// bmson は compatibility adapter を作らず、storage row を持つ <see cref="ChartFile"/> として保持します。
-    /// </summary>
-    /// <param name="charts">重複判定対象の chart。</param>
-    /// <returns>重複判定用 snapshot。</returns>
-    public List<DuplicateChartRow> BuildSnapshot(IEnumerable<ChartFile> charts)
-    {
-        return [.. (charts ?? [])
-            .Select(DuplicateChartRow.CreateFromChart)
-            .Where(row => row != null)];
-    }
-
-    /// <summary>
-    /// BMS storage row に残っている重複 warning だけを消します。
-    /// bmson duplicate warning は duplicate group の <see cref="ChartFile"/> projection にだけ持つため、ここでは永続状態を消しません。
-    /// </summary>
-    /// <param name="charts">重複判定対象の chart。</param>
-    public void ClearDuplicateState(IEnumerable<ChartFile> charts)
-    {
-        ClearDuplicateState((charts ?? [])
-            .Select(chart => chart?.GetBmsStorageOwner()));
-    }
-
-    /// <summary>
-    /// 重複判定用 snapshot に含まれる BMS storage row の重複 warning だけを消します。
-    /// </summary>
-    /// <param name="snapshotRows">重複判定用 snapshot。</param>
-    public void ClearDuplicateState(IEnumerable<DuplicateChartRow> snapshotRows)
-    {
-        ClearDuplicateState((snapshotRows ?? [])
-            .Select(row => row?.BmsFile));
-    }
-
-    /// <summary>
     /// BMS storage row に残っている重複 warning だけを消します。
     /// </summary>
     /// <param name="bmsFiles">重複判定対象の BMS storage row。</param>
