@@ -12442,12 +12442,11 @@ completeFileEnumerationOnce,
                             + " installedPackagePaths=" + mergeResult.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count);
                         var movedSnapshotStopwatch = Stopwatch.StartNew();
                         List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
-                        List<BMSFile> movedBmsFiles = [.. movedPackageEntries
-                        .Select(entry => entry?.Chart?.GetBmsStorageOwner())
-                        .Where(file => ChartFileKindResolver.IsBmsChartFile(file) && IsFilePathUnderDirectory(file.path, dst))];
-                        List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
-                        .Select(entry => entry?.Chart?.GetBmsonStorageOwner())
-                        .Where(song => song != null && IsFilePathUnderDirectory(song.path, dst))];
+                        ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts(movedPackageEntries
+                        .Select(entry => entry?.Chart)
+                        .Where(chart => chart != null && IsFilePathUnderDirectory(chart.Path, dst)));
+                        List<BMSFile> movedBmsFiles = movedTargets.BmsFiles;
+                        List<LR2SongDBExtended.bmson_song> movedBmsonSongs = movedTargets.BmsonSongs;
                         LogInstallPerformance("duplicate_merge_model moved_snapshot_done op=" + operationId
                             + " elapsedMs=" + movedSnapshotStopwatch.ElapsedMilliseconds
                             + " bms=" + movedBmsFiles.Count
@@ -12461,34 +12460,24 @@ completeFileEnumerationOnce,
                         LogInstallPerformance("duplicate_merge_model db_upsert_done op=" + operationId + " elapsedMs=" + dbStopwatch.ElapsedMilliseconds + " bms=" + movedBmsFiles.Count + " bmson=" + movedBmsonSongs.Count);
                         var maintenanceTargetStopwatch = Stopwatch.StartNew();
                         ChartStorageTargetSet destinationMaintenanceTargets = CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(dst);
-                        List<LR2SongDBExtended.bmson_song> destinationBmsonMaintenanceSongs = destinationMaintenanceTargets.BmsonSongs;
-                        List<LR2SongDBExtended.bmson_song> maintenanceBmsonSongs = [.. movedBmsonSongs
-                        .Concat(destinationBmsonMaintenanceSongs)
-                        .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                        .GroupBy(song => song.path, StringComparer.OrdinalIgnoreCase)
-                        .Select(group => group.First())];
-                        List<BMSFile> maintenanceTargets =
-                        [
-                            .. movedBmsFiles,
-                        .. destinationMaintenanceTargets.BmsFiles,
-                    ];
+                        ChartStorageTargetSet maintenanceTargets = ChartStorageTargetSet.FromCharts(destinationMaintenanceTargets.Charts.Concat(movedTargets.Charts));
                         LogInstallPerformance("duplicate_merge_model maintenance_targets_done op=" + operationId
                             + " elapsedMs=" + maintenanceTargetStopwatch.ElapsedMilliseconds
-                            + " bms=" + maintenanceTargets.Count
-                            + " bmson=" + maintenanceBmsonSongs.Count
-                            + " destinationBmson=" + destinationBmsonMaintenanceSongs.Count);
+                            + " bms=" + maintenanceTargets.BmsFiles.Count
+                            + " bmson=" + maintenanceTargets.BmsonSongs.Count
+                            + " destinationBmson=" + destinationMaintenanceTargets.BmsonSongs.Count);
                         // NOTE:
                         // Merge finalizes BMSFiles/BmsonSongs after maintenance. Building the full warning index here
                         // would immediately be invalidated by that final library replacement, so defer it to the next view
                         // that actually needs the resource-health projection.
                         var maintenanceStopwatch = Stopwatch.StartNew();
                         setMaintenanceInfo(
-                            CreateResourceMaintenanceTargetCharts(maintenanceTargets, maintenanceBmsonSongs),
+                            maintenanceTargets.Charts,
                             forceUpdate: true,
                             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates);
                         LogInstallPerformance("duplicate_merge_model maintenance_done op=" + operationId + " elapsedMs=" + maintenanceStopwatch.ElapsedMilliseconds);
                         var upsertStopwatch = Stopwatch.StartNew();
-                        ApplyInstalledChartStorageTargets(ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs), "merge_folder");
+                        ApplyInstalledChartStorageTargets(movedTargets, "merge_folder");
                         LogInstallPerformance("duplicate_merge_model upsert_library_done op=" + operationId
                             + " elapsedMs=" + upsertStopwatch.ElapsedMilliseconds
                             + " movedBms=" + movedBmsFiles.Count

@@ -1759,6 +1759,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, ": \"setMaintenanceInfo\"");
         StringAssert.Contains(libraryCode, "BuildOwnedChartCollectionMaintenanceMutationResult(");
         StringAssert.Contains(libraryCode, "DispatchOwnedChartCollectionMutation(mutationResult, resourceHealthMutationReason)");
+        StringAssert.Contains(mergeMethod, "ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts");
+        StringAssert.Contains(mergeMethod, "ChartStorageTargetSet maintenanceTargets = ChartStorageTargetSet.FromCharts");
+        StringAssert.Contains(mergeMethod, "destinationMaintenanceTargets.Charts.Concat(movedTargets.Charts)");
+        StringAssert.Contains(mergeMethod, "maintenanceTargets.Charts");
+        StringAssert.Contains(mergeMethod, "ApplyInstalledChartStorageTargets(movedTargets, \"merge_folder\")");
+        Assert.IsFalse(mergeMethod.Contains("CreateResourceMaintenanceTargetCharts(maintenanceTargets"));
+        Assert.IsFalse(mergeMethod.Contains("ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs)"));
         StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
         StringAssert.Contains(duplicateSearchMethod, "bmsSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");
