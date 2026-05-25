@@ -959,10 +959,6 @@ public class BMSLibrary : NotificationObject
 
     private int suppressInstallDestinationRuntimeStatePruning;
 
-    private int suppressStorageRowPropertyChangeNotification;
-
-    private int suppressStorageRowPropertyChangeNotificationThreadId;
-
     private InstallDestinationOverlayChartRefSnapshot installDestinationOverlayChartRefSnapshot;
 
     private readonly object resourceHealthIndexLock = new();
@@ -1127,14 +1123,11 @@ public class BMSLibrary : NotificationObject
                 InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsfiles_changed");
                 PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
-                if (!IsStorageRowPropertyChangeNotificationSuppressedOnCurrentThread())
+                Task.Run(delegate
                 {
-                    Task.Run(delegate
-                    {
-                        RaisePropertyChanged("BMSFiles");
-                        RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
-                    }).Logging("BMSFiles");
-                }
+                    RaisePropertyChanged("BMSFiles");
+                    RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
+                }).Logging("BMSFiles");
                 if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
                 {
                     RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
@@ -1202,14 +1195,11 @@ public class BMSLibrary : NotificationObject
                 InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsons_changed");
                 PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
-                if (!IsStorageRowPropertyChangeNotificationSuppressedOnCurrentThread())
+                Task.Run(delegate
                 {
-                    Task.Run(delegate
-                    {
-                        RaisePropertyChanged("BmsonSongs");
-                        RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
-                    }).Logging("BmsonSongs");
-                }
+                    RaisePropertyChanged("BmsonSongs");
+                    RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
+                }).Logging("BmsonSongs");
                 if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
                 {
                     RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
@@ -2718,9 +2708,9 @@ public class BMSLibrary : NotificationObject
         stateApplier = new BmsLibraryStateApplier(
             dbGateway,
             () => BMSFiles,
-            files => BMSFiles = files,
+            SetBmsStorageRowsFromInternalMutationUnsafe,
             () => BmsonSongs,
-            songs => BmsonSongs = songs,
+            SetBmsonStorageRowsFromInternalMutationUnsafe,
             () => ChartPackagesPending,
             pendingPackages => ChartPackagesPending = pendingPackages,
             () => ChartPackagesInstalled,
@@ -6613,40 +6603,6 @@ reportProgress,
         }
     }
 
-    private bool IsStorageRowPropertyChangeNotificationSuppressedOnCurrentThread()
-    {
-        return suppressStorageRowPropertyChangeNotification > 0
-            && suppressStorageRowPropertyChangeNotificationThreadId == Environment.CurrentManagedThreadId;
-    }
-
-    private IDisposable SuppressStorageRowPropertyChangeNotificationOnCurrentThread()
-    {
-        if (suppressStorageRowPropertyChangeNotification == 0)
-        {
-            suppressStorageRowPropertyChangeNotificationThreadId = Environment.CurrentManagedThreadId;
-        }
-        suppressStorageRowPropertyChangeNotification++;
-        return new StorageRowPropertyChangeNotificationSuppression(this);
-    }
-
-    private sealed class StorageRowPropertyChangeNotificationSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                owner.suppressStorageRowPropertyChangeNotification = Math.Max(0, owner.suppressStorageRowPropertyChangeNotification - 1);
-                if (owner.suppressStorageRowPropertyChangeNotification == 0)
-                {
-                    owner.suppressStorageRowPropertyChangeNotificationThreadId = 0;
-                }
-                owner = null;
-            }
-        }
-    }
-
     private IDisposable SuppressOwnedChartCollectionInvalidation()
     {
         Monitor.Enter(lockOwnedChartCollection);
@@ -7159,7 +7115,6 @@ reportProgress,
             using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
             using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-            using (mutationResult.StorageRowPropertyChanged ? SuppressStorageRowPropertyChangeNotificationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
                 ApplyInstalledChartStorageRowsUnsafe(addedTargets);
@@ -7207,7 +7162,7 @@ reportProgress,
         if (addedTargets.BmsFiles.Count > 0)
         {
             var addedBmsPathSet = new HashSet<string>(addedTargets.BmsFiles.Select(file => file.path), StringComparer.OrdinalIgnoreCase);
-            BMSFiles = [.. (BMSFiles ?? []).Where(file => file != null && !addedBmsPathSet.Contains(file.path)), .. addedTargets.BmsFiles];
+            SetBmsStorageRowsFromInternalMutationUnsafe([.. (BMSFiles ?? []).Where(file => file != null && !addedBmsPathSet.Contains(file.path)), .. addedTargets.BmsFiles]);
         }
         if (addedTargets.BmsonSongs.Count > 0)
         {
@@ -7218,8 +7173,18 @@ reportProgress,
             {
                 nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
             }
-            BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
+            SetBmsonStorageRowsFromInternalMutationUnsafe([.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)]);
         }
+    }
+
+    private void SetBmsStorageRowsFromInternalMutationUnsafe(List<BMSFile> files)
+    {
+        _BMSFiles = files;
+    }
+
+    private void SetBmsonStorageRowsFromInternalMutationUnsafe(List<LR2SongDBExtended.bmson_song> songs)
+    {
+        _BmsonSongs = songs ?? [];
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(LibraryMutationDelta delta)
@@ -12768,7 +12733,6 @@ reportProgress,
             using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
             using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-            using (mutationResult.StorageRowPropertyChanged ? SuppressStorageRowPropertyChangeNotificationOnCurrentThread() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
                 stateApplier.ApplyLibraryMutationDelta(delta);
