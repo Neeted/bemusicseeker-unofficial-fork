@@ -518,7 +518,6 @@ internal sealed class BmsLibraryInitializationService
         }
         if (result.MutationDelta.UpdatedInstallDestinations.Count > clearedInstallDestinationCountBefore)
         {
-            result.MutationDelta.RaiseLibraryChartsChanged = true;
             result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
             result.MutationDelta.ClearDuplicatedCache = true;
         }

@@ -1826,7 +1826,7 @@ public sealed class BmsLibraryInitializationServiceTests
         result.DeletedPaths.Add("deleted.bms");
         result.DeletedBmsonPaths.Add("deleted.bmson");
         result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange());
-        result.MutationDelta.RaiseLibraryChartsChanged = true;
+        result.MutationDelta.NotifyStorageRowPathChanges = true;
         result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
         result.NextFiles.Add(next);
         result.NextBmsonSongs.Add(nextBmson);
@@ -1844,7 +1844,7 @@ public sealed class BmsLibraryInitializationServiceTests
         Assert.AreEqual(0, result.DeletedPaths.Count);
         Assert.AreEqual(0, result.DeletedBmsonPaths.Count);
         Assert.AreEqual(0, result.MutationDelta.UpdatedInstallDestinations.Count);
-        Assert.IsFalse(result.MutationDelta.RaiseLibraryChartsChanged);
+        Assert.IsFalse(result.MutationDelta.NotifyStorageRowPathChanges);
         Assert.IsFalse(result.MutationDelta.InvalidateInstalledDirectoryIndex);
         Assert.AreEqual(1, result.NextFiles.Count);
         Assert.AreSame(next, result.NextFiles[0]);

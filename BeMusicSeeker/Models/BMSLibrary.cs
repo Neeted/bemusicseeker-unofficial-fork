@@ -7335,9 +7335,9 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = storageMutation.HasChanges,
             WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
             BmsFilesPropertyChanged = HasBmsStorageRowCollectionChange(storageMutation)
-                || (delta?.RaiseLibraryChartsChanged == true && HasBmsStorageRowPathChange(storageMutation)),
+                || (delta?.NotifyStorageRowPathChanges == true && HasBmsStorageRowPathChange(storageMutation)),
             BmsonSongsPropertyChanged = HasBmsonStorageRowCollectionChange(storageMutation)
-                || (delta?.RaiseLibraryChartsChanged == true && HasBmsonStorageRowPathChange(storageMutation))
+                || (delta?.NotifyStorageRowPathChanges == true && HasBmsonStorageRowPathChange(storageMutation))
         };
         result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
@@ -12525,7 +12525,6 @@ completeFileEnumerationOnce,
         delta.InvalidateInstalledDirectoryIndex = hasCharts;
         delta.InvalidateParentFolderCache = hasCharts;
         delta.ClearDuplicatedCache = hasCharts;
-        delta.RaiseLibraryChartsChanged = hasCharts;
         return delta;
     }
 
@@ -12740,7 +12739,7 @@ completeFileEnumerationOnce,
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
                     string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-                    MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, raiseLibraryChartsChanged: false);
+                    MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, notifyStorageRowPathChanges: false);
                     if (unregister == false)
                     {
                         InvalidateDuplicateChartGroupsCache();
@@ -12779,14 +12778,14 @@ completeFileEnumerationOnce,
                     }
                     foreach (FolderAutoRenamePlan plan in plans)
                     {
-                        MoveLibraryChartFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, raiseLibraryChartsChanged: true);
+                        MoveLibraryChartFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, notifyStorageRowPathChanges: true);
                     }
                 }
             }
         }
     }
 
-    private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool raiseLibraryChartsChanged)
+    private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool notifyStorageRowPathChanges)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
@@ -12819,7 +12818,7 @@ completeFileEnumerationOnce,
             ChartPackagesPending,
             ChartPackagesInstalled,
             unregister == true,
-            raiseLibraryChartsChanged: raiseLibraryChartsChanged);
+            notifyStorageRowPathChanges: notifyStorageRowPathChanges);
         ApplyLibraryMutationDelta(delta);
     }
 

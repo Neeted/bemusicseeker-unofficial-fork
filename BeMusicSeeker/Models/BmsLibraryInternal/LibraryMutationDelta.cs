@@ -19,7 +19,7 @@ internal sealed class LibraryMutationDelta
 
     public List<LibraryDeleteFailure> Failures { get; } = [];
 
-    public bool RaiseLibraryChartsChanged { get; set; }
+    public bool NotifyStorageRowPathChanges { get; set; }
 
     public bool RaiseInstalledPackagesChanged { get; set; }
 
@@ -52,7 +52,7 @@ internal sealed class LibraryMutationDelta
         UpdatedInstallDestinations.Clear();
         UpdatedInstalledPackagePaths.Clear();
         Failures.Clear();
-        RaiseLibraryChartsChanged = false;
+        NotifyStorageRowPathChanges = false;
         RaiseInstalledPackagesChanged = false;
         InvalidateInstalledDirectoryIndex = false;
         InvalidateParentFolderCache = false;

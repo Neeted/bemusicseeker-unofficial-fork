@@ -1303,7 +1303,7 @@ public sealed class OwnedChartCollectionStateTests
                 {
                     InvalidateParentFolderCache = true,
                     ClearDuplicatedCache = true,
-                    RaiseLibraryChartsChanged = true
+                    NotifyStorageRowPathChanges = true
                 };
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
@@ -1756,8 +1756,7 @@ public sealed class OwnedChartCollectionStateTests
             };
             var delta = new LibraryMutationDelta
             {
-                InvalidateInstalledDirectoryIndex = true,
-                RaiseLibraryChartsChanged = true
+                InvalidateInstalledDirectoryIndex = true
             };
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {
@@ -1841,7 +1840,7 @@ public sealed class OwnedChartCollectionStateTests
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             var delta = new LibraryMutationDelta
             {
-                RaiseLibraryChartsChanged = true
+                NotifyStorageRowPathChanges = true
             };
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {

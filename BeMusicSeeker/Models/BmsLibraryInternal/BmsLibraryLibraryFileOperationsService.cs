@@ -249,7 +249,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
                 result.MutationDelta.ClearDuplicatedCache = true;
-                result.MutationDelta.RaiseLibraryChartsChanged = true;
             }
         }
         catch
@@ -290,7 +289,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<ChartPackage> pendingPackages,
         IEnumerable<ChartPackage> installedPackages,
         bool unregister,
-        bool raiseLibraryChartsChanged = true)
+        bool notifyStorageRowPathChanges = true)
     {
         var delta = new LibraryMutationDelta();
         List<LibraryChartRef> targetCharts = [.. (sourceCharts ?? [])
@@ -344,7 +343,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 NewPath = chart.Path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
             });
         }
-        delta.RaiseLibraryChartsChanged = raiseLibraryChartsChanged && delta.ChartPathChanges.Count > 0;
+        delta.NotifyStorageRowPathChanges = notifyStorageRowPathChanges && delta.ChartPathChanges.Count > 0;
         delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
         delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0;
@@ -806,7 +805,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
                 result.MaintenanceCharts.Add(movedChart);
             }
-            result.MutationDelta.RaiseLibraryChartsChanged = true;
+            result.MutationDelta.NotifyStorageRowPathChanges = true;
             result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
             result.MutationDelta.InvalidateParentFolderCache = true;
             result.MutationDelta.ClearDuplicatedCache = true;
@@ -853,7 +852,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                                 includeResourceReferences: false),
                             NewPath = renameResult.FinalPath
                         });
-                        delta.RaiseLibraryChartsChanged = true;
+                        delta.NotifyStorageRowPathChanges = true;
                     }
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
