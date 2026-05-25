@@ -11650,27 +11650,11 @@ completeFileEnumerationOnce,
         {
             return false;
         }
-        if (chart.Kind == ChartFileKind.Bmson)
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
         {
-            return BmsonSongs.Any(song => !string.IsNullOrWhiteSpace(song?.path) && IsSamePath(song.path, chart.Path));
+            return ownedChartCollection.ContainsKnownChart(chart);
         }
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null && BMSFiles.Any(file => IsSameChartFile(file, bmsFile)))
-        {
-            return true;
-        }
-        return !string.IsNullOrWhiteSpace(chart.Path)
-            && BMSFiles.Any(file => !string.IsNullOrWhiteSpace(file?.path) && IsSamePath(file.path, chart.Path));
-    }
-
-    private static bool IsSameChartFile(BMSFile left, BMSFile right)
-    {
-        if (left == null || right == null)
-        {
-            return false;
-        }
-        return ReferenceEquals(left, right)
-            || (!string.IsNullOrWhiteSpace(left.path) && !string.IsNullOrWhiteSpace(right.path) && IsSamePath(left.path, right.path));
     }
 
     public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)

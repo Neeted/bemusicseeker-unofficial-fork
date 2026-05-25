@@ -201,6 +201,13 @@ public sealed class OwnedChartCollectionStateTests
 
         Assert.AreEqual(0, index.GetChartRefsByPaths([bmsFile.path, bmsonSong.path]).Count);
         Assert.AreEqual(0, index.CountChartRefsUnderRealPath("C:\\Installed", null));
+        CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([
+            LibraryChartRef.FromBmsFile(bmsFile),
+            LibraryChartRef.FromBmsonSong(bmsonSong)
+        ]);
+        Assert.AreEqual(2, resolveResult.CanonicalCharts.Count);
+        Assert.IsTrue(resolveResult.CanonicalCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), bmsFile)));
+        Assert.IsTrue(resolveResult.CanonicalCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), bmsonSong)));
     }
 
     [TestMethod]
@@ -678,6 +685,9 @@ public sealed class OwnedChartCollectionStateTests
         Assert.AreEqual(1, refs.Count);
         Assert.AreSame(bmsFile, refs[0].GetBmsStorageOwner());
         Assert.AreEqual(1, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(newPath), null));
+        CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([LibraryChartRef.FromBmsFile(bmsFile)]);
+        Assert.AreEqual(1, resolveResult.CanonicalCharts.Count);
+        Assert.AreEqual(newPath, resolveResult.CanonicalCharts[0].Path);
     }
 
     [TestMethod]
@@ -702,6 +712,10 @@ public sealed class OwnedChartCollectionStateTests
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
         Assert.AreEqual(0, index.GetChartRefsByPaths([oldPath]).Count);
         Assert.AreEqual(0, index.CountChartRefsUnderRealPath(Path.GetDirectoryName(oldPath), null));
+        CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([LibraryChartRef.FromBmsFile(bmsFile)]);
+        Assert.AreEqual(1, resolveResult.CanonicalCharts.Count);
+        Assert.AreSame(bmsFile, resolveResult.CanonicalCharts[0].GetBmsStorageOwner());
+        Assert.IsTrue(string.IsNullOrWhiteSpace(resolveResult.CanonicalCharts[0].Path));
     }
 
     [TestMethod]
@@ -1027,6 +1041,97 @@ public sealed class OwnedChartCollectionStateTests
 
         Assert.AreEqual(1, snapshot.Count);
         Assert.AreSame(other, snapshot[0].GetBmsStorageOwner());
+    }
+
+    [TestMethod]
+    public void ContainsKnownChart_UsesOwnedReferenceAndKindPathFallback()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
+        string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath);
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = bmsonPath,
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        };
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong]);
+        var bmsonPathOnlyChart = new ChartFile(
+            ChartFileKind.Bmson,
+            bmsonPath,
+            bmsonSong.md5,
+            null,
+            "title",
+            "raw",
+            "artist",
+            string.Empty,
+            Path.GetDirectoryName(bmsonPath),
+            string.Empty,
+            string.Empty,
+            null,
+            0,
+            null,
+            null,
+            null);
+
+        Assert.IsTrue(state.ContainsKnownChart(ChartFileProjection.FromBmsStorageOwnerIdentity(bmsFile)));
+        Assert.IsTrue(state.ContainsKnownChart(bmsonPathOnlyChart));
+        Assert.IsFalse(state.ContainsKnownChart(new ChartFile(
+            ChartFileKind.Bmson,
+            bmsPath,
+            "cccccccccccccccccccccccccccccccc",
+            null,
+            "title",
+            "raw",
+            "artist",
+            string.Empty,
+            Path.GetDirectoryName(bmsPath),
+            string.Empty,
+            string.Empty,
+            null,
+            0,
+            null,
+            null,
+            null)));
+    }
+
+    [TestMethod]
+    public void ContainsKnownChart_PathFallbackAllowsAmbiguousSameKindRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
+        var samePath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, samePath], []);
+        var pathOnlyChart = new ChartFile(
+            ChartFileKind.Bms,
+            sharedPath,
+            "cccccccccccccccccccccccccccccccc",
+            null,
+            "title",
+            "raw",
+            "artist",
+            string.Empty,
+            Path.GetDirectoryName(sharedPath),
+            string.Empty,
+            string.Empty,
+            null,
+            0,
+            null,
+            null,
+            null);
+
+        Assert.IsTrue(state.ContainsKnownChart(pathOnlyChart));
+    }
+
+    [TestMethod]
+    public void ContainsKnownChart_MatchesPathlessOwnerBackedChart()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+
+        Assert.IsTrue(state.ContainsKnownChart(ChartFileProjection.FromBmsStorageOwnerIdentity(bmsFile)));
     }
 
     [TestMethod]

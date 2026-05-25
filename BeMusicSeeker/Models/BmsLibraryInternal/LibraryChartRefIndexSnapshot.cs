@@ -76,30 +76,17 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         foreach (LibraryChartRef chart in (charts ?? []).Where(chart => chart != null))
         {
             cancellationCheck?.Invoke();
-            if (string.IsNullOrWhiteSpace(chart.Path))
+            AddOwnerReference(chart, bmsByReference, bmsonByReference, overwrite: false);
+
+            string pathKey = CreatePathKey(chart.Path);
+            if (string.IsNullOrWhiteSpace(pathKey))
             {
                 continue;
             }
 
-            BMSFile bmsFile = chart.GetBmsStorageOwner();
-            if (bmsFile != null && !bmsByReference.ContainsKey(bmsFile))
-            {
-                bmsByReference[bmsFile] = chart;
-            }
-
-            LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-            if (bmsonSong != null && !bmsonByReference.ContainsKey(bmsonSong))
-            {
-                bmsonByReference[bmsonSong] = chart;
-            }
-
-            string pathKey = CreatePathKey(chart.Path);
-            if (!string.IsNullOrWhiteSpace(pathKey))
-            {
-                AddPathLookup(chart, pathKey, byKindAndPath, ambiguousKindAndPathKeys);
-                AddPathRefLookup(chart, pathKey, refsByPath);
-                Increment(pathCounts, pathKey);
-            }
+            AddPathLookup(chart, pathKey, byKindAndPath, ambiguousKindAndPathKeys);
+            AddPathRefLookup(chart, pathKey, refsByPath);
+            Increment(pathCounts, pathKey);
 
             string directoryKey = CreateDirectoryKeyForFilePath(chart.Path);
             if (string.IsNullOrWhiteSpace(directoryKey))
@@ -166,6 +153,10 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             {
                 AddChart(pathChange.Chart, pathChange.NewPath);
             }
+            else if (!hasNewPath && removed)
+            {
+                AddChart(pathChange.Chart, pathChange.NewPath);
+            }
         }
     }
 
@@ -221,7 +212,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
                 continue;
             }
 
-            string canonicalKey = CreateKindAndPathKey(canonicalChart.Kind, canonicalChart.Path);
+            string canonicalKey = CreateCanonicalResultKey(canonicalChart);
             if (addedKeys.Add(canonicalKey))
             {
                 result.CanonicalCharts.Add(canonicalChart);
@@ -359,21 +350,15 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
     private void AddChartRef(LibraryChartRef chart)
     {
-        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+        if (chart == null)
         {
             return;
         }
 
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null && !bmsByReference.ContainsKey(bmsFile))
+        AddOwnerReference(chart, bmsByReference, bmsonByReference, overwrite: true);
+        if (string.IsNullOrWhiteSpace(chart.Path))
         {
-            bmsByReference[bmsFile] = chart;
-        }
-
-        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-        if (bmsonSong != null && !bmsonByReference.ContainsKey(bmsonSong))
-        {
-            bmsonByReference[bmsonSong] = chart;
+            return;
         }
 
         string pathKey = CreatePathKey(chart.Path);
@@ -414,23 +399,13 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         string pathKey = CreatePathKey(ResolveIndexedPath(chart, pathOverride));
         if (string.IsNullOrWhiteSpace(pathKey))
         {
-            return false;
+            return RemoveOwnerReference(chart);
         }
 
         int removedFromPath = RemoveMatchingPathRefs(pathKey, chart);
         if (removedFromPath > 0)
         {
-            BMSFile bmsFile = chart.GetBmsStorageOwner();
-            if (bmsFile != null)
-            {
-                bmsByReference.Remove(bmsFile);
-            }
-
-            LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-            if (bmsonSong != null)
-            {
-                bmsonByReference.Remove(bmsonSong);
-            }
+            RemoveOwnerReference(chart);
 
             Decrement(pathCounts, pathKey, removedFromPath);
             RebuildPathLookup(pathKey);
@@ -682,6 +657,56 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         return byKindAndPath.TryGetValue(pathKey, out LibraryChartRef pathChart)
             ? pathChart
             : null;
+    }
+
+    private static void AddOwnerReference(
+        LibraryChartRef chart,
+        Dictionary<BMSFile, LibraryChartRef> bmsByReference,
+        Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference,
+        bool overwrite)
+    {
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null && (overwrite || !bmsByReference.ContainsKey(bmsFile)))
+        {
+            bmsByReference[bmsFile] = chart;
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        if (bmsonSong != null && (overwrite || !bmsonByReference.ContainsKey(bmsonSong)))
+        {
+            bmsonByReference[bmsonSong] = chart;
+        }
+    }
+
+    private bool RemoveOwnerReference(ChartFile chart)
+    {
+        bool removed = false;
+        BMSFile bmsFile = chart.GetBmsStorageOwner();
+        if (bmsFile != null)
+        {
+            removed |= bmsByReference.Remove(bmsFile);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+        if (bmsonSong != null)
+        {
+            removed |= bmsonByReference.Remove(bmsonSong);
+        }
+        return removed;
+    }
+
+    private static string CreateCanonicalResultKey(LibraryChartRef chart)
+    {
+        string kindAndPathKey = CreateKindAndPathKey(chart.Kind, chart.Path);
+        if (!string.IsNullOrWhiteSpace(kindAndPathKey))
+        {
+            return kindAndPathKey;
+        }
+
+        string storageKey = CreateStorageIdentityKey(chart);
+        return !string.IsNullOrWhiteSpace(storageKey)
+            ? storageKey
+            : "ref:" + RuntimeHelpers.GetHashCode(chart);
     }
 
     private static void AddPathLookup(

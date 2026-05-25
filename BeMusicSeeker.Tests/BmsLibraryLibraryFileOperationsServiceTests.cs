@@ -531,6 +531,45 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void DeleteLibraryCharts_CurrentPathlessCanonicalSelectionReturnsResolveFailure()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string stalePath = Path.Combine(folderPath, "stale.bms");
+            File.WriteAllText(stalePath, "#PLAYER 1");
+            TestableBmsFile libraryFile = CreateFile(stalePath);
+            LibraryChartRef selectedRef = LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(libraryFile));
+            libraryFile.path = null;
+
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                [selectedRef],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(libraryFile)]),
+                CreateInstallDestinationOverlaySnapshot(),
+                [],
+                new DirectoryResourceLookupCache(),
+                true,
+                _ => true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(0, result.RemovedCharts.Count);
+            Assert.AreEqual(0, result.CanonicalChartCount);
+            Assert.AreEqual(1, result.UnresolvedChartCount);
+            Assert.AreEqual(1, result.Failures.Count);
+            Assert.AreEqual("resolve_failed", result.Failures[0].Reason);
+            Assert.AreEqual(stalePath, result.Failures[0].Path);
+            Assert.IsNull(fileMutationService.LastDeletedFilePath);
+            Assert.IsNull(fileMutationService.LastDeletedDirectoryPath);
+            Assert.IsTrue(File.Exists(stalePath));
+        });
+    }
+
+    [TestMethod]
     public void DeleteLibraryCharts_DifferentBmsInstanceUsesCanonicalLibraryRef()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -657,6 +696,28 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             Assert.AreEqual(1, paths.Count);
             Assert.AreEqual(folderPath, paths[0]);
+        });
+    }
+
+    [TestMethod]
+    public void GetWholeFolderDeleteCandidatePaths_CurrentPathlessCanonicalReturnsEmpty()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string stalePath = Path.Combine(folderPath, "stale.bms");
+            File.WriteAllText(stalePath, "#PLAYER 1");
+            TestableBmsFile libraryFile = CreateFile(stalePath);
+            LibraryChartRef selectedRef = LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(libraryFile));
+            libraryFile.path = null;
+
+            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+                [selectedRef],
+                CreateLibraryChartRefLookup([LibraryChartRef.FromBmsFile(libraryFile)]));
+
+            Assert.AreEqual(0, paths.Count);
         });
     }
 

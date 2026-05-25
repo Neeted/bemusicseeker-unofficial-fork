@@ -207,6 +207,24 @@ internal sealed class OwnedChartCollectionState
         return CreateLibraryChartRefIndexSnapshot().GetChartRefsByPaths(paths);
     }
 
+    internal bool ContainsKnownChart(ChartFile chart)
+    {
+        LibraryChartRef inputRef = LibraryChartRef.FromChartFile(chart);
+        if (inputRef == null)
+        {
+            return false;
+        }
+
+        LibraryChartRefIndexSnapshot index = CreateLibraryChartRefIndexSnapshot();
+        if (index.ResolveCanonicalCharts([inputRef]).CanonicalCharts.Count > 0)
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(inputRef.Path)
+            && index.GetChartRefsByPaths([inputRef.Path]).Any(candidate => candidate?.Kind == inputRef.Kind);
+    }
+
 
     /// <summary>
     /// playlist detail の entry hash 解決に使う owned 隣接 index を作成します。
