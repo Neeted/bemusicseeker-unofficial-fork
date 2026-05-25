@@ -48,6 +48,7 @@ internal sealed class NormalLibraryRefreshNotification
         0,
         LibraryChartRefreshEffects.None,
         [],
+        notifiesStorageRows: false,
         resetsPriorNotifications: false);
 
     internal NormalLibraryRefreshNotification(
@@ -55,12 +56,14 @@ internal sealed class NormalLibraryRefreshNotification
         int ownedCollectionVersion,
         LibraryChartRefreshEffects effects,
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
+        bool notifiesStorageRows,
         bool resetsPriorNotifications)
     {
         Version = version;
         OwnedCollectionVersion = ownedCollectionVersion;
         Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
+        NotifiesStorageRows = notifiesStorageRows;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
 
@@ -72,6 +75,8 @@ internal sealed class NormalLibraryRefreshNotification
 
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
 
+    internal bool NotifiesStorageRows { get; }
+
     internal bool ResetsPriorNotifications { get; }
 }
 
@@ -82,6 +87,7 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         0,
         LibraryChartRefreshEffects.None,
         [],
+        notifiesStorageRows: false,
         resetsPriorNotifications: false);
 
     internal NormalLibraryRefreshNotificationBatch(
@@ -89,12 +95,14 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         int ownedCollectionVersion,
         LibraryChartRefreshEffects effects,
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
+        bool notifiesStorageRows,
         bool resetsPriorNotifications)
     {
         LatestVersion = latestVersion;
         OwnedCollectionVersion = ownedCollectionVersion;
         Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
+        NotifiesStorageRows = notifiesStorageRows;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
 
@@ -105,6 +113,8 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal LibraryChartRefreshEffects Effects { get; }
 
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
+
+    internal bool NotifiesStorageRows { get; }
 
     internal bool ResetsPriorNotifications { get; }
 
@@ -1179,6 +1189,8 @@ public class BMSLibrary : NotificationObject
 
     public List<BMSFile> BMSFilesUnregistered => [.. BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent))];
 
+    internal int NormalLibraryRefreshNotificationVersion => Volatile.Read(ref latestNormalLibraryRefreshNotificationVersion);
+
     internal NormalLibraryRefreshNotificationBatch GetNormalLibraryRefreshNotificationsAfter(int handledVersion)
     {
         lock (latestNormalLibraryRefreshNotificationLock)
@@ -1198,6 +1210,7 @@ public class BMSLibrary : NotificationObject
                     0,
                     LibraryChartRefreshEffects.None,
                     [],
+                    notifiesStorageRows: false,
                     resetsPriorNotifications: false);
             }
             bool resetsPriorNotifications = resetIndex >= 0;
@@ -1206,6 +1219,7 @@ public class BMSLibrary : NotificationObject
             LibraryChartRefreshEffects effects = notifications.Aggregate(
                 LibraryChartRefreshEffects.None,
                 (current, notification) => current | notification.Effects);
+            bool notifiesStorageRows = notifications.Any(notification => notification.NotifiesStorageRows);
             List<ChartFile> installDestinationChangedCharts = [.. notifications
                 .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
                 .Where(chart => chart != null)];
@@ -1214,6 +1228,7 @@ public class BMSLibrary : NotificationObject
                 ownedCollectionVersion,
                 effects,
                 DistinctChartsByNotificationKey(installDestinationChangedCharts),
+                notifiesStorageRows,
                 resetsPriorNotifications);
         }
     }
@@ -7413,7 +7428,6 @@ completeFileEnumerationOnce,
         {
             PublishOwnedCollectionChangeNotification(result);
         }
-        PublishNormalLibraryRefreshNotification(result);
         DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
         if (installMetadataProfileCacheInvalidated)
@@ -7424,6 +7438,8 @@ completeFileEnumerationOnce,
         {
             ApplyInstalledChartLookupMutation(result.InstalledLookupMutation, reason);
         }
+        PublishNormalLibraryRefreshNotification(result);
+        RaiseNormalLibraryRefreshNotificationVersionChanged(result);
         stopwatch.Stop();
 
         if (result.HasLoggableChanges)
@@ -12971,6 +12987,7 @@ completeFileEnumerationOnce,
             ownedCollectionVersion,
             effects,
             installDestinationChangedCharts,
+            result.StorageRowPropertyChanged,
             resetsPriorNotifications: false);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
@@ -13010,12 +13027,14 @@ completeFileEnumerationOnce,
             OwnedChartCollectionVersion,
             LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
             [],
+            notifiesStorageRows: true,
             resetsPriorNotifications: true);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
             latestNormalLibraryRefreshNotification = notification;
             normalLibraryRefreshNotifications.Add(notification);
         }
+        RaisePropertyChanged(() => NormalLibraryRefreshNotificationVersion);
     }
 
     private void PublishExternalReplacementNormalLibraryRefreshNotification()
@@ -13073,6 +13092,14 @@ completeFileEnumerationOnce,
                 latestNormalLibraryRefreshNotification = NormalLibraryRefreshNotification.Empty;
             }
             normalLibraryRefreshNotifications.RemoveAll(notification => notification.Version == result.NormalLibraryRefreshNotificationVersion);
+        }
+    }
+
+    private void RaiseNormalLibraryRefreshNotificationVersionChanged(OwnedChartCollectionMutationResult result)
+    {
+        if (result?.NormalLibraryRefreshNotificationVersion > 0)
+        {
+            RaisePropertyChanged(() => NormalLibraryRefreshNotificationVersion);
         }
     }
 

@@ -360,6 +360,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             };
             file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             SetLibraryFilesWithoutNotification(library, [file]);
+            int refreshNotificationsChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    refreshNotificationsChanged++;
+                }
+            };
 
             var delta = new LibraryMutationDelta();
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
@@ -375,6 +383,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.AreEqual(@"C:\New", changedChart.InstallDestination);
             Assert.IsFalse(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
+            Assert.AreEqual(1, refreshNotificationsChanged);
             ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
             Assert.AreEqual(@"C:\New", installedChart.InstallDestination);
         });
