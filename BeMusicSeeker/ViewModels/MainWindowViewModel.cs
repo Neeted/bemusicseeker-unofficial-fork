@@ -14847,26 +14847,6 @@ public class MainWindowViewModel : ViewModel
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartFilesZeroNote, delegate
-        {
-            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
-            if (treeViewFilterTypeSelected == viewUpdateMode.ZeroNoteFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_zero_note_changed"))
-                {
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-            else
-            {
-                RefreshNormalLibraryAfterWarningChanged("bms_files_zero_note_changed");
-            }
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoParseFailedChartFiles, delegate
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
