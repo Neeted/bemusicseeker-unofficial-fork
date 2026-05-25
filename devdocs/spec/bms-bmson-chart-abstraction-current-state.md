@@ -839,6 +839,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - resource refs が必要な処理は `CreateFullOwnedResourceMaintenanceTargetCharts(reason)` または `CreateResourceMaintenanceTargetCharts(...)` を通す。通常 mutation は subset target、force rescan / explicit full rebuild / invalidated index rebuild だけ full target を作る。
    - `maintenance affected charts` は health value producer の結果として `ResourceHealthIndexMutation` に載せ、`OwnedChartCollectionMutationResult` 経由で collection mutation と同じ dispatcher に渡す。collection mutation は `invalidate`、maintenance producer は `delta` / `full` / `defer` を選ぶ。collection mutation は target set の追加・削除・移動だけを扱い、maintenanceInfo / ignore state の生成責務を持たない。
    - maintenance producer が同時に hash changes を返す場合も、hash mutation と resource-health mutation は同じ mutation result に載せ、installed lookup / playlist summary hash / duplicate cache / resource health / normal library refresh effect を同じ dispatcher pass で同期する。dispatcher 途中で例外になった場合は hash mutation を再実行せず、関係する index を full invalidate へ落として partial update を隠さない。
+   - resource warning ignore / unignore は storage collection mutation ではなく resource-health warning presentation mutation として扱う。maintenanceInfo の ignore flag producer は maintenance service に残し、resource health index delta と normal library warning effect は dispatcher 経由で同期する。
    - `ChartFilesNeedResourceFix` / ignored view は current snapshot があれば full target を作らない方針を維持する。
 
 5. **Warning / source generation / sort-key の分離: 進行中**

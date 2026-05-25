@@ -571,6 +571,51 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void SetChartResourceWarningsIgnored_PublishesWarningRefreshThroughOwnedDispatcher()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = @"C:\Library\warning.bms";
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1,
+                is_files_warning_ignored = false
+            }, suppressPropertyChanged: true);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file);
+            ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([chart], new BmsLibraryMaintenanceService(), version: 3);
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
+            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int refreshNotificationChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    refreshNotificationChanged++;
+                }
+            };
+
+            library.SetChartResourceWarningsIgnored([chart], unset: false);
+
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            ResourceHealthIndexSnapshot updatedSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.AreEqual(1, refreshNotificationChanged);
+            Assert.AreEqual(0, updatedSnapshot.ActiveTargets.Count);
+            Assert.AreEqual(1, updatedSnapshot.IgnoredTargets.Count);
+        });
+    }
+
+    [TestMethod]
     public void ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets()
     {
         TestResourceInitializer.EnsureJapaneseResources();

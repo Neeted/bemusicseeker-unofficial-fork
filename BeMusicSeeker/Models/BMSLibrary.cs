@@ -7440,6 +7440,17 @@ completeFileEnumerationOnce,
         destination.Defer = source.Defer;
     }
 
+    private static OwnedChartCollectionMutationResult BuildResourceHealthWarningPresentationMutationResult(
+        IEnumerable<ChartFile> updatedTargets)
+    {
+        var result = new OwnedChartCollectionMutationResult
+        {
+            WarningPresentationChanged = true
+        };
+        result.ResourceHealthMutation.UpdatedTargets.AddRange((updatedTargets ?? []).Where(chart => chart != null));
+        return result;
+    }
+
     private void DispatchOwnedChartCollectionMutation(OwnedChartCollectionMutationResult result, string reason)
     {
         if (result == null)
@@ -9146,10 +9157,9 @@ completeFileEnumerationOnce,
                     dbGateway.UpsertMaintenanceInfos(changes);
                 }
                 string reason = unset ? "resource_health_unignore" : "resource_health_ignore";
-                if (!TryApplyResourceHealthIndexDeltaLocked(reason, targets, null, out _))
-                {
-                    RebuildResourceHealthIndexSnapshotLocked(reason);
-                }
+                DispatchOwnedChartCollectionMutation(
+                    BuildResourceHealthWarningPresentationMutationResult(targets),
+                    reason);
             }
         }
         RaisePropertyChanged(() => ChartFilesNeedResourceFix);
