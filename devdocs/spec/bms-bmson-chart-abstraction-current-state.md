@@ -676,7 +676,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 次の優先順で実装単位を選ぶ。
 
 1. dispatcher の payload を final contract に近づける。added / removed / moved / hash changed / install destination changed / maintenance affected のどれを持つ mutation なのかを `OwnedChartCollectionMutationResult` で表し、各 index が同じ result を見るようにする。
-2. installed lookup と同居すべき hash/path 系 index は dispatcher 更新へ寄せる。add / remove / move / upsert の範囲では installed lookup と primary hash -> path lookup は同じ state に同居済みで、real path directory view / owner-path canonical lookup も owned collection の `LibraryChartRefIndexSnapshot` として mutation に追従する。install destination overlay は runtime state mutation と prune を dispatcher から受ける。hash changed は final payload として残っており、まだ明示 mutation kind にはなっていない。
+2. installed lookup と同居すべき hash/path 系 index は dispatcher 更新へ寄せる。add / remove / move / upsert の範囲では installed lookup と primary hash -> path lookup は同じ state に同居済みで、real path directory view / owner-path canonical lookup も owned collection の `LibraryChartRefIndexSnapshot` として mutation に追従する。install destination overlay は runtime state mutation と prune を dispatcher から受ける。hash changed は `LibraryChartHashChange` payload として dispatcher に流し、installed lookup / playlist summary hash / duplicate cache / resource health の更新条件を同じ boundary で決める。
 3. invalidate / lazy rebuild で十分な read model cache は dispatcher からのみ dirty にする。parent folder cache、playlist summary owned hash、playlist detail resolve index、duplicate groups cache、resource health index はこの段階に入り、個別 setter invalidation は external full replacement の境界に限定する。
 4. warning / sort-key / source generation の境界を mutation result に載せる。source mutation、warning mutation、maintenance mutation、chart_info mutationを分け、表示更新のために不要な source generation を進めない。
 5. 残った `BMSFiles` + `BmsonSongs` 混在 enumeration を、owned collection view / index / bounded input projection のどれかに分類して置き換える。全件 `ChartFile` materialize 後に caller 側で filter する経路は削る。
@@ -825,14 +825,14 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - playlist detail resolve index は `OwnedChartCollectionVersion` によって ViewModel cache を invalidate し、`BMSFiles` / `BmsonSongs` 通知より先に version を publish する。
    - resource health index は collection add/remove/path change で dispatcher から dirty 化する。maintenance producer の subset delta は maintenance domain に残す。
 
-3. **Path/hash/overlay 系隣接 index の add/remove/move/upsert contract 化: 実装済み、hash changed は未完**
+3. **Path/hash/overlay 系隣接 index の add/remove/move/upsert/hash-change contract 化: 完了扱い、delta 精度は継続改善**
    - installed lookup state に同居する primary hash -> path lookup は、repair candidate / resource-only merge display が直接読む index として使う。
    - owner/path canonical lookup と path-only exact lookup は用途を分けている。canonical lookup は ambiguous path を正規化規則で扱い、path-only exact lookup は同一 path の複数 owner を保持する bounded materialize 用に使う。
    - install upsert の same-path replacement は path-only exact lookup で old owner を解決する。BMS と bmson が同じ path を持つ場合でも kind ごとの replacement として扱い、反対 kind の installed lookup entry を削らない。
    - real path directory view / subtree counts は folder operation の正本であり、caller 側で full ref list を作って `StartsWith` filter しない。BMSLibrary からの入口は `CreateOwnedRealPathChartRefsUnsafe(...)` / `CreateOwnedRealPathChartDirectoriesUnsafe(...)` / `CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(...)` のように用途名を持つ。AutoRenameAll は subtree の source folder list だけを directory view から取得し、direct child chart file projection は owned ref index の direct directory bucket から作る。
    - install destination overlay directory view は storage owner の実 path index と統合しない。runtime overlay / pending package state の隣接 index として、owned mutation と overlay mutation の両方から prune / update する。
    - internal mutation で表現できる path change / install destination change は install destination runtime state mutation に載せ、affected key だけ move / apply する。unregister は storage applier が同一 path の別 owner を落とす場合があるため、setter 内 prune を suppress し、成功後に dispatcher から current storage key snapshot で full prune する。外部 setter による full replacement は従来どおり setter 境界で full prune する。
-   - 残タスクは hash changed payload を明示 mutation kind として追加すること。maintenance / chart digest / parser result により owner hash が更新される経路では、old hash と new hash を失う前に capture し、installed lookup / playlist resolve / summary hash を差分更新または full invalidate へ送る。
+   - hash changed payload は `LibraryChartHashChange` として追加済み。maintenance / chart digest / parser result により owner hash が更新される経路では、old hash と new hash を失う前に capture し、dispatcher が installed lookup / playlist summary hash / duplicate cache / resource health / storage row property notification を同期する。BMS の sha256-only 補完のように primary hash や md5 が変わらない mutation は、duplicate cache と resource health index を不要に dirty にしない。owner mutate 後に例外が起きる経路では、表現済み hash changes を dispatch するか、対象 chart の potential hash change として full invalidate に落とす。
 
 4. **Resource / maintenance target の dispatcher contract 化: 継続**
    - resource health warning index の currentness は dispatcher で dirty 化し、view は current `ResourceHealthIndexSnapshot` を正本にする。
