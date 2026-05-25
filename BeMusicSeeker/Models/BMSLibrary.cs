@@ -10033,12 +10033,11 @@ completeFileEnumerationOnce,
 
         public HashSet<string> AffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        public void AddInstalledCharts(IEnumerable<ChartFile> addedCharts, string destinationDirectory)
+        public void AddInstalledTargets(ChartStorageTargetSet addedTargets, string destinationDirectory)
         {
-            ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(CreateResourceMaintenanceTargetCharts(addedCharts));
-            AddedCharts.AddRange(addedTargets.Charts);
+            AddedCharts.AddRange((addedTargets?.Charts ?? []).Where(chart => chart != null));
             AddAffectedDirectory(destinationDirectory);
-            foreach (ChartFile addedChart in addedTargets.Charts)
+            foreach (ChartFile addedChart in addedTargets?.Charts ?? [])
             {
                 AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedChart.Path));
             }
@@ -10059,9 +10058,14 @@ completeFileEnumerationOnce,
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         List<ChartFile> addedChartsForChartInfo = [];
 
+        static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)
+        {
+            return ChartStorageTargetSet.FromCharts(installResult?.AddedCharts);
+        }
+
         void UpsertInstalledChartRows(PackageInstallExecutionResult installResult)
         {
-            ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts));
+            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
             if (addedTargets.BmsFiles.Count > 0)
             {
                 dbGateway.UpsertSongs(addedTargets.BmsFiles);
@@ -10074,7 +10078,7 @@ completeFileEnumerationOnce,
 
         void UpdateInstalledChartMaintenance(PackageInstallExecutionResult installResult)
         {
-            List<ChartFile> addedCharts = CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts);
+            List<ChartFile> addedCharts = CreateAddedStorageTargets(installResult).Charts;
             if (deferredMaintenanceCharts != null)
             {
                 deferredMaintenanceCharts.AddRange(addedCharts);
@@ -10088,12 +10092,12 @@ completeFileEnumerationOnce,
 
         void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
         {
-            List<ChartFile> addedCharts = CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts);
-            ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(addedCharts);
+            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
+            List<ChartFile> addedCharts = addedTargets.Charts;
             addedChartsForChartInfo.AddRange(addedCharts);
             if (estimatedInstallBatchApplyContext != null)
             {
-                estimatedInstallBatchApplyContext.AddInstalledCharts(installResult?.AddedCharts, installationDirectory);
+                estimatedInstallBatchApplyContext.AddInstalledTargets(addedTargets, installationDirectory);
                 return;
             }
             ApplyInstalledChartStorageTargets(addedTargets, "install_package");
@@ -10119,7 +10123,7 @@ completeFileEnumerationOnce,
             (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => MoveChartPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths),
             UpsertInstalledChartRows,
             UpdateInstalledChartMaintenance,
-            result => SetBMSScore(ChartStorageTargetSet.FromCharts(result?.AddedCharts).BmsFiles),
+            result => SetBMSScore(CreateAddedStorageTargets(result).BmsFiles),
             ApplyInstalledChartState,
             excludedComponentPathsByPackage,
             existingHashes,
@@ -10127,7 +10131,7 @@ completeFileEnumerationOnce,
             deleteSourceContentsAfterSuccessfulInstall);
         if (estimatedInstallBatchApplyContext != null && result.FailedPackages.Count < installPackageList.Count)
         {
-            estimatedInstallBatchApplyContext.AddInstalledCharts([], installationDirectory);
+            estimatedInstallBatchApplyContext.AddInstalledTargets(ChartStorageTargetSet.FromCharts([]), installationDirectory);
         }
         if (result.InstalledPackagesToRegister.Count > 0)
         {
