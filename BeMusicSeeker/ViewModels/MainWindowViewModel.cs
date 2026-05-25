@@ -10364,8 +10364,10 @@ public class MainWindowViewModel : ViewModel
         }
         if (!TryResolveVirtualSortRequest(SortParameters, out string normalizedSortColumn, out ListSortDirection sortDirection))
         {
-            LogVirtualChartSubsetMaterializedFallback(mode, requestedMode, treeMode, "unsupported_sort_column");
-            return false;
+            LogVirtualChartSubsetSortReset(mode, requestedMode, treeMode, "unsupported_sort_column", nameof(LibraryChartRow.Title), ListSortDirection.Ascending);
+            SortParameters = null;
+            normalizedSortColumn = nameof(LibraryChartRow.Title);
+            sortDirection = ListSortDirection.Ascending;
         }
 
         ResetRegularDerivedViewCaches();
@@ -11274,19 +11276,21 @@ public class MainWindowViewModel : ViewModel
             && !IsPlaylistTreeActive(mode, currentTreeMode);
     }
 
-    private void LogVirtualChartSubsetMaterializedFallback(viewUpdateMode mode, viewUpdateMode requestedMode, viewUpdateMode treeMode, string reason)
+    private void LogVirtualChartSubsetSortReset(viewUpdateMode mode, viewUpdateMode requestedMode, viewUpdateMode treeMode, string reason, string appliedSortColumn, ListSortDirection appliedSortDirection)
     {
         if (string.IsNullOrWhiteSpace(reason)
             || !IsVirtualChartSubsetRequestModeSupported(mode, treeMode))
         {
             return;
         }
-        LogMainViewBuild("main_view_virtual_subset_materialized_fallback reason=" + reason
+        LogMainViewBuildWarning("main_view_virtual_subset_sort_reset reason=" + reason
             + " mode=" + mode
             + " requestedMode=" + requestedMode
             + " treeMode=" + treeMode
-            + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
-            + " sortDirection=" + (SortParameters?.Direction.ToString() ?? "Ascending")
+            + " requestedSortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
+            + " requestedSortDirection=" + (SortParameters?.Direction.ToString() ?? "Ascending")
+            + " appliedSortColumn=" + (string.IsNullOrWhiteSpace(appliedSortColumn) ? nameof(LibraryChartRow.Title) : appliedSortColumn)
+            + " appliedSortDirection=" + appliedSortDirection
             + " keywordLength=" + (KeywordFilter?.Length ?? 0)
             + " modeFilter=" + ModeFilter);
     }

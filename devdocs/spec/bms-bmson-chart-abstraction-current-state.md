@@ -910,7 +910,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - `SearchDuplicateChartGroups`
 - `playlist_library_index_prewarm`
 - `main_view_virtual_route_skipped` / `main_view_virtual_sort_reset` / `main_view_virtual_required_failed`
-- `main_view_virtual_subset_materialized_fallback`
+- `main_view_virtual_subset_sort_reset`
 - full installed chart snapshot / owned chart materialize count
 
 成功目安:
@@ -921,7 +921,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - folder / merge / delete 操作では、対象 directory / input chart に応じた view / index が使われ、全件 materialize 後 filter にならない。
 - 通常一覧 root / folder 切替で可視行以外の heavy projection が増えない。
 - 通常 library で `main_view_virtual_route_skipped` / `main_view_virtual_sort_reset` / `main_view_virtual_required_failed` が通常操作のログに出ない。未対応 sort column があれば列定義 / virtual sort metadata の不整合として直す。
-- subset view で `main_view_virtual_subset_materialized_fallback` が通常操作のログに出ない。これは対象 subset だけを既存 materialized row 経路へ戻す bounded fallback であり、全所持譜面 materialize ではないが、sortable column metadata の不整合を示すため解消対象にする。
+- subset view で未対応 sort request が来た場合は `main_view_virtual_subset_sort_reset` を warning として出し、default title sort に戻して virtual subset view を継続する。bounded であっても materialized fallback で sortable column metadata の不整合を隠さない。
 - playlist detail open で library hash index build が全件 `LibraryChartRef` list copy を伴わず、owned playlist resolve index snapshot か cached snapshot を読む。
 
 ### 完了条件

@@ -1579,6 +1579,57 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var viewModel = new MainWindowViewModel();
+        BMSFile zeta = CreateFile(Path.Combine(tempRootPath, "zeta.bms"), "Zeta", tempRootPath);
+        BMSFile alpha = CreateFile(Path.Combine(tempRootPath, "alpha.bms"), "Alpha", tempRootPath, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var duplicateGroup = new DuplicateGroup(
+            [ChartFileProjection.FromBmsFile(zeta), ChartFileProjection.FromBmsFile(alpha)],
+            [tempRootPath]);
+        try
+        {
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [zeta, alpha],
+                DuplicateChartGroups = [duplicateGroup]
+            };
+            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
+            typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected);
+            typeof(MainWindowViewModel).GetField("_SortParameters", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(
+                viewModel,
+                new MainWindowViewModel.cSortParameters
+                {
+                    ColumnsName = "UnsupportedColumn",
+                    Direction = ListSortDirection.Descending
+                });
+
+            typeof(MainWindowViewModel)
+                .GetMethod("RefreshChartRowsView", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(MainWindowViewModel.viewUpdateMode), typeof(object)], null)!
+                .Invoke(viewModel, [MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected, null]);
+
+            Assert.IsNull(viewModel.SortParameters);
+            var view = viewModel.ChartRowsView as ChartListVirtualView;
+            Assert.IsNotNull(view);
+            Assert.AreEqual(2, view.Count);
+            Assert.AreEqual("Alpha", ((LibraryChartRow)view[0]).Title);
+            Assert.AreEqual("Zeta", ((LibraryChartRow)view[1]).Title);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void VirtualChartSubsetResourceHealthProjection_MatchesMaterializedModes()
     {
         Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected));
