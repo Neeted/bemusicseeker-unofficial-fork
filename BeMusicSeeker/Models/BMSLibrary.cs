@@ -49,6 +49,8 @@ internal sealed class NormalLibraryRefreshNotification
         LibraryChartRefreshEffects.None,
         [],
         notifiesStorageRows: false,
+        notifiesWarningPresentationProperties: false,
+        notifiesMaintenancePresentationProperties: false,
         resetsPriorNotifications: false);
 
     internal NormalLibraryRefreshNotification(
@@ -57,6 +59,8 @@ internal sealed class NormalLibraryRefreshNotification
         LibraryChartRefreshEffects effects,
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool notifiesStorageRows,
+        bool notifiesWarningPresentationProperties,
+        bool notifiesMaintenancePresentationProperties,
         bool resetsPriorNotifications)
     {
         Version = version;
@@ -64,6 +68,8 @@ internal sealed class NormalLibraryRefreshNotification
         Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         NotifiesStorageRows = notifiesStorageRows;
+        NotifiesWarningPresentationProperties = notifiesWarningPresentationProperties;
+        NotifiesMaintenancePresentationProperties = notifiesMaintenancePresentationProperties;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
 
@@ -77,6 +83,10 @@ internal sealed class NormalLibraryRefreshNotification
 
     internal bool NotifiesStorageRows { get; }
 
+    internal bool NotifiesWarningPresentationProperties { get; }
+
+    internal bool NotifiesMaintenancePresentationProperties { get; }
+
     internal bool ResetsPriorNotifications { get; }
 }
 
@@ -88,6 +98,8 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         LibraryChartRefreshEffects.None,
         [],
         notifiesStorageRows: false,
+        notifiesWarningPresentationProperties: false,
+        notifiesMaintenancePresentationProperties: false,
         resetsPriorNotifications: false);
 
     internal NormalLibraryRefreshNotificationBatch(
@@ -96,6 +108,8 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         LibraryChartRefreshEffects effects,
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool notifiesStorageRows,
+        bool notifiesWarningPresentationProperties,
+        bool notifiesMaintenancePresentationProperties,
         bool resetsPriorNotifications)
     {
         LatestVersion = latestVersion;
@@ -103,6 +117,8 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         NotifiesStorageRows = notifiesStorageRows;
+        NotifiesWarningPresentationProperties = notifiesWarningPresentationProperties;
+        NotifiesMaintenancePresentationProperties = notifiesMaintenancePresentationProperties;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
 
@@ -115,6 +131,10 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
 
     internal bool NotifiesStorageRows { get; }
+
+    internal bool NotifiesWarningPresentationProperties { get; }
+
+    internal bool NotifiesMaintenancePresentationProperties { get; }
 
     internal bool ResetsPriorNotifications { get; }
 
@@ -1211,6 +1231,8 @@ public class BMSLibrary : NotificationObject
                     LibraryChartRefreshEffects.None,
                     [],
                     notifiesStorageRows: false,
+                    notifiesWarningPresentationProperties: false,
+                    notifiesMaintenancePresentationProperties: false,
                     resetsPriorNotifications: false);
             }
             bool resetsPriorNotifications = resetIndex >= 0;
@@ -1220,6 +1242,14 @@ public class BMSLibrary : NotificationObject
                 LibraryChartRefreshEffects.None,
                 (current, notification) => current | notification.Effects);
             bool notifiesStorageRows = notifications.Any(notification => notification.NotifiesStorageRows);
+            bool notifiesWarningPresentationProperties = AreEffectsCoveredByLegacyProperties(
+                notifications,
+                LibraryChartRefreshEffects.WarningPresentationChanged,
+                notification => notification.NotifiesWarningPresentationProperties);
+            bool notifiesMaintenancePresentationProperties = AreEffectsCoveredByLegacyProperties(
+                notifications,
+                LibraryChartRefreshEffects.MaintenancePresentationChanged,
+                notification => notification.NotifiesMaintenancePresentationProperties);
             List<ChartFile> installDestinationChangedCharts = [.. notifications
                 .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
                 .Where(chart => chart != null)];
@@ -1229,8 +1259,20 @@ public class BMSLibrary : NotificationObject
                 effects,
                 DistinctChartsByNotificationKey(installDestinationChangedCharts),
                 notifiesStorageRows,
+                notifiesWarningPresentationProperties,
+                notifiesMaintenancePresentationProperties,
                 resetsPriorNotifications);
         }
+    }
+
+    private static bool AreEffectsCoveredByLegacyProperties(
+        IEnumerable<NormalLibraryRefreshNotification> notifications,
+        LibraryChartRefreshEffects effect,
+        Func<NormalLibraryRefreshNotification, bool> propertySelector)
+    {
+        List<NormalLibraryRefreshNotification> effectNotifications = [.. (notifications ?? [])
+            .Where(notification => notification != null && (notification.Effects & effect) != 0)];
+        return effectNotifications.Count > 0 && effectNotifications.All(propertySelector);
     }
 
     internal int OwnedChartCollectionVersion => Volatile.Read(ref ownedChartCollectionVersion);
@@ -6815,6 +6857,10 @@ completeFileEnumerationOnce,
 
         public bool MaintenancePresentationChanged { get; set; }
 
+        public bool WarningPresentationPropertiesChanged { get; set; }
+
+        public bool MaintenancePresentationPropertiesChanged { get; set; }
+
         public bool BmsFilesPropertyChanged { get; set; }
 
         public bool BmsonSongsPropertyChanged { get; set; }
@@ -6837,6 +6883,8 @@ completeFileEnumerationOnce,
             || InstallEstimationMetadataProfileCacheInvalidated
             || WarningPresentationChanged
             || MaintenancePresentationChanged
+            || WarningPresentationPropertiesChanged
+            || MaintenancePresentationPropertiesChanged
             || StorageRowPropertyChanged
             || InstalledLookupMutation?.HasChanges == true;
     }
@@ -7295,6 +7343,9 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = storageMutation.HasChanges,
             ResourceHealthIndexInvalidated = storageMutation.HasChanges,
             WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
+            WarningPresentationPropertiesChanged = delta?.RaiseLibraryChartsChanged == true
+                || delta?.ClearDuplicatedCache == true
+                || storageMutation.HasChanges,
             BmsFilesPropertyChanged = delta?.RaiseLibraryChartsChanged == true || HasBmsStorageRowCollectionChange(storageMutation),
             BmsonSongsPropertyChanged = HasBmsonStorageRowCollectionChange(storageMutation)
                 || (delta?.RaiseLibraryChartsChanged == true && HasBmsonStorageRowPathChange(storageMutation))
@@ -7355,6 +7406,7 @@ completeFileEnumerationOnce,
         result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
         result.ResourceHealthIndexInvalidated = result.StorageMutation.HasChanges;
         result.WarningPresentationChanged = result.StorageMutation.HasChanges;
+        result.WarningPresentationPropertiesChanged = result.StorageMutation.HasChanges;
         result.BmsFilesPropertyChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
         result.BmsonSongsPropertyChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = result.StorageMutation.AddedCount > 0;
@@ -7378,6 +7430,7 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = anyChanges,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
             WarningPresentationChanged = primaryHashChanged || (resourceHealthIndexInvalidated && md5Changed),
+            WarningPresentationPropertiesChanged = anyChanges,
             BmsFilesPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
             BmsonSongsPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
         };
@@ -7403,6 +7456,7 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = true,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
             WarningPresentationChanged = resourceHealthIndexInvalidated,
+            WarningPresentationPropertiesChanged = true,
             BmsFilesPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
             BmsonSongsPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
         };
@@ -7421,6 +7475,8 @@ completeFileEnumerationOnce,
         bool resourceHealthChanged = result.ResourceHealthMutation.HasChanges;
         result.WarningPresentationChanged |= resourceHealthChanged;
         result.MaintenancePresentationChanged = workflowHasUpdates || resourceHealthChanged;
+        result.WarningPresentationPropertiesChanged = resourceHealthChanged;
+        result.MaintenancePresentationPropertiesChanged = result.MaintenancePresentationChanged;
         return result;
     }
 
@@ -7515,6 +7571,8 @@ completeFileEnumerationOnce,
                 + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
                 + " warningPresentation=" + ToInvalidateLogValue(result.WarningPresentationChanged)
                 + " maintenancePresentation=" + ToInvalidateLogValue(result.MaintenancePresentationChanged)
+                + " warningProperties=" + ToInvalidateLogValue(result.WarningPresentationPropertiesChanged)
+                + " maintenanceProperties=" + ToInvalidateLogValue(result.MaintenancePresentationPropertiesChanged)
                 + " bmsFilesProperty=" + ToInvalidateLogValue(result.BmsFilesPropertyChanged)
                 + " bmsonSongsProperty=" + ToInvalidateLogValue(result.BmsonSongsPropertyChanged)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
@@ -9142,6 +9200,8 @@ completeFileEnumerationOnce,
 
     internal void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
     {
+        OwnedChartCollectionMutationResult mutationResult = null;
+        string reason = unset ? "resource_health_unignore" : "resource_health_ignore";
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
@@ -9156,14 +9216,10 @@ completeFileEnumerationOnce,
                     List<BMSFileMaintenanceInfo> changes = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
                     dbGateway.UpsertMaintenanceInfos(changes);
                 }
-                string reason = unset ? "resource_health_unignore" : "resource_health_ignore";
-                DispatchOwnedChartCollectionMutation(
-                    BuildResourceHealthWarningPresentationMutationResult(targets),
-                    reason);
+                mutationResult = BuildResourceHealthWarningPresentationMutationResult(targets);
             }
         }
-        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
+        DispatchOwnedChartCollectionMutation(mutationResult, reason);
     }
 
     /// <summary>
@@ -13051,6 +13107,8 @@ completeFileEnumerationOnce,
             effects,
             installDestinationChangedCharts,
             result.StorageRowPropertyChanged,
+            result.WarningPresentationPropertiesChanged,
+            result.MaintenancePresentationPropertiesChanged,
             resetsPriorNotifications: false);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
@@ -13094,6 +13152,8 @@ completeFileEnumerationOnce,
             LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
             [],
             notifiesStorageRows: true,
+            notifiesWarningPresentationProperties: true,
+            notifiesMaintenancePresentationProperties: true,
             resetsPriorNotifications: true);
         lock (latestNormalLibraryRefreshNotificationLock)
         {

@@ -609,9 +609,47 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
             Assert.AreEqual(0, updatedSnapshot.ActiveTargets.Count);
             Assert.AreEqual(1, updatedSnapshot.IgnoredTargets.Count);
+        });
+    }
+
+    [TestMethod]
+    public void NormalLibraryRefreshNotificationBatch_MixedWarningPropertyCoverageRequiresNotificationRefresh()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = @"C:\Library\warning.bms";
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1,
+                is_files_warning_ignored = false
+            }, suppressPropertyChanged: true);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file);
+            ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([chart], new BmsLibraryMaintenanceService(), version: 3);
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
+            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+
+            library.SetChartResourceWarningsIgnored([chart], unset: false);
+            file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            InvokeDispatchOwnedChartHashChanges(
+                library,
+                [new LibraryChartHashChange(LibraryChartKind.Bms, file.path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, file.hash, null)],
+                "test_warning_property_covered_hash");
+
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
         });
     }
 
@@ -2159,6 +2197,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
         FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         fieldInfo.SetValue(target, value);
+    }
+
+    private static void InvokeDispatchOwnedChartHashChanges(
+        BMSLibrary library,
+        IEnumerable<LibraryChartHashChange> hashChanges,
+        string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartHashChanges", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [hashChanges, reason, true]);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

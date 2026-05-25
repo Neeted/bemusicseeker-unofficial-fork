@@ -9837,6 +9837,24 @@ public class MainWindowViewModel : ViewModel
         return notificationBatch?.HasRefreshNotification == true;
     }
 
+    private void RefreshNormalLibraryForNotificationPresentationEffects(NormalLibraryRefreshNotificationBatch notificationBatch)
+    {
+        if (notificationBatch?.HasRefreshNotification != true)
+        {
+            return;
+        }
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged)
+            && !notificationBatch.NotifiesWarningPresentationProperties)
+        {
+            RefreshNormalLibraryAfterWarningChanged("normal_library_warning_changed");
+        }
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged)
+            && !notificationBatch.NotifiesMaintenancePresentationProperties)
+        {
+            RefreshResourceHealthViewsAfterMaintenanceChanged("normal_library_maintenance_changed");
+        }
+    }
+
     private void MarkNormalLibraryRefreshSignalHandledBeforeStorageRefresh(NormalLibraryRefreshNotificationBatch notificationBatch)
     {
         if (notificationBatch?.HasRefreshNotification == true
@@ -14473,6 +14491,7 @@ public class MainWindowViewModel : ViewModel
                 fallbackToCurrentOwnedCollectionVersion: false,
                 out _,
                 out _);
+            RefreshNormalLibraryForNotificationPresentationEffects(refreshNotification);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
@@ -17583,6 +17602,16 @@ public class MainWindowViewModel : ViewModel
 
     private void RefreshResourceHealthViewsAfterMaintenanceChanged()
     {
+        RefreshResourceHealthViewsAfterMaintenanceChanged("maintenance_hydration_completed", "maintenance_changed");
+    }
+
+    private void RefreshResourceHealthViewsAfterMaintenanceChanged(string reason)
+    {
+        RefreshResourceHealthViewsAfterMaintenanceChanged(reason, reason);
+    }
+
+    private void RefreshResourceHealthViewsAfterMaintenanceChanged(string filterReason, string dependencyReason)
+    {
         InvalidateNormalLibrarySortKeys(NormalLibraryMaintenanceChangedReason);
         Action refresh = delegate
         {
@@ -17590,14 +17619,14 @@ public class MainWindowViewModel : ViewModel
                 || treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected
                 || treeViewFilterTypeSelected == viewUpdateMode.FullScanAllChartsFilterSelected)
             {
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "maintenance_hydration_completed"))
+                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, filterReason))
                 {
                     return;
                 }
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
                 return;
             }
-            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Maintenance, "maintenance_changed");
+            RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Maintenance, dependencyReason);
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
