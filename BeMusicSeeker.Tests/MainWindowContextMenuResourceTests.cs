@@ -1704,7 +1704,10 @@ public sealed class MainWindowContextMenuResourceTests
         string duplicateSearchMethod = ExtractMethodBody(libraryCode, "public void SearchDuplicateChartGroups()");
 
         StringAssert.Contains(libraryCode, "DeferOnUpdates");
-        StringAssert.Contains(libraryCode, "resource_health_index_deferred reason=setMaintenanceInfo");
+        StringAssert.Contains(libraryCode, "ResourceHealthIndexUpdateMode.DeltaOnUpdates");
+        StringAssert.Contains(libraryCode, "? \"install_package_estimated\"");
+        StringAssert.Contains(libraryCode, ": \"setMaintenanceInfo\"");
+        StringAssert.Contains(libraryCode, "DispatchResourceHealthIndexMutation(resourceHealthMutation, resourceHealthMutationReason)");
         StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
         StringAssert.Contains(duplicateSearchMethod, "bmsSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");

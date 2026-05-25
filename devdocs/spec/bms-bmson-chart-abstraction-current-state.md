@@ -835,7 +835,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 4. **Resource / maintenance target の dispatcher contract 化: 継続**
    - resource health warning index の currentness は dispatcher で dirty 化し、view は current `ResourceHealthIndexSnapshot` を正本にする。
    - resource refs が必要な処理は `CreateFullOwnedResourceMaintenanceTargetCharts(reason)` または `CreateResourceMaintenanceTargetCharts(...)` を通す。通常 mutation は subset target、force rescan / explicit full rebuild / invalidated index rebuild だけ full target を作る。
-   - `maintenance affected charts` は health value producer の結果として dispatcher に流す。collection mutation は target set の追加・削除・移動だけを扱い、maintenanceInfo / ignore state の生成責務を持たない。
+   - `maintenance affected charts` は health value producer の結果として `ResourceHealthIndexMutation` に載せ、collection mutation と同じ resource-health dispatcher を通す。collection mutation は `invalidate`、maintenance producer は `delta` / `full` / `defer` を選ぶ。collection mutation は target set の追加・削除・移動だけを扱い、maintenanceInfo / ignore state の生成責務を持たない。
    - `ChartFilesNeedResourceFix` / ignored view は current snapshot があれば full target を作らない方針を維持する。
 
 5. **Warning / source generation / sort-key の分離: 未着手、次の大きな構造候補**

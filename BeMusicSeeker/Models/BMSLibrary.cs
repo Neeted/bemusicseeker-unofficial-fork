@@ -6631,7 +6631,13 @@ reportProgress,
 
         public bool OwnedCollectionChangeNotified { get; set; }
 
-        public bool ResourceHealthIndexInvalidated { get; set; }
+        public ResourceHealthIndexMutation ResourceHealthMutation { get; } = new();
+
+        public bool ResourceHealthIndexInvalidated
+        {
+            get => ResourceHealthMutation.Invalidate;
+            set => ResourceHealthMutation.Invalidate = value;
+        }
 
         public bool ShouldDispatchInstalledLookup => InstalledLookupMutation?.HasChanges == true;
 
@@ -6644,9 +6650,43 @@ reportProgress,
             || DuplicateCacheInvalidated
             || PlaylistSummaryOwnedHashInvalidated
             || OwnedCollectionChanged
-            || ResourceHealthIndexInvalidated
+            || ResourceHealthMutation.HasChanges
             || InstallEstimationMetadataProfileCacheInvalidated
             || InstalledLookupMutation?.HasChanges == true;
+    }
+
+    private sealed class ResourceHealthIndexMutation
+    {
+        public List<ChartFile> UpdatedTargets { get; } = [];
+
+        public List<ChartFile> RemovedTargets { get; } = [];
+
+        public List<ChartFile> FullOwnedTargets { get; set; }
+
+        public bool Invalidate { get; set; }
+
+        public bool RebuildFull { get; set; }
+
+        public bool Defer { get; set; }
+
+        public int UpdateTargetCount => UpdatedTargets.Count + RemovedTargets.Count;
+
+        public bool HasDeltaTargets => UpdatedTargets.Count > 0 || RemovedTargets.Count > 0;
+
+        public bool HasChanges => Invalidate || RebuildFull || Defer || HasDeltaTargets;
+    }
+
+    private sealed class ResourceHealthIndexDispatchResult
+    {
+        public ResourceHealthIndexSnapshot Snapshot { get; set; }
+
+        public bool DeltaApplied { get; set; }
+
+        public bool Deferred { get; set; }
+
+        public bool FullRebuilt { get; set; }
+
+        public long IndexMs { get; set; }
     }
 
     private sealed class InstallDestinationRuntimeStateMutation
@@ -7116,10 +7156,7 @@ reportProgress,
         {
             PublishOwnedCollectionChangeNotification(result);
         }
-        if (result.ResourceHealthIndexInvalidated)
-        {
-            InvalidateResourceHealthIndex(reason);
-        }
+        DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
         if (installMetadataProfileCacheInvalidated)
         {
@@ -7144,7 +7181,7 @@ reportProgress,
                 + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
                 + " playlistSummaryHash=" + ToInvalidateLogValue(result.PlaylistSummaryOwnedHashInvalidated)
                 + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
-                + " resourceHealth=" + ToInvalidateLogValue(result.ResourceHealthIndexInvalidated)
+                + " resourceHealth=" + ToResourceHealthMutationDispatchLogValue(result.ResourceHealthMutation)
                 + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
@@ -7167,6 +7204,27 @@ reportProgress,
             return "none";
         }
         return mutation.RequiresFullInvalidate ? "invalidate" : "delta";
+    }
+
+    private static string ToResourceHealthMutationDispatchLogValue(ResourceHealthIndexMutation mutation)
+    {
+        if (mutation == null || !mutation.HasChanges)
+        {
+            return "none";
+        }
+        if (mutation.Invalidate)
+        {
+            return "invalidate";
+        }
+        if (mutation.Defer)
+        {
+            return "defer";
+        }
+        if (mutation.RebuildFull)
+        {
+            return "full";
+        }
+        return mutation.HasDeltaTargets ? "delta" : "none";
     }
 
     private static string ToInvalidateLogValue(bool invalidated)
@@ -8244,6 +8302,85 @@ reportProgress,
         return true;
     }
 
+    private ResourceHealthIndexDispatchResult DispatchResourceHealthIndexMutation(
+        ResourceHealthIndexMutation mutation,
+        string reason)
+    {
+        var result = new ResourceHealthIndexDispatchResult
+        {
+            Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty
+        };
+        if (mutation == null || !mutation.HasChanges)
+        {
+            return result;
+        }
+        if (mutation.Invalidate)
+        {
+            InvalidateResourceHealthIndex(reason);
+            result.Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            return result;
+        }
+        if (mutation.Defer)
+        {
+            result.Deferred = true;
+            result.Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            LogInstallPerformance("resource_health_index_deferred reason=" + (reason ?? "unknown")
+                + " targetCount=" + result.Snapshot.TargetCount
+                + " updateTargets=" + mutation.UpdateTargetCount
+                + " invalidated=" + Volatile.Read(ref resourceHealthIndexInvalidated).ToString().ToLowerInvariant());
+            return result;
+        }
+        if (!mutation.RebuildFull
+            && mutation.HasDeltaTargets
+            && TryApplyResourceHealthIndexDeltaLocked(reason, mutation.UpdatedTargets, mutation.RemovedTargets, out ResourceHealthIndexSnapshot deltaSnapshot))
+        {
+            result.Snapshot = deltaSnapshot;
+            result.DeltaApplied = true;
+            result.IndexMs = deltaSnapshot.BuildMs;
+            return result;
+        }
+        if (mutation.RebuildFull || mutation.HasDeltaTargets)
+        {
+            result.Snapshot = RebuildResourceHealthIndexSnapshotLocked(reason, mutation.FullOwnedTargets);
+            result.FullRebuilt = true;
+            result.IndexMs = result.Snapshot.BuildMs;
+        }
+        return result;
+    }
+
+    private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthIndexMutation(
+        List<ChartFile> maintenanceTargetCharts,
+        bool maintenanceTargetIsFullOwned,
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
+        bool resourceHealthIndexCurrent,
+        bool workflowHasUpdates)
+    {
+        var mutation = new ResourceHealthIndexMutation();
+        bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
+        bool shouldUpdateIndex = workflowHasUpdates || !resourceHealthIndexCurrent || forceResourceHealthDelta;
+        if (!shouldUpdateIndex)
+        {
+            return mutation;
+        }
+        if (resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeferOnUpdates)
+        {
+            mutation.Defer = true;
+            mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
+            return mutation;
+        }
+        if (resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent)
+        {
+            mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
+            return mutation;
+        }
+        mutation.RebuildFull = true;
+        if (maintenanceTargetIsFullOwned)
+        {
+            mutation.FullOwnedTargets = maintenanceTargetCharts;
+        }
+        return mutation;
+    }
+
     internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFile chart)
     {
         ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
@@ -8346,35 +8483,21 @@ reportProgress,
             workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
         }
         bool resourceHealthIndexCurrent = IsResourceHealthIndexCurrent();
-        bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
-        bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !resourceHealthIndexCurrent || forceResourceHealthDelta;
-        bool resourceHealthDeltaApplied = false;
-        bool resourceHealthIndexDeferred = false;
-        ResourceHealthIndexSnapshot resourceHealthSnapshot;
-        if (rebuildResourceHealthIndex && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeferOnUpdates)
-        {
-            resourceHealthIndexDeferred = true;
-            resourceHealthSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
-            LogInstallPerformance("resource_health_index_deferred reason=setMaintenanceInfo"
-                + " targetCount=" + resourceHealthSnapshot.TargetCount
-                + " updateTargets=" + maintenanceTargetCharts.Count
-                + " invalidated=" + Volatile.Read(ref resourceHealthIndexInvalidated).ToString().ToLowerInvariant());
-        }
-        else if (rebuildResourceHealthIndex
-            && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
-            && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", maintenanceTargetCharts, null, out resourceHealthSnapshot))
-        {
-            resourceHealthDeltaApplied = true;
-        }
-        else
-        {
-            resourceHealthSnapshot = rebuildResourceHealthIndex
-                ? RebuildResourceHealthIndexSnapshotLocked(
-                    "setMaintenanceInfo",
-                    maintenanceTargetIsFullOwned ? maintenanceTargetCharts : null)
-                : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
-        }
-        workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex && !resourceHealthIndexDeferred ? resourceHealthSnapshot.BuildMs : 0L;
+        ResourceHealthIndexMutation resourceHealthMutation = BuildMaintenanceResourceHealthIndexMutation(
+            maintenanceTargetCharts,
+            maintenanceTargetIsFullOwned,
+            resourceHealthIndexUpdateMode,
+            resourceHealthIndexCurrent,
+            workflowResult.HasUpdates);
+        string resourceHealthMutationReason = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
+            ? "install_package_estimated"
+            : "setMaintenanceInfo";
+        ResourceHealthIndexDispatchResult resourceHealthDispatch = DispatchResourceHealthIndexMutation(resourceHealthMutation, resourceHealthMutationReason);
+        bool resourceHealthDeltaApplied = resourceHealthDispatch.DeltaApplied;
+        bool resourceHealthIndexDeferred = resourceHealthDispatch.Deferred;
+        bool resourceHealthIndexFullRebuilt = resourceHealthDispatch.FullRebuilt;
+        ResourceHealthIndexSnapshot resourceHealthSnapshot = resourceHealthDispatch.Snapshot ?? ResourceHealthIndexSnapshot.Empty;
+        workflowResult.ResourceHealthIndexMs = resourceHealthMutation.HasChanges && !resourceHealthIndexDeferred ? resourceHealthDispatch.IndexMs : 0L;
         workflowResult.WarningReapplyTargets = 0;
         workflowResult.WarningChangedCount = 0;
         if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0 || resourceHealthSnapshot.TargetCount > 0)
@@ -8403,7 +8526,7 @@ reportProgress,
                 + " bmsonResourceRefsReused=" + workflowResult.BmsonResourceReferenceReusedCount
                 + " songReloaded=" + workflowResult.ReloadedSongCount
                 + " resourceHealthIndexMs=" + workflowResult.ResourceHealthIndexMs
-                + " resourceHealthIndexMode=" + (resourceHealthIndexDeferred ? "deferred" : (resourceHealthDeltaApplied ? "delta" : (rebuildResourceHealthIndex ? "full" : "current")))
+                + " resourceHealthIndexMode=" + (resourceHealthIndexDeferred ? "deferred" : (resourceHealthDeltaApplied ? "delta" : (resourceHealthIndexFullRebuilt ? "full" : "current")))
                 + " warningReapplyTargets=" + workflowResult.WarningReapplyTargets
                 + " warningChanged=" + workflowResult.WarningChangedCount
                 + " canceled=" + workflowResult.Canceled.ToString().ToLowerInvariant()
