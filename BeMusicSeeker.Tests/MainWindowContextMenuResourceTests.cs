@@ -1719,6 +1719,11 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(libraryCode, "private sealed class EstimatedInstallBatchApplyContext");
         StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(batchApplyContext)");
+        string batchContext = ExtractBetween(libraryCode, "private sealed class EstimatedInstallBatchApplyContext", "private List<ChartPackage> installChartPackages");
+        StringAssert.Contains(batchContext, "public List<ChartFile> AddedCharts { get; } = [];");
+        Assert.IsFalse(batchContext.Contains("AddedBmsFiles"));
+        Assert.IsFalse(batchContext.Contains("AddedBmsonSongs"));
+        StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts)");
         StringAssert.Contains(libraryCode, "canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates");
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");

@@ -10029,25 +10029,18 @@ completeFileEnumerationOnce,
 
     private sealed class EstimatedInstallBatchApplyContext
     {
-        public List<BMSFile> AddedBmsFiles { get; } = [];
-
-        public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
+        public List<ChartFile> AddedCharts { get; } = [];
 
         public HashSet<string> AffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public void AddInstalledCharts(IEnumerable<ChartFile> addedCharts, string destinationDirectory)
         {
             ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(CreateResourceMaintenanceTargetCharts(addedCharts));
-            AddedBmsFiles.AddRange(addedTargets.BmsFiles);
-            AddedBmsonSongs.AddRange(addedTargets.BmsonSongs);
+            AddedCharts.AddRange(addedTargets.Charts);
             AddAffectedDirectory(destinationDirectory);
-            foreach (BMSFile addedFile in addedTargets.BmsFiles)
+            foreach (ChartFile addedChart in addedTargets.Charts)
             {
-                AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedFile.path));
-            }
-            foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedTargets.BmsonSongs)
-            {
-                AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedBmsonSong.path));
+                AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedChart.Path));
             }
         }
 
@@ -10162,7 +10155,7 @@ completeFileEnumerationOnce,
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
         ApplyInstalledChartStorageTargets(
-            ChartStorageTargetSet.FromRows(context.AddedBmsFiles, context.AddedBmsonSongs),
+            ChartStorageTargetSet.FromCharts(context.AddedCharts),
             "install_package_batch");
         List<string> affectedDirectories = [.. context.AffectedDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         if (affectedDirectories.Count == 0)
