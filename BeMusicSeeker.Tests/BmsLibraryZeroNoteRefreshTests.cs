@@ -43,7 +43,6 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
             Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
         });

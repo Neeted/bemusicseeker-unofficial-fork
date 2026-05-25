@@ -3273,7 +3273,6 @@ createTempDirectory);
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
             Assert.AreEqual(0, library.ChartInfoParseFailedChartFiles.Count());
             using var verify = new LR2SongDBExtended(songDbPath);

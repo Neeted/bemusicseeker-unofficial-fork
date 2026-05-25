@@ -1856,7 +1856,6 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(snapshot.Md5, bmsFile.hash);
             Assert.AreEqual(snapshot.Sha256, bmsFile.sha256);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
             Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
             Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsFalse(updatedLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));

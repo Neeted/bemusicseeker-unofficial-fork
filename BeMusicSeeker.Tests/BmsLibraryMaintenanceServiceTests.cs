@@ -566,7 +566,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(result.HasUpdates);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.IsFalse(batch.NotifiesMaintenancePresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
         });
     }
@@ -605,8 +604,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(hydrationResult.ViewRefreshQueued);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
-            Assert.IsFalse(batch.NotifiesMaintenancePresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
         });
     }
@@ -650,7 +647,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
-            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
             Assert.AreEqual(0, updatedSnapshot.ActiveTargets.Count);
             Assert.AreEqual(1, updatedSnapshot.IgnoredTargets.Count);
@@ -658,7 +654,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void NormalLibraryRefreshNotificationBatch_MixedWarningPropertyCoverageRequiresNotificationRefresh()
+    public void NormalLibraryRefreshNotificationBatch_MixedWarningProducersKeepWarningRefreshEffect()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -690,7 +686,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
         });
     }
 

@@ -9837,15 +9837,9 @@ public class MainWindowViewModel : ViewModel
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
-        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged) == true
-            && !notificationBatch.NotifiesWarningPresentationProperties)
+        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged) == true)
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
-        }
-        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged) == true
-            && !notificationBatch.NotifiesMaintenancePresentationProperties)
-        {
-            InvalidateNormalLibrarySortKeys(NormalLibraryMaintenanceChangedReason);
         }
         return notificationBatch?.HasRefreshNotification == true;
     }
@@ -9861,13 +9855,11 @@ public class MainWindowViewModel : ViewModel
         {
             RefreshNormalLibraryAfterInstallDestinationChanged("normal_library_install_destination_changed");
         }
-        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged)
-            && !notificationBatch.NotifiesWarningPresentationProperties)
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged))
         {
             RefreshNormalLibraryAfterWarningChanged("normal_library_warning_changed");
         }
-        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged)
-            && !notificationBatch.NotifiesMaintenancePresentationProperties)
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
         {
             RefreshResourceHealthViewsAfterMaintenanceChanged("normal_library_maintenance_changed");
         }

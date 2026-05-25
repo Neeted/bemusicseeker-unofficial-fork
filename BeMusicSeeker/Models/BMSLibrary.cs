@@ -50,8 +50,6 @@ internal sealed class NormalLibraryRefreshNotification
         [],
         notifiesStorageRows: false,
         notifiesInstallDestinationOverlayProperties: false,
-        notifiesWarningPresentationProperties: false,
-        notifiesMaintenancePresentationProperties: false,
         resetsPriorNotifications: false);
 
     internal NormalLibraryRefreshNotification(
@@ -61,8 +59,6 @@ internal sealed class NormalLibraryRefreshNotification
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool notifiesStorageRows,
         bool notifiesInstallDestinationOverlayProperties,
-        bool notifiesWarningPresentationProperties,
-        bool notifiesMaintenancePresentationProperties,
         bool resetsPriorNotifications)
     {
         Version = version;
@@ -71,8 +67,6 @@ internal sealed class NormalLibraryRefreshNotification
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         NotifiesStorageRows = notifiesStorageRows;
         NotifiesInstallDestinationOverlayProperties = notifiesInstallDestinationOverlayProperties;
-        NotifiesWarningPresentationProperties = notifiesWarningPresentationProperties;
-        NotifiesMaintenancePresentationProperties = notifiesMaintenancePresentationProperties;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
 
@@ -88,10 +82,6 @@ internal sealed class NormalLibraryRefreshNotification
 
     internal bool NotifiesInstallDestinationOverlayProperties { get; }
 
-    internal bool NotifiesWarningPresentationProperties { get; }
-
-    internal bool NotifiesMaintenancePresentationProperties { get; }
-
     internal bool ResetsPriorNotifications { get; }
 }
 
@@ -104,8 +94,6 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         [],
         notifiesStorageRows: false,
         notifiesInstallDestinationOverlayProperties: false,
-        notifiesWarningPresentationProperties: false,
-        notifiesMaintenancePresentationProperties: false,
         resetsPriorNotifications: false);
 
     internal NormalLibraryRefreshNotificationBatch(
@@ -115,8 +103,6 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool notifiesStorageRows,
         bool notifiesInstallDestinationOverlayProperties,
-        bool notifiesWarningPresentationProperties,
-        bool notifiesMaintenancePresentationProperties,
         bool resetsPriorNotifications)
     {
         LatestVersion = latestVersion;
@@ -125,8 +111,6 @@ internal sealed class NormalLibraryRefreshNotificationBatch
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         NotifiesStorageRows = notifiesStorageRows;
         NotifiesInstallDestinationOverlayProperties = notifiesInstallDestinationOverlayProperties;
-        NotifiesWarningPresentationProperties = notifiesWarningPresentationProperties;
-        NotifiesMaintenancePresentationProperties = notifiesMaintenancePresentationProperties;
         ResetsPriorNotifications = resetsPriorNotifications;
     }
 
@@ -141,10 +125,6 @@ internal sealed class NormalLibraryRefreshNotificationBatch
     internal bool NotifiesStorageRows { get; }
 
     internal bool NotifiesInstallDestinationOverlayProperties { get; }
-
-    internal bool NotifiesWarningPresentationProperties { get; }
-
-    internal bool NotifiesMaintenancePresentationProperties { get; }
 
     internal bool ResetsPriorNotifications { get; }
 
@@ -1243,8 +1223,6 @@ public class BMSLibrary : NotificationObject
                     [],
                     notifiesStorageRows: false,
                     notifiesInstallDestinationOverlayProperties: false,
-                    notifiesWarningPresentationProperties: false,
-                    notifiesMaintenancePresentationProperties: false,
                     resetsPriorNotifications: false);
             }
             bool resetsPriorNotifications = resetIndex >= 0;
@@ -1258,14 +1236,6 @@ public class BMSLibrary : NotificationObject
                 notifications,
                 LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
                 notification => notification.NotifiesInstallDestinationOverlayProperties);
-            bool notifiesWarningPresentationProperties = AreEffectsCoveredByLegacyProperties(
-                notifications,
-                LibraryChartRefreshEffects.WarningPresentationChanged,
-                notification => notification.NotifiesWarningPresentationProperties);
-            bool notifiesMaintenancePresentationProperties = AreEffectsCoveredByLegacyProperties(
-                notifications,
-                LibraryChartRefreshEffects.MaintenancePresentationChanged,
-                notification => notification.NotifiesMaintenancePresentationProperties);
             List<ChartFile> installDestinationChangedCharts = [.. notifications
                 .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
                 .Where(chart => chart != null)];
@@ -1276,8 +1246,6 @@ public class BMSLibrary : NotificationObject
                 DistinctChartsByNotificationKey(installDestinationChangedCharts),
                 notifiesStorageRows,
                 notifiesInstallDestinationOverlayProperties,
-                notifiesWarningPresentationProperties,
-                notifiesMaintenancePresentationProperties,
                 resetsPriorNotifications);
         }
     }
@@ -6873,10 +6841,6 @@ completeFileEnumerationOnce,
 
         public bool MaintenancePresentationChanged { get; set; }
 
-        public bool WarningPresentationPropertiesChanged { get; set; }
-
-        public bool MaintenancePresentationPropertiesChanged { get; set; }
-
         public bool BmsFilesPropertyChanged { get; set; }
 
         public bool BmsonSongsPropertyChanged { get; set; }
@@ -6899,8 +6863,6 @@ completeFileEnumerationOnce,
             || InstallEstimationMetadataProfileCacheInvalidated
             || WarningPresentationChanged
             || MaintenancePresentationChanged
-            || WarningPresentationPropertiesChanged
-            || MaintenancePresentationPropertiesChanged
             || StorageRowPropertyChanged
             || InstalledLookupMutation?.HasChanges == true;
     }
@@ -7585,8 +7547,6 @@ completeFileEnumerationOnce,
                 + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
                 + " warningPresentation=" + ToInvalidateLogValue(result.WarningPresentationChanged)
                 + " maintenancePresentation=" + ToInvalidateLogValue(result.MaintenancePresentationChanged)
-                + " warningProperties=" + ToInvalidateLogValue(result.WarningPresentationPropertiesChanged)
-                + " maintenanceProperties=" + ToInvalidateLogValue(result.MaintenancePresentationPropertiesChanged)
                 + " bmsFilesProperty=" + ToInvalidateLogValue(result.BmsFilesPropertyChanged)
                 + " bmsonSongsProperty=" + ToInvalidateLogValue(result.BmsonSongsPropertyChanged)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
@@ -13120,8 +13080,6 @@ completeFileEnumerationOnce,
             installDestinationChangedCharts,
             result.StorageRowPropertyChanged,
             notifiesInstallDestinationOverlayProperties: false,
-            result.WarningPresentationPropertiesChanged,
-            result.MaintenancePresentationPropertiesChanged,
             resetsPriorNotifications: false);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
@@ -13166,8 +13124,6 @@ completeFileEnumerationOnce,
             [],
             notifiesStorageRows: true,
             notifiesInstallDestinationOverlayProperties: true,
-            notifiesWarningPresentationProperties: true,
-            notifiesMaintenancePresentationProperties: true,
             resetsPriorNotifications: true);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
