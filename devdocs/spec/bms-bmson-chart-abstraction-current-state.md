@@ -845,7 +845,9 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - source generation を進める必要がある変更と、sort-key / warning だけを invalidate すればよい変更を分ける。
    - `BMSFiles` / `BmsonSongs` property change と通常 refresh 中の bmson source sync は owned collection version の変化を見て source generation を消費する。BMS と bmson の通知順が前後しても、同じ owned collection mutation では source generation を二重に進めない。既に消費済みの version で bmson source cache だけが更新された場合は、virtual source row cache を破棄して次回再構築させる。
    - install destination overlay だけの `RaiseLibraryChartsChanged` は source generation を進めず、`install_destination_changed` sort-key invalidation と表示 refresh に閉じる。
-   - 現状では source generation の消費単位は owned collection version で管理している。次の段階では、この判定を `OwnedChartCollectionMutationResult` の source / overlay / warning / maintenance flags に寄せ、property handler は dispatcher の結果を読むだけにする。
+   - install destination overlay の変更は `LibraryChartChangeNotification` として version 付き queue に publish し、`BMSFiles` / `BmsonSongs` handler は one-shot drain ではなく notification version range で未処理分だけ transient state / sort-key invalidation を反映する。
+   - external `BMSFiles` / `BmsonSongs` replacement は reset barrier notification を publish し、ViewModel の shared transient overlay cache を破棄する。internal mutation 中の storage row setter は reset barrier を publish せず、同じ mutation unit で dispatcher が publish した overlay notification を消さない。
+   - 現状では source generation の消費単位は owned collection version、overlay 反映の消費単位は library chart change notification version で管理している。次の段階では、この判定を `OwnedChartCollectionMutationResult` の source / overlay / warning / maintenance flags に寄せ、property handler は dispatcher の結果を読むだけにする。
    - duplicate warning、resource warning、chart_info parse failure warning の永続先と projection state を混ぜない。
    - 通常 library は virtual source row を正本にし、未対応 sort や warning mismatch を full regular row fallback で隠さない。
 

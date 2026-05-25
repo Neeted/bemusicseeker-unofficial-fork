@@ -31,6 +31,52 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
+internal sealed class LibraryChartChangeNotification
+{
+    internal static LibraryChartChangeNotification Empty { get; } = new(0, 0, [], resetsPriorNotifications: false);
+
+    internal LibraryChartChangeNotification(
+        int version,
+        int ownedCollectionVersion,
+        IReadOnlyList<ChartFile> installDestinationChangedCharts,
+        bool resetsPriorNotifications)
+    {
+        Version = version;
+        OwnedCollectionVersion = ownedCollectionVersion;
+        InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
+        ResetsPriorNotifications = resetsPriorNotifications;
+    }
+
+    internal int Version { get; }
+
+    internal int OwnedCollectionVersion { get; }
+
+    internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
+
+    internal bool ResetsPriorNotifications { get; }
+}
+
+internal sealed class LibraryChartChangeNotificationBatch
+{
+    internal static LibraryChartChangeNotificationBatch Empty { get; } = new(0, [], resetsPriorNotifications: false);
+
+    internal LibraryChartChangeNotificationBatch(
+        int latestVersion,
+        IReadOnlyList<ChartFile> installDestinationChangedCharts,
+        bool resetsPriorNotifications)
+    {
+        LatestVersion = latestVersion;
+        InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
+        ResetsPriorNotifications = resetsPriorNotifications;
+    }
+
+    internal int LatestVersion { get; }
+
+    internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
+
+    internal bool ResetsPriorNotifications { get; }
+}
+
 /// <summary>
 /// BMS ファイルのライブラリ管理を担う中核クラスです。
 /// LR2 の song.db を読み込み、BMSファイルの走査・登録・インストール・保守（Missing/Garbled/ZeroNote/Duplicate 検出）、
@@ -899,9 +945,13 @@ public class BMSLibrary : NotificationObject
 
     private List<LR2SongDBExtended.bmson_song> _BmsonSongs = [];
 
-    private IReadOnlyList<ChartFile> latestInstallDestinationChangedCharts = [];
+    private LibraryChartChangeNotification latestLibraryChartChangeNotification = LibraryChartChangeNotification.Empty;
 
-    private readonly object latestInstallDestinationChangedChartsLock = new();
+    private readonly List<LibraryChartChangeNotification> libraryChartChangeNotifications = [];
+
+    private readonly object latestLibraryChartChangeNotificationLock = new();
+
+    private int latestLibraryChartChangeNotificationVersion;
 
     private readonly object installDestinationRuntimeStatesLock = new();
 
@@ -1067,6 +1117,7 @@ public class BMSLibrary : NotificationObject
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateOwnedChartCollection();
                 NotifyOwnedChartCollectionChanged();
+                PublishExternalReplacementLibraryChartChangeNotification();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateDuplicateChartGroupsCache();
@@ -1087,13 +1138,34 @@ public class BMSLibrary : NotificationObject
 
     public List<BMSFile> BMSFilesUnregistered => [.. BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent))];
 
-    internal IReadOnlyList<ChartFile> ConsumeLatestInstallDestinationChangedCharts()
+    internal LibraryChartChangeNotificationBatch GetLibraryChartChangeNotificationsAfter(int handledVersion)
     {
-        lock (latestInstallDestinationChangedChartsLock)
+        lock (latestLibraryChartChangeNotificationLock)
         {
-            IReadOnlyList<ChartFile> charts = latestInstallDestinationChangedCharts;
-            latestInstallDestinationChangedCharts = [];
-            return charts;
+            libraryChartChangeNotifications.RemoveAll(notification => notification == null || notification.Version <= handledVersion);
+            List<LibraryChartChangeNotification> notifications = [.. libraryChartChangeNotifications
+                .Where(notification => notification != null && notification.Version > handledVersion)];
+            int resetIndex = notifications.FindLastIndex(notification => notification.ResetsPriorNotifications);
+            if (resetIndex >= 0)
+            {
+                notifications = [.. notifications.Skip(resetIndex)];
+            }
+            if (notifications.Count == 0)
+            {
+                return new LibraryChartChangeNotificationBatch(
+                    handledVersion,
+                    [],
+                    resetsPriorNotifications: false);
+            }
+            bool resetsPriorNotifications = resetIndex >= 0;
+            int latestVersion = notifications[notifications.Count - 1].Version;
+            List<ChartFile> installDestinationChangedCharts = [.. notifications
+                .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
+                .Where(chart => chart != null)];
+            return new LibraryChartChangeNotificationBatch(
+                latestVersion,
+                DistinctChartsByNotificationKey(installDestinationChangedCharts),
+                resetsPriorNotifications);
         }
     }
 
@@ -1116,6 +1188,7 @@ public class BMSLibrary : NotificationObject
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
                 InvalidateOwnedChartCollection();
                 NotifyOwnedChartCollectionChanged();
+                PublishExternalReplacementLibraryChartChangeNotification();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 InvalidateInstallEstimationMetadataProfileCache();
@@ -6477,14 +6550,23 @@ reportProgress,
         }
     }
 
-    private void NotifyOwnedChartCollectionChanged()
+    private bool IsOwnedChartCollectionInvalidationSuppressed()
+    {
+        lock (lockOwnedChartCollection)
+        {
+            return suppressOwnedChartCollectionInvalidation > 0;
+        }
+    }
+
+    private int NotifyOwnedChartCollectionChanged()
     {
         if (IsOwnedChartCollectionChangeNotificationSuppressedOnCurrentThread())
         {
-            return;
+            return OwnedChartCollectionVersion;
         }
-        Interlocked.Increment(ref ownedChartCollectionVersion);
+        int version = Interlocked.Increment(ref ownedChartCollectionVersion);
         RaisePropertyChanged(() => OwnedChartCollectionVersion);
+        return version;
     }
 
     private bool IsOwnedChartCollectionChangeNotificationSuppressedOnCurrentThread()
@@ -6632,6 +6714,10 @@ reportProgress,
         public bool OwnedCollectionChanged { get; set; }
 
         public bool OwnedCollectionChangeNotified { get; set; }
+
+        public int OwnedCollectionVersion { get; set; }
+
+        public int LibraryChartChangeNotificationVersion { get; set; }
 
         public ResourceHealthIndexMutation ResourceHealthMutation { get; } = new();
 
@@ -7010,6 +7096,7 @@ reportProgress,
         }
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionUpsertMutationResult(addedTargets);
         PublishOwnedCollectionChangeNotification(mutationResult);
+        PublishLibraryChartChangeNotification(mutationResult);
         try
         {
             using (SuppressInstalledChartLookupInvalidation())
@@ -7039,6 +7126,7 @@ reportProgress,
                 ForceInvalidateResourceHealthIndex("install_package_failed");
             }
             InvalidateOwnedChartCollection();
+            ClearLibraryChartChangeNotification(mutationResult);
             throw;
         }
     }
@@ -7183,11 +7271,20 @@ reportProgress,
 
     private void PublishOwnedCollectionChangeNotification(OwnedChartCollectionMutationResult result)
     {
-        if (result?.OwnedCollectionChanged != true || result.OwnedCollectionChangeNotified)
+        if (result == null)
         {
             return;
         }
-        NotifyOwnedChartCollectionChanged();
+        if (!result.OwnedCollectionChanged)
+        {
+            result.OwnedCollectionVersion = OwnedChartCollectionVersion;
+            return;
+        }
+        if (result.OwnedCollectionChangeNotified)
+        {
+            return;
+        }
+        result.OwnedCollectionVersion = NotifyOwnedChartCollectionChanged();
         result.OwnedCollectionChangeNotified = true;
     }
 
@@ -12515,8 +12612,8 @@ reportProgress,
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMutationResult(delta);
-        PublishLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);
         PublishOwnedCollectionChangeNotification(mutationResult);
+        PublishLibraryChartChangeNotification(mutationResult);
         try
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
@@ -12567,7 +12664,7 @@ reportProgress,
                 PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
             }
             InvalidateOwnedChartCollection();
-            ClearLatestInstallDestinationChangedCharts(mutationResult.InstallDestinationChangedCharts);
+            ClearLibraryChartChangeNotification(mutationResult);
             throw;
         }
         DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
@@ -12577,30 +12674,98 @@ reportProgress,
         }
     }
 
-    private void PublishLatestInstallDestinationChangedCharts(IReadOnlyList<ChartFile> charts)
+    private void PublishLibraryChartChangeNotification(OwnedChartCollectionMutationResult result)
     {
-        if ((charts?.Count ?? 0) == 0)
+        if (result == null)
         {
             return;
         }
-        lock (latestInstallDestinationChangedChartsLock)
+        IReadOnlyList<ChartFile> installDestinationChangedCharts = result.InstallDestinationChangedCharts ?? [];
+        int version = Interlocked.Increment(ref latestLibraryChartChangeNotificationVersion);
+        int ownedCollectionVersion = result.OwnedCollectionVersion > 0 ? result.OwnedCollectionVersion : OwnedChartCollectionVersion;
+        var notification = new LibraryChartChangeNotification(
+            version,
+            ownedCollectionVersion,
+            installDestinationChangedCharts,
+            resetsPriorNotifications: false);
+        lock (latestLibraryChartChangeNotificationLock)
         {
-            latestInstallDestinationChangedCharts = charts;
+            latestLibraryChartChangeNotification = notification;
+            libraryChartChangeNotifications.Add(notification);
+            result.LibraryChartChangeNotificationVersion = version;
         }
     }
 
-    private void ClearLatestInstallDestinationChangedCharts(IReadOnlyList<ChartFile> charts)
+    private void PublishEmptyLibraryChartChangeNotification()
     {
-        if ((charts?.Count ?? 0) == 0)
+        int version = Interlocked.Increment(ref latestLibraryChartChangeNotificationVersion);
+        var notification = new LibraryChartChangeNotification(
+            version,
+            OwnedChartCollectionVersion,
+            [],
+            resetsPriorNotifications: true);
+        lock (latestLibraryChartChangeNotificationLock)
+        {
+            latestLibraryChartChangeNotification = notification;
+            libraryChartChangeNotifications.Add(notification);
+        }
+    }
+
+    private void PublishExternalReplacementLibraryChartChangeNotification()
+    {
+        if (IsOwnedChartCollectionInvalidationSuppressed())
         {
             return;
         }
-        lock (latestInstallDestinationChangedChartsLock)
+        PublishEmptyLibraryChartChangeNotification();
+    }
+
+    private static IReadOnlyList<ChartFile> DistinctChartsByNotificationKey(IEnumerable<ChartFile> charts)
+    {
+        var result = new List<ChartFile>();
+        var resultIndexByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts ?? [])
         {
-            if (ReferenceEquals(latestInstallDestinationChangedCharts, charts))
+            if (chart == null)
             {
-                latestInstallDestinationChangedCharts = [];
+                continue;
             }
+            string key = CreateLibraryChartChangeNotificationKey(chart);
+            if (resultIndexByKey.TryGetValue(key, out int index))
+            {
+                result[index] = chart;
+            }
+            else
+            {
+                resultIndexByKey[key] = result.Count;
+                result.Add(chart);
+            }
+        }
+        return result;
+    }
+
+    private static string CreateLibraryChartChangeNotificationKey(ChartFile chart)
+    {
+        string kind = chart?.Kind.ToString() ?? string.Empty;
+        string path = chart?.Path ?? string.Empty;
+        string md5 = chart?.Md5 ?? string.Empty;
+        string sha256 = chart?.Sha256 ?? string.Empty;
+        return kind + "\n" + path + "\n" + md5 + "\n" + sha256;
+    }
+
+    private void ClearLibraryChartChangeNotification(OwnedChartCollectionMutationResult result)
+    {
+        if (result == null || result.LibraryChartChangeNotificationVersion <= 0)
+        {
+            return;
+        }
+        lock (latestLibraryChartChangeNotificationLock)
+        {
+            if (latestLibraryChartChangeNotification.Version == result.LibraryChartChangeNotificationVersion)
+            {
+                latestLibraryChartChangeNotification = LibraryChartChangeNotification.Empty;
+            }
+            libraryChartChangeNotifications.RemoveAll(notification => notification.Version == result.LibraryChartChangeNotificationVersion);
         }
     }
 

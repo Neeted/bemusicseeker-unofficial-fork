@@ -328,7 +328,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.FixInstallationDirectoryCharts([repairTarget]);
 
                 Assert.AreEqual(destinationChartPath, file.path);
-                ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+                ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
                 Assert.AreEqual(destinationChartPath, changedChart.Path);
                 Assert.AreEqual(string.Empty, changedChart.InstallDestination);
                 ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
@@ -370,10 +370,84 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
-            ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+            ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
             Assert.AreEqual(@"C:\New", changedChart.InstallDestination);
             ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
             Assert.AreEqual(@"C:\New", installedChart.InstallDestination);
+        });
+    }
+
+    [TestMethod]
+    public void LibraryChartChangeNotifications_ExternalReplacementPublishesResetBarrier()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var originalFile = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms"
+            };
+            originalFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            SetLibraryFilesWithoutNotification(library, [originalFile]);
+
+            var delta = new LibraryMutationDelta();
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(originalFile, includeWarningSnapshot: false),
+                NewInstallDestination = @"C:\Overlay"
+            });
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            var replacementFile = new TestableBmsFile
+            {
+                path = @"C:\Library\replacement.bms"
+            };
+            replacementFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            library.BMSFiles = [replacementFile];
+
+            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            Assert.IsTrue(notificationBatch.ResetsPriorNotifications);
+            Assert.AreEqual(0, notificationBatch.InstallDestinationChangedCharts.Count);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_DoesNotResetPriorOverlayNotification()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var originalFile = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms"
+            };
+            originalFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            SetLibraryFilesWithoutNotification(library, [originalFile]);
+
+            var delta = new LibraryMutationDelta();
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(originalFile, includeWarningSnapshot: false),
+                NewInstallDestination = @"C:\Overlay"
+            });
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            var addedFile = new TestableBmsFile
+            {
+                path = @"C:\Library\added.bms"
+            };
+            addedFile.SetHash("cccccccccccccccccccccccccccccccc");
+            InvokeApplyInstalledChartStorageTargets(
+                library,
+                ChartStorageTargetSet.FromRows([addedFile], []),
+                "test");
+
+            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            Assert.IsFalse(notificationBatch.ResetsPriorNotifications);
+            ChartFile changedChart = notificationBatch.InstallDestinationChangedCharts.Single();
+            Assert.AreEqual(@"C:\Overlay", changedChart.InstallDestination);
         });
     }
 
@@ -408,7 +482,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             InvokeApplyLibraryMutationDelta(library, delta);
 
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+            ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
             Assert.AreEqual(string.Empty, changedChart.InstallDestination);
             Assert.IsFalse(changedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
@@ -581,11 +655,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     NewInstallDestination = sourceDirectoryPath
                 });
                 InvokeApplyLibraryMutationDelta(library, seedDelta);
-                _ = library.ConsumeLatestInstallDestinationChangedCharts();
-
                 library.RenameChartFolder(sourceDirectoryPath, "InstallRenamed");
 
-                ChartFile changedChart = library.ConsumeLatestInstallDestinationChangedCharts().Single();
+                ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
                 Assert.AreSame(bmsonSong, changedChart.GetBmsonStorageOwner());
                 Assert.AreEqual(destinationDirectoryPath, changedChart.InstallDestination);
                 Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
@@ -1134,6 +1206,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [delta]);
+    }
+
+    private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [targets, reason]);
     }
 
     private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)
