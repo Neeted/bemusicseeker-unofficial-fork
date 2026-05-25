@@ -870,6 +870,8 @@ public class BMSLibrary : NotificationObject
 
     private int ownedChartCollectionVersion;
 
+    private int duplicateChartGroupsInvalidationVersion;
+
     private readonly object lockInstalledChartLookupIndex = new();
 
     private InstalledChartLookupIndexState installedChartLookupIndex = new();
@@ -1354,13 +1356,24 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    internal int DuplicateChartGroupsInvalidationVersion => Volatile.Read(ref duplicateChartGroupsInvalidationVersion);
+
     private void InvalidateDuplicateChartGroupsCache()
     {
         if (IsDuplicateChartGroupsInvalidationSuppressedOnCurrentThread())
         {
             return;
         }
-        DuplicateChartGroups = null;
+        if (_DuplicateChartGroups == null)
+        {
+            return;
+        }
+        _DuplicateChartGroups = null;
+        Interlocked.Increment(ref duplicateChartGroupsInvalidationVersion);
+        Task.Run(delegate
+        {
+            RaisePropertyChanged(() => DuplicateChartGroupsInvalidationVersion);
+        }).Logging("DuplicateChartGroupsInvalidationVersion");
     }
 
     public IEnumerable<BMSFile> BMSFilesGarbled => GetBMSFilesGarbled(BMSFiles);

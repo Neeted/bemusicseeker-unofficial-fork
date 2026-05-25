@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -1033,16 +1034,26 @@ public sealed class OwnedChartCollectionStateTests
         {
             var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
             var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Second", "chart.bms"));
-            var library = new BMSLibrary(songDbPath)
+            var library = new BMSLibrary(songDbPath);
+            using var initialBmsFilesNotification = new ManualResetEventSlim(false);
+            System.ComponentModel.PropertyChangedEventHandler initialHandler = delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
-                BMSFiles = [first, second],
-                BmsonSongs = [],
-                DuplicateChartGroups = []
+                if (args.PropertyName == nameof(BMSLibrary.BMSFiles))
+                {
+                    initialBmsFilesNotification.Set();
+                }
             };
+            library.PropertyChanged += initialHandler;
+            library.BMSFiles = [first, second];
+            library.BmsonSongs = [];
+            library.DuplicateChartGroups = [];
+            Assert.IsTrue(initialBmsFilesNotification.Wait(TimeSpan.FromSeconds(5)));
+            library.PropertyChanged -= initialHandler;
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             Assert.AreEqual(2, initialSnapshot.Count);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
+            int baselineDuplicateInvalidationVersion = library.DuplicateChartGroupsInvalidationVersion;
             int parentFolderVersionChanged = 0;
             int bmsFilesChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -1070,6 +1081,7 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(1, parentFolderVersionChanged);
             Assert.AreEqual(1, bmsFilesChanged);
             Assert.IsNull(library.DuplicateChartGroups);
+            Assert.AreEqual(baselineDuplicateInvalidationVersion + 1, library.DuplicateChartGroupsInvalidationVersion);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreEqual(1, library.BMSFiles.Count);
             Assert.AreSame(second, library.BMSFiles[0]);

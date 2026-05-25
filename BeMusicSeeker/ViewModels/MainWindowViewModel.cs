@@ -14797,33 +14797,11 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
         {
-            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
-            if (!TrySuppress(UiRefreshChannel.DuplicateTree)
-                && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, "bms_files_duplicated_changed"))
-            {
-                RaisePropertyChanged(() => DuplicateChartGroups);
-            }
-            if (treeViewFilterTypeSelected == viewUpdateMode.DuplicateFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_duplicated_changed"))
-                {
-                    return;
-                }
-                if (files.DuplicateChartGroups == null)
-                {
-                    files.SearchDuplicateChartGroups();
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-            else
-            {
-                RefreshNormalLibraryAfterWarningChanged("bms_files_duplicated_changed");
-            }
+            RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_changed");
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroupsInvalidationVersion, delegate
+        {
+            RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_invalidated");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbled, delegate
         {
@@ -17664,6 +17642,38 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
+    }
+
+    private void RefreshDuplicatePresentationAfterGroupsChanged(string reason)
+    {
+        string refreshReason = string.IsNullOrWhiteSpace(reason) ? "bms_files_duplicated_changed" : reason;
+        InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
+        if (!TrySuppress(UiRefreshChannel.DuplicateTree)
+            && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, refreshReason))
+        {
+            RaisePropertyChanged(() => DuplicateChartGroups);
+        }
+        if (treeViewFilterTypeSelected == viewUpdateMode.DuplicateFilterSelected)
+        {
+            if (TrySuppress(UiRefreshChannel.LibraryMainView))
+            {
+                return;
+            }
+            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, refreshReason))
+            {
+                return;
+            }
+            if (files.DuplicateChartGroups == null)
+            {
+                files.SearchDuplicateChartGroups();
+                return;
+            }
+            RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+        }
+        else
+        {
+            RefreshNormalLibraryAfterWarningChanged(refreshReason);
+        }
     }
 
     private void RefreshNormalLibraryAfterInstallDestinationChanged(string reason)
