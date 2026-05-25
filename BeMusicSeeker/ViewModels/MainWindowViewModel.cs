@@ -9793,7 +9793,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     private bool TryIncrementNormalLibrarySourceGenerationForRefreshNotification(
-        LibraryChartChangeNotificationBatch notificationBatch,
+        NormalLibraryRefreshNotificationBatch notificationBatch,
         string reason)
     {
         if (notificationBatch?.HasRefreshNotification == true)
@@ -9808,17 +9808,17 @@ public class MainWindowViewModel : ViewModel
 
     private void IncrementNormalLibrarySourceGenerationForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
     {
-        ConsumeNormalLibrarySourceChangeForBmsonSync(result, LibraryChartChangeNotificationBatch.Empty, reasonPrefix, out _);
+        ConsumeNormalLibrarySourceChangeForBmsonSync(result, NormalLibraryRefreshNotificationBatch.Empty, reasonPrefix, out _);
     }
 
     private bool ConsumeNormalLibrarySourceChangeForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix, out bool sourceGenerationChanged)
     {
-        return ConsumeNormalLibrarySourceChangeForBmsonSync(result, LibraryChartChangeNotificationBatch.Empty, reasonPrefix, out sourceGenerationChanged);
+        return ConsumeNormalLibrarySourceChangeForBmsonSync(result, NormalLibraryRefreshNotificationBatch.Empty, reasonPrefix, out sourceGenerationChanged);
     }
 
     private bool ConsumeNormalLibrarySourceChangeForBmsonSync(
         BmsonLibraryRowCacheSyncResult result,
-        LibraryChartChangeNotificationBatch notificationBatch,
+        NormalLibraryRefreshNotificationBatch notificationBatch,
         string reasonPrefix,
         out bool sourceGenerationChanged)
     {
@@ -9838,34 +9838,34 @@ public class MainWindowViewModel : ViewModel
         return true;
     }
 
-    private LibraryChartChangeNotificationBatch ConsumeNormalLibraryRefreshNotification()
+    private NormalLibraryRefreshNotificationBatch ConsumeNormalLibraryRefreshNotification()
     {
-        LibraryChartChangeNotificationBatch notificationBatch = files?.GetLibraryChartChangeNotificationsAfter(normalLibraryRefreshHandledNotificationVersion);
+        NormalLibraryRefreshNotificationBatch notificationBatch = files?.GetNormalLibraryRefreshNotificationsAfter(normalLibraryRefreshHandledNotificationVersion);
         if (notificationBatch == null || notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
         {
-            return LibraryChartChangeNotificationBatch.Empty;
+            return NormalLibraryRefreshNotificationBatch.Empty;
         }
         lock (normalLibrarySortCacheLock)
         {
             if (notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
             {
-                return LibraryChartChangeNotificationBatch.Empty;
+                return NormalLibraryRefreshNotificationBatch.Empty;
             }
             normalLibraryRefreshHandledNotificationVersion = notificationBatch.LatestVersion;
         }
         return notificationBatch;
     }
 
-    private LibraryChartChangeNotificationBatch ApplyNormalLibraryRefreshNotification()
+    private NormalLibraryRefreshNotificationBatch ApplyNormalLibraryRefreshNotification()
     {
-        LibraryChartChangeNotificationBatch notificationBatch = ConsumeNormalLibraryRefreshNotification();
+        NormalLibraryRefreshNotificationBatch notificationBatch = ConsumeNormalLibraryRefreshNotification();
         IReadOnlyList<ChartFile> installDestinationChangedCharts = notificationBatch.InstallDestinationChangedCharts ?? [];
         bool hasInstallDestinationChangedCharts = installDestinationChangedCharts.Count > 0;
         bool installDestinationStateChanged = notificationBatch.ResetsPriorNotifications
             || notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
         if (!notificationBatch.HasRefreshNotification)
         {
-            return LibraryChartChangeNotificationBatch.Empty;
+            return NormalLibraryRefreshNotificationBatch.Empty;
         }
 
         if (notificationBatch.ResetsPriorNotifications)
@@ -9886,7 +9886,7 @@ public class MainWindowViewModel : ViewModel
 
     private bool ApplyLatestNormalLibraryRefreshNotification()
     {
-        LibraryChartChangeNotificationBatch notificationBatch = ApplyNormalLibraryRefreshNotification();
+        NormalLibraryRefreshNotificationBatch notificationBatch = ApplyNormalLibraryRefreshNotification();
         TryIncrementNormalLibrarySourceGenerationForRefreshNotification(notificationBatch, "library_charts_changed");
         if (!notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged))
         {
@@ -14402,7 +14402,7 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
-            LibraryChartChangeNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
+            NormalLibraryRefreshNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
             bool installDestinationStateChanged = refreshNotification.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
             PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
             bool sourceGenerationChanged = TryIncrementNormalLibrarySourceGenerationForRefreshNotification(refreshNotification, "library_charts_changed");
@@ -14442,7 +14442,7 @@ public class MainWindowViewModel : ViewModel
             {
                 InvalidateNormalLibrarySortKeysForBmsonSync(syncResult);
             }
-            LibraryChartChangeNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
+            NormalLibraryRefreshNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
             bool installDestinationStateChanged = refreshNotification.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
             bool sourceChanged = ConsumeNormalLibrarySourceChangeForBmsonSync(syncResult, refreshNotification, "library_bmsons", out bool sourceGenerationChanged);
             if (!sourceGenerationChanged && installDestinationStateChanged)

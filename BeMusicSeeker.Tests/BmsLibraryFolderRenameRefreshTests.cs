@@ -328,7 +328,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.FixInstallationDirectoryCharts([repairTarget]);
 
                 Assert.AreEqual(destinationChartPath, file.path);
-                ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
+                ChartFile changedChart = library.GetNormalLibraryRefreshNotificationsAfter(0).InstallDestinationChangedCharts.Single();
                 Assert.AreEqual(destinationChartPath, changedChart.Path);
                 Assert.AreEqual(string.Empty, changedChart.InstallDestination);
                 ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
@@ -370,7 +370,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
-            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(0);
             ChartFile changedChart = notificationBatch.InstallDestinationChangedCharts.Single();
             Assert.AreEqual(@"C:\New", changedChart.InstallDestination);
             Assert.IsFalse(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
@@ -381,7 +381,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void LibraryChartChangeNotifications_ExternalReplacementPublishesResetBarrier()
+    public void NormalLibraryRefreshNotifications_ExternalReplacementPublishesResetBarrier()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -409,7 +409,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             replacementFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             library.BMSFiles = [replacementFile];
 
-            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(0);
             Assert.IsTrue(notificationBatch.ResetsPriorNotifications);
             Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
@@ -449,7 +449,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 ChartStorageTargetSet.FromRows([addedFile], []),
                 "test");
 
-            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(0);
             Assert.IsFalse(notificationBatch.ResetsPriorNotifications);
             Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
@@ -476,7 +476,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 ChartStorageTargetSet.FromRows([addedFile], []),
                 "test");
 
-            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(0);
             Assert.AreNotEqual(0, notificationBatch.LatestVersion);
             Assert.IsFalse(notificationBatch.ResetsPriorNotifications);
             Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
@@ -516,7 +516,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             InvokeApplyLibraryMutationDelta(library, delta);
 
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
+            ChartFile changedChart = library.GetNormalLibraryRefreshNotificationsAfter(0).InstallDestinationChangedCharts.Single();
             Assert.AreEqual(string.Empty, changedChart.InstallDestination);
             Assert.IsFalse(changedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
@@ -691,7 +691,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 InvokeApplyLibraryMutationDelta(library, seedDelta);
                 library.RenameChartFolder(sourceDirectoryPath, "InstallRenamed");
 
-                ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
+                ChartFile changedChart = library.GetNormalLibraryRefreshNotificationsAfter(0).InstallDestinationChangedCharts.Single();
                 Assert.AreSame(bmsonSong, changedChart.GetBmsonStorageOwner());
                 Assert.AreEqual(destinationDirectoryPath, changedChart.InstallDestination);
                 Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
