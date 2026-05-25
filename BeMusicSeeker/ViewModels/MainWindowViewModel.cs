@@ -14683,7 +14683,6 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationCompletedVersion, delegate
         {
             TryCompleteStartupProgressMaintenance(files.MaintenanceHydrationCompletedVersion);
-            RefreshResourceHealthViewsAfterMaintenanceChanged();
         });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredRequestedVersion, delegate
         {

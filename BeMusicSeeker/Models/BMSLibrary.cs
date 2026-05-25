@@ -5798,6 +5798,7 @@ completeFileEnumerationOnce,
             result.CleanupMs = cleanupStopwatch.ElapsedMilliseconds;
         }
         result.ViewRefreshQueued = true;
+        DispatchMaintenanceHydrationPresentationChanged();
         RaisePropertyChanged(() => ChartFilesNeedResourceFix);
         RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
         RaisePropertyChanged(() => BMSFilesGarbled);
@@ -7630,6 +7631,18 @@ completeFileEnumerationOnce,
                 WarningPresentationChanged = true
             },
             reason);
+    }
+
+    private void DispatchMaintenanceHydrationPresentationChanged()
+    {
+        DispatchOwnedChartCollectionMutation(
+            new OwnedChartCollectionMutationResult
+            {
+                WarningPresentationChanged = true,
+                MaintenancePresentationChanged = true,
+                WarningPresentationPropertiesChanged = true
+            },
+            "maintenance_hydration");
     }
 
     private void RaiseStorageRowPropertyChanges(OwnedChartCollectionMutationResult result)

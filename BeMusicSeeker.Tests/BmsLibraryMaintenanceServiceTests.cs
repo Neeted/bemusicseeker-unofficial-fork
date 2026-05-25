@@ -572,6 +572,52 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void ApplyMaintenanceHydrationResult_PublishesMaintenanceRefreshThroughOwnedDispatcher()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = Path.Combine(Path.GetDirectoryName(songDbPath), "hydrated.bms");
+            var hydrationResult = new MaintenanceTableHydrationResult();
+            hydrationResult.MaintenanceMap[file.path] = new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1
+            };
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int refreshNotificationChanged = 0;
+            int resourceFixChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    refreshNotificationChanged++;
+                }
+                if (args.PropertyName == "ChartFilesNeedResourceFix")
+                {
+                    resourceFixChanged++;
+                }
+            };
+
+            InvokeApplyMaintenanceHydrationResult(library, hydrationResult);
+
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(hydrationResult.ViewRefreshQueued);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+            Assert.IsTrue(batch.NotifiesWarningPresentationProperties);
+            Assert.IsFalse(batch.NotifiesMaintenancePresentationProperties);
+            Assert.AreEqual(1, refreshNotificationChanged);
+            Assert.AreEqual(1, resourceFixChanged);
+        });
+    }
+
+    [TestMethod]
     public void SetChartResourceWarningsIgnored_PublishesWarningRefreshThroughOwnedDispatcher()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2208,6 +2254,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartHashChanges", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [hashChanges, reason, true]);
+    }
+
+    private static void InvokeApplyMaintenanceHydrationResult(
+        BMSLibrary library,
+        MaintenanceTableHydrationResult result)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyMaintenanceHydrationResult", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [result]);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
