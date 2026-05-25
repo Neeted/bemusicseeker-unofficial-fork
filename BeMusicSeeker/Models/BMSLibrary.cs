@@ -1209,7 +1209,6 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
-                    RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
                 }).Logging("BMSFiles");
                 if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
                 {
@@ -1322,7 +1321,6 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BmsonSongs");
-                    RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
                 }).Logging("BmsonSongs");
                 if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
                 {

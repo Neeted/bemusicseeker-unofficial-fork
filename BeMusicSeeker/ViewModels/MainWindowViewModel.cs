@@ -14581,6 +14581,11 @@ public class MainWindowViewModel : ViewModel
                 RequestDeferredPlaylistSummaryRefresh();
                 return;
             }
+            if (ShouldRefreshMaintenanceViewAfterBmsonSongsChanged(treeViewFilterTypeSelected))
+            {
+                ExecMaintenanceFilter((MaintenanceFilterType)treeViewFilterTypeSelected);
+                return;
+            }
             if (ShouldRefreshPlaylistViewAfterBmsonSongsChanged(treeViewFilterTypeSelected))
             {
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -17034,9 +17039,20 @@ public class MainWindowViewModel : ViewModel
         return IsPlaylistTreeActive(currentTreeMode, currentTreeMode);
     }
 
+    private static bool ShouldRefreshMaintenanceViewAfterBmsonSongsChanged(viewUpdateMode currentTreeMode)
+    {
+        return Enum.IsDefined(typeof(MaintenanceFilterType), (int)currentTreeMode)
+            && currentTreeMode != viewUpdateMode.DuplicateFilterSelected;
+    }
+
     internal static bool ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest(int currentTreeMode)
     {
         return ShouldRefreshPlaylistViewAfterBmsonSongsChanged((viewUpdateMode)currentTreeMode);
+    }
+
+    internal static bool ShouldRefreshMaintenanceViewAfterBmsonSongsChangedForTest(int currentTreeMode)
+    {
+        return ShouldRefreshMaintenanceViewAfterBmsonSongsChanged((viewUpdateMode)currentTreeMode);
     }
 
     private static object NormalizeDuplicateViewParameter(object parameter)
