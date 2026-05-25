@@ -415,6 +415,40 @@ public sealed class OwnedChartCollectionStateTests
 
         CollectionAssert.AreEquivalent(new[] { directBms, nestedBms }, targets.BmsFiles);
         CollectionAssert.AreEqual(new[] { directBmson }, targets.BmsonSongs);
+        Assert.AreEqual(3, targets.Charts.Count);
+        Assert.IsTrue(targets.Charts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), directBms)));
+        Assert.IsTrue(targets.Charts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), nestedBms)));
+        Assert.IsTrue(targets.Charts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), directBmson)));
+        Assert.IsFalse(targets.Charts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), siblingPrefixBms)));
+        Assert.IsFalse(targets.Charts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
+    }
+
+    [TestMethod]
+    public void ChartStorageTargetSetFromCharts_ReprojectsCurrentOwnerValues()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
+        string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath, new string('b', 64));
+        var bmsonSong = CreateBmsonSong(bmsonPath, "cccccccccccccccccccccccccccccccc");
+        ChartFile staleBmsChart = ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: true);
+        ChartFile staleBmsonChart = ChartFileProjection.FromBmsonSong(bmsonSong, includeResourceReferences: true);
+        bmsFile.SetHash("dddddddddddddddddddddddddddddddd");
+        bmsFile.SetSha256(new string('e', 64));
+        bmsonSong.md5 = "ffffffffffffffffffffffffffffffff";
+        bmsonSong.sha256 = new string('1', 64);
+
+        ChartStorageTargetSet targets = ChartStorageTargetSet.FromCharts([staleBmsChart, staleBmsonChart]);
+
+        Assert.AreEqual(2, targets.Charts.Count);
+        ChartFile currentBmsChart = targets.Charts.Single(chart => chart.Kind == ChartFileKind.Bms);
+        ChartFile currentBmsonChart = targets.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson);
+        Assert.AreEqual(bmsFile.hash, currentBmsChart.Md5);
+        Assert.AreEqual(bmsFile.sha256, currentBmsChart.Sha256);
+        Assert.AreEqual(bmsonSong.md5, currentBmsonChart.Md5);
+        Assert.AreEqual(bmsonSong.sha256, currentBmsonChart.Sha256);
+        Assert.AreSame(bmsFile, currentBmsChart.GetBmsStorageOwner());
+        Assert.AreSame(bmsonSong, currentBmsonChart.GetBmsonStorageOwner());
     }
 
     [TestMethod]

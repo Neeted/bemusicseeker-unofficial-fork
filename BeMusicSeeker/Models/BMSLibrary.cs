@@ -6922,11 +6922,13 @@ completeFileEnumerationOnce,
 
         public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
 
+        public List<ChartFile> AddedCharts { get; } = [];
+
         public List<ChartFile> UnregisteredCharts { get; } = [];
 
         public List<LibraryChartPathChange> PathChanges { get; } = [];
 
-        public int AddedCount => AddedBmsFiles.Count + AddedBmsonSongs.Count;
+        public int AddedCount => AddedCharts.Count;
 
         public int RemovedCount => UnregisteredCharts.Count;
 
@@ -6935,6 +6937,18 @@ completeFileEnumerationOnce,
         public bool HasChanges => AddedCount > 0 || RemovedCount > 0 || MovedCount > 0;
 
         public bool HasHashSetChanges => AddedCount > 0 || RemovedCount > 0;
+
+        public void AddAddedTargets(ChartStorageTargetSet addedTargets)
+        {
+            if (addedTargets == null)
+            {
+                return;
+            }
+
+            AddedBmsFiles.AddRange(addedTargets.BmsFiles);
+            AddedBmsonSongs.AddRange(addedTargets.BmsonSongs);
+            AddedCharts.AddRange(addedTargets.Charts.Where(chart => chart != null));
+        }
     }
 
     private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
@@ -7341,6 +7355,7 @@ completeFileEnumerationOnce,
         };
         result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
+        result.StorageMutation.AddedCharts.AddRange(storageMutation.AddedCharts);
         result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
         result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.RemovedCount > 0;
@@ -7390,8 +7405,7 @@ completeFileEnumerationOnce,
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionUpsertMutationResult(ChartStorageTargetSet addedTargets)
     {
         var result = new OwnedChartCollectionMutationResult();
-        result.StorageMutation.AddedBmsFiles.AddRange(addedTargets?.BmsFiles ?? []);
-        result.StorageMutation.AddedBmsonSongs.AddRange(addedTargets?.BmsonSongs ?? []);
+        result.StorageMutation.AddAddedTargets(addedTargets);
         result.InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(result.StorageMutation);
         result.InstallEstimationMetadataProfileCacheInvalidated = result.StorageMutation.AddedCount > 0;
         result.AddedCount = result.StorageMutation.AddedCount;
@@ -7422,9 +7436,7 @@ completeFileEnumerationOnce,
         }
 
         result.ResourceHealthMutation.RemovedTargets.AddRange(storageMutation.UnregisteredCharts.Where(chart => chart != null));
-        result.ResourceHealthMutation.UpdatedTargets.AddRange(CreateResourceMaintenanceTargetCharts(
-            storageMutation.AddedBmsFiles,
-            storageMutation.AddedBmsonSongs));
+        result.ResourceHealthMutation.UpdatedTargets.AddRange(storageMutation.AddedCharts.Where(chart => chart != null));
         result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
     }
 
@@ -7743,10 +7755,13 @@ completeFileEnumerationOnce,
             return mutation;
         }
 
-        List<BMSFile> addedBmsFileList = [.. storageMutation.AddedBmsFiles.Where(file => file != null)];
-        List<LR2SongDBExtended.bmson_song> addedBmsonSongList = [.. storageMutation.AddedBmsonSongs.Where(song => song != null)];
-        var addedBmsPaths = new HashSet<string>(addedBmsFileList.Select(file => file.path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        var addedBmsonPaths = new HashSet<string>(addedBmsonSongList.Select(song => song.path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        List<ChartFile> addedChartList = [.. storageMutation.AddedCharts.Where(chart => chart != null)];
+        var addedBmsPaths = new HashSet<string>(
+            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        var addedBmsonPaths = new HashSet<string>(
+            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bmson).Select(chart => chart.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
         var addedPaths = new HashSet<string>(addedBmsPaths, StringComparer.OrdinalIgnoreCase);
         addedPaths.UnionWith(addedBmsonPaths);
         if (addedPaths.Count > 0)
@@ -7769,13 +7784,9 @@ completeFileEnumerationOnce,
                 }
             }
         }
-        foreach (BMSFile file in addedBmsFileList)
+        foreach (ChartFile chart in addedChartList)
         {
-            mutation.Added.Add(new InstalledChartLookupMutationEntry(file.path, file.hash, file.sha256));
-        }
-        foreach (LR2SongDBExtended.bmson_song song in addedBmsonSongList)
-        {
-            mutation.Added.Add(new InstalledChartLookupMutationEntry(song.path, song.md5, song.sha256));
+            mutation.Added.Add(new InstalledChartLookupMutationEntry(chart.Path, chart.Md5, chart.Sha256));
         }
         return mutation;
     }
