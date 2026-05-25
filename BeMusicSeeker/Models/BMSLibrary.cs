@@ -6786,6 +6786,8 @@ reportProgress,
         public bool PruneToCurrentStorageRows { get; set; }
 
         public bool HasStateChanges => PathChanges.Count > 0 || AppliedCharts.Count > 0;
+
+        public bool HasChanges => HasStateChanges || PruneToCurrentStorageRows;
     }
 
     private sealed class OwnedChartCollectionStorageMutation
@@ -12622,7 +12624,7 @@ reportProgress,
             using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
             using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
             using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
-            using (mutationResult.InstallDestinationRuntimeStateMutation.HasStateChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
+            using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
                 stateApplier.ApplyLibraryMutationDelta(delta);
@@ -12659,7 +12661,7 @@ reportProgress,
             {
                 ForceInvalidateResourceHealthIndex("library_delta_failed");
             }
-            if (mutationResult.InstallDestinationRuntimeStateMutation.HasStateChanges)
+            if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges)
             {
                 PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
             }
