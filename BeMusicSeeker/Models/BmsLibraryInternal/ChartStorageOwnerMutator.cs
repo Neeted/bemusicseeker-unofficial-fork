@@ -23,7 +23,8 @@ internal static class ChartStorageOwnerMutator
     internal static int ApplyMissingBmsSha256(
         ChartFile chart,
         string sha256,
-        ICollection<BMSFile> completedDigestFiles)
+        ICollection<BMSFile> completedDigestFiles,
+        ICollection<LibraryChartHashChange> hashChanges = null)
     {
         if (string.IsNullOrWhiteSpace(sha256))
         {
@@ -36,12 +37,18 @@ internal static class ChartStorageOwnerMutator
             return 0;
         }
 
+        string oldMd5 = file.hash;
+        string oldSha256 = file.sha256;
         file.ApplySha256(sha256);
+        AddHashChangeIfChanged(hashChanges, LibraryChartHashChange.FromBms(file, oldMd5, oldSha256));
         completedDigestFiles?.Add(file);
         return 1;
     }
 
-    internal static bool ApplySnapshotDigest(ChartFile chart, ChartFileSnapshot snapshot)
+    internal static bool ApplySnapshotDigest(
+        ChartFile chart,
+        ChartFileSnapshot snapshot,
+        ICollection<LibraryChartHashChange> hashChanges = null)
     {
         if (chart == null || snapshot == null)
         {
@@ -51,7 +58,10 @@ internal static class ChartStorageOwnerMutator
         BMSFile bmsFile = chart.GetBmsStorageOwner();
         if (bmsFile != null)
         {
+            string oldMd5 = bmsFile.hash;
+            string oldSha256 = bmsFile.sha256;
             bmsFile.ApplySnapshotDigest(snapshot.Md5, snapshot.Sha256);
+            AddHashChangeIfChanged(hashChanges, LibraryChartHashChange.FromBms(bmsFile, oldMd5, oldSha256));
             return true;
         }
 
@@ -61,10 +71,20 @@ internal static class ChartStorageOwnerMutator
             return false;
         }
 
+        string oldBmsonMd5 = bmsonSong.md5;
+        string oldBmsonSha256 = bmsonSong.sha256;
         bmsonSong.md5 = snapshot.Md5;
         bmsonSong.sha256 = snapshot.Sha256;
         bmsonSong.updated_at = snapshot.LastWriteTimeUtc;
+        AddHashChangeIfChanged(hashChanges, LibraryChartHashChange.FromBmson(bmsonSong, oldBmsonMd5, oldBmsonSha256));
         return true;
     }
 
+    private static void AddHashChangeIfChanged(ICollection<LibraryChartHashChange> hashChanges, LibraryChartHashChange hashChange)
+    {
+        if (hashChange?.HasHashChange == true)
+        {
+            hashChanges?.Add(hashChange);
+        }
+    }
 }

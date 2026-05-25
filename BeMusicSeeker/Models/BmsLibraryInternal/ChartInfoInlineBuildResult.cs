@@ -5,6 +5,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartInfoInlineBuildResult
 {
+    public List<LibraryChartHashChange> HashChanges { get; } = [];
+
     public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = [];
 
     public List<LR2SongDBExtended.chart_info> AppliedRows { get; } = [];

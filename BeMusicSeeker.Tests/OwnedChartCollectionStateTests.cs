@@ -1705,6 +1705,108 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void BuildInlineChartInfo_DispatchesHashMutationToOwnedAdjacentIndexes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "InlineHash");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE hash update\r\n#BPM 120\r\n#00111:01\r\n", System.Text.Encoding.ASCII);
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, null);
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [],
+                DuplicateChartGroups = []
+            };
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot initialSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
+            int bmsFilesChanged = 0;
+            int ownedCollectionVersionChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BMSFiles")
+                {
+                    bmsFilesChanged++;
+                }
+                if (args.PropertyName == "OwnedChartCollectionVersion")
+                {
+                    ownedCollectionVersionChanged++;
+                }
+            };
+
+            ChartInfoInlineBuildResult result = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
+                "test_inline_hash",
+                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
+
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot updatedSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            Assert.AreEqual(1, result.HashChanges.Count);
+            Assert.AreEqual(snapshot.Md5, bmsFile.hash);
+            Assert.AreEqual(snapshot.Sha256, bmsFile.sha256);
+            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(snapshot.Md5));
+            Assert.IsTrue(initialSummary.Md5Hashes.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsFalse(updatedSummary.Md5Hashes.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.IsTrue(updatedSummary.Md5Hashes.Contains(snapshot.Md5));
+            Assert.AreNotEqual(initialSummary.Version, updatedSummary.Version);
+            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            Assert.IsNull(library.DuplicateChartGroups);
+            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.AreEqual(1, ownedCollectionVersionChanged);
+        });
+    }
+
+    [TestMethod]
+    public void DispatchOwnedChartHashChanges_ShaOnlyBmsChangeKeepsPrimaryHashCaches()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine("C:\\Installed", "ShaOnly", "chart.bms");
+            string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            string oldSha256 = new('b', 64);
+            string newSha256 = new('c', 64);
+            var bmsFile = CreateFile(md5, chartPath, oldSha256);
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [],
+                DuplicateChartGroups = []
+            };
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot initialSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
+            bmsFile.SetSha256(newSha256);
+
+            InvokeDispatchOwnedChartHashChanges(
+                library,
+                [new LibraryChartHashChange(LibraryChartKind.Bms, chartPath, md5, oldSha256, md5, newSha256)],
+                "test_sha_only_hash");
+
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot updatedSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(md5));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(md5));
+            Assert.IsFalse(updatedLookup.Sha256Directories.ContainsKey(oldSha256));
+            Assert.IsTrue(updatedLookup.Sha256Directories.ContainsKey(newSha256));
+            Assert.IsNotNull(library.DuplicateChartGroups);
+            Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            Assert.AreNotEqual(initialSummary.Version, updatedSummary.Version);
+            Assert.IsFalse(updatedSummary.Sha256Hashes.Contains(oldSha256));
+            Assert.IsTrue(updatedSummary.Sha256Hashes.Contains(newSha256));
+        });
+    }
+
+    [TestMethod]
     public void CreateInstalledDisplayPackageForResourceOnlyMerge_UsesDestinationDirectChildrenOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1886,6 +1988,26 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [addedTargets, "test"]);
+    }
+
+    private static ChartInfoInlineBuildResult InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+        BMSLibrary library,
+        string reason,
+        IEnumerable<ChartFile> charts)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BuildAndPersistInlineChartInfoForInstalledCharts", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (ChartInfoInlineBuildResult)methodInfo.Invoke(library, [reason, charts]);
+    }
+
+    private static void InvokeDispatchOwnedChartHashChanges(
+        BMSLibrary library,
+        IEnumerable<LibraryChartHashChange> hashChanges,
+        string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartHashChanges", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [hashChanges, reason, true]);
     }
 
     private static IDisposable InvokeSuppressResourceHealthIndexInvalidation(BMSLibrary library)

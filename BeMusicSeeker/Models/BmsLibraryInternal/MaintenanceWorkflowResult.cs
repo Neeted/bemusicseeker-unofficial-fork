@@ -1,7 +1,11 @@
+using System.Collections.Generic;
+
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class MaintenanceWorkflowResult
 {
+    public List<LibraryChartHashChange> HashChanges { get; } = [];
+
     public bool HasUpdates { get; set; }
 
     public int CheckedFileCount { get; set; }

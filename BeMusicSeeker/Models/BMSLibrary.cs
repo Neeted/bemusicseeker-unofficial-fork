@@ -5300,53 +5300,69 @@ completeFileEnumerationOnce,
         List<ChartFile> targetCharts = CreateResourceMaintenanceTargetCharts(charts);
         ChartStorageTargetSet storageTargets = ChartStorageTargetSet.FromCharts(targetCharts);
         var result = new ChartInfoInlineBuildResult();
+        bool completed = false;
         if (targetCharts.Count == 0)
         {
             LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown") + " target=0 success=0 currentSkipped=0 failureSkipped=0 parseFailed=0 failurePersisted=0 failureCleared=0 readFailed=0 parseMs=0");
             return result;
         }
 
-        var inlineBuildService = new ChartInfoInlineBuildService(
-            chartInfoBuildService,
-            BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
-        result = inlineBuildService.BuildForExistingCharts(
-            dbGateway,
-            targetCharts,
-            LogInstallPerformance,
-            LogInstallPerformanceWarn);
-        if (storageTargets.BmsFiles.Count > 0)
+        try
         {
-            dbGateway.UpsertSongs(storageTargets.BmsFiles);
+            var inlineBuildService = new ChartInfoInlineBuildService(
+                chartInfoBuildService,
+                BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
+            result = inlineBuildService.BuildForExistingCharts(
+                dbGateway,
+                targetCharts,
+                LogInstallPerformance,
+                LogInstallPerformanceWarn);
+            if (storageTargets.BmsFiles.Count > 0)
+            {
+                dbGateway.UpsertSongs(storageTargets.BmsFiles);
+            }
+            if (storageTargets.BmsonSongs.Count > 0)
+            {
+                dbGateway.UpsertBmsonSongs(storageTargets.BmsonSongs);
+            }
+            dbGateway.UpsertChartInfoBackfillChunk(
+                [],
+                result.ChartInfoRows,
+                result.ParseFailureRows,
+                result.ParseFailureDeleteMd5s);
+            if (result.AppliedRows.Count > 0)
+            {
+                UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
+                RaisePropertyChanged(() => ChartFilesZeroNote);
+            }
+            if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
+            {
+                RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
+            }
+            completed = true;
+            LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
+                + " target=" + result.TargetCount
+                + " success=" + result.SuccessCount
+                + " currentSkipped=" + result.CurrentSkippedCount
+                + " failureSkipped=" + result.FailureSkippedCount
+                + " parseFailed=" + result.ParseFailedCount
+                + " failurePersisted=" + result.FailurePersistedCount
+                + " failureCleared=" + result.FailureClearedCount
+                + " readFailed=" + result.ReadFailedCount
+                + " parseMs=" + result.ParseMs);
+            return result;
         }
-        if (storageTargets.BmsonSongs.Count > 0)
+        finally
         {
-            dbGateway.UpsertBmsonSongs(storageTargets.BmsonSongs);
+            if (completed)
+            {
+                DispatchOwnedChartHashChanges(result.HashChanges, reason ?? "install_package_inline");
+            }
+            else
+            {
+                DispatchOwnedPotentialHashChanges(targetCharts, (reason ?? "install_package_inline") + "_failed");
+            }
         }
-        dbGateway.UpsertChartInfoBackfillChunk(
-            [],
-            result.ChartInfoRows,
-            result.ParseFailureRows,
-            result.ParseFailureDeleteMd5s);
-        if (result.AppliedRows.Count > 0)
-        {
-            UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
-            RaisePropertyChanged(() => ChartFilesZeroNote);
-        }
-        if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
-        {
-            RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
-        }
-        LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
-            + " target=" + result.TargetCount
-            + " success=" + result.SuccessCount
-            + " currentSkipped=" + result.CurrentSkippedCount
-            + " failureSkipped=" + result.FailureSkippedCount
-            + " parseFailed=" + result.ParseFailedCount
-            + " failurePersisted=" + result.FailurePersistedCount
-            + " failureCleared=" + result.FailureClearedCount
-            + " readFailed=" + result.ReadFailedCount
-            + " parseMs=" + result.ParseMs);
-        return result;
     }
 
     /// <summary>
@@ -5394,26 +5410,24 @@ completeFileEnumerationOnce,
                 result = chartInfoBuildService.BackfillChartInfos(
                     dbGateway,
                     chartSnapshot,
-reportProgress,
+                    reportProgress,
                     LogInstallPerformance,
                     LogInstallPerformanceWarn,
                     rows => UpsertChartInfoIndexRows(rows, "backfill"),
                     existingRowsSnapshot);
-                if (result.DigestBackfilledCount > 0)
-                {
-                    lock (lockPlaylistSummaryOwnedHashSnapshot)
-                    {
-                        playlistSummaryOwnedHashSnapshot = null;
-                    }
-                }
                 LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " mode=full total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " timeoutFailed=" + result.TimeoutFailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount + " fileReadCount=" + result.FileReadCount + " fileReadBytes=" + result.FileReadBytes + " currentRowSkipped=" + result.CurrentRowSkippedCount + " parseFailureSkipped=" + result.FailureSkippedCount);
             }
             catch (Exception ex)
             {
+                DispatchOwnedPotentialHashChanges(chartSnapshot, "chart_info_backfill_hash_failed");
                 LogInstallPerformance("chart_info_backfill failed version=" + requestVersion + " message=" + ex.Message);
             }
             finally
             {
+                if (result != null)
+                {
+                    DispatchOwnedChartHashChanges(result.HashChanges, "chart_info_backfill_hash");
+                }
                 ChartInfoBackfillCurrentPath = string.Empty;
                 ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
                 ChartInfoBackfillCompletedVersion = requestVersion;
@@ -6687,6 +6701,8 @@ reportProgress,
     {
         public OwnedChartCollectionStorageMutation StorageMutation { get; } = new();
 
+        public List<LibraryChartHashChange> HashChanges { get; } = [];
+
         public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
 
         public InstallDestinationRuntimeStateMutation InstallDestinationRuntimeStateMutation { get; } = new();
@@ -6700,6 +6716,8 @@ reportProgress,
         public int RemovedCount { get; set; }
 
         public int MovedCount { get; set; }
+
+        public int HashChangedCount => HashChanges.Count;
 
         public int InstallDestinationChangedCount { get; set; }
 
@@ -6738,6 +6756,7 @@ reportProgress,
         public bool HasLoggableChanges => AddedCount > 0
             || RemovedCount > 0
             || MovedCount > 0
+            || HashChangedCount > 0
             || InstallDestinationChangedCount > 0
             || InstalledPackagePathChangedCount > 0
             || ParentFolderInvalidated
@@ -7269,6 +7288,51 @@ reportProgress,
         return result;
     }
 
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionHashMutationResult(
+        IEnumerable<LibraryChartHashChange> hashChanges,
+        bool resourceHealthIndexInvalidated = true)
+    {
+        List<LibraryChartHashChange> changes = [.. (hashChanges ?? []).Where(change => change?.HasHashChange == true)];
+        bool anyChanges = changes.Count > 0;
+        bool primaryHashChanged = changes.Any(change => change.PrimaryHashChanged);
+        bool md5Changed = changes.Any(change => change.Md5Changed);
+        var result = new OwnedChartCollectionMutationResult
+        {
+            InstalledLookupMutation = BuildInstalledChartLookupHashMutation(changes),
+            InstallEstimationMetadataProfileCacheInvalidated = anyChanges,
+            DuplicateCacheInvalidated = primaryHashChanged,
+            PlaylistSummaryOwnedHashInvalidated = anyChanges,
+            OwnedCollectionChanged = anyChanges,
+            ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
+            BmsFilesPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
+            BmsonSongsPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
+        };
+        result.HashChanges.AddRange(changes);
+        return result;
+    }
+
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionPotentialHashMutationResult(
+        IEnumerable<ChartFile> charts,
+        bool resourceHealthIndexInvalidated = true)
+    {
+        List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart != null)];
+        if (targetCharts.Count == 0)
+        {
+            return new OwnedChartCollectionMutationResult();
+        }
+        return new OwnedChartCollectionMutationResult
+        {
+            InstalledLookupMutation = new InstalledChartLookupMutation { RequiresFullInvalidate = true },
+            InstallEstimationMetadataProfileCacheInvalidated = true,
+            DuplicateCacheInvalidated = true,
+            PlaylistSummaryOwnedHashInvalidated = true,
+            OwnedCollectionChanged = true,
+            ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
+            BmsFilesPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
+            BmsonSongsPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
+        };
+    }
+
     private void DispatchOwnedChartCollectionMutation(OwnedChartCollectionMutationResult result, string reason)
     {
         if (result == null)
@@ -7319,6 +7383,7 @@ reportProgress,
                 + " added=" + result.AddedCount
                 + " removed=" + result.RemovedCount
                 + " moved=" + result.MovedCount
+                + " hashChanged=" + result.HashChangedCount
                 + " installDestinations=" + result.InstallDestinationChangedCount
                 + " installedPackagePaths=" + result.InstalledPackagePathChangedCount
                 + " installedLookup=" + ToMutationDispatchLogValue(result.InstalledLookupMutation)
@@ -7333,6 +7398,28 @@ reportProgress,
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
         RaiseStorageRowPropertyChanges(result);
+    }
+
+    private void DispatchOwnedChartHashChanges(
+        IEnumerable<LibraryChartHashChange> hashChanges,
+        string reason,
+        bool resourceHealthIndexInvalidated = true)
+    {
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionHashMutationResult(
+            hashChanges,
+            resourceHealthIndexInvalidated);
+        DispatchOwnedChartCollectionMutation(mutationResult, reason);
+    }
+
+    private void DispatchOwnedPotentialHashChanges(
+        IEnumerable<ChartFile> charts,
+        string reason,
+        bool resourceHealthIndexInvalidated = true)
+    {
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionPotentialHashMutationResult(
+            charts,
+            resourceHealthIndexInvalidated);
+        DispatchOwnedChartCollectionMutation(mutationResult, reason);
     }
 
     private void RaiseStorageRowPropertyChanges(OwnedChartCollectionMutationResult result)
@@ -7494,6 +7581,26 @@ reportProgress,
     private static InstalledChartLookupMutationEntry CreateInstalledChartLookupMutationEntry(ChartFile chart)
     {
         return new InstalledChartLookupMutationEntry(chart?.Path, chart?.Md5, chart?.Sha256);
+    }
+
+    private static InstalledChartLookupMutation BuildInstalledChartLookupHashMutation(IEnumerable<LibraryChartHashChange> hashChanges)
+    {
+        var mutation = new InstalledChartLookupMutation();
+        foreach (LibraryChartHashChange hashChange in hashChanges ?? [])
+        {
+            if (hashChange?.HasHashChange != true)
+            {
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(hashChange.Path))
+            {
+                mutation.RequiresFullInvalidate = true;
+                continue;
+            }
+            mutation.Removed.Add(new InstalledChartLookupMutationEntry(hashChange.Path, hashChange.OldMd5, hashChange.OldSha256));
+            mutation.Added.Add(new InstalledChartLookupMutationEntry(hashChange.Path, hashChange.NewMd5, hashChange.NewSha256));
+        }
+        return mutation;
     }
 
     private void ApplyInstalledChartLookupMutation(InstalledChartLookupMutation mutation, string reason)
@@ -8736,10 +8843,18 @@ reportProgress,
             + " bmsTargets=" + bmsTargetCount
             + " bmsonTargets=" + bmsonTargetCount);
         MaintenanceWorkflowResult workflowResult;
-        using (rwlockSongDBMaintenance.GetWriterGuard())
+        try
         {
-            var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
-            workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
+            using (rwlockSongDBMaintenance.GetWriterGuard())
+            {
+                var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
+                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
+            }
+        }
+        catch
+        {
+            DispatchOwnedPotentialHashChanges(maintenanceTargetCharts, "maintenance_hash_changed_failed");
+            throw;
         }
         bool resourceHealthIndexCurrent = IsResourceHealthIndexCurrent();
         ResourceHealthIndexMutation resourceHealthMutation = BuildMaintenanceResourceHealthIndexMutation(
@@ -8751,7 +8866,15 @@ reportProgress,
         string resourceHealthMutationReason = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
             ? "install_package_estimated"
             : "setMaintenanceInfo";
-        ResourceHealthIndexDispatchResult resourceHealthDispatch = DispatchResourceHealthIndexMutation(resourceHealthMutation, resourceHealthMutationReason);
+        ResourceHealthIndexDispatchResult resourceHealthDispatch = null;
+        try
+        {
+            resourceHealthDispatch = DispatchResourceHealthIndexMutation(resourceHealthMutation, resourceHealthMutationReason);
+        }
+        finally
+        {
+            DispatchOwnedChartHashChanges(workflowResult.HashChanges, "maintenance_hash_changed");
+        }
         bool resourceHealthDeltaApplied = resourceHealthDispatch.DeltaApplied;
         bool resourceHealthIndexDeferred = resourceHealthDispatch.Deferred;
         bool resourceHealthIndexFullRebuilt = resourceHealthDispatch.FullRebuilt;

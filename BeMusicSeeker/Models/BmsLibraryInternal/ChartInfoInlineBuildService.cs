@@ -75,7 +75,7 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
                 try
                 {
                     ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
-                    if (ChartStorageOwnerMutator.ApplySnapshotDigest(target, snapshot))
+                    if (ChartStorageOwnerMutator.ApplySnapshotDigest(target, snapshot, total.HashChanges))
                     {
                         snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
                     }
@@ -139,6 +139,7 @@ internal sealed class ChartInfoInlineBuildService(ChartInfoBuildService chartInf
             return;
         }
         total.ChartInfoRows.AddRange(source.ChartInfoRows);
+        total.HashChanges.AddRange(source.HashChanges);
         total.AppliedRows.AddRange(source.AppliedRows);
         total.ParseFailureRows.AddRange(source.ParseFailureRows);
         foreach (string md5 in source.ParseFailureDeleteMd5s)

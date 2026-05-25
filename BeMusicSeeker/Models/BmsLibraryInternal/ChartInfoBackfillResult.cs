@@ -8,6 +8,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class ChartInfoBackfillResult
 {
+    public List<LibraryChartHashChange> HashChanges { get; } = [];
+
     /// <summary>
     /// バックフィルの実行モードです。
     /// </summary>
