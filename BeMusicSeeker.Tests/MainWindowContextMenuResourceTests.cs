@@ -1726,6 +1726,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(batchContext, "AddInstalledTargets(ChartStorageTargetSet addedTargets");
         StringAssert.Contains(libraryCode, "static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)");
         Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts)"));
+        Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles"));
+        StringAssert.Contains(libraryCode, "CreateBmsResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles)");
         StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
         StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjectionsFromInstalledPackages(batchResult.DeferredInstalledPackages)");

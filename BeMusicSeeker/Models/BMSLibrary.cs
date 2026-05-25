@@ -8718,13 +8718,11 @@ completeFileEnumerationOnce,
         return irService.GetIRSongInfoCache(md5orlr2bmsid, seaarchAggressively, irClient, songInfoUrl);
     }
 
-    private static List<ChartFile> CreateResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private static List<ChartFile> CreateBmsResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles)
     {
-        return ChartFileProjection.FromStorageRows(
+        return ChartFileProjection.FromBmsFiles(
             (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile),
-            bmsonSongs,
             includeWarningSnapshot: false,
-            requireBmsonPath: true,
             includeResourceReferences: true,
             includeScoreSnapshot: false);
     }
@@ -9267,7 +9265,7 @@ completeFileEnumerationOnce,
             {
                 if (forceUpdate)
                 {
-                    setMaintenanceInfo(CreateResourceMaintenanceTargetCharts(bmsFiles, null), forceUpdate);
+                    setMaintenanceInfo(CreateBmsResourceMaintenanceTargetCharts(bmsFiles), forceUpdate);
                 }
                 return maintenanceService.GetGarbledFiles(bmsFiles, isInFixedList);
             }
