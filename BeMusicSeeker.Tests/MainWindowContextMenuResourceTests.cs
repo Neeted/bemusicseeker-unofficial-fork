@@ -1711,7 +1711,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "ResourceHealthIndexUpdateMode.DeltaOnUpdates");
         StringAssert.Contains(libraryCode, "? \"install_package_estimated\"");
         StringAssert.Contains(libraryCode, ": \"setMaintenanceInfo\"");
-        StringAssert.Contains(libraryCode, "DispatchResourceHealthIndexMutation(resourceHealthMutation, resourceHealthMutationReason)");
+        StringAssert.Contains(libraryCode, "BuildOwnedChartCollectionMaintenanceMutationResult(");
+        StringAssert.Contains(libraryCode, "DispatchOwnedChartCollectionMutation(mutationResult, resourceHealthMutationReason)");
         StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
         StringAssert.Contains(duplicateSearchMethod, "bmsSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");

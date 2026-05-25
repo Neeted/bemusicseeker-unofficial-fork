@@ -6803,11 +6803,17 @@ completeFileEnumerationOnce,
 
         public ResourceHealthIndexMutation ResourceHealthMutation { get; } = new();
 
+        public ResourceHealthIndexDispatchResult ResourceHealthDispatchResult { get; set; }
+
         public bool ResourceHealthIndexInvalidated
         {
             get => ResourceHealthMutation.Invalidate;
             set => ResourceHealthMutation.Invalidate = value;
         }
+
+        public bool WarningPresentationChanged { get; set; }
+
+        public bool MaintenancePresentationChanged { get; set; }
 
         public bool BmsFilesPropertyChanged { get; set; }
 
@@ -6829,6 +6835,8 @@ completeFileEnumerationOnce,
             || OwnedCollectionChanged
             || ResourceHealthMutation.HasChanges
             || InstallEstimationMetadataProfileCacheInvalidated
+            || WarningPresentationChanged
+            || MaintenancePresentationChanged
             || StorageRowPropertyChanged
             || InstalledLookupMutation?.HasChanges == true;
     }
@@ -7286,6 +7294,7 @@ completeFileEnumerationOnce,
             PlaylistSummaryOwnedHashInvalidated = storageMutation.HasHashSetChanges,
             OwnedCollectionChanged = storageMutation.HasChanges,
             ResourceHealthIndexInvalidated = storageMutation.HasChanges,
+            WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
             BmsFilesPropertyChanged = delta?.RaiseLibraryChartsChanged == true || HasBmsStorageRowCollectionChange(storageMutation),
             BmsonSongsPropertyChanged = HasBmsonStorageRowCollectionChange(storageMutation)
                 || (delta?.RaiseLibraryChartsChanged == true && HasBmsonStorageRowPathChange(storageMutation))
@@ -7345,6 +7354,7 @@ completeFileEnumerationOnce,
         result.PlaylistSummaryOwnedHashInvalidated = result.StorageMutation.HasHashSetChanges;
         result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
         result.ResourceHealthIndexInvalidated = result.StorageMutation.HasChanges;
+        result.WarningPresentationChanged = result.StorageMutation.HasChanges;
         result.BmsFilesPropertyChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
         result.BmsonSongsPropertyChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = result.StorageMutation.AddedCount > 0;
@@ -7367,6 +7377,7 @@ completeFileEnumerationOnce,
             PlaylistSummaryOwnedHashInvalidated = anyChanges,
             OwnedCollectionChanged = anyChanges,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
+            WarningPresentationChanged = primaryHashChanged || (resourceHealthIndexInvalidated && md5Changed),
             BmsFilesPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
             BmsonSongsPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
         };
@@ -7391,9 +7402,42 @@ completeFileEnumerationOnce,
             PlaylistSummaryOwnedHashInvalidated = true,
             OwnedCollectionChanged = true,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
+            WarningPresentationChanged = resourceHealthIndexInvalidated,
             BmsFilesPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
             BmsonSongsPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
         };
+    }
+
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMaintenanceMutationResult(
+        IEnumerable<LibraryChartHashChange> hashChanges,
+        ResourceHealthIndexMutation resourceHealthMutation,
+        bool workflowHasUpdates)
+    {
+        bool hasExplicitResourceHealthMutation = resourceHealthMutation?.HasChanges == true;
+        OwnedChartCollectionMutationResult result = BuildOwnedChartCollectionHashMutationResult(
+            hashChanges,
+            resourceHealthIndexInvalidated: !hasExplicitResourceHealthMutation);
+        CopyResourceHealthIndexMutation(resourceHealthMutation, result.ResourceHealthMutation);
+        bool resourceHealthChanged = result.ResourceHealthMutation.HasChanges;
+        result.WarningPresentationChanged |= resourceHealthChanged;
+        result.MaintenancePresentationChanged = workflowHasUpdates || resourceHealthChanged;
+        return result;
+    }
+
+    private static void CopyResourceHealthIndexMutation(
+        ResourceHealthIndexMutation source,
+        ResourceHealthIndexMutation destination)
+    {
+        if (source == null || destination == null)
+        {
+            return;
+        }
+        destination.UpdatedTargets.AddRange(source.UpdatedTargets);
+        destination.RemovedTargets.AddRange(source.RemovedTargets);
+        destination.FullOwnedTargets = source.FullOwnedTargets;
+        destination.Invalidate = source.Invalidate;
+        destination.RebuildFull = source.RebuildFull;
+        destination.Defer = source.Defer;
     }
 
     private void DispatchOwnedChartCollectionMutation(OwnedChartCollectionMutationResult result, string reason)
@@ -7428,7 +7472,7 @@ completeFileEnumerationOnce,
         {
             PublishOwnedCollectionChangeNotification(result);
         }
-        DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
+        result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
         if (installMetadataProfileCacheInvalidated)
         {
@@ -7458,6 +7502,8 @@ completeFileEnumerationOnce,
                 + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " resourceHealth=" + ToResourceHealthMutationDispatchLogValue(result.ResourceHealthMutation)
                 + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
+                + " warningPresentation=" + ToInvalidateLogValue(result.WarningPresentationChanged)
+                + " maintenancePresentation=" + ToInvalidateLogValue(result.MaintenancePresentationChanged)
                 + " bmsFilesProperty=" + ToInvalidateLogValue(result.BmsFilesPropertyChanged)
                 + " bmsonSongsProperty=" + ToInvalidateLogValue(result.BmsonSongsPropertyChanged)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
@@ -8931,15 +8977,22 @@ completeFileEnumerationOnce,
         string resourceHealthMutationReason = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
             ? "install_package_estimated"
             : "setMaintenanceInfo";
-        ResourceHealthIndexDispatchResult resourceHealthDispatch = null;
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
+            workflowResult.HashChanges,
+            resourceHealthMutation,
+            workflowResult.HasUpdates);
         try
         {
-            resourceHealthDispatch = DispatchResourceHealthIndexMutation(resourceHealthMutation, resourceHealthMutationReason);
+            DispatchOwnedChartCollectionMutation(mutationResult, resourceHealthMutationReason);
         }
-        finally
+        catch
         {
-            DispatchOwnedChartHashChanges(workflowResult.HashChanges, "maintenance_hash_changed");
+            InvalidateOwnedChartCollection();
+            InvalidateInstalledDirectoryIndex();
+            ForceInvalidateResourceHealthIndex("maintenance_dispatch_failed");
+            throw;
         }
+        ResourceHealthIndexDispatchResult resourceHealthDispatch = mutationResult.ResourceHealthDispatchResult ?? new ResourceHealthIndexDispatchResult();
         bool resourceHealthDeltaApplied = resourceHealthDispatch.DeltaApplied;
         bool resourceHealthIndexDeferred = resourceHealthDispatch.Deferred;
         bool resourceHealthIndexFullRebuilt = resourceHealthDispatch.FullRebuilt;
@@ -13011,10 +13064,13 @@ completeFileEnumerationOnce,
         {
             effects |= LibraryChartRefreshEffects.InstallDestinationOverlayChanged;
         }
-        if (result?.StorageRowPropertyChanged == true
-            && (result.DuplicateCacheInvalidated || result.ResourceHealthMutation.HasChanges))
+        if (result?.WarningPresentationChanged == true)
         {
             effects |= LibraryChartRefreshEffects.WarningPresentationChanged;
+        }
+        if (result?.MaintenancePresentationChanged == true)
+        {
+            effects |= LibraryChartRefreshEffects.MaintenancePresentationChanged;
         }
         return effects;
     }

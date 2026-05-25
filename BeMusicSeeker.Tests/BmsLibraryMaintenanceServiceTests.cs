@@ -537,6 +537,40 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void RescanResourceHealthCharts_PublishesMaintenanceRefreshThroughOwnedDispatcher()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE maintenance\r\n", Encoding.ASCII);
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = chartPath;
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int refreshNotificationChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    refreshNotificationChanged++;
+                }
+            };
+
+            MaintenanceWorkflowResult result = library.RescanResourceHealthCharts(
+                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
+
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(result.HasUpdates);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+            Assert.AreEqual(1, refreshNotificationChanged);
+        });
+    }
+
+    [TestMethod]
     public void ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets()
     {
         TestResourceInitializer.EnsureJapaneseResources();
