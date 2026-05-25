@@ -396,9 +396,9 @@ public sealed class BmsSortCompatibilityTests
             Assert.AreEqual(column.Dependency, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(column.NormalizedColumnName), column.NormalizedColumnName);
         }
         Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(null));
-        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.instl_dst)));
-        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
-        Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.instl_dst)));
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
         Assert.AreEqual(MainViewDataDependency.IdentitySortKey, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.RefTablesSymbols)));
         Assert.AreEqual(MainViewDataDependency.Score, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.rateDouble)));
         Assert.AreEqual(MainViewDataDependency.Score, MainWindowViewModel.GetMainViewSortColumnDependencyForTest(nameof(LibraryChartRow.rankingString)));
@@ -523,6 +523,45 @@ public sealed class BmsSortCompatibilityTests
         Assert.AreEqual(MainViewRefreshAction.Refresh, scoreSortDecision.Action);
         Assert.AreEqual(MainViewRefreshAction.Refresh, keywordDecision.Action);
         Assert.AreEqual(MainViewRefreshAction.Refresh, unknownSortDecision.Action);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void MainViewRefreshDecision_RefreshesWhenInstallDestinationUpdateCanAffectCurrentView()
+    {
+        MainViewRefreshDecision titleSortDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.Title),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision installDestinationSortDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.instl_dst),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+        MainViewRefreshDecision warningSortDecision = MainWindowViewModel.BuildMainViewRefreshDecisionForTest(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            folderFilterApplied: false,
+            keywordFilter: string.Empty,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortColumnName: nameof(LibraryChartRow.WarningDigestText),
+            isPlaylistDetailView: false,
+            dependency: MainViewDataDependency.InstallDestination,
+            reason: "normal_library_install_destination_changed");
+
+        Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, titleSortDecision.Action);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, installDestinationSortDecision.Action);
+        Assert.AreEqual(MainViewDataDependency.InstallDestination, installDestinationSortDecision.SortDependency);
+        Assert.AreEqual(MainViewRefreshAction.Refresh, warningSortDecision.Action);
+        Assert.AreEqual(MainViewDataDependency.Warning, warningSortDecision.SortDependency);
     }
 
     [TestMethod]

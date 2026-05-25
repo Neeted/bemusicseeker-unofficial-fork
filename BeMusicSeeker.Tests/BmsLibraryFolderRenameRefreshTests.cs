@@ -105,19 +105,26 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     path = chartPath
                 };
                 int bmsFilesChangedCount = 0;
+                int normalLibraryRefreshCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
                     {
                         Interlocked.Increment(ref bmsFilesChangedCount);
                     }
+                    if (e.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        Interlocked.Increment(ref normalLibraryRefreshCount);
+                    }
                 };
                 SetLibraryFilesWithoutNotification(library, [file]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
+                Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
 
                 library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(file))], destinationParentPath);
 
                 Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
+                Assert.IsTrue(Volatile.Read(ref normalLibraryRefreshCount) > 0);
                 Assert.IsTrue(file.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bms")));
             }
             finally
@@ -208,19 +215,33 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     title = "Chart"
                 };
                 int bmsFilesChangedCount = 0;
+                int bmsonSongsChangedCount = 0;
+                int normalLibraryRefreshCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
                     {
                         Interlocked.Increment(ref bmsFilesChangedCount);
                     }
+                    if (e.PropertyName == nameof(BMSLibrary.BmsonSongs))
+                    {
+                        Interlocked.Increment(ref bmsonSongsChangedCount);
+                    }
+                    if (e.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        Interlocked.Increment(ref normalLibraryRefreshCount);
+                    }
                 };
                 SetLibraryBmsonSongsWithoutNotification(library, [song]);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
+                Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
+                Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
 
                 library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsonSong(song))], destinationParentPath);
 
-                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
+                Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
+                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsonSongsChangedCount) > 0));
+                Assert.IsTrue(Volatile.Read(ref normalLibraryRefreshCount) > 0);
                 Assert.IsTrue(song.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bmson")));
             }
             finally

@@ -1648,7 +1648,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_OverlayOnlyClearsMetadataCacheAndRaisesLibraryChartsChangedWithoutLookupRebuild()
+    public void ApplyLibraryMutationDelta_OverlayOnlyClearsMetadataCacheAndPublishesOverlayRefreshWithoutLookupRebuild()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1668,13 +1668,19 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
             InvokeResolveInstallDestinationMetadataProfile(library, chartDirectory);
             Assert.AreEqual(1, GetInstallEstimationMetadataProfileCacheCount(library));
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsFilesChanged = 0;
+            int normalLibraryRefreshNotifications = 0;
             int ownedCollectionVersionChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSFiles")
                 {
                     bmsFilesChanged++;
+                }
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    normalLibraryRefreshNotifications++;
                 }
                 if (args.PropertyName == "OwnedChartCollectionVersion")
                 {
@@ -1699,8 +1705,95 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(bmsFile.hash));
             CollectionAssert.AreEqual(initialLookup.Md5Directories[bmsFile.hash].ToArray(), updatedLookup.Md5Directories[bmsFile.hash].ToArray());
             Assert.AreEqual(0, GetInstallEstimationMetadataProfileCacheCount(library));
-            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.AreEqual(0, bmsFilesChanged);
+            Assert.AreEqual(1, normalLibraryRefreshNotifications);
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsFalse(batch.NotifiesStorageRows);
+            Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
+            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             Assert.AreEqual(0, ownedCollectionVersionChanged);
+        });
+    }
+
+    [TestMethod]
+    public void NormalLibraryRefreshNotificationBatch_DoesNotHideOverlayOnlyRefreshBehindOtherStorageRowNotifications()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed");
+            Directory.CreateDirectory(chartDirectory);
+            string overlayChartPath = Path.Combine(chartDirectory, "overlay.bms");
+            string unregisterChartPath = Path.Combine(chartDirectory, "unregister.bms");
+            File.WriteAllText(overlayChartPath, "#PLAYER 1");
+            File.WriteAllText(unregisterChartPath, "#PLAYER 1");
+            var overlayBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", overlayChartPath);
+            var unregisterBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", unregisterChartPath);
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [overlayBms, unregisterBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            var overlayDelta = new LibraryMutationDelta();
+            overlayDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(overlayBms, includeWarningSnapshot: false, includeResourceReferences: false),
+                NewInstallDestination = Path.Combine(chartDirectory, "Overlay")
+            });
+            var unregisterDelta = new LibraryMutationDelta();
+            unregisterDelta.ChartsToUnregister.Add(ChartFileProjection.FromBmsFile(unregisterBms, includeWarningSnapshot: false, includeResourceReferences: false));
+
+            InvokeApplyLibraryMutationDelta(library, overlayDelta);
+            InvokeApplyLibraryMutationDelta(library, unregisterDelta);
+
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
+            Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
+        });
+    }
+
+    [TestMethod]
+    public void NormalLibraryRefreshNotificationBatch_DoesNotHideOverlayRefreshInSameStorageRowNotification()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed");
+            Directory.CreateDirectory(chartDirectory);
+            string overlayChartPath = Path.Combine(chartDirectory, "overlay.bms");
+            string movedChartPath = Path.Combine(chartDirectory, "moved.bms");
+            string oldMovedChartPath = Path.Combine(chartDirectory, "old", "moved.bms");
+            File.WriteAllText(overlayChartPath, "#PLAYER 1");
+            File.WriteAllText(movedChartPath, "#PLAYER 1");
+            var overlayBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", overlayChartPath);
+            var movedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", movedChartPath);
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [overlayBms, movedBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            var delta = new LibraryMutationDelta
+            {
+                RaiseLibraryChartsChanged = true
+            };
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(overlayBms, includeWarningSnapshot: false, includeResourceReferences: false),
+                NewInstallDestination = Path.Combine(chartDirectory, "Overlay")
+            });
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(movedBms, includeWarningSnapshot: false, includeResourceReferences: false),
+                OldPath = oldMovedChartPath,
+                NewPath = movedChartPath
+            });
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
+            Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
         });
     }
 

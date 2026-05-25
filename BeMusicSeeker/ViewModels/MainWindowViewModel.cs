@@ -335,6 +335,7 @@ internal enum MainViewDataDependency
     Unknown,
     SourceMembership,
     IdentitySortKey,
+    InstallDestination,
     ChartInfo,
     Score,
     Maintenance,
@@ -8417,17 +8418,24 @@ public class MainWindowViewModel : ViewModel
         {
             return false;
         }
+        if (changedDependency == MainViewDataDependency.InstallDestination
+            && sortDependency == MainViewDataDependency.Warning)
+        {
+            return false;
+        }
         switch (changedDependency)
         {
             case MainViewDataDependency.ChartInfo:
             case MainViewDataDependency.Score:
             case MainViewDataDependency.Maintenance:
             case MainViewDataDependency.Warning:
+            case MainViewDataDependency.InstallDestination:
                 break;
             default:
                 return false;
         }
         return sortDependency == MainViewDataDependency.IdentitySortKey
+            || sortDependency == MainViewDataDependency.InstallDestination
             || sortDependency == MainViewDataDependency.ChartInfo
             || sortDependency == MainViewDataDependency.Score
             || sortDependency == MainViewDataDependency.Maintenance
@@ -8447,8 +8455,11 @@ public class MainWindowViewModel : ViewModel
         }
         if (string.Equals(columnName, nameof(LibraryChartRow.instl_dst), StringComparison.Ordinal)
             || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationTitle), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationArtist), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.RefTablesSymbols), StringComparison.Ordinal))
+            || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationArtist), StringComparison.Ordinal))
+        {
+            return MainViewDataDependency.InstallDestination;
+        }
+        if (string.Equals(columnName, nameof(LibraryChartRow.RefTablesSymbols), StringComparison.Ordinal))
         {
             return MainViewDataDependency.IdentitySortKey;
         }
@@ -9845,6 +9856,11 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged)
+            && !notificationBatch.NotifiesInstallDestinationOverlayProperties)
+        {
+            RefreshNormalLibraryAfterInstallDestinationChanged("normal_library_install_destination_changed");
+        }
         if (notificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged)
             && !notificationBatch.NotifiesWarningPresentationProperties)
         {
@@ -9972,6 +9988,7 @@ public class MainWindowViewModel : ViewModel
             fallbackToCurrentOwnedCollectionVersion: false,
             out _,
             out _);
+        RefreshNormalLibraryForNotificationPresentationEffects(notificationBatch);
         if (!notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged))
         {
             return false;
@@ -17647,6 +17664,15 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Warning, reason);
+    }
+
+    private void RefreshNormalLibraryAfterInstallDestinationChanged(string reason)
+    {
+        if (TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            return;
+        }
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.InstallDestination, reason);
     }
 
     private void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
