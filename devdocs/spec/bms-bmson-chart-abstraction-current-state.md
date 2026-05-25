@@ -818,7 +818,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - 残タスクは、result payload を added / removed / moved / hash changed / overlay changed / maintenance affected に分け、後続 index が旧 delta や caller 独自判定を読まずに済む形へ近づけること。
 
 2. **Dispatcher 接続済み index: 完了扱い、必要に応じて delta 精度を上げる**
-   - installed lookup は owned lightweight view を初回 build source にし、merge / install / unregister では dispatcher から差分更新する。初回 build log は `source=owned_collection_lightweight`。install estimation / installed-only resource overwrite などの読み取り側 API は concrete snapshot ではなく `IInstalledChartLookupIndex` を受ける。BMSLibrary 内の単発 directory lookup / known-directory merge は、full snapshot copy ではなく lookup state を lock 内で読む。
+   - installed lookup は owned lightweight view を初回 build source にし、merge / install / unregister では dispatcher から差分更新する。初回 build log は `source=owned_collection_lightweight`。install estimation / installed-only resource overwrite などの読み取り側 API は concrete snapshot ではなく `IInstalledChartLookupIndex` を受け、directory map の内部構造ではなく `GetDistinctDirectoriesByPrimaryHash(...)` を読む。BMSLibrary 内の単発 directory lookup / known-directory merge は、full snapshot copy ではなく lookup state を lock 内で読む。
    - duplicate groups cache は dispatcher から invalidate する。duplicate full search は明示 operation として残し、incremental duplicate group update は必須条件にしない。
    - parent folder cache は dispatcher から invalidate / lazy rebuild する。現段階では affected bucket 更新ではなく dirty 化でよい。
    - playlist summary owned hash は dispatcher から invalidate し、setter callback 由来の二重 invalidation を抑制する。

@@ -1130,15 +1130,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             return [];
         }
-        if (installedDirectoryIndex.Md5Directories.TryGetValue(lookupHash, out IReadOnlyList<string> md5Directories) && md5Directories != null)
-        {
-            return [.. md5Directories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
-        }
-        if (installedDirectoryIndex.Sha256Directories.TryGetValue(lookupHash, out IReadOnlyList<string> shaDirectories) && shaDirectories != null)
-        {
-            return [.. shaDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
-        }
-        return [];
+        return [.. installedDirectoryIndex.GetDistinctDirectoriesByPrimaryHash(lookupHash)];
     }
 
     public static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)

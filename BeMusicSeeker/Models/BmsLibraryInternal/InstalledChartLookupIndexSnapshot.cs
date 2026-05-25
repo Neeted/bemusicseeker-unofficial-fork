@@ -18,6 +18,8 @@ internal interface IInstalledChartLookupIndex : IPrimaryHashLookup
     int HashCount { get; }
 
     int DirectoryReferenceCount { get; }
+
+    IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash);
 }
 
 internal interface IPrimaryHashLookup
@@ -116,6 +118,23 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             : 0;
     }
 
+    public IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash)
+    {
+        if (string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return [];
+        }
+        if (md5Directories.TryGetValue(lookupHash, out IReadOnlyList<string> md5DirectoryList) && md5DirectoryList != null)
+        {
+            return CreateDistinctDirectoryList(md5DirectoryList);
+        }
+        if (sha256Directories.TryGetValue(lookupHash, out IReadOnlyList<string> sha256DirectoryList) && sha256DirectoryList != null)
+        {
+            return CreateDistinctDirectoryList(sha256DirectoryList);
+        }
+        return [];
+    }
+
     private static Dictionary<string, IReadOnlyList<string>> CopyDirectoryMap(Dictionary<string, HashSet<string>> source)
     {
         var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
@@ -168,6 +187,13 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             }
         }
         return result;
+    }
+
+    private static IReadOnlyList<string> CreateDistinctDirectoryList(IEnumerable<string> directories)
+    {
+        return [.. (directories ?? [])
+            .Where(dir => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     internal IPrimaryHashLookup CreateExcludingLookup(IReadOnlyDictionary<string, int> excludedCounts)
