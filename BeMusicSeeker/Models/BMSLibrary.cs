@@ -2454,7 +2454,7 @@ public class BMSLibrary : NotificationObject
 
     private sealed class PendingInstallEstimateEvaluationContext
     {
-        public InstalledChartLookupIndexSnapshot InstalledDirectoryIndexSnapshot { get; set; } = new InstalledChartLookupIndexSnapshot();
+        public InstalledChartLookupIndexSnapshot InstalledChartLookupSnapshot { get; set; } = new InstalledChartLookupIndexSnapshot();
 
         public LibraryResourceIndex ResourceIndexSnapshot { get; set; }
 
@@ -2901,7 +2901,7 @@ public class BMSLibrary : NotificationObject
             {
                 return new PendingInstallEstimateEvaluationContext
                 {
-                    InstalledDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe(),
+                    InstalledChartLookupSnapshot = CreateInstalledChartLookupSnapshotUnsafe(),
                     ResourceIndexSnapshot = libraryResourceIndex,
                     OptionsSnapshot = CurrentOptionsSnapshot
                 };
@@ -3155,7 +3155,7 @@ public class BMSLibrary : NotificationObject
             };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(evaluationContext?.OptionsSnapshot);
-        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartLookupIndexSnapshot());
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledChartLookupSnapshot ?? new InstalledChartLookupIndexSnapshot());
     }
 
     private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, int packageDegree, ref int completed, ref int lowConfidenceCount)
@@ -3380,7 +3380,7 @@ public class BMSLibrary : NotificationObject
         string sourceLogValue = ToPendingEstimateBatchSourceLogValue(source);
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(options);
-        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
+        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
         PendingEstimateSourceBatchSnapshot candidateSnapshot = BuildPendingEstimateSourceBatchSnapshotUnsafe(packageList, installEstimationService, installedDirectoryIndexSnapshot, sourceLogValue, options.UseEverythingForPendingPackageSourceScan);
         var estimableSnapshot = new PendingEstimateSourceBatchSnapshot
         {
@@ -7655,7 +7655,7 @@ reportProgress,
     /// <summary>
     /// 現在のインストール済み chart lookup index のスナップショットを取得します。
     /// </summary>
-    private InstalledChartLookupIndexSnapshot CreateInstalledDirectoryIndexSnapshotUnsafe()
+    private InstalledChartLookupIndexSnapshot CreateInstalledChartLookupSnapshotUnsafe()
     {
         EnsureInstalledChartLookupIndexBuiltUnsafe();
         lock (lockInstalledChartLookupIndex)
@@ -7681,7 +7681,7 @@ reportProgress,
     private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
     {
         var knownChartDirectories = new HashSet<string>((directoryResourceLookupCache?.Keys ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        foreach (string directory in CreateInstalledDirectoryIndexSnapshotUnsafe().KnownChartDirectories)
+        foreach (string directory in CreateInstalledChartLookupSnapshotUnsafe().KnownChartDirectories)
         {
             if (!string.IsNullOrWhiteSpace(directory))
             {
@@ -9568,7 +9568,7 @@ reportProgress,
 
     private InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap()
     {
-        return CreateInstalledDirectoryIndexSnapshotUnsafe();
+        return CreateInstalledChartLookupSnapshotUnsafe();
     }
 
     private bool TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, out string resolvedDir)
@@ -9804,7 +9804,7 @@ reportProgress,
                 {
                     if (ContainsInstalledChartUnsafe(chartEntry.Chart))
                     {
-                        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), chartEntry.Chart);
+                        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(CreateInstalledChartLookupSnapshotUnsafe(), chartEntry.Chart);
                         if (installedDirectories.Count == 1)
                         {
                             ApplyResolvedInstallDestinationToEntries([chartEntry], installedDirectories[0]);
@@ -10218,7 +10218,7 @@ reportProgress,
                         PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
                             packages,
                             ChartPackagesPending,
-                            CreateInstalledDirectoryIndexSnapshotUnsafe(),
+                            CreateInstalledChartLookupSnapshotUnsafe(),
                             deletePendingPackageSourceAfterInstall,
                             CountComponentMoveTargetsForPackage);
                         if (installPlan.SelectedPendingPackages.Count == 0)
@@ -10681,7 +10681,7 @@ reportProgress,
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
                         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
+                        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite scan pendingTotal=" + ChartPackagesPending.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
                         PendingResourceOverwriteExecutionResult executionResult = packageInstallService.ExecuteInstalledOnlyResourceOverwrite(
@@ -10955,7 +10955,7 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<string> installedDirectories = [.. BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), hash)
+                List<string> installedDirectories = [.. BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(CreateInstalledChartLookupSnapshotUnsafe(), hash)
                     .Where(dir => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
                     .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
                 if (installedDirectories.Count == 0)

@@ -480,7 +480,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 file.SetHash(hash);
                 SetLibraryFilesWithoutNotification(library, [file]);
-                InstalledChartLookupIndexSnapshot initial = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+                InstalledChartLookupIndexSnapshot initial = InvokeCreateInstalledChartLookupSnapshot(library);
                 Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
                 CollectionAssert.AreEqual(new[] { oldDirectoryPath }, initial.Md5Directories[hash].ToArray());
 
@@ -495,7 +495,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 });
 
                 InvokeApplyLibraryMutationDelta(library, delta);
-                InstalledChartLookupIndexSnapshot updated = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+                InstalledChartLookupIndexSnapshot updated = InvokeCreateInstalledChartLookupSnapshot(library);
 
                 Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
                 Assert.AreEqual(newChartPath, file.path);
@@ -535,14 +535,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             secondFile.SetHash(secondHash);
 
             library.BMSFiles = [firstFile];
-            InstalledChartLookupIndexSnapshot initial = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+            InstalledChartLookupIndexSnapshot initial = InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
             Assert.IsTrue(initial.ContainsPrimaryHash(firstHash));
 
             library.BMSFiles = [secondFile];
 
             Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
-            InstalledChartLookupIndexSnapshot rebuilt = InvokeCreateInstalledDirectoryIndexSnapshot(library);
+            InstalledChartLookupIndexSnapshot rebuilt = InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsFalse(rebuilt.ContainsPrimaryHash(firstHash));
             Assert.IsTrue(rebuilt.ContainsPrimaryHash(secondHash));
             CollectionAssert.AreEqual(new[] { secondDirectoryPath }, rebuilt.Md5Directories[secondHash].ToArray());
@@ -1136,9 +1136,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         methodInfo.Invoke(library, [delta]);
     }
 
-    private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledDirectoryIndexSnapshot(BMSLibrary library)
+    private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledDirectoryIndexSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartLookupSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (InstalledChartLookupIndexSnapshot)methodInfo.Invoke(library, []);
     }
