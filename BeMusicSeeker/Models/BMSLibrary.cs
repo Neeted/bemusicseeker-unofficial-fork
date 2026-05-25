@@ -8732,6 +8732,22 @@ completeFileEnumerationOnce,
         return [.. (charts ?? []).Where(chart => chart != null)];
     }
 
+    private static List<ChartFile> RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? [])
+            .Select(chart => ChartFileProjection.FromStorageOwner(
+                chart,
+                includeWarningSnapshot: false,
+                includeResourceReferences: true,
+                includeScoreSnapshot: false))
+            .Where(chart => chart != null)];
+    }
+
+    private static bool ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(MaintenanceWorkflowResult workflowResult)
+    {
+        return workflowResult?.HasUpdates == true;
+    }
+
     private List<ChartFile> CreateFullOwnedResourceMaintenanceTargetCharts(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -9021,7 +9037,8 @@ completeFileEnumerationOnce,
                 forceUpdate,
                 progressReporter,
                 cancellationToken,
-                resourceHealthIndexUpdateMode);
+                resourceHealthIndexUpdateMode,
+                out _);
         }
     }
 
@@ -9040,7 +9057,8 @@ completeFileEnumerationOnce,
                 forceUpdate,
                 progressReporter,
                 cancellationToken,
-                resourceHealthIndexUpdateMode);
+                resourceHealthIndexUpdateMode,
+                out _);
         }
     }
 
@@ -9050,8 +9068,10 @@ completeFileEnumerationOnce,
         bool forceUpdate,
         Action<MaintenanceWorkflowProgress> progressReporter,
         CancellationToken cancellationToken,
-        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode)
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
+        out List<ChartFile> currentMaintenanceTargetCharts)
     {
+        currentMaintenanceTargetCharts = maintenanceTargetCharts ?? [];
         if (maintenanceTargetCharts == null || maintenanceTargetCharts.Count == 0)
         {
             return new MaintenanceWorkflowResult();
@@ -9081,6 +9101,11 @@ completeFileEnumerationOnce,
             DispatchOwnedPotentialHashChanges(maintenanceTargetCharts, "maintenance_hash_changed_failed");
             throw;
         }
+        if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))
+        {
+            maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);
+        }
+        currentMaintenanceTargetCharts = maintenanceTargetCharts;
         bool resourceHealthIndexCurrent = IsResourceHealthIndexCurrent();
         ResourceHealthIndexMutation resourceHealthMutation = BuildMaintenanceResourceHealthIndexMutation(
             maintenanceTargetCharts,
@@ -9169,7 +9194,14 @@ completeFileEnumerationOnce,
                     : CreateResourceMaintenanceTargetCharts(charts);
                 if (forceUpdate)
                 {
-                    RescanResourceHealthCharts(targets);
+                    setMaintenanceInfoCoreLocked(
+                        targets,
+                        maintenanceTargetIsFullOwned: useOwnedSnapshot,
+                        forceUpdate: true,
+                        progressReporter: null,
+                        cancellationToken: default,
+                        resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.FullOnUpdates,
+                        currentMaintenanceTargetCharts: out targets);
                 }
                 ResourceHealthIndexSnapshot snapshot = GetResourceHealthIndexSnapshot(forceUpdate ? "force_resource_health_filter" : "resource_health_filter");
                 if (useOwnedSnapshot)

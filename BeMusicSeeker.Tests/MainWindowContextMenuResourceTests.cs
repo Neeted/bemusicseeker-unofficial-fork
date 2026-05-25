@@ -1778,6 +1778,26 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ResourceHealthForceFilter_ReusesFullOwnedMaintenanceTargets()
+    {
+        string root = FindRepositoryRoot();
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string method = ExtractMethodBody(libraryCode, "internal List<ChartFile> GetChartsNeedResourceFix");
+
+        StringAssert.Contains(method, "CreateFullOwnedResourceMaintenanceTargetCharts(\"force_resource_health_filter\")");
+        StringAssert.Contains(method, "setMaintenanceInfoCoreLocked(");
+        StringAssert.Contains(method, "maintenanceTargetIsFullOwned: useOwnedSnapshot");
+        StringAssert.Contains(method, "currentMaintenanceTargetCharts: out targets");
+        Assert.IsFalse(method.Contains("RescanResourceHealthCharts(targets);"));
+
+        string coreMethod = ExtractMethodBody(libraryCode, "private MaintenanceWorkflowResult setMaintenanceInfoCoreLocked");
+        StringAssert.Contains(libraryCode, "RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners");
+        StringAssert.Contains(libraryCode, "ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(MaintenanceWorkflowResult workflowResult)");
+        StringAssert.Contains(coreMethod, "if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))");
+        StringAssert.Contains(coreMethod, "maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);");
+    }
+
+    [TestMethod]
     public void EmptyDbStartupOptimizationDocs_DocumentFileDiffPipeline()
     {
         string root = FindRepositoryRoot();
