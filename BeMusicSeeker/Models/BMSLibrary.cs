@@ -1246,7 +1246,7 @@ public class BMSLibrary : NotificationObject
     public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
 
     internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(
-        CreateOwnedBmsChartSnapshot(includeResourceReferences: false),
+        CreateOwnedBmsChartFilesUnsafe(includeResourceReferences: false),
         ResolveChartInfoForChart);
 
     internal IEnumerable<ChartFile> ChartInfoParseFailedChartFiles => GetChartInfoParseFailedChartFiles();
@@ -6905,7 +6905,7 @@ reportProgress,
         }
     }
 
-    private List<string> CreateOwnedRealPathChartDirectorySnapshotUnsafe(string directoryPath)
+    private List<string> CreateOwnedRealPathChartDirectoriesUnsafe(string directoryPath)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
@@ -6968,7 +6968,7 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> CreateOwnedDirectChildChartSnapshot(
+    private List<ChartFile> CreateOwnedDirectChildChartFilesUnsafe(
         IEnumerable<string> directoryPaths,
         bool includeWarningSnapshot,
         bool includeResourceReferences)
@@ -6984,7 +6984,7 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> CreateOwnedChartSnapshotForMd5Hashes(
+    private List<ChartFile> CreateOwnedChartFilesForMd5HashesUnsafe(
         ISet<string> md5Hashes,
         bool includeWarningSnapshot,
         bool includeResourceReferences)
@@ -7000,7 +7000,7 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> CreateOwnedChartSnapshotForPaths(
+    private List<ChartFile> CreateOwnedChartFilesForExactPathsUnsafe(
         IEnumerable<string> paths,
         bool includeWarningSnapshot,
         bool includeResourceReferences)
@@ -7016,7 +7016,7 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> CreateOwnedBmsChartSnapshot(bool includeResourceReferences)
+    private List<ChartFile> CreateOwnedBmsChartFilesUnsafe(bool includeResourceReferences)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
@@ -8898,7 +8898,7 @@ reportProgress,
         List<ChartFile> allCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            allCharts = CreateOwnedBmsChartSnapshot(includeResourceReferences: false);
+            allCharts = CreateOwnedBmsChartFilesUnsafe(includeResourceReferences: false);
         }
         ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(
             allCharts,
@@ -8922,7 +8922,7 @@ reportProgress,
         List<ChartFile> failedCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            failedCharts = CreateOwnedChartSnapshotForMd5Hashes(
+            failedCharts = CreateOwnedChartFilesForMd5HashesUnsafe(
                 failedMd5s,
                 includeWarningSnapshot: false,
                 includeResourceReferences: false);
@@ -10486,7 +10486,7 @@ reportProgress,
         {
             return null;
         }
-        List<ChartFile> destinationCharts = OverlayInstallDestinationRuntimeStates(CreateOwnedChartSnapshotForPaths(
+        List<ChartFile> destinationCharts = OverlayInstallDestinationRuntimeStates(CreateOwnedChartFilesForExactPathsUnsafe(
             destinationPaths,
             includeWarningSnapshot: false,
             includeResourceReferences: false));
@@ -12241,7 +12241,7 @@ reportProgress,
 
     private List<FolderAutoRenamePlan> CreateAutoRenameAllChartFolderPlansUnsafe(string parentDir)
     {
-        List<string> sourceFolders = CreateOwnedRealPathChartDirectorySnapshotUnsafe(parentDir);
+        List<string> sourceFolders = CreateOwnedRealPathChartDirectoriesUnsafe(parentDir);
         if (sourceFolders.Count == 0)
         {
             return [];
@@ -12288,7 +12288,7 @@ reportProgress,
 
     private List<ChartFile> CreateDirectLibraryChartSnapshotsInFolders(IReadOnlyCollection<string> folderPaths)
     {
-        return CreateOwnedDirectChildChartSnapshot(
+        return CreateOwnedDirectChildChartFilesUnsafe(
             folderPaths,
             includeWarningSnapshot: true,
             includeResourceReferences: false);

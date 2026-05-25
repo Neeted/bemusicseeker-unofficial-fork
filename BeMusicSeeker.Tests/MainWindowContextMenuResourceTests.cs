@@ -820,7 +820,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(autoRenameAll, "files?.HasAutoRenameAllChartFolderTargets(parentDir) != true");
         StringAssert.Contains(autoRenameAll, "files?.AutoRenameAllChartFolders(parentDir) == true");
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
-        StringAssert.Contains(autoRenameAllModel, "CreateOwnedRealPathChartDirectorySnapshotUnsafe(parentDir)");
+        StringAssert.Contains(autoRenameAllModel, "CreateOwnedRealPathChartDirectoriesUnsafe(parentDir)");
         StringAssert.Contains(autoRenameAllModel, "BuildAutoRenamePlansForSourceFolders");
         Assert.IsFalse(bmsLibraryCode.Contains("CreateLibraryChartSnapshotsForFolderOperations"));
         Assert.IsFalse(autoRenameAllModel.Contains("CreateOwnedSubtreeChartSnapshot"));
