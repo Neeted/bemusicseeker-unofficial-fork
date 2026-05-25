@@ -93,6 +93,21 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal ChartStorageTargetSet CreateStorageTargetsForSubtreeDirectory(string directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return ChartStorageTargetSet.FromRows(
+                charts.Select(chart => chart?.GetBmsStorageOwner()),
+                charts.Select(chart => chart?.GetBmsonStorageOwner()));
+        }
+
+        List<LibraryChartRef> refs = CreateLibraryChartRefIndexSnapshot().GetChartRefsUnderRealPath(directoryPath);
+        return ChartStorageTargetSet.FromRows(
+            refs.Select(chart => chart?.GetBmsStorageOwner()),
+            refs.Select(chart => chart?.GetBmsonStorageOwner()));
+    }
+
     internal List<ChartFile> CreateSnapshotForMd5Hashes(
         ISet<string> md5Hashes,
         bool includeWarningSnapshot = false,

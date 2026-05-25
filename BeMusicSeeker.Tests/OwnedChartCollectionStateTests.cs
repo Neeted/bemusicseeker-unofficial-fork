@@ -335,6 +335,24 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateStorageTargetsForSubtreeDirectory_UsesOwnedRefIndexAndStorageOwners()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string targetDirectory = Path.Combine("C:\\Installed", "Target");
+        var directBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(targetDirectory, "direct.bms"));
+        var nestedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(targetDirectory, "Nested", "nested.bms"));
+        var siblingPrefixBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "TargetPrefix", "prefix.bms"));
+        var directBmson = CreateBmsonSong(Path.Combine(targetDirectory, "chart.bmson"), "dddddddddddddddddddddddddddddddd");
+        var pathlessBmson = CreateBmsonSong(null, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([directBms, nestedBms, siblingPrefixBms], [directBmson, pathlessBmson]);
+
+        ChartStorageTargetSet targets = state.CreateStorageTargetsForSubtreeDirectory(targetDirectory);
+
+        CollectionAssert.AreEquivalent(new[] { directBms, nestedBms }, targets.BmsFiles);
+        CollectionAssert.AreEqual(new[] { directBmson }, targets.BmsonSongs);
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree()
     {
         TestResourceInitializer.EnsureJapaneseResources();

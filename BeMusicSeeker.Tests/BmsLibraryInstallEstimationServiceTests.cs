@@ -2106,6 +2106,27 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void InstalledChartLookupIndexState_CreateExcludingLookupFreezesBaselineCounts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string firstPath = Path.Combine("C:\\Installed", "First", "a.bms");
+        string secondPath = Path.Combine("C:\\Installed", "Second", "b.bms");
+        var state = new InstalledChartLookupIndexState();
+        state.AddChart(firstPath, hash, null);
+        state.AddChart(secondPath, hash, null);
+
+        IPrimaryHashLookup lookup = state.CreateExcludingLookup(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [hash] = 1
+        });
+        state.RemoveChart(firstPath, hash, null);
+
+        Assert.IsTrue(lookup.ContainsPrimaryHash(hash));
+        Assert.AreEqual(1, lookup.GetPrimaryHashCount(hash));
+    }
+
+    [TestMethod]
     public void InstalledChartLookupIndexState_KeepsPathUntilDuplicatePathCountIsRemoved()
     {
         TestResourceInitializer.EnsureJapaneseResources();

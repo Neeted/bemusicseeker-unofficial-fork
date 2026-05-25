@@ -6771,6 +6771,15 @@ reportProgress,
         }
     }
 
+    private ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(string directoryPath)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateStorageTargetsForSubtreeDirectory(directoryPath);
+        }
+    }
+
     /// <summary>
     /// playlist detail の entry hash 解決に使う owned collection 隣接 index を作成します。
     /// </summary>
@@ -7071,21 +7080,6 @@ reportProgress,
         return result;
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionInstalledLookupMutationResult(
-        InstalledChartLookupMutation installedLookupMutation,
-        int addedCount = 0,
-        int removedCount = 0,
-        int movedCount = 0)
-    {
-        return new OwnedChartCollectionMutationResult
-        {
-            InstalledLookupMutation = installedLookupMutation ?? new InstalledChartLookupMutation(),
-            AddedCount = addedCount,
-            RemovedCount = removedCount,
-            MovedCount = movedCount
-        };
-    }
-
     private void DispatchOwnedChartCollectionMutation(OwnedChartCollectionMutationResult result, string reason)
     {
         if (result == null)
@@ -7198,51 +7192,6 @@ reportProgress,
         if ((folderPathChanges?.Count ?? 0) > 0 && storageMutation.PathChanges.Count == 0)
         {
             mutation.RequiresFullInvalidate = true;
-        }
-        return mutation;
-    }
-
-    private InstalledChartLookupMutation BuildInstalledChartLookupMutation(IEnumerable<ChartFile> removedCharts, IEnumerable<ChartFile> addedCharts)
-    {
-        var mutation = new InstalledChartLookupMutation();
-        foreach (ChartFile chart in removedCharts ?? [])
-        {
-            if (chart != null)
-            {
-                mutation.Removed.Add(CreateInstalledChartLookupMutationEntry(chart));
-            }
-        }
-        foreach (ChartFile chart in addedCharts ?? [])
-        {
-            if (chart != null)
-            {
-                mutation.Added.Add(CreateInstalledChartLookupMutationEntry(chart));
-            }
-        }
-        return mutation;
-    }
-
-    private InstalledChartLookupMutation BuildInstalledChartLookupUpsertMutation(IEnumerable<ChartFile> addedCharts)
-    {
-        var mutation = new InstalledChartLookupMutation();
-        List<ChartFile> addedChartList = [.. (addedCharts ?? []).Where(chart => chart != null)];
-        var addedBmsPaths = new HashSet<string>(
-            addedChartList.Select(chart => chart.GetBmsStorageOwner()?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        var addedBmsonPaths = new HashSet<string>(
-            addedChartList.Select(chart => chart.GetBmsonStorageOwner()?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in (BMSFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && addedBmsPaths.Contains(file.path)))
-        {
-            mutation.Removed.Add(new InstalledChartLookupMutationEntry(file.path, file.hash, file.sha256));
-        }
-        foreach (LR2SongDBExtended.bmson_song song in (BmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && addedBmsonPaths.Contains(song.path)))
-        {
-            mutation.Removed.Add(new InstalledChartLookupMutationEntry(song.path, song.md5, song.sha256));
-        }
-        foreach (ChartFile chart in addedChartList)
-        {
-            mutation.Added.Add(CreateInstalledChartLookupMutationEntry(chart));
         }
         return mutation;
     }
@@ -11730,15 +11679,12 @@ reportProgress,
                             + " elapsedMs=" + sourceSnapshotStopwatch.ElapsedMilliseconds
                             + " bms=" + sourceBmsFiles.Count
                             + " bmson=" + sourceBmsonSongs.Count);
-                        using (SuppressInstalledChartLookupInvalidation())
-                        {
-                            var unregisterBmsStopwatch = Stopwatch.StartNew();
-                            unregisterBMSFiles(sourceBmsFiles);
-                            LogInstallPerformance("duplicate_merge_model unregister_bms_done op=" + operationId + " elapsedMs=" + unregisterBmsStopwatch.ElapsedMilliseconds + " count=" + sourceBmsFiles.Count);
-                            var unregisterBmsonStopwatch = Stopwatch.StartNew();
-                            unregisterBmsonSongs(sourceBmsonSongs);
-                            LogInstallPerformance("duplicate_merge_model unregister_bmson_done op=" + operationId + " elapsedMs=" + unregisterBmsonStopwatch.ElapsedMilliseconds + " count=" + sourceBmsonSongs.Count);
-                        }
+                        var unregisterStopwatch = Stopwatch.StartNew();
+                        ApplyLibraryMutationDelta(BuildLibrarySourceUnregisterMutationDelta(sourceBmsFiles, sourceBmsonSongs));
+                        LogInstallPerformance("duplicate_merge_model unregister_source_done op=" + operationId
+                            + " elapsedMs=" + unregisterStopwatch.ElapsedMilliseconds
+                            + " bms=" + sourceBmsFiles.Count
+                            + " bmson=" + sourceBmsonSongs.Count);
                         var reverseLookupRemoveStopwatch = Stopwatch.StartNew();
                         DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                         List<string> reverseLookupRemovedDirs = [.. (directoryResourceLookupCache?.Keys ?? []).Where(f => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
@@ -11777,20 +11723,14 @@ reportProgress,
                         List<PackageChartEntry> movedPackageEntries = mergeResult.Repackage.ChartEntries;
                         List<BMSFile> movedBmsFiles = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.GetBmsStorageOwner())
-                        .Where(ChartFileKindResolver.IsBmsChartFile)];
+                        .Where(file => ChartFileKindResolver.IsBmsChartFile(file) && IsFilePathUnderDirectory(file.path, dst))];
                         List<LR2SongDBExtended.bmson_song> movedBmsonSongs = [.. movedPackageEntries
                         .Select(entry => entry?.Chart?.GetBmsonStorageOwner())
-                        .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+                        .Where(song => song != null && IsFilePathUnderDirectory(song.path, dst))];
                         LogInstallPerformance("duplicate_merge_model moved_snapshot_done op=" + operationId
                             + " elapsedMs=" + movedSnapshotStopwatch.ElapsedMilliseconds
                             + " bms=" + movedBmsFiles.Count
                             + " bmson=" + movedBmsonSongs.Count);
-                        DispatchOwnedChartCollectionMutation(
-                            BuildOwnedChartCollectionInstalledLookupMutationResult(
-                                BuildInstalledChartLookupMutation(mergeResult.SourceCharts.Select(chart => chart?.ToChartFile()), movedPackageEntries.Select(entry => entry?.Chart)),
-                                addedCount: movedPackageEntries.Count,
-                                removedCount: mergeResult.SourceCharts.Count),
-                            "merge_folder");
                         var dbStopwatch = Stopwatch.StartNew();
                         dbGateway.UpsertSongs(movedBmsFiles);
                         if (movedBmsonSongs.Count > 0)
@@ -11799,10 +11739,8 @@ reportProgress,
                         }
                         LogInstallPerformance("duplicate_merge_model db_upsert_done op=" + operationId + " elapsedMs=" + dbStopwatch.ElapsedMilliseconds + " bms=" + movedBmsFiles.Count + " bmson=" + movedBmsonSongs.Count);
                         var maintenanceTargetStopwatch = Stopwatch.StartNew();
-                        List<LR2SongDBExtended.bmson_song> destinationBmsonMaintenanceSongs = [.. (BmsonSongs ?? [])
-                        .Where(song => song != null
-                            && !string.IsNullOrWhiteSpace(song.path)
-                            && song.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))];
+                        ChartStorageTargetSet destinationMaintenanceTargets = CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(dst);
+                        List<LR2SongDBExtended.bmson_song> destinationBmsonMaintenanceSongs = destinationMaintenanceTargets.BmsonSongs;
                         List<LR2SongDBExtended.bmson_song> maintenanceBmsonSongs = [.. movedBmsonSongs
                         .Concat(destinationBmsonMaintenanceSongs)
                         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
@@ -11811,7 +11749,7 @@ reportProgress,
                         List<BMSFile> maintenanceTargets =
                         [
                             .. movedBmsFiles,
-                        .. BMSFiles.Where(f => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)),
+                        .. destinationMaintenanceTargets.BmsFiles,
                     ];
                         LogInstallPerformance("duplicate_merge_model maintenance_targets_done op=" + operationId
                             + " elapsedMs=" + maintenanceTargetStopwatch.ElapsedMilliseconds
@@ -11828,25 +11766,10 @@ reportProgress,
                             forceUpdate: true,
                             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates);
                         LogInstallPerformance("duplicate_merge_model maintenance_done op=" + operationId + " elapsedMs=" + maintenanceStopwatch.ElapsedMilliseconds);
-                        var replaceStopwatch = Stopwatch.StartNew();
-                        var repackageBmsPathSet = new HashSet<string>(movedBmsFiles.Select(ff => ff.path), StringComparer.OrdinalIgnoreCase);
-                        using (SuppressInstalledChartLookupInvalidation())
-                        {
-                            BMSFiles = [.. BMSFiles.Where(f => !repackageBmsPathSet.Contains(f.path)), .. movedBmsFiles];
-                            if (movedBmsonSongs.Count > 0)
-                            {
-                                var nextBmsonByPath = (BmsonSongs ?? [])
-                                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                                    .ToDictionary(song => song.path, StringComparer.OrdinalIgnoreCase);
-                                foreach (LR2SongDBExtended.bmson_song movedBmsonSong in movedBmsonSongs)
-                                {
-                                    nextBmsonByPath[movedBmsonSong.path] = movedBmsonSong;
-                                }
-                                BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-                            }
-                        }
-                        LogInstallPerformance("duplicate_merge_model replace_library_done op=" + operationId
-                            + " elapsedMs=" + replaceStopwatch.ElapsedMilliseconds
+                        var upsertStopwatch = Stopwatch.StartNew();
+                        ApplyInstalledChartStorageTargets(ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs), "merge_folder");
+                        LogInstallPerformance("duplicate_merge_model upsert_library_done op=" + operationId
+                            + " elapsedMs=" + upsertStopwatch.ElapsedMilliseconds
                             + " movedBms=" + movedBmsFiles.Count
                             + " movedBmson=" + movedBmsonSongs.Count
                             + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
@@ -11860,6 +11783,28 @@ reportProgress,
             LogInstallPerformanceWarn("duplicate_merge_model failed op=" + operationId + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds + " exception=" + ex.GetType().Name);
             throw;
         }
+    }
+
+    private static LibraryMutationDelta BuildLibrarySourceUnregisterMutationDelta(
+        IEnumerable<BMSFile> sourceBmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> sourceBmsonSongs)
+    {
+        var delta = new LibraryMutationDelta();
+        delta.ChartsToUnregister.AddRange(ChartFileProjection.FromBmsStorageOwnerIdentities(sourceBmsFiles));
+        delta.ChartsToUnregister.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(sourceBmsonSongs));
+        bool hasCharts = delta.ChartsToUnregister.Count > 0;
+        delta.InvalidateInstalledDirectoryIndex = hasCharts;
+        delta.InvalidateParentFolderCache = hasCharts;
+        delta.ClearDuplicatedCache = hasCharts;
+        delta.RaiseLibraryChartsChanged = hasCharts;
+        return delta;
+    }
+
+    private static bool IsFilePathUnderDirectory(string filePath, string directoryPath)
+    {
+        return !string.IsNullOrWhiteSpace(filePath)
+            && !string.IsNullOrWhiteSpace(directoryPath)
+            && filePath.StartsWith(directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)

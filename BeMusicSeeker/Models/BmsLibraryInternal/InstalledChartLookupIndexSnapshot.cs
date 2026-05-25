@@ -253,9 +253,10 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     internal IPrimaryHashLookup CreateExcludingLookup(IReadOnlyDictionary<string, int> excludedCounts)
     {
+        InstalledChartLookupIndexSnapshot baseline = CreateSnapshot();
         return excludedCounts == null || excludedCounts.Count == 0
-            ? this
-            : new ExcludingPrimaryHashLookup(this, excludedCounts);
+            ? baseline
+            : new ExcludingPrimaryHashLookup(baseline, excludedCounts);
     }
 
     internal InstalledChartLookupIndexSnapshot CreateSnapshot()
