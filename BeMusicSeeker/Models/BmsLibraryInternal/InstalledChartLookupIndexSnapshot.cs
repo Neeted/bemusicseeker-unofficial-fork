@@ -7,17 +7,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal interface IInstalledChartLookupIndex : IPrimaryHashLookup
 {
-    IReadOnlyDictionary<string, IReadOnlyList<string>> Md5Directories { get; }
-
-    IReadOnlyDictionary<string, IReadOnlyList<string>> Sha256Directories { get; }
-
-    IReadOnlyCollection<string> KnownChartDirectories { get; }
-
-    IReadOnlyDictionary<string, int> PrimaryHashCounts { get; }
-
     int HashCount { get; }
-
-    int DirectoryReferenceCount { get; }
 
     IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash);
 }
