@@ -884,6 +884,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - chart-common lookup / snapshot / refs は owned collection へ寄せている。残る direct enumeration は、BMS-only / bmson-only / DB load-save / input rows projection / ViewModel read model boundary として分類できるものに限定する。
    - manual install destination validation の standalone 所持判定は owned collection の known chart view を使う。owner-backed match、canonical path match、ambiguous same-kind path fallback は owned collection 側の owner/path lookup で扱い、caller が BMS / bmson storage rows を直接結合しない。
    - maintenance hydration の storage owner attach と installable maintenance 件数は owned collection の storage owner view を使う。maintenance producer は BMS / bmson owner を直接更新するが、caller 側で `BMSFiles` / `BmsonSongs` を束ねる入口は持たない。
+   - file scan diff の removed chart payload は owned collection の current storage owner identity view から作る。file scan service の `NextFiles` / `NextBmsonSongs` は入力 rows として渡してよいが、BMSLibrary 側で current `BMSFiles` / `BmsonSongs` を直接結合して chart-common `UnregisteredCharts` を作らない。
    - 残す direct enumeration は BMS-only / bmson-only / DB load-save / input rows projection / ViewModel read model boundary として名前で分かるようにする。
    - 追加 bmson だけ、入力 rows だけ、BMS-only repair だけのように明確に対象が限定された経路は、一時 projection として残してよい。推定インストール batch の追加 bmson は `AddedCharts` から作る bounded projection とし、deferred package や `BmsonSongs` 全体を scan しない。
 

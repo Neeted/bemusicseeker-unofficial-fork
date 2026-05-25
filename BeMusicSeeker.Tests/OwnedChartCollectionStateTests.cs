@@ -129,6 +129,36 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateFileScanRemovedStorageOwnerIdentityCharts_UsesOwnedCurrentOwners()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+        var deletedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "deleted.bms"));
+        var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty);
+        string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
+        var oldBmson = CreateBmsonSong(bmsonPath, "dddddddddddddddddddddddddddddddd");
+        var newBmson = CreateBmsonSong(bmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        var pathlessBmson = CreateBmsonSong(string.Empty, "ffffffffffffffffffffffffffffffff");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows(
+            [keptBms, deletedBms, pathlessBms],
+            [oldBmson, pathlessBmson]);
+
+        List<ChartFile> removedCharts = state.CreateFileScanRemovedStorageOwnerIdentityCharts(
+            [deletedBms.path],
+            [],
+            [keptBms],
+            [newBmson]);
+
+        Assert.AreEqual(4, removedCharts.Count);
+        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), deletedBms)));
+        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
+        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), oldBmson)));
+        Assert.IsTrue(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
+        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), keptBms)));
+        Assert.IsFalse(removedCharts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), newBmson)));
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ReprojectsCurrentStorageOwnerValues()
     {
         TestResourceInitializer.EnsureJapaneseResources();

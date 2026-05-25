@@ -1826,6 +1826,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void FileScanMutationUsesOwnedCollectionForRemovedCharts()
+    {
+        string root = FindRepositoryRoot();
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string ownedCollectionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "OwnedChartCollectionState.cs"));
+        string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyLibraryFileScanStorageMutation");
+        string buildMethod = ExtractMethodBody(libraryCode, "private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult");
+
+        StringAssert.Contains(applyMethod, "List<ChartFile> removedCharts = CreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(fileCheckResult);");
+        StringAssert.Contains(applyMethod, "mutationResult = BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, removedCharts);");
+        Assert.IsFalse(applyMethod.Contains("BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, BMSFiles, BmsonSongs)"));
+        StringAssert.Contains(buildMethod, "storageMutation.UnregisteredCharts.AddRange(removedCharts ?? [])");
+        Assert.IsFalse(buildMethod.Contains("IReadOnlyList<BMSFile> currentBmsFiles"));
+        Assert.IsFalse(buildMethod.Contains("IReadOnlyList<LR2SongDBExtended.bmson_song> currentBmsonSongs"));
+        StringAssert.Contains(libraryCode, "ownedChartCollection.CreateFileScanRemovedStorageOwnerIdentityCharts(");
+        StringAssert.Contains(ownedCollectionCode, "internal List<ChartFile> CreateFileScanRemovedStorageOwnerIdentityCharts(");
+    }
+
+    [TestMethod]
     public void EmptyDbStartupOptimizationDocs_DocumentFileDiffPipeline()
     {
         string root = FindRepositoryRoot();

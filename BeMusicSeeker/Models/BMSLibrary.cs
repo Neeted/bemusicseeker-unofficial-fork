@@ -7272,7 +7272,8 @@ completeFileEnumerationOnce,
         OwnedChartCollectionMutationResult mutationResult;
         using (rwlockBMSFiles.GetWriterGuard())
         {
-            mutationResult = BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, BMSFiles, BmsonSongs);
+            List<ChartFile> removedCharts = CreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(fileCheckResult);
+            mutationResult = BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, removedCharts);
             PublishOwnedCollectionChangeNotification(mutationResult);
             try
             {
@@ -7397,16 +7398,10 @@ completeFileEnumerationOnce,
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult(
         SongTableFileCheckResult fileCheckResult,
-        IReadOnlyList<BMSFile> currentBmsFiles,
-        IReadOnlyList<LR2SongDBExtended.bmson_song> currentBmsonSongs)
+        List<ChartFile> removedCharts)
     {
         var storageMutation = new OwnedChartCollectionStorageMutation();
-        storageMutation.UnregisteredCharts.AddRange(CreateFileScanRemovedStorageCharts(
-            fileCheckResult,
-            currentBmsFiles,
-            currentBmsonSongs,
-            fileCheckResult.NextFiles,
-            fileCheckResult.NextBmsonSongs));
+        storageMutation.UnregisteredCharts.AddRange(removedCharts ?? []);
         storageMutation.AddAddedTargets(ChartStorageTargetSet.FromRows(fileCheckResult.AddedFiles, fileCheckResult.AddedBmsonSongs));
         bool resourceHealthShouldInvalidate = fileCheckResult.HasDbDiff || IsResourceHealthIndexCurrent();
         bool fileScanPresentationChanged = fileCheckResult.HasDbDiff || resourceHealthShouldInvalidate;
@@ -7436,48 +7431,21 @@ completeFileEnumerationOnce,
         return result;
     }
 
-    private static List<ChartFile> CreateFileScanRemovedStorageCharts(
-        SongTableFileCheckResult fileCheckResult,
-        IReadOnlyList<BMSFile> currentBmsFiles,
-        IReadOnlyList<LR2SongDBExtended.bmson_song> currentBmsonSongs,
-        IReadOnlyList<BMSFile> nextBmsFiles,
-        IReadOnlyList<LR2SongDBExtended.bmson_song> nextBmsonSongs)
+    private List<ChartFile> CreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(SongTableFileCheckResult fileCheckResult)
     {
-        var removedBmsFiles = new HashSet<BMSFile>();
-        var removedBmsonSongs = new HashSet<LR2SongDBExtended.bmson_song>();
         if (fileCheckResult == null)
         {
             return [];
         }
-
-        var deletedBmsPaths = new HashSet<string>(
-            (fileCheckResult.DeletedPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        if (deletedBmsPaths.Count > 0)
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
         {
-            removedBmsFiles.UnionWith((currentBmsFiles ?? [])
-                .Where(file => file != null && deletedBmsPaths.Contains(file.path)));
+            return ownedChartCollection.CreateFileScanRemovedStorageOwnerIdentityCharts(
+                fileCheckResult.DeletedPaths,
+                fileCheckResult.DeletedBmsonPaths,
+                fileCheckResult.NextFiles,
+                fileCheckResult.NextBmsonSongs);
         }
-
-        var deletedBmsonPaths = new HashSet<string>(
-            (fileCheckResult.DeletedBmsonPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        if (deletedBmsonPaths.Count > 0)
-        {
-            removedBmsonSongs.UnionWith((currentBmsonSongs ?? [])
-                .Where(song => song != null && deletedBmsonPaths.Contains(song.path)));
-        }
-
-        var nextBmsFileSet = new HashSet<BMSFile>((nextBmsFiles ?? []).Where(file => file != null));
-        removedBmsFiles.UnionWith((currentBmsFiles ?? [])
-            .Where(file => file != null && !nextBmsFileSet.Contains(file)));
-        var nextBmsonSongSet = new HashSet<LR2SongDBExtended.bmson_song>((nextBmsonSongs ?? []).Where(song => song != null));
-        removedBmsonSongs.UnionWith((currentBmsonSongs ?? [])
-            .Where(song => song != null && !nextBmsonSongSet.Contains(song)));
-
-        var removedCharts = ChartFileProjection.FromBmsStorageOwnerIdentities(removedBmsFiles);
-        removedCharts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(removedBmsonSongs));
-        return removedCharts;
     }
 
     private InstalledChartLookupMutation BuildInstalledChartLookupFileScanMutation(OwnedChartCollectionStorageMutation storageMutation)

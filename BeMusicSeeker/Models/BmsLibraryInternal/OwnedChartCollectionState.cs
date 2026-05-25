@@ -326,6 +326,44 @@ internal sealed class OwnedChartCollectionState
         return new OwnedChartStorageOwnerView(bmsFiles, bmsonSongs, ownerPaths);
     }
 
+    internal List<ChartFile> CreateFileScanRemovedStorageOwnerIdentityCharts(
+        IEnumerable<string> deletedBmsPaths,
+        IEnumerable<string> deletedBmsonPaths,
+        IReadOnlyList<BMSFile> nextBmsFiles,
+        IReadOnlyList<LR2SongDBExtended.bmson_song> nextBmsonSongs)
+    {
+        var removedBmsFiles = new HashSet<BMSFile>();
+        var removedBmsonSongs = new HashSet<LR2SongDBExtended.bmson_song>();
+        var deletedBmsPathSet = CreatePathSet(deletedBmsPaths);
+        var deletedBmsonPathSet = CreatePathSet(deletedBmsonPaths);
+        var nextBmsFileSet = new HashSet<BMSFile>((nextBmsFiles ?? []).Where(file => file != null));
+        var nextBmsonSongSet = new HashSet<LR2SongDBExtended.bmson_song>((nextBmsonSongs ?? []).Where(song => song != null));
+
+        foreach (ChartFile chart in charts)
+        {
+            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                if (deletedBmsPathSet.Contains(bmsOwner.path) || !nextBmsFileSet.Contains(bmsOwner))
+                {
+                    removedBmsFiles.Add(bmsOwner);
+                }
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+            if (bmsonOwner != null
+                && (deletedBmsonPathSet.Contains(bmsonOwner.path) || !nextBmsonSongSet.Contains(bmsonOwner)))
+            {
+                removedBmsonSongs.Add(bmsonOwner);
+            }
+        }
+
+        var removedCharts = ChartFileProjection.FromBmsStorageOwnerIdentities(removedBmsFiles);
+        removedCharts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(removedBmsonSongs));
+        return removedCharts;
+    }
+
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()
     {
         var snapshot = new OwnedChartHashIndexSnapshot();
@@ -398,6 +436,13 @@ internal sealed class OwnedChartCollectionState
         return bmsonOwner != null
             ? DuplicateChartRow.CreateFromBmsonSong(bmsonOwner)
             : DuplicateChartRow.CreateFromChart(chart);
+    }
+
+    private static HashSet<string> CreatePathSet(IEnumerable<string> paths)
+    {
+        return new HashSet<string>(
+            (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static void AddOwnerPath(ISet<string> ownerPaths, string path)
