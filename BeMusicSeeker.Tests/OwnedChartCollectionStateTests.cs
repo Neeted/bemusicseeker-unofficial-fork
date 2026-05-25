@@ -1767,6 +1767,95 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyLibraryFileScanStorageMutation_UpdatesAdjacentIndexesThroughOwnedMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+            var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
+            var addedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", "added.bms"));
+            var pathlessBms = CreateFile("ffffffffffffffffffffffffffffffff", string.Empty);
+            string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "same.bmson");
+            var oldBmson = CreateBmsonSong(bmsonPath, "dddddddddddddddddddddddddddddddd");
+            var updatedBmson = CreateBmsonSong(bmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            var pathlessBmson = CreateBmsonSong(string.Empty, "11111111111111111111111111111111");
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [keptBms, removedBms, pathlessBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, [oldBmson, pathlessBmson]);
+            InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(removedBms.hash));
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(oldBmson.md5));
+            SetCurrentResourceHealthIndex(library, ChartFileProjection.FromStorageRows(
+                [keptBms, removedBms, pathlessBms],
+                [oldBmson, pathlessBmson],
+                includeWarningSnapshot: false,
+                includeResourceReferences: false,
+                includeScoreSnapshot: false));
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int bmsFilesChanged = 0;
+            int bmsonSongsChanged = 0;
+            int normalLibraryRefreshNotifications = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BMSFiles")
+                {
+                    bmsFilesChanged++;
+                }
+                if (args.PropertyName == "BmsonSongs")
+                {
+                    bmsonSongsChanged++;
+                }
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    normalLibraryRefreshNotifications++;
+                }
+            };
+            var result = new SongTableFileCheckResult
+            {
+                HasDbDiff = true
+            };
+            result.DeletedPaths.Add(removedBms.path);
+            result.AddedFiles.Add(addedBms);
+            result.AddedBmsonSongs.Add(updatedBmson);
+            result.NextFiles.AddRange([keptBms, addedBms]);
+            result.NextBmsonSongs.Add(updatedBmson);
+
+            InvokeApplyLibraryFileScanStorageMutation(library, result, "test");
+            List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+
+            CollectionAssert.AreEqual(new[] { keptBms, addedBms }, library.BMSFiles.ToArray());
+            CollectionAssert.AreEqual(new[] { updatedBmson }, library.BmsonSongs.ToArray());
+            Assert.AreEqual(3, snapshot.Count);
+            Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), keptBms)));
+            Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), addedBms)));
+            Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), updatedBmson)));
+            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), removedBms)));
+            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
+            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), oldBmson)));
+            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(removedBms.hash));
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(oldBmson.md5));
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(pathlessBms.hash));
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(pathlessBmson.md5));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(addedBms.hash));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(updatedBmson.md5));
+            Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
+            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.AreEqual(1, bmsonSongsChanged);
+            Assert.AreEqual(1, normalLibraryRefreshNotifications);
+            Assert.IsFalse(batch.ResetsPriorNotifications);
+            Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+        });
+    }
+
+    [TestMethod]
     public void CreateInstallDestinationOverlayChartRefSnapshotUnsafe_DeduplicatesRuntimeStateKeys()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2287,6 +2376,16 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [addedTargets, "test"]);
+    }
+
+    private static void InvokeApplyLibraryFileScanStorageMutation(
+        BMSLibrary library,
+        SongTableFileCheckResult result,
+        string reason)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryFileScanStorageMutation", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [result, reason]);
     }
 
     private static ChartInfoInlineBuildResult InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
