@@ -312,6 +312,44 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateSnapshotForDirectChildDirectories_UsesUpdatedDirectoryIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldDirectory = Path.Combine("C:\\Installed", "Old");
+        string newDirectory = Path.Combine("C:\\Installed", "New");
+        string oldPath = Path.Combine(oldDirectory, "chart.bms");
+        string newPath = Path.Combine(newDirectory, "chart.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
+        state.CreateLibraryChartRefIndexSnapshot();
+        bmsFile.path = newPath;
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+
+        List<ChartFile> oldSnapshot = state.CreateSnapshotForDirectChildDirectories(
+            [oldDirectory],
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+        List<ChartFile> newSnapshot = state.CreateSnapshotForDirectChildDirectories(
+            [newDirectory],
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false);
+
+        Assert.AreEqual(0, oldSnapshot.Count);
+        Assert.AreEqual(1, newSnapshot.Count);
+        Assert.AreSame(bmsFile, newSnapshot[0].GetBmsStorageOwner());
+        Assert.AreEqual(newPath, newSnapshot[0].Path);
+    }
+
+    [TestMethod]
     public void CreateSnapshotForSubtreeDirectory_UsesOwnedRefIndexAndCurrentOwnerPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();

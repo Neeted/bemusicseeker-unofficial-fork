@@ -269,6 +269,30 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         return refs;
     }
 
+    internal List<LibraryChartRef> GetDirectChartRefsInRealPaths(IEnumerable<string> folderPaths)
+    {
+        var refs = new List<LibraryChartRef>();
+        var addedRefs = new HashSet<LibraryChartRef>();
+        foreach (string folderPath in folderPaths ?? [])
+        {
+            string folderKey = CreateDirectoryKey(folderPath);
+            if (string.IsNullOrWhiteSpace(folderKey)
+                || !directRefsByDirectory.TryGetValue(folderKey, out List<LibraryChartRef> directRefs))
+            {
+                continue;
+            }
+
+            foreach (LibraryChartRef chart in directRefs)
+            {
+                if (chart != null && addedRefs.Add(chart))
+                {
+                    refs.Add(chart);
+                }
+            }
+        }
+        return refs;
+    }
+
     internal List<LibraryChartRef> GetChartRefsByPaths(IEnumerable<string> paths)
     {
         var refs = new List<LibraryChartRef>();

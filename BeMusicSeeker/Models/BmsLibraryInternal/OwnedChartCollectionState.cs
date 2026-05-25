@@ -51,17 +51,14 @@ internal sealed class OwnedChartCollectionState
         bool includeResourceReferences = true,
         bool includeScoreSnapshot = false)
     {
-        var directories = new HashSet<string>(
-            (directoryPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
-            System.StringComparer.OrdinalIgnoreCase);
-        if (directories.Count == 0)
+        List<LibraryChartRef> refs = CreateLibraryChartRefIndexSnapshot().GetDirectChartRefsInRealPaths(directoryPaths);
+        if (refs.Count == 0)
         {
             return [];
         }
 
-        return [.. charts
-            .Where(chart => directories.Contains(GetCurrentDirectory(chart)))
-            .Select(chart => ChartFileProjection.FromStorageOwner(
+        return [.. refs
+            .Select(chart => CreateStorageOwnerSnapshot(
                 chart,
                 includeWarningSnapshot: includeWarningSnapshot,
                 includeResourceReferences: includeResourceReferences,
