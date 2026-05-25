@@ -11250,7 +11250,7 @@ completeFileEnumerationOnce,
                             setMaintenanceInfo(
                                 estimatedInstallMaintenanceTargets,
                                 forceUpdate: true,
-                                resourceHealthIndexUpdateMode: canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates);
+                                resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates);
                         }
                         List<ChartFile> estimatedInstallInlineTargets = BuildEstimatedInstallMaintenanceTargets(
                             estimatedInstallMaintenanceTargets.Concat(

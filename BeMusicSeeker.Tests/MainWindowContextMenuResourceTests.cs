@@ -1732,7 +1732,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
         StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjectionsFromInstalledPackages(batchResult.DeferredInstalledPackages)");
         StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts)");
-        StringAssert.Contains(libraryCode, "canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates");
+        string estimatedInstallMethod = ExtractMethodBody(libraryCode, "public void InstallPendingPackagesToEstimatedDestinations");
+        Assert.IsFalse(estimatedInstallMethod.Contains("ResourceHealthIndexUpdateMode.FullOnUpdates"));
+        StringAssert.Contains(estimatedInstallMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates");
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
         StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
         StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");
