@@ -514,7 +514,7 @@ folder operation 向けの full `LibraryChartRef` snapshot helper は削除済�
 
 この分離により、実 path が `src` 配下の chart と、実 path は別だが install destination が `src` 配下を指す chart を同じ集合として扱わない。
 
-`CreateOwnedResourceMaintenanceCharts()` は owned collection の resource maintenance target view から作り、install destination overlay は混ぜない。pathless bmson は projection 前に除外し、resource references を必要とする full maintenance / resource health rebuild だけがこの full target を使う。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
+`CreateFullOwnedResourceMaintenanceTargetCharts(reason)` は owned collection の resource maintenance target view から作り、install destination overlay は混ぜない。pathless bmson は projection 前に除外し、resource references を必要とする full maintenance / resource health rebuild だけがこの full target を使う。full target を作る caller は `resource_maintenance_target build mode=full reason=... targetCount=... elapsedMs=...` を必ず残す。full maintenance と resource health index rebuild が同じ full target を必要とする場合は、同じ list を引き渡して再利用し、同一 operation 内で二重 materialize しない。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceTargetCharts(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
 
 playlist summary owned hash snapshot は owned chart collection の lightweight hash index から作る。playlist reference apply は参照 map の hash に一致する owned refs だけを current owner hash で抽出し、全 owned refs snapshot を毎回複製しない。playlist detail open 用の playlist library resolve index は、BMSLibrary が `PlaylistLibraryResolveIndexSnapshot` として md5 / sha256 -> representative `LibraryChartRef` を持つ snapshot を返し、ViewModel は `ResolveChartForPlaylistEntry(...)` 相当の model snapshot API を使う。代表選択は deterministic に path 昇順最小を採用し、md5 優先、sha256 fallback、pathless bmson は playlist detail の owned 判定対象から除外する。ViewModel 側には version / prewarm cache / readiness 表示だけを残し、md5 / sha256 辞書構築と representative selection は置かない。
 
@@ -834,7 +834,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 
 4. **Resource / maintenance target の dispatcher contract 化: 継続**
    - resource health warning index の currentness は dispatcher で dirty 化し、view は current `ResourceHealthIndexSnapshot` を正本にする。
-   - resource refs が必要な処理は `CreateOwnedResourceMaintenanceCharts()` または subset target builder を通す。通常 mutation は subset target、force rescan / explicit full rebuild / invalidated index rebuild だけ full target を作る。
+   - resource refs が必要な処理は `CreateFullOwnedResourceMaintenanceTargetCharts(reason)` または `CreateResourceMaintenanceTargetCharts(...)` を通す。通常 mutation は subset target、force rescan / explicit full rebuild / invalidated index rebuild だけ full target を作る。
    - `maintenance affected charts` は health value producer の結果として dispatcher に流す。collection mutation は target set の追加・削除・移動だけを扱い、maintenanceInfo / ignore state の生成責務を持たない。
    - `ChartFilesNeedResourceFix` / ignored view は current snapshot があれば full target を作らない方針を維持する。
 

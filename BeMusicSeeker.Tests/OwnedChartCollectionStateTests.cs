@@ -832,7 +832,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void CreateResourceMaintenanceSnapshot_FiltersPathlessBmsonBeforeProjection()
+    public void CreateFullResourceMaintenanceTargetSnapshot_FiltersPathlessBmsonBeforeProjection()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string targetPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
@@ -842,7 +842,7 @@ public sealed class OwnedChartCollectionStateTests
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong, pathlessBmson]);
         bmsonSong.path = targetPath;
 
-        List<ChartFile> snapshot = state.CreateResourceMaintenanceSnapshot();
+        List<ChartFile> snapshot = state.CreateFullResourceMaintenanceTargetSnapshot();
 
         Assert.AreEqual(2, snapshot.Count);
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), bmsFile)));

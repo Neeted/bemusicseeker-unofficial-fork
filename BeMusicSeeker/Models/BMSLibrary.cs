@@ -4396,7 +4396,7 @@ public class BMSLibrary : NotificationObject
                 stopwatchSetMode.Stop();
                 setModeMs = stopwatchSetMode.ElapsedMilliseconds;
                 var stopwatchSetHealth = Stopwatch.StartNew();
-                setOwnedMaintenanceInfo();
+                setOwnedMaintenanceInfo("initialize_set_maintenance");
                 stopwatchSetHealth.Stop();
                 setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
             }
@@ -5222,7 +5222,7 @@ completeFileEnumerationOnce,
         string reason,
         IEnumerable<ChartFile> charts)
     {
-        List<ChartFile> targetCharts = CreateResourceMaintenanceCharts(charts);
+        List<ChartFile> targetCharts = CreateResourceMaintenanceTargetCharts(charts);
         ChartStorageTargetSet storageTargets = ChartStorageTargetSet.FromCharts(targetCharts);
         var result = new ChartInfoInlineBuildResult();
         if (targetCharts.Count == 0)
@@ -5649,7 +5649,7 @@ reportProgress,
                     setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                     var stopwatchSetHealth = Stopwatch.StartNew();
-                    maintenanceResult = setOwnedMaintenanceInfo() ?? new MaintenanceWorkflowResult();
+                    maintenanceResult = setOwnedMaintenanceInfo("installable_maintenance_deferred") ?? new MaintenanceWorkflowResult();
                     stopwatchSetHealth.Stop();
                     setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
@@ -8073,7 +8073,7 @@ reportProgress,
         return irService.GetIRSongInfoCache(md5orlr2bmsid, seaarchAggressively, irClient, songInfoUrl);
     }
 
-    private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private static List<ChartFile> CreateResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         return ChartFileProjection.FromStorageRows(
             (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile),
@@ -8084,18 +8084,25 @@ reportProgress,
             includeScoreSnapshot: false);
     }
 
-    private static List<ChartFile> CreateResourceMaintenanceCharts(IEnumerable<ChartFile> charts)
+    private static List<ChartFile> CreateResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? []).Where(chart => chart != null)];
     }
 
-    private List<ChartFile> CreateOwnedResourceMaintenanceCharts()
+    private List<ChartFile> CreateFullOwnedResourceMaintenanceTargetCharts(string reason)
     {
+        var stopwatch = Stopwatch.StartNew();
         EnsureOwnedChartCollectionBuiltUnsafe();
+        List<ChartFile> targets;
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateResourceMaintenanceSnapshot();
+            targets = ownedChartCollection.CreateFullResourceMaintenanceTargetSnapshot();
         }
+        LogInstallPerformance("resource_maintenance_target build mode=full"
+            + " reason=" + (reason ?? "unknown")
+            + " targetCount=" + targets.Count
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        return targets;
     }
 
     private void InvalidateResourceHealthIndex(string reason)
@@ -8169,9 +8176,9 @@ reportProgress,
         }
     }
 
-    private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(string reason)
+    private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(string reason, List<ChartFile> fullOwnedTargets = null)
     {
-        List<ChartFile> targets = CreateOwnedResourceMaintenanceCharts();
+        List<ChartFile> targets = fullOwnedTargets ?? CreateFullOwnedResourceMaintenanceTargetCharts(reason);
         int version = Interlocked.Increment(ref resourceHealthIndexVersionSeed);
         var snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version);
         lock (resourceHealthIndexLock)
@@ -8207,8 +8214,8 @@ reportProgress,
         {
             return false;
         }
-        List<ChartFile> updatedTargetList = CreateResourceMaintenanceCharts(updatedTargets);
-        List<ChartFile> removedTargetList = CreateResourceMaintenanceCharts(removedTargets);
+        List<ChartFile> updatedTargetList = CreateResourceMaintenanceTargetCharts(updatedTargets);
+        List<ChartFile> removedTargetList = CreateResourceMaintenanceTargetCharts(removedTargets);
         if (updatedTargetList.Count == 0 && removedTargetList.Count == 0)
         {
             return false;
@@ -8279,9 +8286,10 @@ reportProgress,
         }
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<ChartFile> maintenanceTargetCharts = CreateResourceMaintenanceCharts(charts);
+            List<ChartFile> maintenanceTargetCharts = CreateResourceMaintenanceTargetCharts(charts);
             return setMaintenanceInfoCoreLocked(
                 maintenanceTargetCharts,
+                maintenanceTargetIsFullOwned: false,
                 forceUpdate,
                 progressReporter,
                 cancellationToken,
@@ -8290,6 +8298,7 @@ reportProgress,
     }
 
     private MaintenanceWorkflowResult setOwnedMaintenanceInfo(
+        string reason,
         bool forceUpdate = false,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
@@ -8298,7 +8307,8 @@ reportProgress,
         using (rwlockBMSFiles.GetReaderGuard())
         {
             return setMaintenanceInfoCoreLocked(
-                CreateOwnedResourceMaintenanceCharts(),
+                CreateFullOwnedResourceMaintenanceTargetCharts(reason),
+                maintenanceTargetIsFullOwned: true,
                 forceUpdate,
                 progressReporter,
                 cancellationToken,
@@ -8308,6 +8318,7 @@ reportProgress,
 
     private MaintenanceWorkflowResult setMaintenanceInfoCoreLocked(
         List<ChartFile> maintenanceTargetCharts,
+        bool maintenanceTargetIsFullOwned,
         bool forceUpdate,
         Action<MaintenanceWorkflowProgress> progressReporter,
         CancellationToken cancellationToken,
@@ -8358,7 +8369,9 @@ reportProgress,
         else
         {
             resourceHealthSnapshot = rebuildResourceHealthIndex
-                ? RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo")
+                ? RebuildResourceHealthIndexSnapshotLocked(
+                    "setMaintenanceInfo",
+                    maintenanceTargetIsFullOwned ? maintenanceTargetCharts : null)
                 : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
         }
         workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex && !resourceHealthIndexDeferred ? resourceHealthSnapshot.BuildMs : 0L;
@@ -8425,8 +8438,8 @@ reportProgress,
                 }
 
                 List<ChartFile> targets = useOwnedSnapshot
-                    ? CreateOwnedResourceMaintenanceCharts()
-                    : CreateResourceMaintenanceCharts(charts);
+                    ? CreateFullOwnedResourceMaintenanceTargetCharts("force_resource_health_filter")
+                    : CreateResourceMaintenanceTargetCharts(charts);
                 if (forceUpdate)
                 {
                     RescanResourceHealthCharts(targets);
@@ -8482,6 +8495,7 @@ reportProgress,
         CancellationToken cancellationToken = default)
     {
         MaintenanceWorkflowResult result = setOwnedMaintenanceInfo(
+            "manual_rescan_all_owned",
             forceUpdate: true,
             progressReporter: progressReporter,
             cancellationToken: cancellationToken);
@@ -8498,7 +8512,7 @@ reportProgress,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<ChartFile> targets = CreateResourceMaintenanceCharts(charts);
+                List<ChartFile> targets = CreateResourceMaintenanceTargetCharts(charts);
                 if (targets.Count == 0)
                 {
                     return;
@@ -8535,7 +8549,7 @@ reportProgress,
             {
                 if (forceUpdate)
                 {
-                    setMaintenanceInfo(CreateResourceMaintenanceCharts(bmsFiles, null), forceUpdate);
+                    setMaintenanceInfo(CreateResourceMaintenanceTargetCharts(bmsFiles, null), forceUpdate);
                 }
                 return maintenanceService.GetGarbledFiles(bmsFiles, isInFixedList);
             }
@@ -9305,7 +9319,7 @@ reportProgress,
 
         public void AddInstalledCharts(IEnumerable<ChartFile> addedCharts, string destinationDirectory)
         {
-            ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(CreateResourceMaintenanceCharts(addedCharts));
+            ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(CreateResourceMaintenanceTargetCharts(addedCharts));
             AddedBmsFiles.AddRange(addedTargets.BmsFiles);
             AddedBmsonSongs.AddRange(addedTargets.BmsonSongs);
             AddAffectedDirectory(destinationDirectory);
@@ -9336,7 +9350,7 @@ reportProgress,
 
         void UpsertInstalledChartRows(PackageInstallExecutionResult installResult)
         {
-            ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(CreateResourceMaintenanceCharts(installResult?.AddedCharts));
+            ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts));
             if (addedTargets.BmsFiles.Count > 0)
             {
                 dbGateway.UpsertSongs(addedTargets.BmsFiles);
@@ -9349,7 +9363,7 @@ reportProgress,
 
         void UpdateInstalledChartMaintenance(PackageInstallExecutionResult installResult)
         {
-            List<ChartFile> addedCharts = CreateResourceMaintenanceCharts(installResult?.AddedCharts);
+            List<ChartFile> addedCharts = CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts);
             if (deferredMaintenanceCharts != null)
             {
                 deferredMaintenanceCharts.AddRange(addedCharts);
@@ -9363,7 +9377,7 @@ reportProgress,
 
         void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
         {
-            List<ChartFile> addedCharts = CreateResourceMaintenanceCharts(installResult?.AddedCharts);
+            List<ChartFile> addedCharts = CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts);
             ChartStorageTargetSet addedTargets = ChartStorageTargetSet.FromCharts(addedCharts);
             addedChartsForChartInfo.AddRange(addedCharts);
             if (estimatedInstallBatchApplyContext != null)
@@ -9450,7 +9464,7 @@ reportProgress,
     private static List<ChartFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<ChartFile> charts)
     {
         var targetsByKey = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile target in CreateResourceMaintenanceCharts(charts))
+        foreach (ChartFile target in CreateResourceMaintenanceTargetCharts(charts))
         {
             string key = target.Kind + "|" + target.Path;
             if (!string.IsNullOrWhiteSpace(target.Path))
@@ -11770,7 +11784,7 @@ reportProgress,
                         // that actually needs the resource-health projection.
                         var maintenanceStopwatch = Stopwatch.StartNew();
                         setMaintenanceInfo(
-                            CreateResourceMaintenanceCharts(maintenanceTargets, maintenanceBmsonSongs),
+                            CreateResourceMaintenanceTargetCharts(maintenanceTargets, maintenanceBmsonSongs),
                             forceUpdate: true,
                             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates);
                         LogInstallPerformance("duplicate_merge_model maintenance_done op=" + operationId + " elapsedMs=" + maintenanceStopwatch.ElapsedMilliseconds);
@@ -11856,7 +11870,7 @@ reportProgress,
                 {
                     RemoveLibraryCharts(result.ChartsToRemove);
                 }
-                List<ChartFile> maintenanceTargets = CreateResourceMaintenanceCharts(result.MaintenanceCharts);
+                List<ChartFile> maintenanceTargets = CreateResourceMaintenanceTargetCharts(result.MaintenanceCharts);
                 if (maintenanceTargets.Count > 0)
                 {
                     setMaintenanceInfo(maintenanceTargets, forceUpdate: true);

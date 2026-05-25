@@ -147,7 +147,7 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
-    internal List<ChartFile> CreateResourceMaintenanceSnapshot()
+    internal List<ChartFile> CreateFullResourceMaintenanceTargetSnapshot()
     {
         return [.. charts
             .Where(IsResourceMaintenanceTarget)
