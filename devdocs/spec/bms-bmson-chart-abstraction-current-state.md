@@ -812,7 +812,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - `OwnedChartCollectionMutationResult` と `DispatchOwnedChartCollectionMutation(...)` を導入済み。
    - `ApplyLibraryMutationDelta(...)` は storage row mutation、owned collection mutation、派生 index suppression、dispatcher dispatch の順に整理済み。
    - `ApplyInstalledChartStorageTargets(...)` は追加 chart mutation result を dispatcher に渡す。
-   - `ApplyLibraryFileScanDiff(...)` は file scan result を file-scan 専用 storage mutation result に変換し、`BMSFiles` / `BmsonSongs` setter full invalidation ではなく dispatcher に渡す。追加 / upsert rows は `ChartStorageTargetSet`、削除 rows は current / next owner identity 差分と deleted path から `UnregisteredCharts` に載せる。resource-only scan は resource health invalidation と warning / maintenance presentation effect を dispatcher へ載せる。
+   - `ApplyLibraryFileScanDiff(...)` は file scan result を file-scan 専用 storage mutation result に変換し、`BMSFiles` / `BmsonSongs` setter full invalidation ではなく dispatcher に渡す。追加 / upsert rows は `ChartStorageTargetSet`、削除 rows は current / next owner identity 差分と deleted path から `UnregisteredCharts` に載せる。譜面差分がない file scan は source mutation を出さない。current resource health index がある場合だけ、resource index replacement による resource health invalidation と warning / maintenance presentation effect を dispatcher へ載せる。
    - duplicate merge の source unregister と final upsert は dispatcher 経由になり、merge 専用の installed lookup 直接 dispatch は持たない。
    - library delete の unregister も `LibraryRemovalResult.MutationDelta.ChartsToUnregister` に載せ、削除後の BMS / bmson storage row removal と owned collection / installed lookup 同期を `ApplyLibraryMutationDelta(...)` に通す。
    - `BmsLibraryStateApplier` は storage row / package state の適用だけを行い、installed lookup / parent folder / duplicate / library charts changed の派生 index 更新は caller callback ではなく dispatcher が行う。
@@ -826,7 +826,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - parent folder cache は dispatcher から invalidate / lazy rebuild する。現段階では affected bucket 更新ではなく dirty 化でよい。
    - playlist summary owned hash は dispatcher から invalidate し、setter callback 由来の二重 invalidation を抑制する。
    - playlist detail resolve index は `OwnedChartCollectionVersion` によって ViewModel cache を invalidate し、`BMSFiles` / `BmsonSongs` 通知より先に version を publish する。
-   - resource health index は collection add/remove/path change と file scan resource index replacement で dispatcher から dirty 化する。file scan の resource-only change は source mutationがなくても warning / maintenance presentation effect を publish する。maintenance producer の subset delta は maintenance domain に残す。
+   - resource health index は collection add/remove/path change と file scan resource index replacement で dispatcher から dirty 化する。file scan の resource-only replacement は、current resource health index がある場合だけ source mutation なしの warning / maintenance presentation effect を publish する。resource health cache が未構築または既に dirty の場合は、file scan だけで refresh notification を増やさない。maintenance producer の subset delta は maintenance domain に残す。
 
 3. **Path/hash/overlay 系隣接 index の add/remove/move/upsert/hash-change contract 化: 完了扱い、delta 精度は継続改善**
    - installed lookup state に同居する primary hash -> path lookup は、repair candidate / resource-only merge display が直接読む index として使う。

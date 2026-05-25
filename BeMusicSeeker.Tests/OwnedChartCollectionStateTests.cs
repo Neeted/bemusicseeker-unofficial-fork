@@ -1858,6 +1858,93 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyLibraryFileScanStorageMutation_NoDiffAndNoCurrentResourceHealthSkipsRefreshNotification()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+            var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
+            InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int bmsFilesChanged = 0;
+            int bmsonSongsChanged = 0;
+            int normalLibraryRefreshNotifications = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BMSFiles")
+                {
+                    bmsFilesChanged++;
+                }
+                if (args.PropertyName == "BmsonSongs")
+                {
+                    bmsonSongsChanged++;
+                }
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    normalLibraryRefreshNotifications++;
+                }
+            };
+            var result = new SongTableFileCheckResult();
+            result.NextFiles.Add(bmsFile);
+            result.NextBmsonSongs.Add(bmsonSong);
+
+            InvokeApplyLibraryFileScanStorageMutation(library, result, "no_diff");
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+
+            Assert.IsFalse(batch.HasRefreshNotification);
+            Assert.AreEqual(0, bmsFilesChanged);
+            Assert.AreEqual(0, bmsonSongsChanged);
+            Assert.AreEqual(0, normalLibraryRefreshNotifications);
+            Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
+            Assert.AreEqual(2, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryFileScanStorageMutation_NoDiffInvalidatesCurrentResourceHealthOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile)]);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int bmsFilesChanged = 0;
+            int normalLibraryRefreshNotifications = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BMSFiles")
+                {
+                    bmsFilesChanged++;
+                }
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    normalLibraryRefreshNotifications++;
+                }
+            };
+            var result = new SongTableFileCheckResult();
+            result.NextFiles.Add(bmsFile);
+
+            InvokeApplyLibraryFileScanStorageMutation(library, result, "resource_rescan");
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+
+            Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
+            Assert.AreEqual(0, bmsFilesChanged);
+            Assert.AreEqual(1, normalLibraryRefreshNotifications);
+            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+        });
+    }
+
+    [TestMethod]
     public void CreateInstallDestinationOverlayChartRefSnapshotUnsafe_DeduplicatesRuntimeStateKeys()
     {
         TestResourceInitializer.EnsureJapaneseResources();

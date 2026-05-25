@@ -7402,6 +7402,8 @@ completeFileEnumerationOnce,
             fileCheckResult.NextFiles,
             fileCheckResult.NextBmsonSongs));
         storageMutation.AddAddedTargets(ChartStorageTargetSet.FromRows(fileCheckResult.AddedFiles, fileCheckResult.AddedBmsonSongs));
+        bool resourceHealthShouldInvalidate = fileCheckResult.HasDbDiff || IsResourceHealthIndexCurrent();
+        bool fileScanPresentationChanged = fileCheckResult.HasDbDiff || resourceHealthShouldInvalidate;
 
         var result = new OwnedChartCollectionMutationResult
         {
@@ -7414,9 +7416,9 @@ completeFileEnumerationOnce,
             DuplicateCacheInvalidated = fileCheckResult.HasDbDiff,
             PlaylistSummaryOwnedHashInvalidated = storageMutation.HasHashSetChanges,
             OwnedCollectionChanged = storageMutation.HasChanges,
-            ResourceHealthIndexInvalidated = true,
-            WarningPresentationChanged = true,
-            MaintenancePresentationChanged = true,
+            ResourceHealthIndexInvalidated = resourceHealthShouldInvalidate,
+            WarningPresentationChanged = fileScanPresentationChanged,
+            MaintenancePresentationChanged = fileScanPresentationChanged,
             BmsFilesPropertyChanged = HasBmsStorageRowCollectionChange(storageMutation),
             BmsonSongsPropertyChanged = HasBmsonStorageRowCollectionChange(storageMutation)
         };
