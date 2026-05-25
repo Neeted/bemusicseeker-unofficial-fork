@@ -330,7 +330,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterCharts_RemovesBmsSongsAndPrunesInstalledPackages()
+    public void ApplyLibraryMutationDelta_UnregisterRemovesBmsSongsAndPrunesInstalledPackages()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -367,7 +367,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]);
+            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreSame(keptFile, libraryFiles.Single());
@@ -385,7 +385,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterCharts_RemovesBmsLibraryRowsByPathWhenReferenceDiffers()
+    public void ApplyLibraryMutationDelta_UnregisterRemovesBmsLibraryRowsByPathWhenReferenceDiffers()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -423,7 +423,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFileReference)]);
+            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFileReference)]));
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreSame(keptFile, libraryFiles.Single());
@@ -437,7 +437,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterCharts_DoesNotMaterializeUnmatchedAdapterlessBmsonInstalledPackageEntry()
+    public void ApplyLibraryMutationDelta_UnregisterDoesNotMaterializeUnmatchedAdapterlessBmsonInstalledPackageEntry()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -467,7 +467,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]);
+            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
 
             Assert.AreEqual(0, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
@@ -479,7 +479,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterCharts_RemovesBmsonSongsFromCollectionAndDatabase()
+    public void ApplyLibraryMutationDelta_UnregisterRemovesBmsonSongsFromCollectionAndDatabase()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -507,7 +507,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]);
+            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());
@@ -523,7 +523,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterCharts_RemovesBmsonRowsFromInstalledPackages()
+    public void ApplyLibraryMutationDelta_UnregisterRemovesBmsonRowsFromInstalledPackages()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -559,7 +559,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]);
+            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());
@@ -572,7 +572,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void UnregisterCharts_RemovesAdapterlessBmsonInstalledPackageEntryWithoutMaterializing()
+    public void ApplyLibraryMutationDelta_UnregisterRemovesAdapterlessBmsonInstalledPackageEntryWithoutMaterializing()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -606,7 +606,7 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.UnregisterCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]);
+            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
 
             Assert.AreEqual(1, bmsonSongs.Count);
             Assert.AreSame(keptSong, bmsonSongs.Single());
@@ -711,6 +711,18 @@ public sealed class BmsLibraryStateApplierTests
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
         return new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>([.. (packages ?? [])]), Dispatcher.CurrentDispatcher);
+    }
+
+    private static LibraryMutationDelta CreateUnregisterDelta(IEnumerable<ChartFile> charts)
+    {
+        var delta = new LibraryMutationDelta
+        {
+            InvalidateInstalledDirectoryIndex = true,
+            InvalidateParentFolderCache = true,
+            ClearDuplicatedCache = true
+        };
+        delta.ChartsToUnregister.AddRange((charts ?? []).Where(chart => chart != null));
+        return delta;
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

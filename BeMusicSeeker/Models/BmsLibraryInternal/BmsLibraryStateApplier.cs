@@ -136,7 +136,7 @@ internal sealed class BmsLibraryStateApplier(
 
         if (delta.ChartsToUnregister.Count > 0)
         {
-            UnregisterCharts(delta.ChartsToUnregister, deferDerivedIndexInvalidation);
+            UnregisterCharts(delta.ChartsToUnregister);
         }
 
         if (delta.InvalidateInstalledDirectoryIndex)
@@ -165,12 +165,7 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    public void UnregisterCharts(IEnumerable<ChartFile> charts)
-    {
-        UnregisterCharts(charts, deferDerivedIndexInvalidation: false);
-    }
-
-    private void UnregisterCharts(IEnumerable<ChartFile> charts, bool deferDerivedIndexInvalidation)
+    private void UnregisterCharts(IEnumerable<ChartFile> charts)
     {
         if (charts == null)
         {
@@ -198,7 +193,7 @@ internal sealed class BmsLibraryStateApplier(
             .Distinct()];
         if (bmsonSongsToUnregister.Count > 0)
         {
-            UnregisterBmsonSongs(bmsonSongsToUnregister, deferDerivedIndexInvalidation);
+            UnregisterBmsonSongs(bmsonSongsToUnregister);
         }
     }
 
@@ -252,7 +247,7 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    private void UnregisterBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs, bool deferDerivedIndexInvalidation)
+    private void UnregisterBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         if (bmsonSongs == null)
         {
@@ -297,13 +292,6 @@ internal sealed class BmsLibraryStateApplier(
         if (installedPackagesChanged)
         {
             raiseInstalledPackagesChanged();
-        }
-
-        invalidateInstalledDirectoryIndex();
-        if (!deferDerivedIndexInvalidation)
-        {
-            invalidateParentFolderCache();
-            clearDuplicatedCache();
         }
     }
 

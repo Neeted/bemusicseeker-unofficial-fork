@@ -272,6 +272,14 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return;
         }
         result.RemovedCharts.Add(chart);
+        ChartFile removedChart = ToChartFile(chart);
+        if (removedChart != null)
+        {
+            result.MutationDelta.ChartsToUnregister.Add(removedChart);
+            result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
+            result.MutationDelta.InvalidateParentFolderCache = true;
+            result.MutationDelta.ClearDuplicatedCache = true;
+        }
     }
 
     public LibraryMutationDelta BuildFolderMoveDelta(

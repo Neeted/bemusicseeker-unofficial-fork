@@ -6,6 +6,8 @@ using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -1017,6 +1019,45 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void RemoveLibraryCharts_RoutesUnregisterThroughOwnedMutationAndInstalledLookupDelta()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "DeleteTarget");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService())
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [],
+                DuplicateChartGroups = []
+            };
+            List<ChartFile> initialSnapshot = InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false);
+            Assert.AreEqual(1, initialSnapshot.Count);
+            object ownedState = GetOwnedChartCollectionState(library);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(bmsFile.hash));
+
+            library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(bmsFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: [chartDirectory]);
+
+            Assert.IsFalse(File.Exists(chartPath));
+            Assert.AreEqual(0, library.BMSFiles.Count);
+            Assert.IsNull(library.DuplicateChartGroups);
+            Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
+            Assert.AreSame(ownedState, GetOwnedChartCollectionState(library));
+            Assert.AreEqual(0, InvokeCreateOwnedChartSnapshot(library, includeResourceReferences: false).Count);
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(bmsFile.hash));
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_UnregisterInvalidatesCurrentResourceHealthIndex()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1527,6 +1568,13 @@ public sealed class OwnedChartCollectionStateTests
         return (InstallDestinationOverlayChartRefSnapshot)methodInfo.Invoke(library, []);
     }
 
+    private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartLookupSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        return (InstalledChartLookupIndexSnapshot)methodInfo.Invoke(library, []);
+    }
+
     private static ChartPackage InvokeCreateInstalledDisplayPackageForResourceOnlyMerge(
         BMSLibrary library,
         ChartPackage originalPackage,
@@ -1674,6 +1722,83 @@ public sealed class OwnedChartCollectionStateTests
         public void SetSha256(string? value)
         {
             sha256 = value;
+        }
+    }
+
+    private sealed class TestFileMutationService : IFileMutationService
+    {
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                Directory.CreateDirectory(directoryPath);
+            }
+        }
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectory))
+            {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+            if (File.Exists(destinationPath))
+            {
+                if (!overwrite)
+                {
+                    throw new IOException("Destination file already exists.");
+                }
+                File.Delete(destinationPath);
+            }
+            File.Move(sourcePath, destinationPath);
+        }
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            string destinationParent = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationParent))
+            {
+                Directory.CreateDirectory(destinationParent);
+            }
+            if (Directory.Exists(destinationPath))
+            {
+                if (!overwrite)
+                {
+                    throw new IOException("Destination directory already exists.");
+                }
+                Directory.Delete(destinationPath, recursive: true);
+            }
+            Directory.Move(sourcePath, destinationPath);
+        }
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive);
+            }
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            DeleteDirectoryDirect(directoryPath, recursive: true, options);
+        }
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
+        {
         }
     }
 }

@@ -811,6 +811,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - `ApplyLibraryMutationDelta(...)` は storage row mutation、owned collection mutation、派生 index suppression、dispatcher dispatch の順に整理済み。
    - `ApplyInstalledChartStorageTargets(...)` は追加 chart mutation result を dispatcher に渡す。
    - duplicate merge の source unregister と final upsert は dispatcher 経由になり、merge 専用の installed lookup 直接 dispatch は持たない。
+   - library delete の unregister も `LibraryRemovalResult.MutationDelta.ChartsToUnregister` に載せ、削除後の BMS / bmson storage row removal と owned collection / installed lookup 同期を `ApplyLibraryMutationDelta(...)` に通す。
    - internal mutation では setter 由来の parent folder / duplicate / playlist summary / resource health / installed lookup の二重 invalidation を抑制し、dispatcher 側で同期または無効化する。
    - external `BMSFiles` / `BmsonSongs` replacement は full invalidate 境界として残す。
    - 残タスクは、result payload を added / removed / moved / hash changed / overlay changed / maintenance affected に分け、後続 index が旧 delta や caller 独自判定を読まずに済む形へ近づけること。

@@ -12206,21 +12206,6 @@ reportProgress,
                             dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    List<BMSFile> removedBmsFiles = [.. result.RemovedCharts
-                        .Select(chart => chart?.GetBmsStorageOwner())
-                        .Where(file => file != null)];
-                    List<LR2SongDBExtended.bmson_song> removedBmsonSongs = [.. result.RemovedCharts
-                        .Select(chart => chart?.GetBmsonStorageOwner())
-                        .Where(song => song != null)
-                        .Distinct()];
-                    if (removedBmsFiles.Count > 0)
-                    {
-                        unregisterBMSFiles(removedBmsFiles);
-                    }
-                    if (removedBmsonSongs.Count > 0)
-                    {
-                        unregisterBmsonSongs(removedBmsonSongs);
-                    }
                 }
             }
         }
@@ -12362,19 +12347,6 @@ reportProgress,
                 latestInstallDestinationChangedCharts = [];
             }
         }
-    }
-
-    /// <summary>
-    /// BMS ファイル群を song.db から登録解除（レコード削除）します。
-    /// </summary>
-    private void unregisterBMSFiles(List<BMSFile> bmsFiles)
-    {
-        stateApplier.UnregisterCharts(ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFiles));
-    }
-
-    private void unregisterBmsonSongs(List<LR2SongDBExtended.bmson_song> bmsonSongs)
-    {
-        stateApplier.UnregisterCharts(ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongs));
     }
 
     /// <summary>
