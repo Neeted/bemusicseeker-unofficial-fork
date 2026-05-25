@@ -139,7 +139,7 @@ Background pending estimate と手動の複数 package 推定は、batch 内の 
 
 group ごとの処理では、ファイル移動、`song.db` の譜面 upsert、install row 削除対象の収集、インストール済み package への登録対象収集を行います。`song.db` の譜面 upsert は group ごとに維持します。ここを batch 末尾へ寄せると、移動済みファイルが DB に未反映のままクラッシュする窓が広がるためです。
 
-一方、library/cache/index は batch 末尾でまとめて反映します。具体的には、group ごとに追加 chart、追加 bmson、変更 directory を `EstimatedInstallBatchApplyContext` に蓄積し、全 group 完了後に `BMSFiles` / `BmsonSongs` の置換、`directoryResourceLookupCache` の追加 directory scan、playlist library index invalidation/prewarm を最大 1 回に寄せます。これにより、複数 group install で `playlist_library_index_prewarm cancelled/debounced` や `reverse_lookup_incremental_update` が group 数分発生しないようにします。
+一方、library/cache/index は batch 末尾でまとめて反映します。具体的には、group ごとに追加 chart と変更 directory を `EstimatedInstallBatchApplyContext` に蓄積し、全 group 完了後に `BMSFiles` / `BmsonSongs` の置換、`directoryResourceLookupCache` の追加 directory scan、playlist library index invalidation/prewarm を最大 1 回に寄せます。追加 bmson は追加 chart のうち `Kind=Bmson` のものとして扱い、batch 後の inline chart_info 対象も `AddedCharts` から再投影します。これにより、複数 group install で `playlist_library_index_prewarm cancelled/debounced` や `reverse_lookup_incremental_update` が group 数分発生しないようにします。
 
 maintenance / chart_info inline 更新も batch 末尾です。maintenance 対象は、追加された BMS / bmson chart に加えて、resource file が移動された destination directory 内の既存 installed chart です。chart も resource も移動しない cleanup-only 成功では maintenance を行いません。
 

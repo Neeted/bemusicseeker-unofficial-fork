@@ -10418,37 +10418,27 @@ completeFileEnumerationOnce,
         return [.. targetsByKey.Values];
     }
 
-    private List<ChartFile> CreateAddedBmsonChartProjectionsFromInstalledPackages(IEnumerable<ChartPackage> installedPackages)
+    private static List<ChartFile> CreateAddedBmsonChartProjections(IEnumerable<ChartFile> addedCharts)
     {
-        List<string> addedBmsonPaths = [.. (installedPackages ?? [])
-            .Where(package => package != null)
-            .SelectMany(package => package.ChartEntries)
-            .Select(entry => entry?.Chart)
-            .Where(chart => chart?.Kind == ChartFileKind.Bmson)
-            .Select(chart => chart.Path)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (addedBmsonPaths.Count == 0)
+        var chartsByPath = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in addedCharts ?? [])
         {
-            return [];
-        }
-        var bmsonByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? [])
-        {
-            if (song != null && !string.IsNullOrWhiteSpace(song.path))
+            if (chart?.Kind != ChartFileKind.Bmson)
             {
-                bmsonByPath[song.path] = song;
+                continue;
             }
-        }
-        List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [];
-        foreach (string path in addedBmsonPaths)
-        {
-            if (bmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song song))
+            ChartFile projected = ChartFileProjection.FromStorageOwner(
+                chart,
+                includeWarningSnapshot: false,
+                includeResourceReferences: true,
+                includeScoreSnapshot: false);
+            if (projected?.Kind != ChartFileKind.Bmson || string.IsNullOrWhiteSpace(projected.Path))
             {
-                addedBmsonSongs.Add(song);
+                continue;
             }
+            chartsByPath[projected.Path] = projected;
         }
-        return ChartFileProjection.FromBmsonSongs(addedBmsonSongs, includeWarningSnapshot: false, requirePath: true);
+        return [.. chartsByPath.Values];
     }
 
     /// <summary>
@@ -11254,7 +11244,7 @@ completeFileEnumerationOnce,
                         }
                         List<ChartFile> estimatedInstallInlineTargets = BuildEstimatedInstallMaintenanceTargets(
                             estimatedInstallMaintenanceTargets.Concat(
-                                CreateAddedBmsonChartProjectionsFromInstalledPackages(batchResult.DeferredInstalledPackages)));
+                                CreateAddedBmsonChartProjections(batchApplyContext.AddedCharts)));
                         BuildAndPersistInlineChartInfoForInstalledCharts(
                             "install_package_estimated_inline",
                             estimatedInstallInlineTargets);

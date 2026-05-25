@@ -187,7 +187,7 @@ duplicate warning の永続的な正本はまだ BMS 側に寄っている。BMS
 
 `ChartFileProjection` は path / hash / title / artist / level / mode に加えて、表示に必要な subtitle / warning snapshot / install destination 表示値も集約する。chart_info だけは owner projection で勝手に正本化せず、read model 側の provider / explicit metadata として重ねる。UI row / operation target からは compatibility adapter surface を削除済みであり、表示 getter は adapter API ではなく `ChartFile` / `ChartFileTransientState` を読む。BMS owner-backed row でも transient overlay を通せるため、loose chart の repair / manual install destination state を BMS storage owner へ戻さなくても表示へ反映できる。
 
-BMS / bmson storage row から warning なしの installed / standard snapshot を作る境界も `ChartFileProjection.FromStorageRows(...)` / `FromBmsFiles(...)` / `FromBmsonSongs(...)` に集約する。current installed source は owned chart collection を優先し、任意 subset や追加 bmson だけのように collection view としてまだ表現できない入力だけ storage row projection を使う。Model / ViewModel 側は BMS row list と bmson row list を直接結合する実装を増やさず、storage owner から chart domain model へ投影する責務を `ChartFileProjection` に閉じる。
+BMS / bmson storage row から warning なしの installed / standard snapshot を作る境界も `ChartFileProjection.FromStorageRows(...)` / `FromBmsFiles(...)` / `FromBmsonSongs(...)` に集約する。current installed source は owned chart collection を優先し、任意 subset のように collection view としてまだ表現できない入力だけ storage row projection を使う。追加 bmson だけのように直近 mutation の `AddedCharts` で対象が既に分かるものは、その bounded chart input から再投影し、`BmsonSongs` 全体を scan しない。Model / ViewModel 側は BMS row list と bmson row list を直接結合する実装を増やさず、storage owner から chart domain model へ投影する責務を `ChartFileProjection` に閉じる。
 
 playlist row では `ChartFile.Kind` を chart 種別の正本にし、BMS / bmson の storage owner が必要な場合だけ `GetBmsStorageOwner()` / `GetBmsonStorageOwner()` で降りる。どちらの storage owner もない playlist entry は、現状 `ChartFileKind.Bms` の missing row として扱われる。細かい実装メモとして、`BMSTableEntry(ChartFile)` の bmson playlist identity は owner 有無ではなく `ChartFile.Kind == Bmson` で決める。これは metadata-only / ownerless bmson projection でも sha256 playlist identity を維持し、BMS 用 `org_md5` を混ぜないためである。
 
@@ -529,7 +529,7 @@ installed chart lookup は owned chart collection から path / md5 / sha256 / p
 owned chart collection は current installed source の全体集合を表すため、次の入力は全体 snapshot へ単純置換しない。
 
 - 任意 subset: UI 選択、warning ignore、resource repair、文字化け再判定、merge / repair 後の対象 directory など、呼び出し側が対象 chart を絞っている場面。`ChartFile` subset なら null 除外と必要な projection overlay を行い、storage row subset なら BMS / bmson の kind 条件と path 条件を保って投影する。
-- 追加 bmson だけ: 推定インストール batch 後、deferred installed package から追加 bmson song だけを inline chart info 対象へ足す場面。これは直近 batch の追加分を補うための入力であり、owned collection 全体から再抽出すると対象範囲が広がる。
+- 追加 bmson だけ: 推定インストール batch 後、`EstimatedInstallBatchApplyContext.AddedCharts` から追加 bmson chart だけを inline chart info 対象へ足す場面。これは直近 batch の追加分を補うための bounded input projection であり、owned collection 全体や `BmsonSongs` 全体から再抽出すると対象範囲と走査量が広がる。
 - resource maintenance 用 target: `maintenance` / resource health 更新に必要な resource references を持つ target。全件 index build は owned snapshot を使えるが、install 後、merge 後、repair 後、delta update では対象 subset だけを resource references 付きで作る。
 
 これらを collection 化する場合は、全件 `CreateSnapshot(...)` の後に caller 側で filter するのではなく、owned collection 側に filtered view / target builder を用意する。target が storage row 由来の場合は、その呼び出しが BMS-only / bmson-only / DB 境界なのか、chart-common subset なのかを先に名前で分ける。
@@ -882,7 +882,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - chart-common lookup / snapshot / refs は owned collection へ寄せている。残る direct enumeration は、BMS-only / bmson-only / DB load-save / input rows projection / ViewModel read model boundary として分類できるものに限定する。
    - manual install destination validation の standalone 所持判定は owned collection の known chart view を使う。owner-backed match、canonical path match、ambiguous same-kind path fallback は owned collection 側の owner/path lookup で扱い、caller が BMS / bmson storage rows を直接結合しない。
    - 残す direct enumeration は BMS-only / bmson-only / DB load-save / input rows projection / ViewModel read model boundary として名前で分かるようにする。
-   - 追加 bmson だけ、入力 rows だけ、BMS-only repair だけのように明確に対象が限定された経路は、一時 projection として残してよい。
+   - 追加 bmson だけ、入力 rows だけ、BMS-only repair だけのように明確に対象が限定された経路は、一時 projection として残してよい。推定インストール batch の追加 bmson は `AddedCharts` から作る bounded projection とし、deferred package や `BmsonSongs` 全体を scan しない。
 
 ### 先に固める仕様 / 設計判断
 

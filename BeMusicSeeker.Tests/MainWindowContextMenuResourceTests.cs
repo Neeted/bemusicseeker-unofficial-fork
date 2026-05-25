@@ -1730,7 +1730,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "CreateBmsResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles)");
         StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
-        StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjectionsFromInstalledPackages(batchResult.DeferredInstalledPackages)");
+        Assert.IsFalse(libraryCode.Contains("CreateAddedBmsonChartProjectionsFromInstalledPackages"));
+        Assert.IsFalse(libraryCode.Contains("foreach (LR2SongDBExtended.bmson_song song in BmsonSongs"));
+        StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjections(batchApplyContext.AddedCharts)");
         StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts)");
         string estimatedInstallMethod = ExtractMethodBody(libraryCode, "public void InstallPendingPackagesToEstimatedDestinations");
         Assert.IsFalse(estimatedInstallMethod.Contains("ResourceHealthIndexUpdateMode.FullOnUpdates"));
