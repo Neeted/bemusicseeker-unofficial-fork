@@ -21,28 +21,6 @@ internal sealed class BmsLibraryDuplicateService
     }
 
     /// <summary>
-    /// Storage owner から重複判定用 snapshot を作成します。
-    /// 重複判定は path/hash/directory だけで開始できるため、全件の <see cref="ChartFile"/> 投影は行いません。
-    /// </summary>
-    /// <param name="bmsFiles">BMS storage row。</param>
-    /// <param name="bmsonSongs">bmson storage row。</param>
-    /// <returns>重複判定用 snapshot。</returns>
-    public List<DuplicateChartRow> BuildSnapshot(
-        IEnumerable<BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
-    {
-        return
-        [
-            .. (bmsFiles ?? [])
-                .Select(DuplicateChartRow.CreateFromBmsFile)
-                .Where(row => row != null),
-            .. (bmsonSongs ?? [])
-                .Select(DuplicateChartRow.CreateFromBmsonSong)
-                .Where(row => row != null),
-        ];
-    }
-
-    /// <summary>
     /// BMS storage row に残っている重複 warning だけを消します。
     /// bmson duplicate warning は duplicate group の <see cref="ChartFile"/> projection にだけ持つため、ここでは永続状態を消しません。
     /// </summary>
@@ -51,6 +29,16 @@ internal sealed class BmsLibraryDuplicateService
     {
         ClearDuplicateState((charts ?? [])
             .Select(chart => chart?.GetBmsStorageOwner()));
+    }
+
+    /// <summary>
+    /// 重複判定用 snapshot に含まれる BMS storage row の重複 warning だけを消します。
+    /// </summary>
+    /// <param name="snapshotRows">重複判定用 snapshot。</param>
+    public void ClearDuplicateState(IEnumerable<DuplicateChartRow> snapshotRows)
+    {
+        ClearDuplicateState((snapshotRows ?? [])
+            .Select(row => row?.BmsFile));
     }
 
     /// <summary>

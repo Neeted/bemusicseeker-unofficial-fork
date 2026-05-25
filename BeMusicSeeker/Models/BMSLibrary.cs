@@ -7182,6 +7182,15 @@ completeFileEnumerationOnce,
         }
     }
 
+    private OwnedDuplicateChartRowSnapshot CreateOwnedDuplicateChartRowSnapshotUnsafe()
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateDuplicateChartRowSnapshot();
+        }
+    }
+
     private InstalledChartLookupIndexState CreateOwnedInstalledChartLookupIndexStateUnsafe(out int bmsCount, out int bmsonCount)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
@@ -9661,17 +9670,12 @@ completeFileEnumerationOnce,
                         return;
                     }
                     long stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    List<BMSFile> bmsSnapshot = [.. BMSFiles.Where(f => f != null)];
-                    long bmsSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
+                    OwnedDuplicateChartRowSnapshot duplicateSnapshot = CreateOwnedDuplicateChartRowSnapshotUnsafe();
+                    IReadOnlyList<DuplicateChartRow> snapshot = duplicateSnapshot.Rows;
+                    long ownedSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    List<LR2SongDBExtended.bmson_song> bmsonSnapshot = [.. (BmsonSongs ?? []).Where(song => song != null)];
-                    long bmsonSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
-                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    duplicateService.ClearDuplicateState(bmsSnapshot);
+                    duplicateService.ClearDuplicateState(duplicateSnapshot.BmsStorageRows);
                     long clearDuplicateStateMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
-                    stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                    List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(bmsSnapshot, bmsonSnapshot);
-                    long duplicateRowSnapshotMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                     stageStartMs = totalStopwatch.ElapsedMilliseconds;
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot, DuplicateWarningMessage);
                     long analyzeMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -9684,14 +9688,12 @@ completeFileEnumerationOnce,
                     totalStopwatch.Stop();
                     LogInstallPerformance("SearchDuplicateChartGroups: cacheHit=false"
                         + " totalMs=" + totalStopwatch.ElapsedMilliseconds
-                        + " bmsSnapshotMs=" + bmsSnapshotMs
-                        + " bmsonSnapshotMs=" + bmsonSnapshotMs
+                        + " ownedSnapshotMs=" + ownedSnapshotMs
                         + " clearDuplicateStateMs=" + clearDuplicateStateMs
-                        + " duplicateRowSnapshotMs=" + duplicateRowSnapshotMs
                         + " analyzeMs=" + analyzeMs
                         + " applyWarningsMs=" + applyWarningsMs
                         + " propertySetMs=" + propertySetMs
-                        + " chartCount=" + (bmsSnapshot.Count + bmsonSnapshot.Count)
+                        + " chartCount=" + snapshot.Count
                         + " rowCount=" + snapshot.Count
                         + " materializedChartCount=" + analysis.MaterializedChartCount
                         + " duplicateChartCount=" + analysis.DuplicateCharts.Count

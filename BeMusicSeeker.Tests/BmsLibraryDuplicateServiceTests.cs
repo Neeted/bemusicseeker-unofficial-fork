@@ -143,7 +143,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
-    public void Analyze_StorageOwnerSnapshotMaterializesOnlyGroupedRows()
+    public void Analyze_OwnedCollectionSnapshotMaterializesOnlyGroupedRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryDuplicateService();
@@ -156,8 +156,13 @@ public sealed class BmsLibraryDuplicateServiceTests
             title = "bmson duplicate",
             md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         };
+        OwnedChartCollectionState ownedCharts = OwnedChartCollectionState.FromStorageRows([duplicateBms, uniqueSibling, unrelated], [duplicateBmson]);
 
-        List<DuplicateChartRow> snapshot = service.BuildSnapshot([duplicateBms, uniqueSibling, unrelated], [duplicateBmson]);
+        OwnedDuplicateChartRowSnapshot duplicateSnapshot = ownedCharts.CreateDuplicateChartRowSnapshot();
+        IReadOnlyList<DuplicateChartRow> snapshot = duplicateSnapshot.Rows;
+        Assert.AreEqual(0, snapshot.Count(row => row.Chart != null));
+        CollectionAssert.AreEquivalent(new[] { duplicateBms, uniqueSibling, unrelated }, duplicateSnapshot.BmsStorageRows.ToArray());
+
         DuplicateAnalysisResult result = service.Analyze(snapshot, Resources.Warning_DuplicateBmsFile);
 
         Assert.AreEqual(3, snapshot.Count(row => row.Chart != null));

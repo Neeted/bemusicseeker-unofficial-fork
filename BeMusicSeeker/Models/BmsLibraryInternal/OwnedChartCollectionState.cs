@@ -7,6 +7,21 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+internal sealed class OwnedDuplicateChartRowSnapshot
+{
+    internal OwnedDuplicateChartRowSnapshot(
+        IReadOnlyList<DuplicateChartRow> rows,
+        IReadOnlyList<BMSFile> bmsStorageRows)
+    {
+        Rows = rows ?? [];
+        BmsStorageRows = bmsStorageRows ?? [];
+    }
+
+    internal IReadOnlyList<DuplicateChartRow> Rows { get; }
+
+    internal IReadOnlyList<BMSFile> BmsStorageRows { get; }
+}
+
 internal sealed class OwnedChartCollectionState
 {
     private readonly List<ChartFile> charts;
@@ -253,6 +268,13 @@ internal sealed class OwnedChartCollectionState
             .Where(chart => chart != null)];
     }
 
+    internal OwnedDuplicateChartRowSnapshot CreateDuplicateChartRowSnapshot()
+    {
+        return new OwnedDuplicateChartRowSnapshot(
+            [.. charts.Select(CreateDuplicateChartRow).Where(row => row != null)],
+            [.. charts.Select(chart => chart?.GetBmsStorageOwner()).Where(file => file != null)]);
+    }
+
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()
     {
         var snapshot = new OwnedChartHashIndexSnapshot();
@@ -311,6 +333,20 @@ internal sealed class OwnedChartCollectionState
             }
         }
         return state;
+    }
+
+    private static DuplicateChartRow CreateDuplicateChartRow(ChartFile chart)
+    {
+        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return DuplicateChartRow.CreateFromBmsFile(bmsOwner);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+        return bmsonOwner != null
+            ? DuplicateChartRow.CreateFromBmsonSong(bmsonOwner)
+            : DuplicateChartRow.CreateFromChart(chart);
     }
 
     internal ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummary(
