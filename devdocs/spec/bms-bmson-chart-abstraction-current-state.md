@@ -800,7 +800,7 @@ dispatcher は mutation result を受け取り、各 index に同じ変更内容
 | resource health warning index | added / removed / moved / maintenance affected / ignore changed | current snapshot に delta apply。resource refs が必要で subset target がない場合は invalidate / defer。 |
 | resource maintenance target view | explicit full maintenance / subset maintenance input | full target は明示 full operation のみ。通常 mutation は subset target を渡す。 |
 | duplicate groups cache | added / removed / moved / hash changed / duplicate warning changed | 当面は duplicate cache invalidate。incremental duplicate group update は後続最適化でよい。 |
-| normal library source generation | added / removed / moved / displayed warning changed | source / sort key generation を既存規則で更新。full regular row fallback は使わない。 |
+| normal library source / sort-key generation | added / removed / moved / source identity changed / displayed warning changed | source generation は owned collection version ごとに一度だけ消費する。install destination overlay だけの変更は source generation を進めず、sort-key invalidation と表示 refresh に閉じる。full regular row fallback は使わない。 |
 
 dispatcher の log は、全 index に個別詳細 log を増やすのではなく、mutation result と更新結果の summary を 1 つ出す。例: `owned_collection_mutation_dispatch reason=merge_folder added=0 removed=6 moved=0 hashChanged=0 installedLookup=delta parentFolder=invalidate duplicate=invalidate resourceHealth=defer elapsedMs=...`。各 index の既存 performance log は、full build / incremental update / unexpected full invalidate のように意味がある場合だけ残す。
 
@@ -840,9 +840,12 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - `maintenance affected charts` は health value producer の結果として `ResourceHealthIndexMutation` に載せ、collection mutation と同じ resource-health dispatcher を通す。collection mutation は `invalidate`、maintenance producer は `delta` / `full` / `defer` を選ぶ。collection mutation は target set の追加・削除・移動だけを扱い、maintenanceInfo / ignore state の生成責務を持たない。
    - `ChartFilesNeedResourceFix` / ignored view は current snapshot があれば full target を作らない方針を維持する。
 
-5. **Warning / source generation / sort-key の分離: 未着手、次の大きな構造候補**
+5. **Warning / source generation / sort-key の分離: 一部着手、次の大きな構造候補**
    - mutation result に source mutation、displayed warning mutation、maintenance mutation、chart_info mutation の区別を載せる。
    - source generation を進める必要がある変更と、sort-key / warning だけを invalidate すればよい変更を分ける。
+   - `BMSFiles` / `BmsonSongs` property change と通常 refresh 中の bmson source sync は owned collection version の変化を見て source generation を消費する。BMS と bmson の通知順が前後しても、同じ owned collection mutation では source generation を二重に進めない。既に消費済みの version で bmson source cache だけが更新された場合は、virtual source row cache を破棄して次回再構築させる。
+   - install destination overlay だけの `RaiseLibraryChartsChanged` は source generation を進めず、`install_destination_changed` sort-key invalidation と表示 refresh に閉じる。
+   - 現状では source generation の消費単位は owned collection version で管理している。次の段階では、この判定を `OwnedChartCollectionMutationResult` の source / overlay / warning / maintenance flags に寄せ、property handler は dispatcher の結果を読むだけにする。
    - duplicate warning、resource warning、chart_info parse failure warning の永続先と projection state を混ぜない。
    - 通常 library は virtual source row を正本にし、未対応 sort や warning mismatch を full regular row fallback で隠さない。
 

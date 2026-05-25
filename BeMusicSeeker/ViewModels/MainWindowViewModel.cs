@@ -5676,6 +5676,8 @@ public class MainWindowViewModel : ViewModel
 
     private long normalLibrarySortKeyGeneration;
 
+    private int normalLibrarySourceHandledOwnedCollectionVersion;
+
     private viewUpdateMode? lastAppliedMainColumnSettingMode;
 
     private readonly Dictionary<string, ChartFileTransientState> chartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
@@ -8530,7 +8532,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (bmsonSyncResult.SourceChanged)
         {
-            IncrementNormalLibrarySourceGeneration(ResolveBmsonSourceGenerationReason(bmsonSyncResult, "bmson"));
+            IncrementNormalLibrarySourceGenerationForBmsonSync(bmsonSyncResult, "bmson");
         }
         ResetRegularDerivedViewCaches();
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
@@ -9756,6 +9758,66 @@ public class MainWindowViewModel : ViewModel
         LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
     }
 
+    private bool TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(string reason)
+    {
+        int currentVersion = files?.OwnedChartCollectionVersion ?? 0;
+        int cacheCount = 0;
+        bool incremented = false;
+        lock (normalLibrarySortCacheLock)
+        {
+            if (ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion(currentVersion, normalLibrarySourceHandledOwnedCollectionVersion))
+            {
+                normalLibrarySourceHandledOwnedCollectionVersion = currentVersion;
+                normalLibrarySourceGeneration++;
+                cacheCount = GetNormalLibraryCacheCountLocked();
+                normalLibrarySortCache.Clear();
+                ClearVirtualNormalLibraryCachesLocked();
+                incremented = true;
+            }
+        }
+
+        if (!incremented)
+        {
+            return false;
+        }
+
+        ClearMainSummaryFolderCountCache();
+        LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
+        return true;
+    }
+
+    private void IncrementNormalLibrarySourceGenerationForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
+    {
+        ConsumeNormalLibrarySourceChangeForBmsonSync(result, reasonPrefix, out _);
+    }
+
+    private bool ConsumeNormalLibrarySourceChangeForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix, out bool sourceGenerationChanged)
+    {
+        sourceGenerationChanged = false;
+        if (!result.SourceChanged)
+        {
+            return false;
+        }
+        if (TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(ResolveBmsonSourceGenerationReason(result, reasonPrefix)))
+        {
+            sourceGenerationChanged = true;
+            return true;
+        }
+        ClearVirtualNormalLibrarySourceRows();
+        return true;
+    }
+
+    private static bool ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion(int currentOwnedCollectionVersion, int handledOwnedCollectionVersion)
+    {
+        return currentOwnedCollectionVersion <= 0
+            || currentOwnedCollectionVersion != handledOwnedCollectionVersion;
+    }
+
+    internal static bool ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersionForTest(int currentOwnedCollectionVersion, int handledOwnedCollectionVersion)
+    {
+        return ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion(currentOwnedCollectionVersion, handledOwnedCollectionVersion);
+    }
+
     internal MainViewOperationSection CurrentMainViewOperationSection => ResolveMainViewOperationSection(treeViewFilterTypeSelected);
 
     internal ChartOperationSourceScope CurrentMainViewChartOperationSourceScope => ResolveMainViewChartOperationSourceScope(CurrentMainViewOperationSection);
@@ -9968,6 +10030,14 @@ public class MainWindowViewModel : ViewModel
         virtualNormalLibrarySourceRowCache = null;
         virtualNormalLibrarySourceRowCacheAvailable = false;
         virtualNormalLibrarySourceRowCacheRowCount = 0;
+    }
+
+    private void ClearVirtualNormalLibrarySourceRows()
+    {
+        lock (normalLibrarySortCacheLock)
+        {
+            ClearVirtualNormalLibrarySourceRowsLocked();
+        }
     }
 
     private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
@@ -14238,9 +14308,14 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
-            UpdateSharedChartTransientStates(files?.ConsumeLatestInstallDestinationChangedCharts(), forceInstallDestinationProjection: true);
+            IReadOnlyList<ChartFile> installDestinationChangedCharts = files?.ConsumeLatestInstallDestinationChangedCharts();
+            UpdateSharedChartTransientStates(installDestinationChangedCharts, forceInstallDestinationProjection: true);
             PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
-            IncrementNormalLibrarySourceGeneration("library_charts_changed");
+            bool sourceGenerationChanged = TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion("library_charts_changed");
+            if (!sourceGenerationChanged && (installDestinationChangedCharts?.Count ?? 0) > 0)
+            {
+                InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            }
             ResetRegularDerivedViewCaches();
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
@@ -14268,11 +14343,17 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {
-            UpdateSharedChartTransientStates(files?.ConsumeLatestInstallDestinationChangedCharts(), forceInstallDestinationProjection: true);
             BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
             if (syncResult.SortKeyChanged)
             {
                 InvalidateNormalLibrarySortKeysForBmsonSync(syncResult);
+            }
+            IReadOnlyList<ChartFile> installDestinationChangedCharts = files?.ConsumeLatestInstallDestinationChangedCharts();
+            UpdateSharedChartTransientStates(installDestinationChangedCharts, forceInstallDestinationProjection: true);
+            bool sourceChanged = ConsumeNormalLibrarySourceChangeForBmsonSync(syncResult, "library_bmsons", out bool sourceGenerationChanged);
+            if (!sourceGenerationChanged && (installDestinationChangedCharts?.Count ?? 0) > 0)
+            {
+                InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
             }
             RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -14293,9 +14374,8 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            if (syncResult.SourceChanged)
+            if (sourceChanged)
             {
-                IncrementNormalLibrarySourceGeneration(ResolveBmsonSourceGenerationReason(syncResult, "library_bmsons"));
                 ResetRegularDerivedViewCaches();
                 RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
             }
@@ -16213,7 +16293,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (bmsonSyncResult.SourceChanged)
             {
-                IncrementNormalLibrarySourceGeneration(ResolveBmsonSourceGenerationReason(bmsonSyncResult, "bmson"));
+                IncrementNormalLibrarySourceGenerationForBmsonSync(bmsonSyncResult, "bmson");
             }
         }
         if (TryApplyVirtualDefaultNormalLibraryView(mode, requestedMode, parameter, includeBmsonRows, viewBuildStopwatch))
@@ -16856,10 +16936,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (result.SourceChanged)
         {
-            string sourceReason = result.MembershipChanged
-                ? reason + "_membership_changed"
-                : (result.SourceIdentityChanged ? NormalLibraryBmsonSourceIdentityChangedReason : reason + "_source_reference_changed");
-            IncrementNormalLibrarySourceGeneration(sourceReason);
+            IncrementNormalLibrarySourceGenerationForBmsonSync(result, reason);
         }
         if (result.SortKeyChanged || result.SourceChanged)
         {
