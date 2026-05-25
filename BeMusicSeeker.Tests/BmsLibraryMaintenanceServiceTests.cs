@@ -591,16 +591,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
-            int resourceFixChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {
                     refreshNotificationChanged++;
-                }
-                if (args.PropertyName == "ChartFilesNeedResourceFix")
-                {
-                    resourceFixChanged++;
                 }
             };
 
@@ -610,10 +605,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(hydrationResult.ViewRefreshQueued);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.IsTrue(batch.NotifiesWarningPresentationProperties);
+            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
             Assert.IsFalse(batch.NotifiesMaintenancePresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
-            Assert.AreEqual(1, resourceFixChanged);
         });
     }
 

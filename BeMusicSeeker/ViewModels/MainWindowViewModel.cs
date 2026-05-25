@@ -14759,46 +14759,6 @@ public class MainWindowViewModel : ViewModel
         {
             UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartFilesNeedResourceFix, delegate
-        {
-            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
-            if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "chart_files_need_resource_fix_changed"))
-                {
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-            else
-            {
-                RefreshNormalLibraryAfterWarningChanged("chart_files_need_resource_fix_changed");
-            }
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartFilesNeedResourceFixIgnored, delegate
-        {
-            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
-            if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "chart_files_need_resource_fix_ignored_changed"))
-                {
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-            else
-            {
-                RefreshNormalLibraryAfterWarningChanged("chart_files_need_resource_fix_ignored_changed");
-            }
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroups, delegate
         {
             RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_changed");
@@ -14806,71 +14766,6 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.DuplicateChartGroupsInvalidationVersion, delegate
         {
             RefreshDuplicatePresentationAfterGroupsChanged("bms_files_duplicated_invalidated");
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbled, delegate
-        {
-            if (treeViewFilterTypeSelected == viewUpdateMode.GarbledFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_garbled_changed"))
-                {
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbledFixed, delegate
-        {
-            if (treeViewFilterTypeSelected == viewUpdateMode.GarbleFixedFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_garbled_fixed_changed"))
-                {
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesUnregistered, delegate
-        {
-            if (treeViewFilterTypeSelected == viewUpdateMode.UnregisteredFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_unregistered_changed"))
-                {
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoParseFailedChartFiles, delegate
-        {
-            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
-            if (treeViewFilterTypeSelected == viewUpdateMode.ChartInfoParseErrorFilterSelected)
-            {
-                if (TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    return;
-                }
-                if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, "bms_files_chart_info_parse_failed_changed"))
-                {
-                    return;
-                }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
-            }
-            else
-            {
-                RefreshNormalLibraryAfterWarningChanged("bms_files_chart_info_parse_failed_changed");
-            }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartPackagesInstalled, delegate
         {

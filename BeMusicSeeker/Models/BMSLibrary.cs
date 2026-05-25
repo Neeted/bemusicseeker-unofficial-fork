@@ -5797,11 +5797,6 @@ completeFileEnumerationOnce,
         }
         result.ViewRefreshQueued = true;
         DispatchMaintenanceHydrationPresentationChanged();
-        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
-        RaisePropertyChanged(() => BMSFilesGarbled);
-        RaisePropertyChanged(() => BMSFilesGarbledFixed);
-        RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
     }
 
     private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)
@@ -7637,8 +7632,7 @@ completeFileEnumerationOnce,
             new OwnedChartCollectionMutationResult
             {
                 WarningPresentationChanged = true,
-                MaintenancePresentationChanged = true,
-                WarningPresentationPropertiesChanged = true
+                MaintenancePresentationChanged = true
             },
             "maintenance_hydration");
     }
