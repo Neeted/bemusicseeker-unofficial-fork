@@ -9826,11 +9826,13 @@ public class MainWindowViewModel : ViewModel
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
         }
-        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged) == true)
+        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged) == true
+            && !notificationBatch.NotifiesWarningPresentationProperties)
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
         }
-        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged) == true)
+        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged) == true
+            && !notificationBatch.NotifiesMaintenancePresentationProperties)
         {
             InvalidateNormalLibrarySortKeys(NormalLibraryMaintenanceChangedReason);
         }
