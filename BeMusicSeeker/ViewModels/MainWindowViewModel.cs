@@ -9962,11 +9962,11 @@ public class MainWindowViewModel : ViewModel
         if (hasInstallDestinationChangedCharts)
         {
             UpdateSharedChartTransientStates(installDestinationChangedCharts, forceInstallDestinationProjection: true);
-            PruneSharedChartTransientStateCacheToCurrentStorageRows(files?.BMSFiles, files?.BmsonSongs);
+            PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
         }
         else if (installDestinationStateChanged)
         {
-            PruneSharedChartTransientStateCacheToCurrentStorageRows(files?.BMSFiles, files?.BmsonSongs);
+            PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
         }
         return notificationBatch;
     }
@@ -10318,23 +10318,14 @@ public class MainWindowViewModel : ViewModel
         return ChartFileRuntimeStateKey.Create(chart);
     }
 
-    private void PruneSharedChartTransientStateCacheToCurrentStorageRows(
-        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private void PruneSharedChartTransientStateCacheToCurrentOwnedCharts()
     {
         if (chartTransientStatesByKey.Count == 0)
         {
             return;
         }
-        var currentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles ?? [])
-        {
-            AddSharedChartStateKey(currentKeys, ChartFileRuntimeStateKey.Create(file));
-        }
-        foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
-        {
-            AddSharedChartStateKey(currentKeys, ChartFileRuntimeStateKey.Create(song));
-        }
+        HashSet<string> currentKeys = files?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()
+            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         PruneSharedChartTransientStateCache(currentKeys);
     }
 
@@ -16964,7 +16955,7 @@ public class MainWindowViewModel : ViewModel
         List<LR2SongDBExtended.bmson_song> snapshot = [.. (bmsonSongs ?? [])
             .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
             .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-        PruneSharedChartTransientStateCacheToCurrentStorageRows(BMSFiles, snapshot);
+        PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
         return regularBmsLibraryRowCache.SyncBmsonRows(snapshot, ApplyLibraryChartRowProviders);
     }
 

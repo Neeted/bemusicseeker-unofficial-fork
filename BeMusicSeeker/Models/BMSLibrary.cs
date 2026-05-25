@@ -7172,6 +7172,18 @@ completeFileEnumerationOnce,
         }
     }
 
+    internal HashSet<string> CreateOwnedChartRuntimeStatePrimaryKeySnapshot()
+    {
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            EnsureOwnedChartCollectionBuiltUnsafe();
+            lock (lockOwnedChartCollection)
+            {
+                return ownedChartCollection.CreateChartRuntimeStatePrimaryKeySnapshot();
+            }
+        }
+    }
+
     private void EnsureOwnedChartCollectionBuiltUnsafe()
     {
         List<BMSFile> bmsFiles = BMSFiles ?? [];

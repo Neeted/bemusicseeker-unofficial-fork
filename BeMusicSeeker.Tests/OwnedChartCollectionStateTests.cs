@@ -922,6 +922,37 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateChartRuntimeStatePrimaryKeySnapshot_ExcludesInstallDestinationPathAliases()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldBmsPath = Path.Combine("C:\\Installed", "OldBms", "chart.bms");
+        string oldBmsonPath = Path.Combine("C:\\Installed", "OldBmson", "chart.bmson");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath, new string('b', 64));
+        var bmsonSong = CreateBmsonSong(oldBmsonPath, "cccccccccccccccccccccccccccccccc");
+        var pathlessBmson = CreateBmsonSong(null, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        bmsonSong.sha256 = new string('d', 64);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong, pathlessBmson]);
+        string newBmsPath = Path.Combine("C:\\Installed", "NewBms", "chart.bms");
+        string newBmsonPath = Path.Combine("C:\\Installed", "NewBmson", "chart.bmson");
+        bmsFile.path = newBmsPath;
+        bmsFile.SetHash("11111111111111111111111111111111");
+        bmsFile.SetSha256(new string('2', 64));
+        bmsonSong.path = newBmsonPath;
+        bmsonSong.md5 = "33333333333333333333333333333333";
+        bmsonSong.sha256 = new string('4', 64);
+
+        HashSet<string> keys = state.CreateChartRuntimeStatePrimaryKeySnapshot();
+
+        Assert.IsTrue(keys.Contains(ChartFileRuntimeStateKey.Create(ChartFileKind.Bms, newBmsPath, bmsFile.hash, bmsFile.sha256)));
+        Assert.IsTrue(keys.Contains(ChartFileRuntimeStateKey.Create(ChartFileKind.Bmson, newBmsonPath, bmsonSong.md5, bmsonSong.sha256)));
+        Assert.IsTrue(keys.Contains(ChartFileRuntimeStateKey.Create(ChartFileKind.Bmson, null, pathlessBmson.md5, pathlessBmson.sha256)));
+        Assert.IsFalse(keys.Contains(ChartFileRuntimeStateKey.CreatePathKey(ChartFileKind.Bms, newBmsPath)));
+        Assert.IsFalse(keys.Contains(ChartFileRuntimeStateKey.CreatePathKey(ChartFileKind.Bmson, newBmsonPath)));
+        Assert.IsFalse(keys.Contains(ChartFileRuntimeStateKey.Create(ChartFileKind.Bms, oldBmsPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64))));
+        Assert.IsFalse(keys.Contains(ChartFileRuntimeStateKey.Create(ChartFileKind.Bmson, oldBmsonPath, "cccccccccccccccccccccccccccccccc", new string('d', 64))));
+    }
+
+    [TestMethod]
     public void RemoveCharts_UpdateOwnedCollectionMembership()
     {
         TestResourceInitializer.EnsureJapaneseResources();

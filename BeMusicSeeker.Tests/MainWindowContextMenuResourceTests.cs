@@ -853,6 +853,42 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void SharedTransientStatePruneUsesOwnedRuntimeStatePrimaryKeySnapshot()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string notificationHandler = ExtractBetween(
+            viewModelCode,
+            "private NormalLibraryRefreshNotificationBatch ApplyNormalLibraryRefreshNotification",
+            "private bool ApplyLatestNormalLibraryRefreshNotification");
+        string bmsonSync = ExtractBetween(
+            viewModelCode,
+            "private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache",
+            "internal static bool HasBmsonLibrarySortKeyChangedForTest");
+        string pruneHelper = ExtractBetween(
+            viewModelCode,
+            "private void PruneSharedChartTransientStateCacheToCurrentOwnedCharts",
+            "private void ClearSharedChartTransientStates");
+        string modelKeyHelper = ExtractBetween(
+            bmsLibraryCode,
+            "internal HashSet<string> CreateOwnedChartRuntimeStatePrimaryKeySnapshot",
+            "private void EnsureOwnedChartCollectionBuiltUnsafe");
+
+        StringAssert.Contains(notificationHandler, "PruneSharedChartTransientStateCacheToCurrentOwnedCharts()");
+        Assert.IsFalse(notificationHandler.Contains("files?.BMSFiles"));
+        Assert.IsFalse(notificationHandler.Contains("files?.BmsonSongs"));
+        StringAssert.Contains(bmsonSync, "PruneSharedChartTransientStateCacheToCurrentOwnedCharts()");
+        Assert.IsFalse(bmsonSync.Contains("PruneSharedChartTransientStateCacheToCurrentStorageRows"));
+        StringAssert.Contains(pruneHelper, "files?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()");
+        Assert.IsFalse(pruneHelper.Contains("foreach (BeMusicSeeker.Models.BMSFile"));
+        Assert.IsFalse(pruneHelper.Contains("foreach (LR2SongDBExtended.bmson_song"));
+        StringAssert.Contains(modelKeyHelper, "rwlockBMSFiles.GetReaderGuard()");
+        StringAssert.Contains(modelKeyHelper, "ownedChartCollection.CreateChartRuntimeStatePrimaryKeySnapshot()");
+        Assert.IsFalse(modelKeyHelper.Contains("CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe()"));
+    }
+
+    [TestMethod]
     public void DuplicateFilterViewUsesChartFileParameters()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

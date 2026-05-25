@@ -317,6 +317,20 @@ internal sealed class OwnedChartCollectionState
         return keys;
     }
 
+    internal HashSet<string> CreateChartRuntimeStatePrimaryKeySnapshot()
+    {
+        var keys = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts.Where(chart => chart != null))
+        {
+            string key = CreateCurrentRuntimeStatePrimaryKey(chart);
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                keys.Add(key);
+            }
+        }
+        return keys;
+    }
+
     internal List<string> CreatePathSnapshot()
     {
         return [.. charts
@@ -684,6 +698,20 @@ internal sealed class OwnedChartCollectionState
         }
 
         AddRuntimeStateKeys(keys, chart.Kind, chart.Path, chart.Md5, chart.Sha256);
+    }
+
+    private static string CreateCurrentRuntimeStatePrimaryKey(ChartFile chart)
+    {
+        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            return ChartFileRuntimeStateKey.Create(bmsOwner);
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+        return bmsonOwner != null
+            ? ChartFileRuntimeStateKey.Create(bmsonOwner)
+            : ChartFileRuntimeStateKey.Create(chart);
     }
 
     private static void AddRuntimeStateKeys(ISet<string> keys, ChartFileKind kind, string path, string md5, string sha256)
