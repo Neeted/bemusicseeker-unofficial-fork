@@ -800,10 +800,10 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "public void AutoRenameAllChartFolders",
             "internal void AutoRenameChartFolders");
-        string chartsForFolderOperations = ExtractBetween(
+        string autoRenameAllModel = ExtractBetween(
             bmsLibraryCode,
-            "internal List<ChartFile> CreateLibraryChartSnapshotsForFolderOperations",
-            "private List<ChartFile> CreateOwnedSubtreeChartSnapshot");
+            "internal bool AutoRenameAllChartFolders",
+            "private bool ApplyAutoRenamePlans");
         string cellEditEnded = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditEnded",
@@ -817,11 +817,15 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
-        StringAssert.Contains(autoRenameAll, "files?.CreateLibraryChartSnapshotsForFolderOperations(parentDir)");
+        StringAssert.Contains(autoRenameAll, "files?.HasAutoRenameAllChartFolderTargets(parentDir) != true");
+        StringAssert.Contains(autoRenameAll, "files?.AutoRenameAllChartFolders(parentDir) == true");
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
-        StringAssert.Contains(chartsForFolderOperations, "CreateOwnedSubtreeChartSnapshot");
-        Assert.IsFalse(chartsForFolderOperations.Contains("BMSFiles ??"));
-        Assert.IsFalse(chartsForFolderOperations.Contains("files?.BmsonSongs"));
+        StringAssert.Contains(autoRenameAllModel, "CreateOwnedRealPathChartDirectorySnapshotUnsafe(parentDir)");
+        StringAssert.Contains(autoRenameAllModel, "BuildAutoRenamePlansForSourceFolders");
+        Assert.IsFalse(bmsLibraryCode.Contains("CreateLibraryChartSnapshotsForFolderOperations"));
+        Assert.IsFalse(autoRenameAllModel.Contains("CreateOwnedSubtreeChartSnapshot"));
+        Assert.IsFalse(autoRenameAllModel.Contains("BMSFiles ??"));
+        Assert.IsFalse(autoRenameAllModel.Contains("files?.BmsonSongs"));
         StringAssert.Contains(cellEditEnded, "viewModel.CreateRenameChartFolderTargetSnapshot(target)");
         StringAssert.Contains(cellEditEnded, "viewModel.RenameChartFolder(targetSnapshot, newFolder)");
         Assert.IsFalse(cellEditEnded.Contains("viewModel.RenameChartFolder(target, newFolder)"));

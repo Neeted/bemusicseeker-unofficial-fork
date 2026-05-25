@@ -170,6 +170,23 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateChartDirectoriesUnderRealPath_ReturnsDistinctSubtreeDirectoriesWithoutChartSnapshot()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string rootPath = Path.Combine("C:\\Installed", "Root");
+        string childPath = Path.Combine(rootPath, "Child");
+        string nestedPath = Path.Combine(childPath, "Nested");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(childPath, "chart.bms"));
+        var sameDirectoryBmson = CreateBmsonSong(Path.Combine(childPath, "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var nestedBmson = CreateBmsonSong(Path.Combine(nestedPath, "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [sameDirectoryBmson, nestedBmson]);
+
+        List<string> directories = state.CreateChartDirectoriesUnderRealPath(rootPath);
+
+        CollectionAssert.AreEqual(new[] { childPath, nestedPath }, directories.ToArray());
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_PathlessRowsAreNotPathLookupTargets()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1407,6 +1424,29 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(2, snapshot.Count);
             Assert.AreSame(newBms, snapshot.Single(chart => chart.Kind == ChartFileKind.Bms).GetBmsStorageOwner());
             Assert.AreSame(samePathBmson, snapshot.Single(chart => chart.Kind == ChartFileKind.Bmson).GetBmsonStorageOwner());
+        });
+    }
+
+    [TestMethod]
+    public void AutoRenameAllChartFolders_RootOnlyChartsAreNotActionableTargets()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath), "LibraryRoot");
+            Directory.CreateDirectory(rootPath);
+            string chartPath = Path.Combine(rootPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            var library = new BMSLibrary(songDbPath)
+            {
+                SearchTargets = [rootPath]
+            };
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+
+            Assert.IsFalse(library.HasAutoRenameAllChartFolderTargets(rootPath));
+            Assert.IsFalse(library.AutoRenameAllChartFolders(rootPath));
         });
     }
 

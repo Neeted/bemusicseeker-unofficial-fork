@@ -362,10 +362,28 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<string> sourceFolders = [.. (from d in (selectedCharts ?? []).Where(chart => chart != null).Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase)
                                       orderby d.Length
                                       select d)];
+        return BuildAutoRenamePlansForSourceFolders(
+            sourceFolders,
+            rootFolders,
+            renameRootFolder,
+            createDirectChildSnapshot,
+            createFolderPath);
+    }
+
+    public List<FolderAutoRenamePlan> BuildAutoRenamePlansForSourceFolders(
+        IEnumerable<string> sourceFolders,
+        IEnumerable<string> rootFolders,
+        bool renameRootFolder,
+        Func<IReadOnlyCollection<string>, IReadOnlyList<ChartFile>> createDirectChildSnapshot,
+        Func<IEnumerable<ChartFile>, string, string, string> createFolderPath)
+    {
+        List<string> normalizedSourceFolders = [.. (from d in (sourceFolders ?? [])
+                                                where !string.IsNullOrWhiteSpace(d)
+                                                select d).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(d => d.Length)];
         List<string> effectiveRootFolders = [.. (rootFolders ?? []).Where(folder => !string.IsNullOrWhiteSpace(folder))];
         List<string> targetFolders = [];
         var targetFolderSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string folder in sourceFolders.Where(folder => renameRootFolder || !effectiveRootFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
+        foreach (string folder in normalizedSourceFolders.Where(folder => renameRootFolder || !effectiveRootFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
         {
             if (!HasTargetAncestor(folder, targetFolderSet))
             {

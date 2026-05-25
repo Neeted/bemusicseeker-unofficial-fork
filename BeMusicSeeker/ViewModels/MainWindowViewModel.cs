@@ -21192,21 +21192,17 @@ public class MainWindowViewModel : ViewModel
 
     public void AutoRenameAllChartFolders(string parentDir = null)
     {
-        List<ChartFile> charts = files?.CreateLibraryChartSnapshotsForFolderOperations(parentDir) ?? [];
-        if (charts.Count == 0)
-        {
-            return;
-        }
         lock (lockCopyFile)
         {
-            PlayEndBMSFile(closeProcess: true);
-            List<ChartFile> targetCharts = [.. charts.Where(chart => chart != null)];
-            if (targetCharts.Count == 0)
+            if (files?.HasAutoRenameAllChartFolderTargets(parentDir) != true)
             {
                 return;
             }
-            files.AutoRenameChartFolders(targetCharts);
-            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+            PlayEndBMSFile(closeProcess: true);
+            if (files?.AutoRenameAllChartFolders(parentDir) == true)
+            {
+                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+            }
         }
     }
 

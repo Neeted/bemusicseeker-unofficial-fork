@@ -6817,6 +6817,15 @@ reportProgress,
         }
     }
 
+    private List<string> CreateOwnedRealPathChartDirectorySnapshotUnsafe(string directoryPath)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateChartDirectoriesUnderRealPath(directoryPath);
+        }
+    }
+
     private bool TryCreateOwnedChartRefsForPathsUnsafe(IEnumerable<string> paths, out List<LibraryChartRef> chartRefs)
     {
         lock (lockOwnedChartCollection)
@@ -6881,36 +6890,6 @@ reportProgress,
         {
             return ownedChartCollection.CreateSnapshotForDirectChildDirectories(
                 directoryPaths,
-                includeWarningSnapshot: includeWarningSnapshot,
-                includeResourceReferences: includeResourceReferences,
-                includeScoreSnapshot: false);
-        }
-    }
-
-    internal List<ChartFile> CreateLibraryChartSnapshotsForFolderOperations(string parentDir = null)
-    {
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                return CreateOwnedSubtreeChartSnapshot(
-                    parentDir,
-                    includeWarningSnapshot: true,
-                    includeResourceReferences: false);
-            }
-        }
-    }
-
-    private List<ChartFile> CreateOwnedSubtreeChartSnapshot(
-        string directoryPath,
-        bool includeWarningSnapshot,
-        bool includeResourceReferences)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return ownedChartCollection.CreateSnapshotForSubtreeDirectory(
-                directoryPath,
                 includeWarningSnapshot: includeWarningSnapshot,
                 includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: false);
@@ -12098,26 +12077,87 @@ reportProgress,
                         renameRootFolder,
                         CreateDirectLibraryChartSnapshotsInFolders,
                         CreateChartFolderPathFromCharts);
-                    if (plans.Any(plan => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    }
-                    foreach (FolderAutoRenamePlan plan in plans)
-                    {
-                        if (plan?.FailureException != null)
-                        {
-                            dialogService.Show(string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            continue;
-                        }
-                        if (string.IsNullOrWhiteSpace(plan?.DestinationDirectory) || string.IsNullOrWhiteSpace(plan.SourceDirectory))
-                        {
-                            continue;
-                        }
-                        RenameChartFolder(plan.SourceDirectory, Path.GetFileName(plan.DestinationDirectory), false, renameRootFolder: true);
-                    }
+                    ApplyAutoRenamePlans(plans);
                 }
             }
         }
+    }
+
+    internal bool HasAutoRenameAllChartFolderTargets(string parentDir = null)
+    {
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                return HasActionableAutoRenamePlan(CreateAutoRenameAllChartFolderPlansUnsafe(parentDir));
+            }
+        }
+    }
+
+    internal bool AutoRenameAllChartFolders(string parentDir = null)
+    {
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockPendingInstallCharts.GetWriterGuard())
+            {
+                using (rwlockBMSFiles.GetWriterGuard())
+                {
+                    List<FolderAutoRenamePlan> plans = CreateAutoRenameAllChartFolderPlansUnsafe(parentDir);
+                    if (!HasActionableAutoRenamePlan(plans))
+                    {
+                        return false;
+                    }
+                    return ApplyAutoRenamePlans(plans);
+                }
+            }
+        }
+    }
+
+    private List<FolderAutoRenamePlan> CreateAutoRenameAllChartFolderPlansUnsafe(string parentDir)
+    {
+        List<string> sourceFolders = CreateOwnedRealPathChartDirectorySnapshotUnsafe(parentDir);
+        if (sourceFolders.Count == 0)
+        {
+            return [];
+        }
+        List<string> rootFolders = getBMSDirectories();
+        return libraryFileOperationsService.BuildAutoRenamePlansForSourceFolders(
+            sourceFolders,
+            rootFolders,
+            renameRootFolder: false,
+            CreateDirectLibraryChartSnapshotsInFolders,
+            CreateChartFolderPathFromCharts);
+    }
+
+    private static bool HasActionableAutoRenamePlan(IEnumerable<FolderAutoRenamePlan> plans)
+    {
+        return (plans ?? []).Any(plan => !string.IsNullOrWhiteSpace(plan?.SourceDirectory)
+            && !string.IsNullOrWhiteSpace(plan.DestinationDirectory));
+    }
+
+    private bool ApplyAutoRenamePlans(IEnumerable<FolderAutoRenamePlan> plans)
+    {
+        List<FolderAutoRenamePlan> planList = [.. (plans ?? []).Where(plan => plan != null)];
+        bool hasActionablePlan = false;
+        if (planList.Any(plan => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
+        {
+            dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+        }
+        foreach (FolderAutoRenamePlan plan in planList)
+        {
+            if (plan.FailureException != null)
+            {
+                dialogService.Show(string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                continue;
+            }
+            if (string.IsNullOrWhiteSpace(plan.DestinationDirectory) || string.IsNullOrWhiteSpace(plan.SourceDirectory))
+            {
+                continue;
+            }
+            hasActionablePlan = true;
+            RenameChartFolder(plan.SourceDirectory, Path.GetFileName(plan.DestinationDirectory), false, renameRootFolder: true);
+        }
+        return hasActionablePlan;
     }
 
     private List<ChartFile> CreateDirectLibraryChartSnapshotsInFolders(IReadOnlyCollection<string> folderPaths)

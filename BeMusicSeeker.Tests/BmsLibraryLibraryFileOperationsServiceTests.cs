@@ -824,6 +824,37 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void BuildAutoRenamePlansForSourceFolders_UsesDirectoryInputWithoutSelectedCharts()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            var service = new BmsLibraryLibraryFileOperationsService();
+            string rootPath = Path.Combine(tempDirectoryPath, "Songs");
+            string sourcePath = Path.Combine(rootPath, "OldFolder");
+            Directory.CreateDirectory(sourcePath);
+            string chartPath = Path.Combine(sourcePath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile bmsRow = CreateFile(chartPath);
+            bmsRow.SetTitleForTest("BmsTitle");
+            ChartFile bmsChart = ChartFileProjection.FromBmsFile(bmsRow);
+
+            List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlansForSourceFolders(
+                [sourcePath],
+                [],
+                renameRootFolder: true,
+                folders =>
+                {
+                    CollectionAssert.AreEqual(new[] { sourcePath }, folders.ToArray());
+                    return [bmsChart];
+                },
+                (children, parentDir, _) => Path.Combine(parentDir, children.First().Title));
+
+            Assert.AreEqual(1, plans.Count);
+            Assert.AreEqual(Path.Combine(rootPath, "BmsTitle"), plans[0].DestinationDirectory);
+        });
+    }
+
+    [TestMethod]
     public void BuildAutoRenamePlans_MixedFolderIncludesBmsonRowsInMetadata()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)

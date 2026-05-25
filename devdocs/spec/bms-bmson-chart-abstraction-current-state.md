@@ -38,7 +38,7 @@
 
 ### BMS
 
-現状、BMS の所持譜面は `BMSLibrary.BMSFiles` に保持され、要素は `BMSFile` である。これは LR2 `song` / `folder` 永続化 owner として残す。`BMSLibrary` には `OwnedChartCollectionState` も導入済みで、current installed source の `ChartFile` snapshot、installed lookup、resource maintenance full target、folder operation 用 subtree snapshot はここを通る。DB reload / external replacement と BMS-only producer では引き続き `BMSFiles` を直接扱う。
+現状、BMS の所持譜面は `BMSLibrary.BMSFiles` に保持され、要素は `BMSFile` である。これは LR2 `song` / `folder` 永続化 owner として残す。`BMSLibrary` には `OwnedChartCollectionState` も導入済みで、current installed source の `ChartFile` snapshot、installed lookup、resource maintenance full target、folder operation 用 real path ref / directory view はここを通る。DB reload / external replacement と BMS-only producer では引き続き `BMSFiles` を直接扱う。
 
 `BMSFile` は `LR2SongDB.song` を継承しており、次の LR2 / BMS 前提の情報を直接持つ。
 
@@ -286,7 +286,7 @@ direct install / drop install の ViewModel 入口は `InstallChartPackages(...)
 
 newly installed tree に表示される installed package history/list のクリアは `RemoveInstalledPackageRecords` / `RemoveInstalledPackageRecordsAll` を入口にする。これは chart file 自体の削除ではなく、installed package record を list から消す操作である。
 
-library folder operation は root/search-directory の public / user-facing 名に `BMSDirectory` が残るが、chart 行に対する folder 操作は `RenameChartFolder(...)` / `MergeChartDirectory(...)` / `AutoRenameChartFolders(...)` / `AutoRenameAllChartFolders(...)` に寄せる。`AutoRenameAllChartFolders(...)` の対象抽出は ViewModel で `BMSFiles` / `BmsonSongs` を直接結合せず、BMSLibrary の owned subtree snapshot から作る。`BuildFolderMoveDelta(...)` は `LibraryChartRef` snapshot を受け、path 更新 / unregister の mutation payload は `LibraryMutationDelta.ChartPathChanges` / `ChartsToUnregister` の `ChartFile` として保持する。folder move / merge path では BMS / bmson path と installed package / pending package の install destination も合わせて更新対象になる。root folder move の UI 経路は `MoveLibraryCharts(...)` から `MoveLibraryRootFolder(...)` に入り、`ChartOperationTarget` / `LibraryChartRef` を通して BMS / bmson chart を扱う。旧 `MoveBMSRootFolder(...)` wrapper は production 参照がなく、テストだけの旧名互換 API になっていたため削除済みである。`BMSDirectory` 系 UI / settings vocabulary は BMSFile-based root-folder / LR2 search-root 境界として残っている。
+library folder operation は root/search-directory の public / user-facing 名に `BMSDirectory` が残るが、chart 行に対する folder 操作は `RenameChartFolder(...)` / `MergeChartDirectory(...)` / `AutoRenameChartFolders(...)` / `AutoRenameAllChartFolders(...)` に寄せる。`AutoRenameAllChartFolders(...)` の対象抽出は ViewModel で `BMSFiles` / `BmsonSongs` を直接結合せず、BMSLibrary の owned real path directory view から source folder list を作る。root 除外 / nested skip / collision 判定後に actionable plan がある場合だけ UI 側は再生停止と sort invalidation に進む。metadata 生成に必要な chart snapshot は target folder の direct child bucket だけを materialize する。`BuildFolderMoveDelta(...)` は `LibraryChartRef` snapshot を受け、path 更新 / unregister の mutation payload は `LibraryMutationDelta.ChartPathChanges` / `ChartsToUnregister` の `ChartFile` として保持する。folder move / merge path では BMS / bmson path と installed package / pending package の install destination も合わせて更新対象になる。root folder move の UI 経路は `MoveLibraryCharts(...)` から `MoveLibraryRootFolder(...)` に入り、`ChartOperationTarget` / `LibraryChartRef` を通して BMS / bmson chart を扱う。旧 `MoveBMSRootFolder(...)` wrapper は production 参照がなく、テストだけの旧名互換 API になっていたため削除済みである。`BMSDirectory` 系 UI / settings vocabulary は BMSFile-based root-folder / LR2 search-root 境界として残っている。
 
 ## Package / pending install
 
@@ -748,7 +748,7 @@ folder operation service へ渡す入力も、full library ref snapshot では�
 
 - merge / folder move: `sourceChartsUnderRealPath`, `installDestinationTargetsUnderSource`, `installedPackagesUnderSource`
 - delete confirmation / delete execution: `canonicalCharts`, `subtreeChartCountByFolder`, `installDestinationTargetsUnderDeletedFolder`
-- auto rename: `directChildChartsForFolders`
+- auto rename: `sourceFoldersUnderRealPath`, `directChildChartsForFolders`
 - resource-only merge display: `installedPrimaryHashPathCandidates`
 
 派生 index は owned chart collection の内部または隣接 state として管理する。
@@ -829,7 +829,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - installed lookup state に同居する primary hash -> path lookup を、repair candidate / resource-only merge display / safe delete が直接読む index として明文化する。
    - owner/path canonical lookup と path-only exact lookup は用途を分ける。canonical lookup は ambiguous path を正規化規則で扱い、path-only exact lookup は同一 path の複数 ownerを保持する bounded materialize 用に使う。
    - install upsert の same-path replacement は path-only exact lookup で old owner を解決する。BMS と bmson が同じ path を持つ場合でも kind ごとの replacement として扱い、反対 kind の installed lookup entry を削らない。
-   - real path directory view / subtree counts は folder operation の正本にし、caller 側で full ref list を作って `StartsWith` filter しない。BMSLibrary からの入口は `CreateOwnedRealPathChartRefsUnsafe(...)` / `CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(...)` のように用途名を持たせる。direct child snapshot も owned ref index の direct directory bucket から作る。
+   - real path directory view / subtree counts は folder operation の正本にし、caller 側で full ref list を作って `StartsWith` filter しない。BMSLibrary からの入口は `CreateOwnedRealPathChartRefsUnsafe(...)` / `CreateOwnedRealPathChartDirectorySnapshotUnsafe(...)` / `CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(...)` のように用途名を持たせる。AutoRenameAll は subtree の source folder list だけを directory view から取得し、direct child snapshot は owned ref index の direct directory bucket から作る。
    - install destination overlay directory view は storage owner の実 path index と統合しない。runtime overlay / pending package state の隣接 index として、owned mutation と overlay mutation の両方から prune / update する。
    - internal mutation で表現できる path change / install destination change は install destination runtime state mutation に載せ、affected key だけ move / apply する。unregister は storage applier が同一 path の別 owner を落とす場合があるため、成功後に current storage key snapshot で full prune する。外部 setter による full replacement も従来どおり full prune する。
    - この phase の実装単位では、既存 lazy view を dispatcher dirty 化へ寄せるか、差分 bucket update へ進めるかを index ごとに選ぶ。ただし同じ意味の index を複数作らない。

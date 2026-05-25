@@ -189,10 +189,24 @@ internal sealed class OwnedChartCollectionState
         return CreateLibraryChartRefIndexSnapshot().GetChartRefsUnderRealPath(directoryPath);
     }
 
+    internal List<string> CreateChartDirectoriesUnderRealPath(string directoryPath)
+    {
+        IEnumerable<LibraryChartRef> refs = string.IsNullOrWhiteSpace(directoryPath)
+            ? charts.Select(CreateCurrentLibraryChartRef)
+            : CreateLibraryChartRefIndexSnapshot().GetChartRefsUnderRealPath(directoryPath);
+        return [.. refs
+            .Select(chart => chart?.Directory)
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(directory => directory.Length)
+            .ThenBy(directory => directory, StringComparer.OrdinalIgnoreCase)];
+    }
+
     internal List<LibraryChartRef> CreateLibraryChartRefsForPaths(IEnumerable<string> paths)
     {
         return CreateLibraryChartRefIndexSnapshot().GetChartRefsByPaths(paths);
     }
+
 
     /// <summary>
     /// playlist detail の entry hash 解決に使う owned 隣接 index を作成します。
