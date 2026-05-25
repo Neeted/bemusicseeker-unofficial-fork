@@ -3174,7 +3174,7 @@ public class MainWindowViewModel : ViewModel
                     RaisePropertyChanged(() => AvailableBMSDirectories);
                     RaisePropertyChanged(() => BMSInstallDir);
                     RaiseValidationStateChanged();
-                    if (ownerViewModel.BMSFiles != null && ownerViewModel.BMSFiles.Any(f => f.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                    if (ownerViewModel.files?.HasOwnedChartUnderRealPath(dir) == true)
                     {
                         isBMSDirectoryRemoved = true;
                     }

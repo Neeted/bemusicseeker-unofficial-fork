@@ -7056,6 +7056,23 @@ completeFileEnumerationOnce,
         }
     }
 
+    internal bool HasOwnedChartUnderRealPath(string directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return false;
+        }
+
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            EnsureOwnedChartCollectionBuiltUnsafe();
+            lock (lockOwnedChartCollection)
+            {
+                return ownedChartCollection.CountLibraryChartRefsUnderRealPath(directoryPath) > 0;
+            }
+        }
+    }
+
     private List<string> CreateOwnedRealPathChartDirectoriesUnsafe(string directoryPath)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();

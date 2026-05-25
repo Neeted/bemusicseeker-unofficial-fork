@@ -1378,6 +1378,33 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void HasOwnedChartUnderRealPath_UsesOwnedCollectionForBmsAndBmson()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+            var bmsonSong = CreateBmsonSong(
+                Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [bmsonSong]
+            };
+
+            Assert.IsTrue(library.HasOwnedChartUnderRealPath(Path.Combine("C:\\Installed", "Bms")));
+            Assert.IsTrue(library.HasOwnedChartUnderRealPath(Path.Combine("C:\\Installed", "Bmson")));
+            Assert.IsTrue(library.HasOwnedChartUnderRealPath("C:\\Installed"));
+            Assert.IsFalse(library.HasOwnedChartUnderRealPath("C:\\Install"));
+            Assert.IsFalse(library.HasOwnedChartUnderRealPath(Path.Combine("C:\\Installed", "Missing")));
+            Assert.IsFalse(library.HasOwnedChartUnderRealPath(null));
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_UnregistersBmsonStorageRowsInLibraryBoundary()
     {
         TestResourceInitializer.EnsureJapaneseResources();

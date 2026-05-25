@@ -230,6 +230,11 @@ internal sealed class OwnedChartCollectionState
         return CreateLibraryChartRefIndexSnapshot().GetChartRefsUnderRealPath(directoryPath);
     }
 
+    internal int CountLibraryChartRefsUnderRealPath(string directoryPath)
+    {
+        return CreateLibraryChartRefIndexSnapshot().CountChartRefsUnderRealPath(directoryPath, null);
+    }
+
     internal List<string> CreateChartDirectoriesUnderRealPath(string directoryPath)
     {
         IEnumerable<LibraryChartRef> refs = string.IsNullOrWhiteSpace(directoryPath)

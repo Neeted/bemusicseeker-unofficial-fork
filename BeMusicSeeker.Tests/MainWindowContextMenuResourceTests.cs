@@ -366,6 +366,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(xaml.Contains("ToolTip=\"未実装\""));
         StringAssert.Contains(viewModelCode, "Settings.Default.StandaloneBmsRootPaths");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidStandaloneBmsRootPaths");
+        StringAssert.Contains(viewModelCode, "ownerViewModel.files?.HasOwnedChartUnderRealPath(dir) == true");
+        Assert.IsFalse(viewModelCode.Contains("ownerViewModel.BMSFiles != null && ownerViewModel.BMSFiles.Any"));
     }
 
     [TestMethod]
