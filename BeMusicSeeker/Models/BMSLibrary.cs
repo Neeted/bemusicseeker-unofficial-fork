@@ -5679,20 +5679,16 @@ completeFileEnumerationOnce,
         {
             return;
         }
-        var ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var applyStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFiles.GetWriterGuard())
         {
+            OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe();
             var attachStopwatch = Stopwatch.StartNew();
-            foreach (BMSFile item in BMSFiles ?? Enumerable.Empty<BMSFile>())
+            foreach (BMSFile item in ownerView.BmsFiles)
             {
                 if (item == null)
                 {
                     continue;
-                }
-                if (!string.IsNullOrWhiteSpace(item.path))
-                {
-                    ownerPaths.Add(item.path);
                 }
                 BMSFileMaintenanceInfo nextInfo = null;
                 if (!string.IsNullOrWhiteSpace(item.path)
@@ -5719,15 +5715,11 @@ completeFileEnumerationOnce,
                     }
                 }
             }
-            foreach (LR2SongDBExtended.bmson_song item in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)
             {
                 if (item == null)
                 {
                     continue;
-                }
-                if (!string.IsNullOrWhiteSpace(item.path))
-                {
-                    ownerPaths.Add(item.path);
                 }
                 if (!string.IsNullOrWhiteSpace(item.path)
                     && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
@@ -5755,10 +5747,10 @@ completeFileEnumerationOnce,
             result.MaintenanceAttachMs = attachStopwatch.ElapsedMilliseconds;
             ResourceHealthIndexSnapshot healthIndexSnapshot = RebuildResourceHealthIndexSnapshotLocked("maintenance_hydration");
             result.ResourceHealthIndexMs = healthIndexSnapshot.BuildMs;
-            result.OwnerPathCount = ownerPaths.Count;
+            result.OwnerPathCount = ownerView.OwnerPathCount;
             foreach (string maintenancePath in result.MaintenanceMap.Keys)
             {
-                if (!string.IsNullOrWhiteSpace(maintenancePath) && !ownerPaths.Contains(maintenancePath))
+                if (!ownerView.ContainsOwnerPath(maintenancePath))
                 {
                     result.StaleMaintenancePaths.Add(maintenancePath);
                 }
@@ -5824,14 +5816,12 @@ completeFileEnumerationOnce,
                 int setModeTargetCount = 0;
                 var maintenanceResult = new MaintenanceWorkflowResult();
                 List<BMSFile> filesSnapshot = null;
-                int bmsonSnapshotCount = 0;
                 try
                 {
                     using (rwlockBMSFiles.GetReaderGuard())
                     {
                         filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-                        bmsonSnapshotCount = (BmsonSongs ?? []).Count(song => song != null);
-                        snapshotCount = filesSnapshot.Count + bmsonSnapshotCount;
+                        snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count;
                     }
                     LogInstallPerformance("installable_maintenance_deferred run version=" + requestVersion
                         + " snapshotCount=" + snapshotCount
@@ -5964,9 +5954,7 @@ completeFileEnumerationOnce,
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            int bmsCount = (BMSFiles ?? []).Count(file => file != null);
-            int bmsonCount = (BmsonSongs ?? []).Count(song => song != null);
-            return bmsCount + bmsonCount;
+            return CreateOwnedChartStorageOwnerViewUnsafe().Count;
         }
     }
 
@@ -7188,6 +7176,15 @@ completeFileEnumerationOnce,
         lock (lockOwnedChartCollection)
         {
             return ownedChartCollection.CreateDuplicateChartRowSnapshot();
+        }
+    }
+
+    private OwnedChartStorageOwnerView CreateOwnedChartStorageOwnerViewUnsafe()
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateStorageOwnerView();
         }
     }
 

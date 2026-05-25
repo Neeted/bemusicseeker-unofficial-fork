@@ -1804,6 +1804,28 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void MaintenanceHydrationUsesOwnedStorageOwnerView()
+    {
+        string root = FindRepositoryRoot();
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyMaintenanceHydrationResult");
+        string countMethod = ExtractMethodBody(libraryCode, "private int CountInstallableMaintenanceSnapshotTargets");
+        string queueMethod = ExtractMethodBody(libraryCode, "private void QueueDeferredInstallableMaintenance");
+
+        StringAssert.Contains(applyMethod, "OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe()");
+        StringAssert.Contains(applyMethod, "foreach (BMSFile item in ownerView.BmsFiles)");
+        StringAssert.Contains(applyMethod, "foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)");
+        StringAssert.Contains(applyMethod, "ownerView.ContainsOwnerPath(maintenancePath)");
+        Assert.IsFalse(applyMethod.Contains("foreach (BMSFile item in BMSFiles"));
+        Assert.IsFalse(applyMethod.Contains("foreach (LR2SongDBExtended.bmson_song item in BmsonSongs"));
+        StringAssert.Contains(countMethod, "CreateOwnedChartStorageOwnerViewUnsafe().Count");
+        Assert.IsFalse(countMethod.Contains("(BMSFiles ?? [])"));
+        Assert.IsFalse(countMethod.Contains("(BmsonSongs ?? [])"));
+        StringAssert.Contains(queueMethod, "snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count");
+        Assert.IsFalse(queueMethod.Contains("bmsonSnapshotCount"));
+    }
+
+    [TestMethod]
     public void EmptyDbStartupOptimizationDocs_DocumentFileDiffPipeline()
     {
         string root = FindRepositoryRoot();

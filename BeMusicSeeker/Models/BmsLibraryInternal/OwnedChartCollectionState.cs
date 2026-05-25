@@ -22,6 +22,32 @@ internal sealed class OwnedDuplicateChartRowSnapshot
     internal IReadOnlyList<BMSFile> BmsStorageRows { get; }
 }
 
+internal sealed class OwnedChartStorageOwnerView
+{
+    private readonly HashSet<string> ownerPaths;
+
+    internal OwnedChartStorageOwnerView(
+        IReadOnlyList<BMSFile> bmsFiles,
+        IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonSongs,
+        HashSet<string> ownerPaths)
+    {
+        BmsFiles = bmsFiles ?? [];
+        BmsonSongs = bmsonSongs ?? [];
+        this.ownerPaths = ownerPaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal IReadOnlyList<BMSFile> BmsFiles { get; }
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs { get; }
+
+    internal int OwnerPathCount => ownerPaths.Count;
+
+    internal int Count => BmsFiles.Count + BmsonSongs.Count;
+
+    internal bool ContainsOwnerPath(string path)
+        => !string.IsNullOrWhiteSpace(path) && ownerPaths.Contains(path);
+}
+
 internal sealed class OwnedChartCollectionState
 {
     private readonly List<ChartFile> charts;
@@ -275,6 +301,31 @@ internal sealed class OwnedChartCollectionState
             [.. charts.Select(chart => chart?.GetBmsStorageOwner()).Where(file => file != null)]);
     }
 
+    internal OwnedChartStorageOwnerView CreateStorageOwnerView()
+    {
+        var bmsFiles = new List<BMSFile>();
+        var bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
+        var ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts)
+        {
+            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                bmsFiles.Add(bmsOwner);
+                AddOwnerPath(ownerPaths, bmsOwner.path);
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                bmsonSongs.Add(bmsonOwner);
+                AddOwnerPath(ownerPaths, bmsonOwner.path);
+            }
+        }
+        return new OwnedChartStorageOwnerView(bmsFiles, bmsonSongs, ownerPaths);
+    }
+
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()
     {
         var snapshot = new OwnedChartHashIndexSnapshot();
@@ -347,6 +398,14 @@ internal sealed class OwnedChartCollectionState
         return bmsonOwner != null
             ? DuplicateChartRow.CreateFromBmsonSong(bmsonOwner)
             : DuplicateChartRow.CreateFromChart(chart);
+    }
+
+    private static void AddOwnerPath(ISet<string> ownerPaths, string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            ownerPaths.Add(path);
+        }
     }
 
     internal ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummary(

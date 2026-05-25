@@ -109,6 +109,26 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateStorageOwnerView_ReturnsOwnersAndOwnerPathLookup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
+        var pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [bmsonSong, pathlessBmson]);
+
+        OwnedChartStorageOwnerView view = state.CreateStorageOwnerView();
+
+        Assert.AreEqual(3, view.Count);
+        Assert.AreEqual(2, view.OwnerPathCount);
+        Assert.AreSame(bmsFile, view.BmsFiles.Single());
+        CollectionAssert.AreEqual(new[] { bmsonSong, pathlessBmson }, view.BmsonSongs.ToArray());
+        Assert.IsTrue(view.ContainsOwnerPath(bmsFile.path));
+        Assert.IsTrue(view.ContainsOwnerPath(bmsonSong.path));
+        Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.path));
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ReprojectsCurrentStorageOwnerValues()
     {
         TestResourceInitializer.EnsureJapaneseResources();
