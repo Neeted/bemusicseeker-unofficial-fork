@@ -504,7 +504,7 @@ UI 文言と翻訳 resource は、機能自体がユーザー目線で変わっ�
 
 ### snapshot / lookup helper
 
-旧 installed chart snapshot 系の汎用 helper / wrapper は削除済みである。chart_info full backfill は install destination overlay を通さず `CreateOwnedChartSnapshot(includeResourceReferences:false)` から明示的 full target を作る。任意 rows / subset / BMS-only / bmson-only の入力は用途別 projection helper へ分ける。まだ全件 `ChartFile` list を materialize する full operation は残るため、hot path ではなく明示的 full rebuild / full backfill に限定する。
+旧 installed chart snapshot 系の汎用 helper / wrapper は削除済みである。chart_info full backfill は install destination overlay を通さず `CreateOwnedChartInfoFullBackfillTargetSnapshot()` から明示的 full target を作る。任意 rows / subset / BMS-only / bmson-only の入力は用途別 projection helper へ分ける。まだ全件 `ChartFile` list を materialize する full operation は残るため、hot path ではなく明示的 full rebuild / full backfill に限定する。
 
 folder operation 向けの full `LibraryChartRef` snapshot helper は削除済みである。duplicate merge / folder move / delete confirmation は full ref snapshot を受け取らず、必要な情報を次の 3 つへ分ける。
 
@@ -655,7 +655,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - `BMSLibrary` が保持する所持譜面集合の primary source を、`BMSFiles` / `BmsonSongs` の二本立て storage row collection から、owned chart collection の identity / view / index へ移す。
 - `BMSFiles` / `BmsonSongs` は DB 永続化 owner、外部互換 property、BMS / bmson 固有 producer の境界として残す。BMS-only / bmson-only 処理は無理に `ChartFile` 経由にしない。
 - BMS と bmson が混在する chart-common 処理は owned chart collection を入口にする。ただし、入口は必ず `List<ChartFile>` ではなく、用途に応じて `LibraryChartRef` view、directory index、hash index、storage owner view、resource maintenance target view を使う。
-- chart_info full backfill は処理自体が全件 parse target を必要とする明示 full operation として `CreateOwnedChartSnapshot(includeResourceReferences:false)` を使う。resource maintenance target 作成、installed chart lookup、playlist summary hash、playlist reference apply、playlist detail resolve、folder operation などの hot path / repeated mutation path は、全件 `ChartFile` list を都度作らず、対象を絞った owned view / index または入力 rows の一時 projection から作る。folder operation 向けの full `LibraryChartRef` snapshot helper は残さない。
+- chart_info full backfill は処理自体が全件 parse target を必要とする明示 full operation として `CreateOwnedChartInfoFullBackfillTargetSnapshot()` を使う。resource maintenance target 作成、installed chart lookup、playlist summary hash、playlist reference apply、playlist detail resolve、folder operation などの hot path / repeated mutation path は、全件 `ChartFile` list を都度作らず、対象を絞った owned view / index または入力 rows の一時 projection から作る。folder operation 向けの full `LibraryChartRef` snapshot helper は残さない。
 - install / uninstall / merge / repair / folder move / path rename は owned chart collection と storage row owner を同じ mutation として差分更新する。
 - large library での不要な全件 materialize を減らし、初回 build、繰り返し mutation、folder / merge 操作のいずれでも O(N) rebuild / scan を hot path に置かない。
 - collection mutation の結果を受け取る単一の internal boundary を作り、installed lookup、real path directory view、install destination overlay、parent folder cache、playlist owned hash / resolve index、resource health index、duplicate cache などの派生 index をそこから同期または無効化する。

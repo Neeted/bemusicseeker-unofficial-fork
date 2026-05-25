@@ -5297,7 +5297,7 @@ completeFileEnumerationOnce,
             List<ChartFile> chartSnapshot;
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                chartSnapshot = CreateOwnedChartSnapshot(includeResourceReferences: false);
+                chartSnapshot = CreateOwnedChartInfoFullBackfillTargetSnapshot();
             }
             int snapshotCount = chartSnapshot.Count;
             bool completedLatestRequest = false;
@@ -6785,14 +6785,14 @@ reportProgress,
         }
     }
 
-    private List<ChartFile> CreateOwnedChartSnapshot(bool includeResourceReferences)
+    private List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshot()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
             return ownedChartCollection.CreateSnapshot(
                 includeWarningSnapshot: false,
-                includeResourceReferences: includeResourceReferences,
+                includeResourceReferences: false,
                 includeScoreSnapshot: false);
         }
     }

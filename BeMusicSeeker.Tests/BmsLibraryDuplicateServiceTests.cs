@@ -367,7 +367,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 {
                     songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
                 }
-                InvokeCreateOwnedChartSnapshot(library);
+                InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
                 object ownedStateBefore = GetOwnedChartCollectionState(library);
 
                 library.MergeChartDirectory(srcDir, dstDir);
@@ -387,7 +387,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 }
                 Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
                 Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
-                List<ChartFile> ownedSnapshot = InvokeCreateOwnedChartSnapshot(library);
+                List<ChartFile> ownedSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
                 Assert.AreEqual(1, ownedSnapshot.Count);
                 Assert.AreSame(library.BmsonSongs[0], ownedSnapshot[0].GetBmsonStorageOwner());
             }
@@ -535,11 +535,11 @@ public sealed class BmsLibraryDuplicateServiceTests
         }
     }
 
-    private static List<ChartFile> InvokeCreateOwnedChartSnapshot(BMSLibrary library)
+    private static List<ChartFile> InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartInfoFullBackfillTargetSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        return (List<ChartFile>)methodInfo.Invoke(library, [false]);
+        return (List<ChartFile>)methodInfo.Invoke(library, []);
     }
 
     private static bool IsOwnedChartCollectionInitialized(BMSLibrary library)
