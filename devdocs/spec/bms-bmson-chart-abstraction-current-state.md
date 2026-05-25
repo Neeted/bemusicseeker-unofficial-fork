@@ -728,7 +728,7 @@ mutation result は rich `ChartFile` list を必須にしない。path / hash / 
 処理順は固定する。
 
 1. mutation payload から必要な old-side lightweight entry / one-shot chart snapshot を作る。old path / old hash が必要な index のため、storage row を変更する前に取得する。
-2. storage row owner を更新する。ここでは setter 由来の full invalidation を抑制し、state applier は storage row collection と property notification の責務に閉じる。
+2. storage row owner を更新する。ここでは setter 由来の full invalidation を抑制する。`BmsLibraryStateApplier` は DB / installed package / pending package の applier 境界に限定し、`BMSFiles` / `BmsonSongs` collection writeback は BMSLibrary の mutation apply 内で行う。
 3. owned chart collection に mutation を適用し、normalized mutation result を得る。owned collection が未構築なら index を構築せず、result は lazy full invalidate または no-op とする。
 4. dispatcher が mutation result を派生 index へ配布する。差分更新できる index は差分更新し、表現できない index は full invalidate する。
 5. 例外時は、storage row が部分更新された可能性を考慮し、owned collection と差分更新済み index を full invalidate する。runtime overlay の one-shot buffer は破棄する。
@@ -885,6 +885,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - manual install destination validation の standalone 所持判定は owned collection の known chart view を使う。owner-backed match、canonical path match、ambiguous same-kind path fallback は owned collection 側の owner/path lookup で扱い、caller が BMS / bmson storage rows を直接結合しない。
    - maintenance hydration の storage owner attach と installable maintenance 件数は owned collection の storage owner view を使う。maintenance producer は BMS / bmson owner を直接更新するが、caller 側で `BMSFiles` / `BmsonSongs` を束ねる入口は持たない。
    - file scan diff の removed chart payload は owned collection の current storage owner identity view から作る。file scan service の `NextFiles` / `NextBmsonSongs` は入力 rows として渡してよいが、BMSLibrary 側で current `BMSFiles` / `BmsonSongs` を直接結合して chart-common `UnregisteredCharts` を作らない。
+   - `BmsLibraryStateApplier` は DB / installed package / pending package の applier 境界に限定する。library unregister に伴う `BMSFiles` / `BmsonSongs` collection writeback は BMSLibrary の mutation apply 内で行い、state applier に storage row getter / setter callback を戻さない。
    - 残す direct enumeration は BMS-only / bmson-only / DB load-save / input rows projection / ViewModel read model boundary として名前で分かるようにする。
    - 追加 bmson だけ、入力 rows だけ、BMS-only repair だけのように明確に対象が限定された経路は、一時 projection として残してよい。推定インストール batch の追加 bmson は `AddedCharts` から作る bounded projection とし、deferred package や `BmsonSongs` 全体を scan しない。
 

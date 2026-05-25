@@ -18,10 +18,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryStateApplier(
     BmsLibraryDbGateway dbGateway,
-    Func<List<BMSFile>> getBmsFiles,
-    Action<List<BMSFile>> setBmsFiles,
-    Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs,
-    Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs,
     Func<DispatcherCollection<ChartPackage>> getPendingPackages,
     Action<DispatcherCollection<ChartPackage>> setPendingPackages,
     Func<DispatcherCollection<ChartPackage>> getInstalledPackages,
@@ -29,14 +25,6 @@ internal sealed class BmsLibraryStateApplier(
     Action raiseInstalledPackagesChanged)
 {
     private readonly BmsLibraryDbGateway dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
-
-    private readonly Func<List<BMSFile>> getBmsFiles = getBmsFiles ?? throw new ArgumentNullException(nameof(getBmsFiles));
-
-    private readonly Action<List<BMSFile>> setBmsFiles = setBmsFiles ?? throw new ArgumentNullException(nameof(setBmsFiles));
-
-    private readonly Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs = getBmsonSongs ?? throw new ArgumentNullException(nameof(getBmsonSongs));
-
-    private readonly Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs = setBmsonSongs ?? throw new ArgumentNullException(nameof(setBmsonSongs));
 
     private readonly Func<DispatcherCollection<ChartPackage>> getPendingPackages = getPendingPackages ?? throw new ArgumentNullException(nameof(getPendingPackages));
 
@@ -182,7 +170,6 @@ internal sealed class BmsLibraryStateApplier(
             removedFilesList.Where(file => !string.IsNullOrWhiteSpace(file.path)).Select(file => file.path),
             StringComparer.OrdinalIgnoreCase);
         var removedFileRefs = new HashSet<BMSFile>(removedFilesList);
-        setBmsFiles([.. getBmsFiles().Where(file => !IsMatchedRemovedFile(file, removedPaths, removedFileRefs))]);
         dbGateway.DeleteSongsAndMaintenance(removedFilesList);
         DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
@@ -232,7 +219,6 @@ internal sealed class BmsLibraryStateApplier(
             removedSongsList.Select(song => song.path),
             StringComparer.OrdinalIgnoreCase);
         var removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(removedSongsList);
-        setBmsonSongs([.. getBmsonSongs().Where(song => song != null && !removedSongRefs.Contains(song) && !removedPaths.Contains(song.path))]);
         dbGateway.DeleteBmsonSongs(removedSongsList);
 
         DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();

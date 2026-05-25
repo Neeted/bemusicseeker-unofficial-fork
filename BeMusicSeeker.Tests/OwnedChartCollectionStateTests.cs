@@ -1312,6 +1312,41 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_UnregistersBmsonStorageRowsInLibraryBoundary()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var first = CreateBmsonSong(Path.Combine("C:\\Installed", "First", "chart.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            var second = CreateBmsonSong(Path.Combine("C:\\Installed", "Second", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, []);
+            SetLibraryBmsonSongsWithoutNotification(library, [first, second]);
+            List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            Assert.AreEqual(2, initialSnapshot.Count);
+            int bmsonSongsChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
+                {
+                    bmsonSongsChanged++;
+                }
+            };
+            var delta = new LibraryMutationDelta();
+            delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsonStorageOwnerIdentity(first));
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            Assert.AreEqual(1, library.BmsonSongs.Count);
+            Assert.AreSame(second, library.BmsonSongs.Single());
+            Assert.AreEqual(1, bmsonSongsChanged);
+            List<ChartFile> afterSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            Assert.AreEqual(1, afterSnapshot.Count);
+            Assert.AreSame(second, afterSnapshot[0].GetBmsonStorageOwner());
+        });
+    }
+
+    [TestMethod]
     public void RemoveLibraryCharts_RoutesUnregisterThroughOwnedMutationAndInstalledLookupDelta()
     {
         TestResourceInitializer.EnsureJapaneseResources();

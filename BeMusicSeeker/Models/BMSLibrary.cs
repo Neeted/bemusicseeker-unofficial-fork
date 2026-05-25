@@ -2834,10 +2834,6 @@ public class BMSLibrary : NotificationObject
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         stateApplier = new BmsLibraryStateApplier(
             dbGateway,
-            () => BMSFiles,
-            SetBmsStorageRowsFromInternalMutationUnsafe,
-            () => BmsonSongs,
-            SetBmsonStorageRowsFromInternalMutationUnsafe,
             () => ChartPackagesPending,
             pendingPackages => ChartPackagesPending = pendingPackages,
             () => ChartPackagesInstalled,
@@ -13220,6 +13216,7 @@ completeFileEnumerationOnce,
             using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
             using (SuppressOwnedChartCollectionInvalidation())
             {
+                ApplyLibraryUnregisterStorageRowsUnsafe(delta?.ChartsToUnregister);
                 stateApplier.ApplyLibraryMutationDelta(delta);
             }
             ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation);
@@ -13264,6 +13261,56 @@ completeFileEnumerationOnce,
             throw;
         }
         DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
+    }
+
+    private void ApplyLibraryUnregisterStorageRowsUnsafe(IEnumerable<ChartFile> charts)
+    {
+        List<ChartFile> chartList = [.. (charts ?? []).Where(chart => chart != null)];
+        if (chartList.Count == 0)
+        {
+            return;
+        }
+
+        List<BMSFile> bmsFilesToUnregister = [.. chartList
+            .Select(chart => chart.GetBmsStorageOwner())
+            .Where(file => file != null)
+            .Distinct()];
+        if (bmsFilesToUnregister.Count > 0)
+        {
+            var removedPaths = new HashSet<string>(
+                bmsFilesToUnregister.Where(file => !string.IsNullOrWhiteSpace(file.path)).Select(file => file.path),
+                StringComparer.OrdinalIgnoreCase);
+            var removedFileRefs = new HashSet<BMSFile>(bmsFilesToUnregister);
+            SetBmsStorageRowsFromInternalMutationUnsafe([.. (BMSFiles ?? []).Where(file => !IsMatchedUnregisteredBmsFile(file, removedPaths, removedFileRefs))]);
+        }
+
+        List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. chartList
+            .Select(chart => chart.GetBmsonStorageOwner())
+            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .Distinct()];
+        if (bmsonSongsToUnregister.Count > 0)
+        {
+            var removedPaths = new HashSet<string>(
+                bmsonSongsToUnregister.Select(song => song.path),
+                StringComparer.OrdinalIgnoreCase);
+            var removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(bmsonSongsToUnregister);
+            SetBmsonStorageRowsFromInternalMutationUnsafe([.. (BmsonSongs ?? []).Where(song => song != null && !removedSongRefs.Contains(song) && !removedPaths.Contains(song.path))]);
+        }
+    }
+
+    private static bool IsMatchedUnregisteredBmsFile(BMSFile file, ISet<string> removedPaths, ISet<BMSFile> removedFiles)
+    {
+        if (file == null)
+        {
+            return false;
+        }
+
+        if (removedFiles?.Contains(file) == true)
+        {
+            return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(file.path) && removedPaths?.Contains(file.path) == true;
     }
 
     private void PublishNormalLibraryRefreshNotification(OwnedChartCollectionMutationResult result)
