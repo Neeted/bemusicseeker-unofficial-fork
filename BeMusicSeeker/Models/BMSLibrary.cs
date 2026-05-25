@@ -10186,7 +10186,7 @@ completeFileEnumerationOnce,
         return [.. targetsByKey.Values];
     }
 
-    private List<LR2SongDBExtended.bmson_song> ResolveAddedBmsonSongsFromInstalledPackages(IEnumerable<ChartPackage> installedPackages)
+    private List<ChartFile> CreateAddedBmsonChartProjectionsFromInstalledPackages(IEnumerable<ChartPackage> installedPackages)
     {
         List<string> addedBmsonPaths = [.. (installedPackages ?? [])
             .Where(package => package != null)
@@ -10208,15 +10208,15 @@ completeFileEnumerationOnce,
                 bmsonByPath[song.path] = song;
             }
         }
-        List<LR2SongDBExtended.bmson_song> result = [];
+        List<LR2SongDBExtended.bmson_song> addedBmsonSongs = [];
         foreach (string path in addedBmsonPaths)
         {
             if (bmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song song))
             {
-                result.Add(song);
+                addedBmsonSongs.Add(song);
             }
         }
-        return result;
+        return ChartFileProjection.FromBmsonSongs(addedBmsonSongs, includeWarningSnapshot: false, requirePath: true);
     }
 
     /// <summary>
@@ -11022,7 +11022,7 @@ completeFileEnumerationOnce,
                         }
                         List<ChartFile> estimatedInstallInlineTargets = BuildEstimatedInstallMaintenanceTargets(
                             estimatedInstallMaintenanceTargets.Concat(
-                                ChartFileProjection.FromBmsonSongs(ResolveAddedBmsonSongsFromInstalledPackages(batchResult.DeferredInstalledPackages), includeWarningSnapshot: false, requirePath: true)));
+                                CreateAddedBmsonChartProjectionsFromInstalledPackages(batchResult.DeferredInstalledPackages)));
                         BuildAndPersistInlineChartInfoForInstalledCharts(
                             "install_package_estimated_inline",
                             estimatedInstallInlineTargets);

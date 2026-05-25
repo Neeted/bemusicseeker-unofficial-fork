@@ -1724,6 +1724,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(batchContext.Contains("AddedBmsFiles"));
         Assert.IsFalse(batchContext.Contains("AddedBmsonSongs"));
         StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
+        Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
+        StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjectionsFromInstalledPackages(batchResult.DeferredInstalledPackages)");
         StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts)");
         StringAssert.Contains(libraryCode, "canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates");
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
