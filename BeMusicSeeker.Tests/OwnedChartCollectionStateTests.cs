@@ -1044,11 +1044,16 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
             int parentFolderVersionChanged = 0;
+            int bmsFilesChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSParentFolderListCacheVersion")
                 {
                     parentFolderVersionChanged++;
+                }
+                if (args.PropertyName == nameof(BMSLibrary.BMSFiles))
+                {
+                    bmsFilesChanged++;
                 }
             };
             var delta = new LibraryMutationDelta
@@ -1063,6 +1068,7 @@ public sealed class OwnedChartCollectionStateTests
 
             Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
             Assert.AreEqual(1, parentFolderVersionChanged);
+            Assert.AreEqual(1, bmsFilesChanged);
             Assert.IsNull(library.DuplicateChartGroups);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreEqual(1, library.BMSFiles.Count);
@@ -1224,6 +1230,7 @@ public sealed class OwnedChartCollectionStateTests
                 int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
                 int ownedCollectionVersionChanged = 0;
                 int bmsFilesChanged = 0;
+                int bmsonSongsChanged = 0;
                 string? firstChange = null;
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
                 int parentFolderVersionChanged = 0;
@@ -1237,6 +1244,10 @@ public sealed class OwnedChartCollectionStateTests
                     if (args.PropertyName == "BMSFiles")
                     {
                         bmsFilesChanged++;
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
+                    {
+                        bmsonSongsChanged++;
                     }
                     if (args.PropertyName == "BMSParentFolderListCacheVersion")
                     {
@@ -1267,6 +1278,7 @@ public sealed class OwnedChartCollectionStateTests
                 Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
                 Assert.AreEqual(1, ownedCollectionVersionChanged);
                 Assert.AreEqual(1, bmsFilesChanged);
+                Assert.AreEqual(1, bmsonSongsChanged);
                 Assert.AreEqual("OwnedChartCollectionVersion", firstChange);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
@@ -1369,20 +1381,42 @@ public sealed class OwnedChartCollectionStateTests
             SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(replacedBms)]);
             Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+            int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
             int ownedCollectionVersionChanged = 0;
+            int parentFolderVersionChanged = 0;
+            int bmsFilesChanged = 0;
+            int bmsonSongsChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "OwnedChartCollectionVersion")
                 {
                     ownedCollectionVersionChanged++;
                 }
+                if (args.PropertyName == "BMSParentFolderListCacheVersion")
+                {
+                    parentFolderVersionChanged++;
+                }
+                if (args.PropertyName == nameof(BMSLibrary.BMSFiles))
+                {
+                    bmsFilesChanged++;
+                }
+                if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
+                {
+                    bmsonSongsChanged++;
+                }
             };
+            SetDuplicateChartGroupsWithoutNotification(library, []);
 
             InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
             List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
 
             Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
             Assert.AreEqual(1, ownedCollectionVersionChanged);
+            Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
+            Assert.AreEqual(1, parentFolderVersionChanged);
+            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.AreEqual(1, bmsonSongsChanged);
+            Assert.IsNull(library.DuplicateChartGroups);
             Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
@@ -1457,6 +1491,7 @@ public sealed class OwnedChartCollectionStateTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+            var staleOverlayBms = CreateFile("ffffffffffffffffffffffffffffffff", Path.Combine("C:\\Installed", "Bms", "stale.bms"));
             var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
             string duplicateBmsonPath = Path.Combine("C:\\Installed", "Bmson", "duplicate.bmson");
             var duplicateBmsonA = CreateBmsonSong(duplicateBmsonPath, "cccccccccccccccccccccccccccccccc");
@@ -1468,11 +1503,27 @@ public sealed class OwnedChartCollectionStateTests
                 BmsonSongs = [duplicateBmsonA, duplicateBmsonB]
             };
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            SetDuplicateChartGroupsWithoutNotification(library, []);
+            int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
+            int parentFolderVersionChanged = 0;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == "BMSParentFolderListCacheVersion")
+                {
+                    parentFolderVersionChanged++;
+                }
+            };
+            ApplyInstallDestinationChange(library, staleOverlayBms, Path.Combine("C:\\Install", "Stale"));
+            Assert.IsTrue(GetInstallDestinationRuntimeStateCount(library) > 0);
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
                 InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms], [addedBmson])));
 
             Assert.IsInstanceOfType(exception.InnerException, typeof(ArgumentException));
+            Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
+            Assert.AreEqual(1, parentFolderVersionChanged);
+            Assert.IsNull(library.DuplicateChartGroups);
+            Assert.AreEqual(0, GetInstallDestinationRuntimeStateCount(library));
             Assert.IsFalse(IsOwnedChartCollectionInitialized(library));
         });
     }
@@ -1785,6 +1836,14 @@ public sealed class OwnedChartCollectionStateTests
         Assert.IsNotNull(fieldInfo);
         var cache = (System.Collections.ICollection)fieldInfo.GetValue(library);
         return cache.Count;
+    }
+
+    private static int GetInstallDestinationRuntimeStateCount(BMSLibrary library)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installDestinationRuntimeStatesByKey", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        var states = (System.Collections.ICollection)fieldInfo.GetValue(library);
+        return states.Count;
     }
 
     private static bool IsInstalledChartLookupIndexInitialized(BMSLibrary library)
