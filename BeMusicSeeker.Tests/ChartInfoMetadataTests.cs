@@ -3219,7 +3219,7 @@ createTempDirectory);
     }
 
     [TestMethod]
-    public void RemoveChartInfoParseFailuresByMd5_RemovesFailureRowsAndRefreshesProjectionOnly()
+    public void RemoveChartInfoParseFailuresByMd5_RemovesFailureRowsAndPublishesWarningRefresh()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
@@ -3258,16 +3258,23 @@ createTempDirectory);
                 BMSFiles = [bmsFile],
                 BmsonSongs = [bmsonSong]
             };
-            List<string> changedProperties = [];
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs args)
             {
-                changedProperties.Add(args.PropertyName);
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    refreshNotificationChanged++;
+                }
             };
             Assert.AreEqual(2, library.ChartInfoParseFailedChartFiles.Count());
 
             library.RemoveChartInfoParseFailuresByMd5([sharedMd5, sharedMd5.ToUpperInvariant(), " "]);
 
-            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.ChartInfoParseFailedChartFiles));
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
+            Assert.AreEqual(1, refreshNotificationChanged);
             Assert.AreEqual(0, library.ChartInfoParseFailedChartFiles.Count());
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", sharedMd5));

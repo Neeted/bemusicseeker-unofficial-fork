@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryZeroNoteRefreshTests
 {
     [TestMethod]
-    public void RecheckZeroNoteWarnings_RaisesChartFilesZeroNoteWhenWarningsChange()
+    public void RecheckZeroNoteWarnings_PublishesWarningRefreshWhenWarningsChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -29,15 +29,22 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
             file.SetNotes(1200);
             library.BMSFiles = [file];
-            List<string> changedProperties = [];
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
             {
-                changedProperties.Add(e.PropertyName);
+                if (e.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    refreshNotificationChanged++;
+                }
             };
 
             library.RecheckZeroNoteWarnings();
 
-            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.ChartFilesZeroNote));
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsFalse(batch.NotifiesWarningPresentationProperties);
+            Assert.AreEqual(1, refreshNotificationChanged);
             Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
         });
     }
@@ -59,15 +66,18 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             file.SetNotes(0);
             library.BMSFiles = [file];
             SeedChartInfoIndex(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
-            List<string> changedProperties = [];
+            int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
             {
-                changedProperties.Add(e.PropertyName);
+                if (e.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    refreshNotificationChanged++;
+                }
             };
 
             library.RecheckZeroNoteWarnings();
 
-            CollectionAssert.DoesNotContain(changedProperties, nameof(BMSLibrary.ChartFilesZeroNote));
+            Assert.AreEqual(0, refreshNotificationChanged);
             Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
             Assert.IsTrue(file.Warnings.HasHighlightedWarning);
             Assert.AreEqual("[1] ゼロノート不整合", file.Warnings.BuildDigestText());

@@ -4687,7 +4687,6 @@ public class BMSLibrary : NotificationObject
             }
         }
 
-        bool inlineChartInfoApplied = false;
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
         List<ChartFile> currentInstallDestinationCharts = CreateCurrentInstallDestinationCleanupCharts();
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
@@ -4754,19 +4753,14 @@ completeFileEnumerationOnce,
         if (committedInlineChartInfoRows.Count > 0)
         {
             UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
-            inlineChartInfoApplied = true;
             committedInlineChartInfoRows.Clear();
-        }
-        if (inlineChartInfoApplied)
-        {
-            RaisePropertyChanged(() => ChartFilesZeroNote);
         }
         if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
             || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0
             || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
             || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
         {
-            RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
+            DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
         if (fileCheckResult.HasDbDiff)
         {
@@ -5064,7 +5058,7 @@ completeFileEnumerationOnce,
         {
             RaisePropertyChanged(() => ChartInfoIndexHydrated);
         }
-        RaisePropertyChanged(() => ChartFilesZeroNote);
+        DispatchWarningPresentationChanged("chart_info_index_snapshot");
         return result;
     }
 
@@ -5101,7 +5095,7 @@ completeFileEnumerationOnce,
             result.ByMd5Count = chartInfoIndexByMd5.Count;
         }
         RaisePropertyChanged(() => ChartInfoIndexVersion);
-        RaisePropertyChanged(() => ChartFilesZeroNote);
+        DispatchWarningPresentationChanged("chart_info_index_delta");
         LogInstallPerformance("chart_info_index_delta upserted=" + rowList.Count
             + " bySha256=" + result.BySha256Count
             + " byMd5=" + result.ByMd5Count
@@ -5439,11 +5433,10 @@ completeFileEnumerationOnce,
             if (result.AppliedRows.Count > 0)
             {
                 UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
-                RaisePropertyChanged(() => ChartFilesZeroNote);
             }
             if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
             {
-                RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
+                DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
             }
             completed = true;
             LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
@@ -5537,7 +5530,7 @@ completeFileEnumerationOnce,
                 ChartInfoBackfillCurrentPath = string.Empty;
                 ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
                 ChartInfoBackfillCompletedVersion = requestVersion;
-                RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
+                DispatchWarningPresentationChanged("chart_info_backfill_parse_failure");
                 lock (lockChartInfoBackfill)
                 {
                     chartInfoBackfillCompletedVersion = requestVersion;
@@ -7602,6 +7595,16 @@ completeFileEnumerationOnce,
         DispatchOwnedChartCollectionMutation(mutationResult, reason);
     }
 
+    private void DispatchWarningPresentationChanged(string reason)
+    {
+        DispatchOwnedChartCollectionMutation(
+            new OwnedChartCollectionMutationResult
+            {
+                WarningPresentationChanged = true
+            },
+            reason);
+    }
+
     private void RaiseStorageRowPropertyChanges(OwnedChartCollectionMutationResult result)
     {
         if (result?.StorageRowPropertyChanged != true)
@@ -9294,7 +9297,7 @@ completeFileEnumerationOnce,
             ResolveChartInfoForChart);
         if (result.ChangedCount > 0)
         {
-            RaisePropertyChanged(() => ChartFilesZeroNote);
+            DispatchWarningPresentationChanged("zero_note_recheck");
         }
         NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3} changed={4}", result.Total, result.MismatchCount, result.ClearedCount, result.SkippedCount, result.ChangedCount));
     }
@@ -9357,7 +9360,7 @@ completeFileEnumerationOnce,
             return;
         }
         dbGateway.DeleteChartInfoParseFailuresByMd5(normalizedMd5s);
-        RaisePropertyChanged(() => ChartInfoParseFailedChartFiles);
+        DispatchWarningPresentationChanged("chart_info_parse_failure_remove");
     }
 
     internal static string[] NormalizeChartInfoParseFailureMd5s(IEnumerable<string> md5s)
