@@ -566,6 +566,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(result.HasUpdates);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+            Assert.IsFalse(batch.NotifiesMaintenancePresentationProperties);
             Assert.AreEqual(1, refreshNotificationChanged);
         });
     }

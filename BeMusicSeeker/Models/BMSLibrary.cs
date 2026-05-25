@@ -7468,8 +7468,6 @@ completeFileEnumerationOnce,
         bool resourceHealthChanged = result.ResourceHealthMutation.HasChanges;
         result.WarningPresentationChanged |= resourceHealthChanged;
         result.MaintenancePresentationChanged = workflowHasUpdates || resourceHealthChanged;
-        result.WarningPresentationPropertiesChanged = resourceHealthChanged;
-        result.MaintenancePresentationPropertiesChanged = result.MaintenancePresentationChanged;
         return result;
     }
 
@@ -9104,16 +9102,6 @@ completeFileEnumerationOnce,
                 + " canceled=" + workflowResult.Canceled.ToString().ToLowerInvariant()
                 + " elapsedMs=" + workflowResult.TotalMs);
         }
-        Task.Run(delegate
-        {
-            RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-            RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
-            if (workflowResult.HasUpdates)
-            {
-                RaisePropertyChanged(() => BMSFilesGarbled);
-                RaisePropertyChanged(() => BMSFilesGarbledFixed);
-            }
-        }).Logging("setMaintenanceInfo");
         return workflowResult;
     }
 
@@ -9171,10 +9159,6 @@ completeFileEnumerationOnce,
         CancellationToken cancellationToken = default)
     {
         MaintenanceWorkflowResult result = setMaintenanceInfo(charts, forceUpdate: true, progressReporter: progressReporter, cancellationToken: cancellationToken);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
-        RaisePropertyChanged(() => BMSFilesGarbled);
-        RaisePropertyChanged(() => BMSFilesGarbledFixed);
         return result;
     }
 
@@ -9194,10 +9178,6 @@ completeFileEnumerationOnce,
             forceUpdate: true,
             progressReporter: progressReporter,
             cancellationToken: cancellationToken);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFix);
-        RaisePropertyChanged(() => ChartFilesNeedResourceFixIgnored);
-        RaisePropertyChanged(() => BMSFilesGarbled);
-        RaisePropertyChanged(() => BMSFilesGarbledFixed);
         return result;
     }
 
