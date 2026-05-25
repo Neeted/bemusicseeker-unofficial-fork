@@ -1185,7 +1185,7 @@ public class BMSLibrary : NotificationObject
                 InvalidateBMSParentFolderListCache();
                 InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsfiles_changed");
-                PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
@@ -1285,7 +1285,7 @@ public class BMSLibrary : NotificationObject
                 InvalidateInstallEstimationMetadataProfileCache();
                 InvalidateDuplicateChartGroupsCache();
                 InvalidateResourceHealthIndex("bmsons_changed");
-                PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BmsonSongs");
@@ -6909,11 +6909,11 @@ completeFileEnumerationOnce,
 
         public List<ChartFile> AppliedCharts { get; } = [];
 
-        public bool PruneToCurrentStorageRows { get; set; }
+        public bool PruneToCurrentOwnedCharts { get; set; }
 
         public bool HasStateChanges => PathChanges.Count > 0 || AppliedCharts.Count > 0;
 
-        public bool HasChanges => HasStateChanges || PruneToCurrentStorageRows;
+        public bool HasChanges => HasStateChanges || PruneToCurrentOwnedCharts;
     }
 
     private sealed class OwnedChartCollectionStorageMutation
@@ -7268,9 +7268,9 @@ completeFileEnumerationOnce,
                 InvalidateDuplicateChartGroupsCache();
             }
             if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges
-                || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows)
+                || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
             {
-                PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
             }
             if (mutationResult.OwnedCollectionChanged)
             {
@@ -7343,7 +7343,7 @@ completeFileEnumerationOnce,
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
         result.StorageMutation.UnregisteredCharts.AddRange(storageMutation.UnregisteredCharts);
         result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
-        result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = storageMutation.RemovedCount > 0;
+        result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.RemovedCount > 0;
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta, storageMutation.PathChanges));
         ConfigureResourceHealthMutationForStorageMutation(result, storageMutation);
@@ -7402,7 +7402,7 @@ completeFileEnumerationOnce,
         result.WarningPresentationChanged = result.StorageMutation.HasChanges;
         result.BmsFilesPropertyChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
         result.BmsonSongsPropertyChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
-        result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows = result.StorageMutation.AddedCount > 0;
+        result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = result.StorageMutation.AddedCount > 0;
         ConfigureResourceHealthMutationForStorageMutation(result, result.StorageMutation);
         return result;
     }
@@ -7531,9 +7531,9 @@ completeFileEnumerationOnce,
         {
             UpdateInstallDestinationRuntimeStates(result.InstallDestinationRuntimeStateMutation);
         }
-        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentStorageRows)
+        if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
         {
-            PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
         }
         if (result.ParentFolderInvalidated)
         {
@@ -8174,7 +8174,7 @@ completeFileEnumerationOnce,
         installDestinationOverlayChartRefSnapshot = null;
     }
 
-    private void PruneInstallDestinationRuntimeStatesToCurrentStorageRows()
+    private void PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts()
     {
         lock (installDestinationRuntimeStatesLock)
         {
@@ -8183,7 +8183,7 @@ completeFileEnumerationOnce,
                 return;
             }
 
-            // Startup assigns the full storage row sets before any runtime install
+            // Startup assigns the full owned chart set before any runtime install
             // destination overlay exists. Avoid building 210k+ ChartFile projection
             // keys for that empty-cache case.
             if (installDestinationRuntimeStatesByKey.Count == 0)
@@ -13091,7 +13091,7 @@ completeFileEnumerationOnce,
             }
             if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges)
             {
-                PruneInstallDestinationRuntimeStatesToCurrentStorageRows();
+                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
             }
             InvalidateOwnedChartCollection();
             ClearNormalLibraryRefreshNotification(mutationResult);
@@ -13141,7 +13141,7 @@ completeFileEnumerationOnce,
             effects |= LibraryChartRefreshEffects.SourceChanged;
         }
         if ((installDestinationChangedCharts?.Count ?? 0) > 0
-            || result?.InstallDestinationRuntimeStateMutation?.PruneToCurrentStorageRows == true)
+            || result?.InstallDestinationRuntimeStateMutation?.PruneToCurrentOwnedCharts == true)
         {
             effects |= LibraryChartRefreshEffects.InstallDestinationOverlayChanged;
         }
