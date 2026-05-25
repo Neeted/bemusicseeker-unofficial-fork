@@ -346,7 +346,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private readonly int innerWavHealthThreshold = innerWavHealthThreshold;
 
-    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         var result = new InstalledOnlyPackageResolutionResult();
         if (package == null)
@@ -355,7 +355,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         List<PackageChartEntry> packageEntries = [.. (package.ChartEntries ?? [])];
-        if (packageEntries.Count == 0 || installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
+        if (packageEntries.Count == 0 || installedDirectoryIndex == null || installedDirectoryIndex.HashCount == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
             return result;
@@ -363,7 +363,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         var distinctDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (PackageChartEntry item in packageEntries)
         {
-            List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item.Chart);
+            List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, item.Chart);
             if (directoriesByHash.Count == 0)
             {
                 result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
@@ -386,7 +386,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         var result = new InstalledDirectoryLookupResult();
         if (package == null || missingEntries == null || missingEntries.Count == 0)
@@ -394,7 +394,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.Reason = InstalledDirectoryResolveReason.InvalidInput;
             return result;
         }
-        if (installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
+        if (installedDirectoryIndex == null || installedDirectoryIndex.HashCount == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.InstalledIndexEmpty;
             return result;
@@ -402,7 +402,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         var directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (PackageChartEntry item in package.ChartEntries ?? [])
         {
-            List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item?.Chart);
+            List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, item?.Chart);
             if (item == null || directories.Count == 0)
             {
                 continue;
@@ -1119,47 +1119,47 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
+    public static List<string> GetDistinctInstalledDirectoriesByHash(IInstalledChartLookupIndex installedDirectoryIndex, ChartFile chart)
     {
-        return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, chart?.PrimaryLookupHash);
+        return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndex, chart?.PrimaryLookupHash);
     }
 
-    public static List<string> GetDistinctInstalledDirectoriesByPrimaryHash(InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, string lookupHash)
+    public static List<string> GetDistinctInstalledDirectoriesByPrimaryHash(IInstalledChartLookupIndex installedDirectoryIndex, string lookupHash)
     {
-        if (installedDirectoryIndexSnapshot == null || string.IsNullOrWhiteSpace(lookupHash))
+        if (installedDirectoryIndex == null || string.IsNullOrWhiteSpace(lookupHash))
         {
             return [];
         }
-        if (installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(lookupHash, out IReadOnlyList<string> md5Directories) && md5Directories != null)
+        if (installedDirectoryIndex.Md5Directories.TryGetValue(lookupHash, out IReadOnlyList<string> md5Directories) && md5Directories != null)
         {
             return [.. md5Directories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         }
-        if (installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(lookupHash, out IReadOnlyList<string> shaDirectories) && shaDirectories != null)
+        if (installedDirectoryIndex.Sha256Directories.TryGetValue(lookupHash, out IReadOnlyList<string> shaDirectories) && shaDirectories != null)
         {
             return [.. shaDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         }
         return [];
     }
 
-    public static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    public static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         return (package?.ChartEntries ?? [])
-            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count == 0)
+            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, entry.Chart).Count == 0)
             ?.Chart;
     }
 
-    public static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    public static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         return (package?.ChartEntries ?? [])
-            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart).Count > 1)
+            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, entry.Chart).Count > 1)
             ?.Chart;
     }
 
-    public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    public static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         return (package?.ChartEntries ?? [])
             .Where(entry => entry?.Chart != null)
-            .SelectMany(entry => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, entry.Chart))
+            .SelectMany(entry => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, entry.Chart))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }

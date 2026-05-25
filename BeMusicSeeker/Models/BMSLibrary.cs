@@ -2529,7 +2529,7 @@ public class BMSLibrary : NotificationObject
 
     private sealed class PendingInstallEstimateEvaluationContext
     {
-        public InstalledChartLookupIndexSnapshot InstalledChartLookupSnapshot { get; set; } = new InstalledChartLookupIndexSnapshot();
+        public IInstalledChartLookupIndex InstalledChartLookupIndex { get; set; } = new InstalledChartLookupIndexSnapshot();
 
         public LibraryResourceIndex ResourceIndexSnapshot { get; set; }
 
@@ -2972,7 +2972,7 @@ public class BMSLibrary : NotificationObject
             {
                 return new PendingInstallEstimateEvaluationContext
                 {
-                    InstalledChartLookupSnapshot = CreateInstalledChartLookupSnapshotUnsafe(),
+                    InstalledChartLookupIndex = CreateInstalledChartLookupSnapshotUnsafe(),
                     ResourceIndexSnapshot = libraryResourceIndex,
                     OptionsSnapshot = CurrentOptionsSnapshot
                 };
@@ -3226,7 +3226,7 @@ public class BMSLibrary : NotificationObject
             };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(evaluationContext?.OptionsSnapshot);
-        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledChartLookupSnapshot ?? new InstalledChartLookupIndexSnapshot());
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingEntries, evaluationContext?.InstalledChartLookupIndex ?? new InstalledChartLookupIndexSnapshot());
     }
 
     private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, int packageDegree, ref int completed, ref int lowConfidenceCount)
@@ -3451,8 +3451,8 @@ public class BMSLibrary : NotificationObject
         string sourceLogValue = ToPendingEstimateBatchSourceLogValue(source);
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(options);
-        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
-        PendingEstimateSourceBatchSnapshot candidateSnapshot = BuildPendingEstimateSourceBatchSnapshotUnsafe(packageList, installEstimationService, installedDirectoryIndexSnapshot, sourceLogValue, options.UseEverythingForPendingPackageSourceScan);
+        IInstalledChartLookupIndex installedDirectoryIndex = CreateInstalledChartLookupSnapshotUnsafe();
+        PendingEstimateSourceBatchSnapshot candidateSnapshot = BuildPendingEstimateSourceBatchSnapshotUnsafe(packageList, installEstimationService, installedDirectoryIndex, sourceLogValue, options.UseEverythingForPendingPackageSourceScan);
         var estimableSnapshot = new PendingEstimateSourceBatchSnapshot
         {
             RootCount = candidateSnapshot.RootCount,
@@ -3524,7 +3524,7 @@ public class BMSLibrary : NotificationObject
         return result;
     }
 
-    private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(List<ChartPackage> packageList, BmsLibraryInstallEstimationService installEstimationService, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, string sourceLogValue, bool useEverythingForPendingPackageSourceScan)
+    private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(List<ChartPackage> packageList, BmsLibraryInstallEstimationService installEstimationService, IInstalledChartLookupIndex installedDirectoryIndex, string sourceLogValue, bool useEverythingForPendingPackageSourceScan)
     {
         var snapshot = new PendingEstimateSourceBatchSnapshot();
         var stopwatch = Stopwatch.StartNew();
@@ -3547,7 +3547,7 @@ public class BMSLibrary : NotificationObject
             };
             if (state.AttemptInstalledResolve)
             {
-                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, state.MissingEntries, installedDirectoryIndexSnapshot);
+                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, state.MissingEntries, installedDirectoryIndex);
             }
 
             if (state.HasMissingFiles && !HasInstalledDestinationResolveFailed(state) && !string.IsNullOrWhiteSpace(state.SourceDirectory) && Directory.Exists(state.SourceDirectory))
@@ -9858,7 +9858,7 @@ reportProgress,
         }
     }
 
-    private InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap()
+    private IInstalledChartLookupIndex BuildInstalledHashToDirectoryMap()
     {
         return CreateInstalledChartLookupSnapshotUnsafe();
     }
@@ -9885,7 +9885,7 @@ reportProgress,
                 Reason = InstalledDirectoryResolveReason.InvalidInput
             };
         }
-        InstalledChartLookupIndexSnapshot installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
+        IInstalledChartLookupIndex installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
         if (installedDirectoryIndex.HashCount == 0)
         {
             return new InstalledDirectoryLookupResult
@@ -10701,24 +10701,24 @@ reportProgress,
         PackageHasSplitInstalledDirectories
     }
 
-    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, ChartFile chart)
+    private static List<string> GetDistinctInstalledDirectoriesByHash(IInstalledChartLookupIndex installedDirectoryIndex, ChartFile chart)
     {
-        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, chart);
+        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, chart);
     }
 
-    private static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    private static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
-        return BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, installedDirectoryIndexSnapshot);
+        return BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, installedDirectoryIndex);
     }
 
-    private static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    private static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
-        return BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, installedDirectoryIndexSnapshot);
+        return BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, installedDirectoryIndex);
     }
 
-    private static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    private static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
-        return BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(package, installedDirectoryIndexSnapshot);
+        return BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(package, installedDirectoryIndex);
     }
 
     private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths)
@@ -10730,14 +10730,14 @@ reportProgress,
         {
             return;
         }
-        InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = BuildInstalledHashToDirectoryMap();
+        IInstalledChartLookupIndex installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
         foreach (string sourceDirectoryPath in sourceDirectories)
         {
-            TryRegroupPendingPackagesForSourceDirectoryUnsafe(sourceDirectoryPath, installedDirectoryIndexSnapshot);
+            TryRegroupPendingPackagesForSourceDirectoryUnsafe(sourceDirectoryPath, installedDirectoryIndex);
         }
     }
 
-    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot)
+    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         if (string.IsNullOrWhiteSpace(sourceDirectoryPath))
         {
@@ -10758,7 +10758,7 @@ reportProgress,
             LogInstallPerformance("pending_regroup skip reason=deferred_estimate source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
             return;
         }
-        if (!TryBuildRegroupedPendingPackage(sourceDirectoryPath, sourcePackages, installedDirectoryIndexSnapshot, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason))
+        if (!TryBuildRegroupedPendingPackage(sourceDirectoryPath, sourcePackages, installedDirectoryIndex, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason))
         {
             LogInstallPerformance("pending_regroup skip reason=" + skipReason + " source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
             return;
@@ -10772,7 +10772,7 @@ reportProgress,
         LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackageEntries.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
     }
 
-    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<ChartPackage> sourcePackages, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
+    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<ChartPackage> sourcePackages, IInstalledChartLookupIndex installedDirectoryIndex, out ChartPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
     {
         regroupedPackage = null;
         resolvedDestinationDirectory = null;
@@ -10801,7 +10801,7 @@ reportProgress,
         var expectedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (PackageChartEntry regroupedEntry in regroupedEntries)
         {
-            if (!TryResolvePendingFileExpectedInstallDirectory(regroupedEntry.Chart, installedDirectoryIndexSnapshot, out string expectedDirectory, out string unresolvedReason))
+            if (!TryResolvePendingFileExpectedInstallDirectory(regroupedEntry.Chart, installedDirectoryIndex, out string expectedDirectory, out string unresolvedReason))
             {
                 skipReason = unresolvedReason;
                 return false;
@@ -10826,7 +10826,7 @@ reportProgress,
         return true;
     }
 
-    private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
+    private bool TryResolvePendingFileExpectedInstallDirectory(ChartFile chart, IInstalledChartLookupIndex installedDirectoryIndex, out string expectedDirectory, out string reason)
     {
         expectedDirectory = null;
         reason = "missing_expected_destination";
@@ -10835,7 +10835,7 @@ reportProgress,
             reason = "null_chart";
             return false;
         }
-        List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, chart.PrimaryLookupHash);
+        List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndex, chart.PrimaryLookupHash);
         if (installedDirectories.Count > 1)
         {
             reason = "multiple_installed_directories";
