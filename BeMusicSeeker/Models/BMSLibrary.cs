@@ -12683,6 +12683,10 @@ reportProgress,
             return;
         }
         IReadOnlyList<ChartFile> installDestinationChangedCharts = result.InstallDestinationChangedCharts ?? [];
+        if (installDestinationChangedCharts.Count == 0)
+        {
+            return;
+        }
         int version = Interlocked.Increment(ref latestLibraryChartChangeNotificationVersion);
         int ownedCollectionVersion = result.OwnedCollectionVersion > 0 ? result.OwnedCollectionVersion : OwnedChartCollectionVersion;
         var notification = new LibraryChartChangeNotification(

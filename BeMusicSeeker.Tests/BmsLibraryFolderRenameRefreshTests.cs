@@ -452,6 +452,31 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void ApplyInstalledChartStorageTargets_DoesNotPublishEmptyOverlayNotification()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var addedFile = new TestableBmsFile
+            {
+                path = @"C:\Library\added.bms"
+            };
+            addedFile.SetHash("cccccccccccccccccccccccccccccccc");
+
+            InvokeApplyInstalledChartStorageTargets(
+                library,
+                ChartStorageTargetSet.FromRows([addedFile], []),
+                "test");
+
+            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            Assert.AreEqual(0, notificationBatch.LatestVersion);
+            Assert.IsFalse(notificationBatch.ResetsPriorNotifications);
+            Assert.AreEqual(0, notificationBatch.InstallDestinationChangedCharts.Count);
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_BmsInstallDestinationClearHidesStaleOwnerWarningThroughModelOverlay()
     {
         TestResourceInitializer.EnsureJapaneseResources();
