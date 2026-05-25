@@ -370,8 +370,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
-            ChartFile changedChart = library.GetLibraryChartChangeNotificationsAfter(0).InstallDestinationChangedCharts.Single();
+            LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
+            ChartFile changedChart = notificationBatch.InstallDestinationChangedCharts.Single();
             Assert.AreEqual(@"C:\New", changedChart.InstallDestination);
+            Assert.IsFalse(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
             Assert.AreEqual(@"C:\New", installedChart.InstallDestination);
         });
@@ -408,6 +411,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
             Assert.IsTrue(notificationBatch.ResetsPriorNotifications);
+            Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             Assert.AreEqual(0, notificationBatch.InstallDestinationChangedCharts.Count);
         });
     }
@@ -446,13 +451,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
             Assert.IsFalse(notificationBatch.ResetsPriorNotifications);
+            Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             ChartFile changedChart = notificationBatch.InstallDestinationChangedCharts.Single();
             Assert.AreEqual(@"C:\Overlay", changedChart.InstallDestination);
         });
     }
 
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_DoesNotPublishEmptyOverlayNotification()
+    public void ApplyInstalledChartStorageTargets_PublishesSourceRefreshWithoutOverlayCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -470,8 +477,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 "test");
 
             LibraryChartChangeNotificationBatch notificationBatch = library.GetLibraryChartChangeNotificationsAfter(0);
-            Assert.AreEqual(0, notificationBatch.LatestVersion);
+            Assert.AreNotEqual(0, notificationBatch.LatestVersion);
             Assert.IsFalse(notificationBatch.ResetsPriorNotifications);
+            Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             Assert.AreEqual(0, notificationBatch.InstallDestinationChangedCharts.Count);
         });
     }

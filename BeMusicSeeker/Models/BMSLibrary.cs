@@ -31,18 +31,35 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
+[Flags]
+internal enum LibraryChartRefreshEffects
+{
+    None = 0,
+    SourceChanged = 1,
+    WarningPresentationChanged = 2,
+    MaintenancePresentationChanged = 4,
+    InstallDestinationOverlayChanged = 8
+}
+
 internal sealed class LibraryChartChangeNotification
 {
-    internal static LibraryChartChangeNotification Empty { get; } = new(0, 0, [], resetsPriorNotifications: false);
+    internal static LibraryChartChangeNotification Empty { get; } = new(
+        0,
+        0,
+        LibraryChartRefreshEffects.None,
+        [],
+        resetsPriorNotifications: false);
 
     internal LibraryChartChangeNotification(
         int version,
         int ownedCollectionVersion,
+        LibraryChartRefreshEffects effects,
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool resetsPriorNotifications)
     {
         Version = version;
         OwnedCollectionVersion = ownedCollectionVersion;
+        Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         ResetsPriorNotifications = resetsPriorNotifications;
     }
@@ -51,6 +68,8 @@ internal sealed class LibraryChartChangeNotification
 
     internal int OwnedCollectionVersion { get; }
 
+    internal LibraryChartRefreshEffects Effects { get; }
+
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
 
     internal bool ResetsPriorNotifications { get; }
@@ -58,23 +77,45 @@ internal sealed class LibraryChartChangeNotification
 
 internal sealed class LibraryChartChangeNotificationBatch
 {
-    internal static LibraryChartChangeNotificationBatch Empty { get; } = new(0, [], resetsPriorNotifications: false);
+    internal static LibraryChartChangeNotificationBatch Empty { get; } = new(
+        0,
+        0,
+        LibraryChartRefreshEffects.None,
+        [],
+        resetsPriorNotifications: false);
 
     internal LibraryChartChangeNotificationBatch(
         int latestVersion,
+        int ownedCollectionVersion,
+        LibraryChartRefreshEffects effects,
         IReadOnlyList<ChartFile> installDestinationChangedCharts,
         bool resetsPriorNotifications)
     {
         LatestVersion = latestVersion;
+        OwnedCollectionVersion = ownedCollectionVersion;
+        Effects = effects;
         InstallDestinationChangedCharts = installDestinationChangedCharts ?? [];
         ResetsPriorNotifications = resetsPriorNotifications;
     }
 
     internal int LatestVersion { get; }
 
+    internal int OwnedCollectionVersion { get; }
+
+    internal LibraryChartRefreshEffects Effects { get; }
+
     internal IReadOnlyList<ChartFile> InstallDestinationChangedCharts { get; }
 
     internal bool ResetsPriorNotifications { get; }
+
+    internal bool HasRefreshNotification => ResetsPriorNotifications
+        || Effects != LibraryChartRefreshEffects.None
+        || InstallDestinationChangedCharts.Count > 0;
+
+    internal bool HasEffect(LibraryChartRefreshEffects effect)
+    {
+        return (Effects & effect) != 0;
+    }
 }
 
 /// <summary>
@@ -1154,16 +1195,24 @@ public class BMSLibrary : NotificationObject
             {
                 return new LibraryChartChangeNotificationBatch(
                     handledVersion,
+                    0,
+                    LibraryChartRefreshEffects.None,
                     [],
                     resetsPriorNotifications: false);
             }
             bool resetsPriorNotifications = resetIndex >= 0;
             int latestVersion = notifications[notifications.Count - 1].Version;
+            int ownedCollectionVersion = notifications[notifications.Count - 1].OwnedCollectionVersion;
+            LibraryChartRefreshEffects effects = notifications.Aggregate(
+                LibraryChartRefreshEffects.None,
+                (current, notification) => current | notification.Effects);
             List<ChartFile> installDestinationChangedCharts = [.. notifications
                 .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
                 .Where(chart => chart != null)];
             return new LibraryChartChangeNotificationBatch(
                 latestVersion,
+                ownedCollectionVersion,
+                effects,
                 DistinctChartsByNotificationKey(installDestinationChangedCharts),
                 resetsPriorNotifications);
         }
@@ -7124,7 +7173,6 @@ completeFileEnumerationOnce,
         }
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionUpsertMutationResult(addedTargets);
         PublishOwnedCollectionChangeNotification(mutationResult);
-        PublishLibraryChartChangeNotification(mutationResult);
         try
         {
             using (SuppressInstalledChartLookupInvalidation())
@@ -7365,6 +7413,7 @@ completeFileEnumerationOnce,
         {
             PublishOwnedCollectionChangeNotification(result);
         }
+        PublishLibraryChartChangeNotification(result);
         DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
         if (installMetadataProfileCacheInvalidated)
@@ -12846,7 +12895,6 @@ completeFileEnumerationOnce,
     {
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMutationResult(delta);
         PublishOwnedCollectionChangeNotification(mutationResult);
-        PublishLibraryChartChangeNotification(mutationResult);
         try
         {
             using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
@@ -12911,7 +12959,8 @@ completeFileEnumerationOnce,
             return;
         }
         IReadOnlyList<ChartFile> installDestinationChangedCharts = result.InstallDestinationChangedCharts ?? [];
-        if (installDestinationChangedCharts.Count == 0)
+        LibraryChartRefreshEffects effects = CreateLibraryChartRefreshEffects(result, installDestinationChangedCharts);
+        if (effects == LibraryChartRefreshEffects.None)
         {
             return;
         }
@@ -12920,6 +12969,7 @@ completeFileEnumerationOnce,
         var notification = new LibraryChartChangeNotification(
             version,
             ownedCollectionVersion,
+            effects,
             installDestinationChangedCharts,
             resetsPriorNotifications: false);
         lock (latestLibraryChartChangeNotificationLock)
@@ -12930,12 +12980,35 @@ completeFileEnumerationOnce,
         }
     }
 
+    private static LibraryChartRefreshEffects CreateLibraryChartRefreshEffects(
+        OwnedChartCollectionMutationResult result,
+        IReadOnlyList<ChartFile> installDestinationChangedCharts)
+    {
+        var effects = LibraryChartRefreshEffects.None;
+        if (result?.OwnedCollectionChanged == true)
+        {
+            effects |= LibraryChartRefreshEffects.SourceChanged;
+        }
+        if ((installDestinationChangedCharts?.Count ?? 0) > 0
+            || result?.InstallDestinationRuntimeStateMutation?.PruneToCurrentStorageRows == true)
+        {
+            effects |= LibraryChartRefreshEffects.InstallDestinationOverlayChanged;
+        }
+        if (result?.StorageRowPropertyChanged == true
+            && (result.DuplicateCacheInvalidated || result.ResourceHealthMutation.HasChanges))
+        {
+            effects |= LibraryChartRefreshEffects.WarningPresentationChanged;
+        }
+        return effects;
+    }
+
     private void PublishEmptyLibraryChartChangeNotification()
     {
         int version = Interlocked.Increment(ref latestLibraryChartChangeNotificationVersion);
         var notification = new LibraryChartChangeNotification(
             version,
             OwnedChartCollectionVersion,
+            LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
             [],
             resetsPriorNotifications: true);
         lock (latestLibraryChartChangeNotificationLock)

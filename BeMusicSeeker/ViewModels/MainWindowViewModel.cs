@@ -5678,7 +5678,7 @@ public class MainWindowViewModel : ViewModel
 
     private int normalLibrarySourceHandledOwnedCollectionVersion;
 
-    private int normalLibraryInstallDestinationHandledNotificationVersion;
+    private int normalLibraryRefreshHandledNotificationVersion;
 
     private viewUpdateMode? lastAppliedMainColumnSettingMode;
 
@@ -9762,7 +9762,11 @@ public class MainWindowViewModel : ViewModel
 
     private bool TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(string reason)
     {
-        int currentVersion = files?.OwnedChartCollectionVersion ?? 0;
+        return TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(files?.OwnedChartCollectionVersion ?? 0, reason);
+    }
+
+    private bool TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(int currentVersion, string reason)
+    {
         int cacheCount = 0;
         bool incremented = false;
         lock (normalLibrarySortCacheLock)
@@ -9788,19 +9792,44 @@ public class MainWindowViewModel : ViewModel
         return true;
     }
 
+    private bool TryIncrementNormalLibrarySourceGenerationForRefreshNotification(
+        LibraryChartChangeNotificationBatch notificationBatch,
+        string reason)
+    {
+        if (notificationBatch?.HasRefreshNotification == true)
+        {
+            return notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged)
+                && TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(
+                    notificationBatch.OwnedCollectionVersion,
+                    reason);
+        }
+        return TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(reason);
+    }
+
     private void IncrementNormalLibrarySourceGenerationForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
     {
-        ConsumeNormalLibrarySourceChangeForBmsonSync(result, reasonPrefix, out _);
+        ConsumeNormalLibrarySourceChangeForBmsonSync(result, LibraryChartChangeNotificationBatch.Empty, reasonPrefix, out _);
     }
 
     private bool ConsumeNormalLibrarySourceChangeForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix, out bool sourceGenerationChanged)
+    {
+        return ConsumeNormalLibrarySourceChangeForBmsonSync(result, LibraryChartChangeNotificationBatch.Empty, reasonPrefix, out sourceGenerationChanged);
+    }
+
+    private bool ConsumeNormalLibrarySourceChangeForBmsonSync(
+        BmsonLibraryRowCacheSyncResult result,
+        LibraryChartChangeNotificationBatch notificationBatch,
+        string reasonPrefix,
+        out bool sourceGenerationChanged)
     {
         sourceGenerationChanged = false;
         if (!result.SourceChanged)
         {
             return false;
         }
-        if (TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(ResolveBmsonSourceGenerationReason(result, reasonPrefix)))
+        if (TryIncrementNormalLibrarySourceGenerationForRefreshNotification(
+            notificationBatch,
+            ResolveBmsonSourceGenerationReason(result, reasonPrefix)))
         {
             sourceGenerationChanged = true;
             return true;
@@ -9809,32 +9838,34 @@ public class MainWindowViewModel : ViewModel
         return true;
     }
 
-    private LibraryChartChangeNotificationBatch ConsumeNormalLibraryInstallDestinationChangeNotification()
+    private LibraryChartChangeNotificationBatch ConsumeNormalLibraryRefreshNotification()
     {
-        LibraryChartChangeNotificationBatch notificationBatch = files?.GetLibraryChartChangeNotificationsAfter(normalLibraryInstallDestinationHandledNotificationVersion);
-        if (notificationBatch == null || notificationBatch.LatestVersion <= normalLibraryInstallDestinationHandledNotificationVersion)
+        LibraryChartChangeNotificationBatch notificationBatch = files?.GetLibraryChartChangeNotificationsAfter(normalLibraryRefreshHandledNotificationVersion);
+        if (notificationBatch == null || notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
         {
             return LibraryChartChangeNotificationBatch.Empty;
         }
         lock (normalLibrarySortCacheLock)
         {
-            if (notificationBatch.LatestVersion <= normalLibraryInstallDestinationHandledNotificationVersion)
+            if (notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
             {
                 return LibraryChartChangeNotificationBatch.Empty;
             }
-            normalLibraryInstallDestinationHandledNotificationVersion = notificationBatch.LatestVersion;
+            normalLibraryRefreshHandledNotificationVersion = notificationBatch.LatestVersion;
         }
         return notificationBatch;
     }
 
-    private bool ApplyNormalLibraryInstallDestinationChangeNotification()
+    private LibraryChartChangeNotificationBatch ApplyNormalLibraryRefreshNotification()
     {
-        LibraryChartChangeNotificationBatch notificationBatch = ConsumeNormalLibraryInstallDestinationChangeNotification();
+        LibraryChartChangeNotificationBatch notificationBatch = ConsumeNormalLibraryRefreshNotification();
         IReadOnlyList<ChartFile> installDestinationChangedCharts = notificationBatch.InstallDestinationChangedCharts ?? [];
         bool hasInstallDestinationChangedCharts = installDestinationChangedCharts.Count > 0;
-        if (!notificationBatch.ResetsPriorNotifications && !hasInstallDestinationChangedCharts)
+        bool installDestinationStateChanged = notificationBatch.ResetsPriorNotifications
+            || notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
+        if (!notificationBatch.HasRefreshNotification)
         {
-            return false;
+            return LibraryChartChangeNotificationBatch.Empty;
         }
 
         if (notificationBatch.ResetsPriorNotifications)
@@ -9846,12 +9877,18 @@ public class MainWindowViewModel : ViewModel
             UpdateSharedChartTransientStates(installDestinationChangedCharts, forceInstallDestinationProjection: true);
             PruneSharedChartTransientStateCacheToCurrentStorageRows(files?.BMSFiles, files?.BmsonSongs);
         }
-        return true;
+        else if (installDestinationStateChanged)
+        {
+            PruneSharedChartTransientStateCacheToCurrentStorageRows(files?.BMSFiles, files?.BmsonSongs);
+        }
+        return notificationBatch;
     }
 
-    private bool ApplyLatestNormalLibraryInstallDestinationChangeNotification()
+    private bool ApplyLatestNormalLibraryRefreshNotification()
     {
-        if (!ApplyNormalLibraryInstallDestinationChangeNotification())
+        LibraryChartChangeNotificationBatch notificationBatch = ApplyNormalLibraryRefreshNotification();
+        TryIncrementNormalLibrarySourceGenerationForRefreshNotification(notificationBatch, "library_charts_changed");
+        if (!notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged))
         {
             return false;
         }
@@ -14365,9 +14402,10 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
-            bool installDestinationStateChanged = ApplyNormalLibraryInstallDestinationChangeNotification();
+            LibraryChartChangeNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
+            bool installDestinationStateChanged = refreshNotification.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
             PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
-            bool sourceGenerationChanged = TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion("library_charts_changed");
+            bool sourceGenerationChanged = TryIncrementNormalLibrarySourceGenerationForRefreshNotification(refreshNotification, "library_charts_changed");
             if (!sourceGenerationChanged && installDestinationStateChanged)
             {
                 InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -14404,8 +14442,9 @@ public class MainWindowViewModel : ViewModel
             {
                 InvalidateNormalLibrarySortKeysForBmsonSync(syncResult);
             }
-            bool installDestinationStateChanged = ApplyNormalLibraryInstallDestinationChangeNotification();
-            bool sourceChanged = ConsumeNormalLibrarySourceChangeForBmsonSync(syncResult, "library_bmsons", out bool sourceGenerationChanged);
+            LibraryChartChangeNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
+            bool installDestinationStateChanged = refreshNotification.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
+            bool sourceChanged = ConsumeNormalLibrarySourceChangeForBmsonSync(syncResult, refreshNotification, "library_bmsons", out bool sourceGenerationChanged);
             if (!sourceGenerationChanged && installDestinationStateChanged)
             {
                 InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
@@ -21307,7 +21346,7 @@ public class MainWindowViewModel : ViewModel
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
             {
                 files.RenameChartFolder(directoryNameSimple, newFolder, false);
-                ApplyLatestNormalLibraryInstallDestinationChangeNotification();
+                ApplyLatestNormalLibraryRefreshNotification();
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
         }
@@ -21338,7 +21377,7 @@ public class MainWindowViewModel : ViewModel
             PlayEndBMSFile(closeProcess: true);
             if (files?.AutoRenameAllChartFolders(parentDir) == true)
             {
-                ApplyLatestNormalLibraryInstallDestinationChangeNotification();
+                ApplyLatestNormalLibraryRefreshNotification();
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
         }
@@ -21355,7 +21394,7 @@ public class MainWindowViewModel : ViewModel
         {
             stopPlayingChartFiles(charts);
             files.AutoRenameChartFolders(charts);
-            ApplyLatestNormalLibraryInstallDestinationChangeNotification();
+            ApplyLatestNormalLibraryRefreshNotification();
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
@@ -21380,7 +21419,7 @@ public class MainWindowViewModel : ViewModel
         {
             stopPlayingLibraryCharts(charts);
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
-            ApplyLatestNormalLibraryInstallDestinationChangeNotification();
+            ApplyLatestNormalLibraryRefreshNotification();
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }
     }
