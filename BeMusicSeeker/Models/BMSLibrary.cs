@@ -6817,6 +6817,20 @@ reportProgress,
         }
     }
 
+    private bool TryCreateOwnedChartRefsForPathsUnsafe(IEnumerable<string> paths, out List<LibraryChartRef> chartRefs)
+    {
+        lock (lockOwnedChartCollection)
+        {
+            if (!ownedChartCollectionInitialized)
+            {
+                chartRefs = null;
+                return false;
+            }
+            chartRefs = ownedChartCollection.CreateLibraryChartRefsForPaths(paths);
+            return true;
+        }
+    }
+
     private ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(string directoryPath)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
@@ -7113,12 +7127,11 @@ reportProgress,
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionUpsertMutationResult(ChartStorageTargetSet addedTargets)
     {
-        var result = new OwnedChartCollectionMutationResult
-        {
-            InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(addedTargets?.BmsFiles, addedTargets?.BmsonSongs)
-        };
+        var result = new OwnedChartCollectionMutationResult();
         result.StorageMutation.AddedBmsFiles.AddRange(addedTargets?.BmsFiles ?? []);
         result.StorageMutation.AddedBmsonSongs.AddRange(addedTargets?.BmsonSongs ?? []);
+        result.InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(result.StorageMutation);
+        result.InstallEstimationMetadataProfileCacheInvalidated = result.StorageMutation.AddedCount > 0;
         result.AddedCount = result.StorageMutation.AddedCount;
         result.PlaylistSummaryOwnedHashInvalidated = result.StorageMutation.HasHashSetChanges;
         result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
@@ -7266,20 +7279,39 @@ reportProgress,
         return mutation;
     }
 
-    private InstalledChartLookupMutation BuildInstalledChartLookupUpsertMutation(IEnumerable<BMSFile> addedBmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs)
+    private InstalledChartLookupMutation BuildInstalledChartLookupUpsertMutation(OwnedChartCollectionStorageMutation storageMutation)
     {
         var mutation = new InstalledChartLookupMutation();
-        List<BMSFile> addedBmsFileList = [.. (addedBmsFiles ?? []).Where(file => file != null)];
-        List<LR2SongDBExtended.bmson_song> addedBmsonSongList = [.. (addedBmsonSongs ?? []).Where(song => song != null)];
+        if (storageMutation?.AddedCount > 0 != true || !IsInstalledChartLookupIndexInitializedUnsafe())
+        {
+            return mutation;
+        }
+
+        List<BMSFile> addedBmsFileList = [.. storageMutation.AddedBmsFiles.Where(file => file != null)];
+        List<LR2SongDBExtended.bmson_song> addedBmsonSongList = [.. storageMutation.AddedBmsonSongs.Where(song => song != null)];
         var addedBmsPaths = new HashSet<string>(addedBmsFileList.Select(file => file.path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         var addedBmsonPaths = new HashSet<string>(addedBmsonSongList.Select(song => song.path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in (BMSFiles ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && addedBmsPaths.Contains(file.path)))
+        var addedPaths = new HashSet<string>(addedBmsPaths, StringComparer.OrdinalIgnoreCase);
+        addedPaths.UnionWith(addedBmsonPaths);
+        if (addedPaths.Count > 0)
         {
-            mutation.Removed.Add(new InstalledChartLookupMutationEntry(file.path, file.hash, file.sha256));
-        }
-        foreach (LR2SongDBExtended.bmson_song song in (BmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path) && addedBmsonPaths.Contains(song.path)))
-        {
-            mutation.Removed.Add(new InstalledChartLookupMutationEntry(song.path, song.md5, song.sha256));
+            if (!TryCreateOwnedChartRefsForPathsUnsafe(addedPaths, out List<LibraryChartRef> existingRefs))
+            {
+                mutation.RequiresFullInvalidate = true;
+                return mutation;
+            }
+            foreach (LibraryChartRef existingRef in existingRefs)
+            {
+                if (existingRef == null || string.IsNullOrWhiteSpace(existingRef.Path))
+                {
+                    continue;
+                }
+                if (existingRef.Kind == LibraryChartKind.Bms && addedBmsPaths.Contains(existingRef.Path)
+                    || existingRef.Kind == LibraryChartKind.Bmson && addedBmsonPaths.Contains(existingRef.Path))
+                {
+                    mutation.Removed.Add(new InstalledChartLookupMutationEntry(existingRef.Path, existingRef.Md5, existingRef.Sha256));
+                }
+            }
         }
         foreach (BMSFile file in addedBmsFileList)
         {
@@ -7290,6 +7322,14 @@ reportProgress,
             mutation.Added.Add(new InstalledChartLookupMutationEntry(song.path, song.md5, song.sha256));
         }
         return mutation;
+    }
+
+    private bool IsInstalledChartLookupIndexInitializedUnsafe()
+    {
+        lock (lockInstalledChartLookupIndex)
+        {
+            return installedChartLookupIndexInitialized;
+        }
     }
 
     private static InstalledChartLookupMutationEntry CreateInstalledChartLookupMutationEntry(ChartFile chart)

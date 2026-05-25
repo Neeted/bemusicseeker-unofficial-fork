@@ -189,6 +189,11 @@ internal sealed class OwnedChartCollectionState
         return CreateLibraryChartRefIndexSnapshot().GetChartRefsUnderRealPath(directoryPath);
     }
 
+    internal List<LibraryChartRef> CreateLibraryChartRefsForPaths(IEnumerable<string> paths)
+    {
+        return CreateLibraryChartRefIndexSnapshot().GetChartRefsByPaths(paths);
+    }
+
     /// <summary>
     /// playlist detail の entry hash 解決に使う owned 隣接 index を作成します。
     /// </summary>

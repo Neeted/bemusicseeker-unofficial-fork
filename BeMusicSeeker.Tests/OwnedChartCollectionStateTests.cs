@@ -1378,6 +1378,39 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyInstalledChartStorageTargets_BuiltLookupUpsertUsesOwnedPathExactView()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
+            var oldBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
+            var newBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
+            var samePathBmson = CreateBmsonSong(sharedPath, "cccccccccccccccccccccccccccccccc");
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [oldBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, [samePathBmson]);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+
+            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(oldBms.hash));
+            Assert.IsTrue(initialLookup.ContainsPrimaryHash(samePathBmson.md5));
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], []));
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+
+            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(oldBms.hash));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(newBms.hash));
+            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(samePathBmson.md5));
+            Assert.AreEqual(2, snapshot.Count);
+            Assert.AreSame(newBms, snapshot.Single(chart => chart.Kind == ChartFileKind.Bms).GetBmsStorageOwner());
+            Assert.AreSame(samePathBmson, snapshot.Single(chart => chart.Kind == ChartFileKind.Bmson).GetBmsonStorageOwner());
+        });
+    }
+
+    [TestMethod]
     public void ApplyInstalledChartStorageTargets_InvalidatesOwnedCollectionOnFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();

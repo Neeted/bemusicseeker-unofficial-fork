@@ -730,7 +730,7 @@ mutation result は rich `ChartFile` list を必須にしない。path / hash / 
 4. dispatcher が mutation result を派生 index へ配布する。差分更新できる index は差分更新し、表現できない index は full invalidate する。
 5. 例外時は、storage row が部分更新された可能性を考慮し、owned collection と差分更新済み index を full invalidate する。runtime overlay の one-shot buffer は破棄する。
 
-cache 未構築時に mutation が来ても、その index を build してはいけない。未構築 index は「次回利用時 full build」または「既に dirty のまま」を維持する。これにより startup / install / merge の repeated mutation で不要な prewarm が増えない。
+cache 未構築時に mutation が来ても、その index を build してはいけない。未構築 index は「次回利用時 full build」または「既に dirty のまま」を維持する。これにより startup / install / merge の repeated mutation で不要な prewarm が増えない。install upsert で installed lookup が構築済みの場合、置換される old entry は `BMSFiles` / `BmsonSongs` を都度 scan せず、owned collection の path exact view から取得する。lookup 未構築時はこのために installed lookup / owned path index を新規 build せず、metadata cache invalidate だけを mutation result に残す。
 
 full invalidate に落とす条件も固定する。
 
@@ -828,6 +828,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 3. **Path/hash/overlay 系隣接 index の final contract 化: 次に進める**
    - installed lookup state に同居する primary hash -> path lookup を、repair candidate / resource-only merge display / safe delete が直接読む index として明文化する。
    - owner/path canonical lookup と path-only exact lookup は用途を分ける。canonical lookup は ambiguous path を正規化規則で扱い、path-only exact lookup は同一 path の複数 ownerを保持する bounded materialize 用に使う。
+   - install upsert の same-path replacement は path-only exact lookup で old owner を解決する。BMS と bmson が同じ path を持つ場合でも kind ごとの replacement として扱い、反対 kind の installed lookup entry を削らない。
    - real path directory view / subtree counts は folder operation の正本にし、caller 側で full ref list を作って `StartsWith` filter しない。BMSLibrary からの入口は `CreateOwnedRealPathChartRefsUnsafe(...)` / `CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(...)` のように用途名を持たせる。direct child snapshot も owned ref index の direct directory bucket から作る。
    - install destination overlay directory view は storage owner の実 path index と統合しない。runtime overlay / pending package state の隣接 index として、owned mutation と overlay mutation の両方から prune / update する。
    - internal mutation で表現できる path change / install destination change は install destination runtime state mutation に載せ、affected key だけ move / apply する。unregister は storage applier が同一 path の別 owner を落とす場合があるため、成功後に current storage key snapshot で full prune する。外部 setter による full replacement も従来どおり full prune する。
