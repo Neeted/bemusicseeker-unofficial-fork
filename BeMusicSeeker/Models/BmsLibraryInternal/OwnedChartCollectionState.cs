@@ -182,6 +182,16 @@ internal sealed class OwnedChartCollectionState
         return libraryChartRefIndexSnapshot ??= LibraryChartRefIndexSnapshot.FromStorageOwnerCharts(charts, cancellationCheck);
     }
 
+    internal ILibraryChartCanonicalLookup CreateCanonicalChartLookupSnapshot()
+    {
+        return CreateLibraryChartRefIndexSnapshot();
+    }
+
+    internal List<LibraryChartRef> CreateLibraryChartRefsUnderRealPath(string directoryPath)
+    {
+        return CreateLibraryChartRefIndexSnapshot().GetChartRefsUnderRealPath(directoryPath);
+    }
+
     /// <summary>
     /// playlist detail の entry hash 解決に使う owned 隣接 index を作成します。
     /// </summary>

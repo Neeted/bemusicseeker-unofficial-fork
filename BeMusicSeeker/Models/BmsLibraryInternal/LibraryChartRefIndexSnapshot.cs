@@ -7,7 +7,14 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class LibraryChartRefIndexSnapshot
+internal interface ILibraryChartCanonicalLookup
+{
+    CanonicalChartResolveResult ResolveCanonicalCharts(IEnumerable<LibraryChartRef> inputCharts);
+
+    int CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths);
+}
+
+internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLookup
 {
     private readonly Dictionary<BMSFile, LibraryChartRef> bmsByReference;
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference;
@@ -223,6 +230,11 @@ internal sealed class LibraryChartRefIndexSnapshot
         return result;
     }
 
+    CanonicalChartResolveResult ILibraryChartCanonicalLookup.ResolveCanonicalCharts(IEnumerable<LibraryChartRef> inputCharts)
+    {
+        return ResolveCanonicalCharts(inputCharts);
+    }
+
     internal List<LibraryChartRef> GetChartRefsUnderRealPath(string folderPath)
     {
         string folderKey = CreateDirectoryKey(folderPath);
@@ -308,6 +320,11 @@ internal sealed class LibraryChartRefIndexSnapshot
         }
 
         return Math.Max(0, count);
+    }
+
+    int ILibraryChartCanonicalLookup.CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths)
+    {
+        return CountChartRefsUnderRealPath(folderPath, excludedPaths);
     }
 
     private void AddChart(ChartFile chart, string pathOverride = null)

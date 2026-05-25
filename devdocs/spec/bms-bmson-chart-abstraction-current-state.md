@@ -844,7 +844,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 
 6. **Full snapshot helper の分解: ほぼ完了、監査継続**
    - 旧 installed chart snapshot 系 helper は削除済み。chart_info full backfill は owned chart snapshot を直接使い、install destination overlay を混ぜない。
-   - folder operation 向けの full `LibraryChartRef` snapshot helper は owner/path canonical lookup、real path directory view、install destination overlay target snapshot へ分解済み。BMSLibrary 内の path ref index 入口は `CreateOwnedPathChartRefIndexUnsafe()` とし、real-path refs が必要な caller は `CreateOwnedRealPathChartRefsUnsafe(...)` を使う。
+   - folder operation 向けの full `LibraryChartRef` snapshot helper は owner/path canonical lookup、real path directory view、install destination overlay target snapshot へ分解済み。BMSLibrary 内では owner/path canonical lookup を `CreateOwnedCanonicalChartLookupUnsafe()`、real-path refs を `CreateOwnedRealPathChartRefsUnsafe(...)` として分け、delete 系 service も `ILibraryChartCanonicalLookup` だけを受ける。
    - installed lookup、playlist summary owned hash、playlist reference apply hash subset、playlist detail resolve index、parent folder owned path snapshot、resource maintenance full target view は owned collection 側の view / index を入口にする。
    - 残タスクは、テストだけが参照する旧 helper、互換名、caller 側 full materialize 後 filter の監査と削除。
 

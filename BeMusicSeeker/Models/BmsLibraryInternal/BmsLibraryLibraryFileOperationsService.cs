@@ -73,7 +73,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public LibraryRemovalResult DeleteLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
-        LibraryChartRefIndexSnapshot libraryChartLookup,
+        ILibraryChartCanonicalLookup libraryChartLookup,
         InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
         IEnumerable<ChartPackage> pendingPackages,
         DirectoryResourceLookupCache directoryLookupCache,
@@ -164,7 +164,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public List<string> GetWholeFolderDeleteCandidatePaths(
         IEnumerable<LibraryChartRef> charts,
-        LibraryChartRefIndexSnapshot libraryChartLookup)
+        ILibraryChartCanonicalLookup libraryChartLookup)
     {
         List<LibraryChartRef> inputCharts = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         libraryChartLookup ??= LibraryChartRefIndexSnapshot.Empty;
@@ -174,7 +174,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     private static List<string> GetWholeFolderDeleteCandidatePathsForCanonicalCharts(
         IEnumerable<LibraryChartRef> canonicalCharts,
-        LibraryChartRefIndexSnapshot libraryChartLookup)
+        ILibraryChartCanonicalLookup libraryChartLookup)
     {
         List<string> result = [];
         var selectedChartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

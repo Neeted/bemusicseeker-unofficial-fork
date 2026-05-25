@@ -6762,18 +6762,22 @@ reportProgress,
         }
     }
 
-    private LibraryChartRefIndexSnapshot CreateOwnedPathChartRefIndexUnsafe()
+    private ILibraryChartCanonicalLookup CreateOwnedCanonicalChartLookupUnsafe()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateLibraryChartRefIndexSnapshot();
+            return ownedChartCollection.CreateCanonicalChartLookupSnapshot();
         }
     }
 
     private List<LibraryChartRef> CreateOwnedRealPathChartRefsUnsafe(string directoryPath)
     {
-        return CreateOwnedPathChartRefIndexUnsafe().GetChartRefsUnderRealPath(directoryPath);
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        lock (lockOwnedChartCollection)
+        {
+            return ownedChartCollection.CreateLibraryChartRefsUnderRealPath(directoryPath);
+        }
     }
 
     private ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(string directoryPath)
@@ -12152,7 +12156,7 @@ reportProgress,
             {
                 return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
                     charts,
-                    CreateOwnedPathChartRefIndexUnsafe());
+                    CreateOwnedCanonicalChartLookupUnsafe());
             }
         }
     }
@@ -12170,7 +12174,7 @@ reportProgress,
                 {
                     LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
                         charts,
-                        CreateOwnedPathChartRefIndexUnsafe(),
+                        CreateOwnedCanonicalChartLookupUnsafe(),
                         CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
                         ChartPackagesPending,
                         directoryResourceLookupCache,
