@@ -821,7 +821,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void SetBMSFilesEncoding_UpdatesEncodingCellWithoutRaisingGarbledCollectionsChanged()
+    public void SetBMSFilesEncoding_UpdatesEncodingCellWithoutLibraryCollectionChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -848,11 +848,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int encodingChangedCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
-                    if (e.PropertyName == nameof(BMSLibrary.BMSFilesGarbled))
+                    if (e.PropertyName == nameof(BMSLibrary.ChartFilesGarbled))
                     {
                         Interlocked.Increment(ref garbledChangedCount);
                     }
-                    if (e.PropertyName == nameof(BMSLibrary.BMSFilesGarbledFixed))
+                    if (e.PropertyName == nameof(BMSLibrary.ChartFilesGarbledFixed))
                     {
                         Interlocked.Increment(ref garbledFixedChangedCount);
                     }

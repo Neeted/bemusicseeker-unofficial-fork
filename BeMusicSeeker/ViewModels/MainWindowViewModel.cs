@@ -9212,37 +9212,37 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesGarbled
+    private IEnumerable<ChartFile> ChartFilesGarbled
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesGarbled;
+                return files.ChartFilesGarbled;
             }
             return null;
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesGarbleFixed
+    private IEnumerable<ChartFile> ChartFilesGarbledFixed
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesGarbledFixed;
+                return files.ChartFilesGarbledFixed;
             }
             return null;
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesUnregistered
+    private IEnumerable<ChartFile> ChartFilesUnregistered
     {
         get
         {
             if (files != null)
             {
-                return files.BMSFilesUnregistered;
+                return files.ChartFilesUnregistered;
             }
             return null;
         }
@@ -10843,15 +10843,6 @@ public class MainWindowViewModel : ViewModel
         return row;
     }
 
-    private static List<ChartFile> CreateBmsChartSnapshot(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
-    {
-        return ChartFileProjection.FromBmsFiles(
-            bmsFiles,
-            includeWarningSnapshot: false,
-            includeResourceReferences: false,
-            includeScoreSnapshot: true);
-    }
-
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
         bool includeBmsonRows,
         out bool cacheHit,
@@ -11791,17 +11782,17 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.DuplicateFilterSelected:
                 return TryGetVirtualDuplicateSourceCharts(parameter, out sourceCharts, out subsetName);
             case viewUpdateMode.GarbledFilterSelected:
-                sourceCharts = CreateBmsChartSnapshot(BMSFilesGarbled);
+                sourceCharts = ChartFilesGarbled;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "garbled";
                 return true;
             case viewUpdateMode.GarbleFixedFilterSelected:
-                sourceCharts = CreateBmsChartSnapshot(BMSFilesGarbleFixed);
+                sourceCharts = ChartFilesGarbledFixed;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "garble_fixed";
                 return true;
             case viewUpdateMode.UnregisteredFilterSelected:
-                sourceCharts = CreateBmsChartSnapshot(BMSFilesUnregistered);
+                sourceCharts = ChartFilesUnregistered;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "unregistered";
                 return true;

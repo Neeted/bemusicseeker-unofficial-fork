@@ -403,7 +403,7 @@ F-3 では後回しにするもの:
 
 - `ChartPackage.ChartFiles` は pending install / package chart discovery の中核であり、参照時に lazy discovery が走る意味も維持する。旧 `ChartPackage.BMSFiles` alias は残さず、「package 内 chart の BMSFile 互換 adapter list」は `ChartFiles` として扱う
 - `BMSLibrary.BMSFiles` は LR2 `song` table 側の source of truth として残す。BMS / bmson 共通表示は `LibraryChartRow` / `ChartFile` で扱い、storage model は `BMSFiles` と `BmsonSongs` の二本立てを維持する
-- `BMSFilesGarbled`, `BMSFilesZeroNote`, encoding / zero-note / LR2IR / ScoreViewer などは BMS 専用意味を持つため chart 名へ広げない
+- `ChartFilesGarbled`, `ChartFilesZeroNote`, encoding / zero-note / LR2IR / ScoreViewer などは BMS 専用意味を持つため BMS-only capability として残す。ただし ViewModel の subset source 境界では storage row list ではなく `ChartFile` subset を渡す
 - install package 操作は ViewModel / UI の入口を `ForceInstallPendingPackages` / `ForceInstallPendingCharts`, `ManualInstallPendingPackages` / `ManualInstallPendingCharts` へ寄せる。DB / model 内部名は pending/package 層への影響を見ながら段階移行する
 
 F-3 の確認観点:

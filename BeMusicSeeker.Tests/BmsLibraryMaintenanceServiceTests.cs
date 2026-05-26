@@ -1119,6 +1119,65 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void ChartFileSubsets_ProjectGarbledAndUnregisteredBmsRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestableBmsFile garbled = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            garbled.path = @"C:\Library\garbled.bms";
+            garbled.parent = @"C:\Library";
+            garbled.SetMaintenanceInfo(new BMSFileMaintenanceInfo(garbled)
+            {
+                hash = garbled.hash,
+                encoding = "unknown",
+                is_encoding_fixed = false
+            }, suppressPropertyChanged: true);
+            TestableBmsFile fixedGarbled = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            fixedGarbled.path = @"C:\Library\fixed.bms";
+            fixedGarbled.parent = @"C:\Library";
+            fixedGarbled.SetMaintenanceInfo(new BMSFileMaintenanceInfo(fixedGarbled)
+            {
+                hash = fixedGarbled.hash,
+                encoding = "gb2312",
+                is_encoding_fixed = true
+            }, suppressPropertyChanged: true);
+            TestableBmsFile unregistered = CreateFile("cccccccccccccccccccccccccccccccc");
+            unregistered.path = @"C:\Library\unregistered.bms";
+            unregistered.parent = "";
+            unregistered.SetMaintenanceInfo(new BMSFileMaintenanceInfo(unregistered)
+            {
+                hash = unregistered.hash,
+                encoding = "shift_jis",
+                is_encoding_fixed = false
+            }, suppressPropertyChanged: true);
+            TestableBmsFile registered = CreateFile("dddddddddddddddddddddddddddddddd");
+            registered.path = @"C:\Library\registered.bms";
+            registered.parent = @"C:\Library";
+            registered.SetMaintenanceInfo(new BMSFileMaintenanceInfo(registered)
+            {
+                hash = registered.hash,
+                encoding = "shift_jis",
+                is_encoding_fixed = false
+            }, suppressPropertyChanged: true);
+            var library = new BMSLibrary(songDbPath);
+            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { garbled, fixedGarbled, unregistered, registered });
+            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+
+            List<ChartFile> garbledCharts = [.. library.ChartFilesGarbled];
+            List<ChartFile> fixedCharts = [.. library.ChartFilesGarbledFixed];
+            List<ChartFile> unregisteredCharts = [.. library.ChartFilesUnregistered];
+
+            CollectionAssert.AreEqual(new[] { garbled.path }, garbledCharts.Select(chart => chart.Path).ToArray());
+            CollectionAssert.AreEqual(new[] { fixedGarbled.path }, fixedCharts.Select(chart => chart.Path).ToArray());
+            CollectionAssert.AreEqual(new[] { unregistered.path }, unregisteredCharts.Select(chart => chart.Path).ToArray());
+            Assert.AreSame(garbled, garbledCharts[0].GetBmsStorageOwner());
+            Assert.AreSame(fixedGarbled, fixedCharts[0].GetBmsStorageOwner());
+            Assert.AreSame(unregistered, unregisteredCharts[0].GetBmsStorageOwner());
+        });
+    }
+
+    [TestMethod]
     public void RecheckZeroNoteWarnings_SkipsMissingFilesAndClearsWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();

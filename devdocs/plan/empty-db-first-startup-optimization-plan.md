@@ -210,7 +210,7 @@ background task は「現在の file diff で直接扱っていない DB 由来�
 
 ### 現状
 
-`LR2データベース未登録` は、実際には `song` テーブル未登録ではなく、`BMSFilesUnregistered => parent が空` の譜面を表示している。
+`LR2データベース未登録` は、実際には `song` テーブル未登録ではなく、`ChartFilesUnregistered => BMS storage row の parent が空` の譜面を表示している。
 
 初回空DBでは、file diff で追加された `BMSFile` が `folder` / `parent` 未設定のまま `song` へ insert される。そのため初回だけ大量に表示される。再起動後は `LoadSongTable()` の正規化で `folder` / `parent` CRC が補正されるため、0 件になる。
 
@@ -244,7 +244,7 @@ warning は DB 永続化しない。起動時・file diff 追加時の判定で�
 
 ### 旧仕様
 
-`BMSFilesZeroNote` は `file.notes == 0` を見る。`file.notes` は LR2 `song.karinotes` の wrapper であり、`chart_info.notes` ではない。
+`BMSFilesZeroNote` は `file.notes == 0` を見ていた。`file.notes` は LR2 `song.karinotes` の wrapper であり、`chart_info.notes` ではない。
 
 BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitToDB()` -> `UpdateZeroNoteAndCommit()` -> `BMSFile.SetNotesIfZeroNote()` である。これは正規表現ベースで可視ノート行が存在しない場合だけ `karinotes` に 0 を入れる。非 0 の note count は入れない。
 
@@ -258,6 +258,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - `ゼロノート検索` は `chart_info.notes == 0` の BMS 譜面を表示する。
   - bmson は対象外。
   - `chart_info` 未生成 / parse failure は表示対象外。
+- 現在の subset source 名は `ChartFilesZeroNote` であり、以前の LR2 `song.karinotes` wrapper 由来の判定へ戻さない。
 - `karinotes` は LR2 が管理する値として扱い、本アプリでは書き換えない。
 
 ### 正規表現ベース機能として残すもの
@@ -351,7 +352,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 完了済み。
 
 - `setZeroNoteAndCommitToDB()` を production flow から外した。
-- `BMSFilesZeroNote` を `chart_info.notes == 0` ベースへ変更した。
+- `ChartFilesZeroNote` は `chart_info.notes == 0` ベースにする。
 - `RecheckZeroNoteWarnings()` の候補を `chart_info.notes == 0` へ移した。
 - 正規表現ベース機能の UI 文言を `ゼロノート記述確認` へ変更した。
 
@@ -566,7 +567,7 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 
 - metadata bundle import 済みで `inline_chart_info_current_skipped_count` が大きい場合でも、file diff 由来の `chart_info_index_delta upserted=` が current skip 件数に比例しない。
 - file diff 中の `AppliedChartInfoRows` / `committedInlineChartInfoRows` がメモリピークの支配要因にならない。
-- `BMSFilesZeroNote` など chart_info 依存 view は、inline 新規 row と後続 hydration の組み合わせで正しく更新される。
+- `ChartFilesZeroNote` など chart_info 依存 view は、inline 新規 row と後続 hydration の組み合わせで正しく更新される。
 
 ### Phase 7.6: metadata bundle import の位置づけ整理
 
@@ -781,10 +782,10 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 
 ## Test Plan
 
-- 空DB初回起動相当で、file diff 追加直後の `BMSFilesUnregistered` が Shift_JIS 非対応 path のみになること。
+- 空DB初回起動相当で、file diff 追加直後の `ChartFilesUnregistered` が Shift_JIS 非対応 path のみになること。
 - Shift_JIS 非対応 path の既存 `song` が削除されず、warning 付きで残ること。
 - `docs/sjis-path-validation-note.md` の削除→再追加往復が発生しないこと。
-- `BMSFilesZeroNote` が `karinotes` ではなく `chart_info.notes == 0` を見ること。
+- `ChartFilesZeroNote` が `karinotes` ではなく `chart_info.notes == 0` を見ること。
 - `setZeroNoteAndCommitToDB()` 廃止後、`song.karinotes` がアプリ起動・リロード・インストールで変更されないこと。
 - `RecheckZeroNoteWarnings()` が `chart_info.notes == 0` 譜面を対象に、正規表現上の可視ノート風記述を warning 化すること。
 - `installable_maintenance_deferred` が進捗ゲージに含まれ、完了前に progress が非表示にならないこと。

@@ -1201,7 +1201,8 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public List<BMSFile> BMSFilesUnregistered => [.. BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent))];
+    internal IEnumerable<ChartFile> ChartFilesUnregistered => CreateBmsChartSubsetSnapshot(
+        BMSFiles.Where(f => string.IsNullOrWhiteSpace(f.parent)));
 
     internal int NormalLibraryRefreshNotificationVersion => Volatile.Read(ref latestNormalLibraryRefreshNotificationVersion);
 
@@ -1331,9 +1332,11 @@ public class BMSLibrary : NotificationObject
         }).Logging("DuplicateChartGroupsInvalidationVersion");
     }
 
-    public IEnumerable<BMSFile> BMSFilesGarbled => GetBMSFilesGarbled(BMSFiles);
+    internal IEnumerable<ChartFile> ChartFilesGarbled => CreateBmsChartSubsetSnapshot(
+        GetGarbledBmsStorageRows(BMSFiles, isInFixedList: false));
 
-    public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
+    internal IEnumerable<ChartFile> ChartFilesGarbledFixed => CreateBmsChartSubsetSnapshot(
+        GetGarbledBmsStorageRows(BMSFiles, isInFixedList: true));
 
     internal IEnumerable<ChartFile> ChartFilesZeroNote => maintenanceService.GetZeroNoteCharts(
         CreateOwnedBmsChartFilesUnsafe(includeResourceReferences: false),
@@ -9047,12 +9050,12 @@ completeFileEnumerationOnce,
         return irService.GetIRSongInfoCache(md5orlr2bmsid, seaarchAggressively, irClient, songInfoUrl);
     }
 
-    private static List<ChartFile> CreateBmsResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles)
+    private static List<ChartFile> CreateBmsChartSubsetSnapshot(IEnumerable<BMSFile> bmsFiles)
     {
         return ChartFileProjection.FromBmsFiles(
             (bmsFiles ?? []).Where(ChartFileKindResolver.IsBmsChartFile),
             includeWarningSnapshot: false,
-            includeResourceReferences: true,
+            includeResourceReferences: false,
             includeScoreSnapshot: false);
     }
 
@@ -9944,7 +9947,7 @@ completeFileEnumerationOnce,
     /// <summary>
     /// エンコーディングが Shift_JIS 以外と推定された（文字化けの可能性がある）BMS ファイル群を取得します。
     /// </summary>
-    public List<BMSFile> GetBMSFilesGarbled(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool isInFixedList = false)
+    private List<BMSFile> GetGarbledBmsStorageRows(IEnumerable<BMSFile> bmsFiles, bool isInFixedList)
     {
         bmsFiles ??= BMSFiles;
         if (bmsFiles.Count() == 0)
@@ -9955,13 +9958,6 @@ completeFileEnumerationOnce,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                if (forceUpdate)
-                {
-                    setMaintenanceInfo(
-                        CreateBmsResourceMaintenanceTargetCharts(bmsFiles),
-                        forceUpdate,
-                        resourceHealthMutationReason: "garbled_filter");
-                }
                 return maintenanceService.GetGarbledFiles(bmsFiles, isInFixedList);
             }
         }

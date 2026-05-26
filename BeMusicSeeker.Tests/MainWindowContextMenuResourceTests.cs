@@ -962,10 +962,12 @@ public sealed class MainWindowContextMenuResourceTests
     public void DuplicateFilterViewUsesChartFileParameters()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string refreshChartRowsView = ExtractBetween(
             viewModelCode,
             "private void RefreshChartRowsView",
             "private static bool TryNormalizeNormalLibrarySortCacheColumn");
+        string virtualSubsetSource = ExtractMethodBody(viewModelCode, "private bool TryGetVirtualChartSubsetSourceFiles");
         string virtualDuplicateSource = ExtractBetween(
             viewModelCode,
             "private static bool TryGetVirtualDuplicateSourceChartsCore",
@@ -977,6 +979,16 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.DuplicateFilterSelected:"));
         Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.FileMissingFilterSelected:"));
         Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.NewlyInstalledFolderSelected:"));
+        StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbled;");
+        StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbledFixed;");
+        StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesUnregistered;");
+        Assert.IsFalse(viewModelCode.Contains("CreateBmsChartSnapshot("));
+        Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesGarbled"));
+        Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesUnregistered"));
+        Assert.IsFalse(libraryCode.Contains("public IEnumerable<BMSFile> BMSFilesGarbled"));
+        Assert.IsFalse(libraryCode.Contains("public List<BMSFile> BMSFilesUnregistered"));
+        StringAssert.Contains(libraryCode, "internal IEnumerable<ChartFile> ChartFilesGarbled");
+        StringAssert.Contains(libraryCode, "internal IEnumerable<ChartFile> ChartFilesUnregistered");
         StringAssert.Contains(virtualDuplicateSource, "DuplicateGroup");
         StringAssert.Contains(virtualDuplicateSource, "CreateDuplicateChartFileSnapshot(groupSnapshot)");
         Assert.IsFalse(virtualDuplicateSource.Contains("List<BeMusicSeeker.Models.BMSFile>"));
@@ -1803,7 +1815,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)");
         Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(installResult?.AddedCharts)"));
         Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(IEnumerable<BMSFile> bmsFiles"));
-        StringAssert.Contains(libraryCode, "CreateBmsResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles)");
+        Assert.IsFalse(libraryCode.Contains("CreateBmsResourceMaintenanceTargetCharts"));
         StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
         Assert.IsFalse(libraryCode.Contains("CreateAddedBmsonChartProjectionsFromInstalledPackages"));

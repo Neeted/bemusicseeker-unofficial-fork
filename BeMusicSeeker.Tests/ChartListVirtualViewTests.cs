@@ -257,6 +257,38 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void VirtualChartSubsetRow_UsesScoreProviderForOwnerBackedBmsProjection()
+    {
+        BMSFile file = CreateFile(
+            @"D:\Charts\Score\alpha.bms",
+            "Alpha",
+            "Score",
+            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var score = new ChartScoreSnapshot(
+            ClearType.HARD,
+            RankType.AA,
+            score: 1800,
+            rate: 90,
+            totalNotes: 1000,
+            minBp: 3,
+            maxCombo: 987);
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(
+            ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false, includeScoreSnapshot: false),
+            ChartListSourceProjectionMode.OwnerBacked,
+            scoreSnapshotVersionProvider: () => 1,
+            scoreSnapshotProjectionProvider: row => string.Equals(row.Path, file.path, StringComparison.OrdinalIgnoreCase) ? score : null);
+
+        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+
+        Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
+        Assert.AreEqual(ClearType.HARD, row.clear);
+        Assert.AreEqual(RankType.AA, row.rank);
+        Assert.AreEqual(1800, row.score);
+        Assert.AreEqual(90, row.rate);
+        Assert.AreEqual(3, row.minbp);
+    }
+
+    [TestMethod]
     public void ChartListSourceRow_BmsTransientInstallEstimationProjectionClearsStaleSourceWarning()
     {
         BMSFile file = CreateFile(
