@@ -902,14 +902,6 @@ public sealed class MainWindowContextMenuResourceTests
         string notificationVersionHandler = ExtractBetween(
             viewModelCode,
             "listenerForBMSLibrary.RegisterHandler(() => files.NormalLibraryRefreshNotificationVersion",
-            "listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles");
-        string bmsFilesHandler = ExtractBetween(
-            viewModelCode,
-            "listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles",
-            "listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs");
-        string bmsonSongsHandler = ExtractBetween(
-            viewModelCode,
-            "listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs",
             "listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress");
         string notificationSyncHelper = ExtractBetween(
             viewModelCode,
@@ -940,11 +932,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsonSongs");
         StringAssert.Contains(notificationSyncHelper, "PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles)");
         StringAssert.Contains(notificationSyncHelper, "SyncBmsonLibraryRowCache()");
-        Assert.IsFalse(bmsFilesHandler.Contains("ApplyNormalLibraryRefreshNotification"));
-        Assert.IsFalse(bmsFilesHandler.Contains("RefreshNormalLibraryAfterSourceChanged"));
-        Assert.IsFalse(bmsonSongsHandler.Contains("ApplyNormalLibraryRefreshNotification"));
-        Assert.IsFalse(bmsonSongsHandler.Contains("ConsumeNormalLibrarySourceChangeForBmsonSync"));
-        Assert.IsFalse(bmsonSongsHandler.Contains("RefreshChartRowsView"));
+        Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles"));
+        Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs"));
     }
 
     [TestMethod]

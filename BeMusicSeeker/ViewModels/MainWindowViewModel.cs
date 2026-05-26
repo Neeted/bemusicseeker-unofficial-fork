@@ -14530,19 +14530,6 @@ public class MainWindowViewModel : ViewModel
             NormalLibraryRefreshNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
             ApplyNormalLibraryRefreshNotificationBatch(refreshNotification, "normal_library_refresh");
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
-        {
-            PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
-        {
-            BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache();
-            if (syncResult.SortKeyChanged)
-            {
-                InvalidateNormalLibrarySortKeysForBmsonSync(syncResult);
-            }
-            RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress, delegate
         {
             UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
