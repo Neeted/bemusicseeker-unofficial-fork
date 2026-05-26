@@ -10781,11 +10781,6 @@ completeFileEnumerationOnce,
         }
     }
 
-    private IInstalledChartLookupIndex BuildInstalledHashToDirectoryMap()
-    {
-        return CreateInstalledChartLookupSnapshotUnsafe();
-    }
-
     private bool TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, out string resolvedDir)
     {
         resolvedDir = null;
@@ -10808,7 +10803,7 @@ completeFileEnumerationOnce,
                 Reason = InstalledDirectoryResolveReason.InvalidInput
             };
         }
-        IInstalledChartLookupIndex installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
+        IInstalledChartLookupIndex installedDirectoryIndex = CreateInstalledChartLookupSnapshotUnsafe();
         if (installedDirectoryIndex.HashCount == 0)
         {
             return new InstalledDirectoryLookupResult
@@ -11625,26 +11620,6 @@ completeFileEnumerationOnce,
         PackageHasSplitInstalledDirectories
     }
 
-    private static List<string> GetDistinctInstalledDirectoriesByHash(IInstalledChartLookupIndex installedDirectoryIndex, ChartFile chart)
-    {
-        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, chart);
-    }
-
-    private static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
-    {
-        return BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, installedDirectoryIndex);
-    }
-
-    private static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
-    {
-        return BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, installedDirectoryIndex);
-    }
-
-    private static int CountDistinctInstalledDirectoriesForPackage(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
-    {
-        return BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(package, installedDirectoryIndex);
-    }
-
     private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths)
     {
         List<string> sourceDirectories = [.. (sourceDirectoryPaths ?? [])
@@ -11654,7 +11629,7 @@ completeFileEnumerationOnce,
         {
             return;
         }
-        IInstalledChartLookupIndex installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
+        IInstalledChartLookupIndex installedDirectoryIndex = CreateInstalledChartLookupSnapshotUnsafe();
         foreach (string sourceDirectoryPath in sourceDirectories)
         {
             TryRegroupPendingPackagesForSourceDirectoryUnsafe(sourceDirectoryPath, installedDirectoryIndex);
@@ -11914,12 +11889,12 @@ completeFileEnumerationOnce,
                                 switch (resolution.Reason)
                                 {
                                     case InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories:
-                                        ChartFile multipleDirectoryChart = FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot);
-                                        return "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (multipleDirectoryChart?.Path ?? "(null)") + " hash=" + (multipleDirectoryChart?.PrimaryLookupHash ?? "(null)") + " dirCount=" + ((multipleDirectoryChart == null) ? 0 : GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, multipleDirectoryChart).Count);
+                                        ChartFile multipleDirectoryChart = BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot);
+                                        return "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (multipleDirectoryChart?.Path ?? "(null)") + " hash=" + (multipleDirectoryChart?.PrimaryLookupHash ?? "(null)") + " dirCount=" + ((multipleDirectoryChart == null) ? 0 : BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, multipleDirectoryChart).Count);
                                     case InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories:
-                                        return "advanced_pending_resource_overwrite skip_package_split_dst path=" + pendingPackage.path + " dirCount=" + CountDistinctInstalledDirectoriesForPackage(pendingPackage, installedDirectoryIndexSnapshot);
+                                        return "advanced_pending_resource_overwrite skip_package_split_dst path=" + pendingPackage.path + " dirCount=" + BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(pendingPackage, installedDirectoryIndexSnapshot);
                                     default:
-                                        ChartFile missingDirectoryChart = FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot);
+                                        ChartFile missingDirectoryChart = BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot);
                                         return "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (missingDirectoryChart?.Path ?? "(null)") + " hash=" + (missingDirectoryChart?.PrimaryLookupHash ?? "(null)");
                                 }
                             },
