@@ -8539,7 +8539,7 @@ public class MainWindowViewModel : ViewModel
     private void RefreshChartInfoDependentViews()
     {
         UpdateChartInfoProjectionVersionCache();
-        BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+        BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache();
         MainViewDataDependency libraryDependency = bmsonSyncResult.SourceChanged
             ? MainViewDataDependency.SourceMembership
             : MainViewDataDependency.ChartInfo;
@@ -14654,7 +14654,7 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {
-            BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+            BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache();
             if (syncResult.SortKeyChanged)
             {
                 InvalidateNormalLibrarySortKeysForBmsonSync(syncResult);
@@ -16468,7 +16468,7 @@ public class MainWindowViewModel : ViewModel
         ClearPlaylistSourceRows();
         if (includeBmsonRows)
         {
-            BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+            BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache();
             if (bmsonSyncResult.SortKeyChanged)
             {
                 InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSyncResult);
@@ -17076,11 +17076,10 @@ public class MainWindowViewModel : ViewModel
         return null;
     }
 
-    private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache()
     {
-        List<LR2SongDBExtended.bmson_song> snapshot = [.. (bmsonSongs ?? [])
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
+        OwnedChartStorageOwnerView ownerView = files?.CreateNormalLibrarySourceStorageOwnerView();
+        IReadOnlyList<LR2SongDBExtended.bmson_song> snapshot = ownerView?.BmsonSongs ?? [];
         PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
         return regularBmsLibraryRowCache.SyncBmsonRows(snapshot, ApplyLibraryChartRowProviders);
     }
@@ -17122,7 +17121,7 @@ public class MainWindowViewModel : ViewModel
 
     private void SyncBmsonLibraryRowCacheWithoutRebuild(string reason = "bmson_sync_without_rebuild")
     {
-        BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+        BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache();
         if (result.SortKeyChanged)
         {
             InvalidateNormalLibrarySortKeysForBmsonSync(result, reason + "_sort_key_changed");

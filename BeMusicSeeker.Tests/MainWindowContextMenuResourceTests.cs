@@ -880,6 +880,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(notificationHandler, "PruneSharedChartTransientStateCacheToCurrentOwnedCharts()");
         Assert.IsFalse(notificationHandler.Contains("files?.BMSFiles"));
         Assert.IsFalse(notificationHandler.Contains("files?.BmsonSongs"));
+        StringAssert.Contains(bmsonSync, "files?.CreateNormalLibrarySourceStorageOwnerView()");
+        Assert.IsFalse(bmsonSync.Contains("files?.BmsonSongs"));
+        Assert.IsFalse(bmsonSync.Contains("OrderBy(song => song.path"));
         StringAssert.Contains(bmsonSync, "PruneSharedChartTransientStateCacheToCurrentOwnedCharts()");
         Assert.IsFalse(bmsonSync.Contains("PruneSharedChartTransientStateCacheToCurrentStorageRows"));
         StringAssert.Contains(pruneHelper, "files?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()");
