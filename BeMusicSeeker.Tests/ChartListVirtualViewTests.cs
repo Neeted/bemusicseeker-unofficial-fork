@@ -1706,9 +1706,13 @@ public sealed class ChartListVirtualViewTests
             sourceGenerationChanged: true,
             hasRefreshNotification: false,
             fallbackToCurrentOwnedCollectionVersion: false));
-        Assert.IsTrue(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
+        Assert.IsFalse(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
             sourceGenerationChanged: false,
             hasRefreshNotification: true,
+            fallbackToCurrentOwnedCollectionVersion: false));
+        Assert.IsFalse(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
+            sourceGenerationChanged: false,
+            LibraryChartRefreshEffects.WarningPresentationChanged,
             fallbackToCurrentOwnedCollectionVersion: false));
         Assert.IsTrue(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
             sourceGenerationChanged: false,

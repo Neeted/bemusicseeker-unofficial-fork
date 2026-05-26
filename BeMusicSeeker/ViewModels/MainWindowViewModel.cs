@@ -9942,7 +9942,6 @@ public class MainWindowViewModel : ViewModel
         bool fallbackToCurrentOwnedCollectionVersion)
     {
         return sourceGenerationChanged
-            || notificationBatch?.HasRefreshNotification == true
             || fallbackToCurrentOwnedCollectionVersion;
     }
 
@@ -9951,11 +9950,26 @@ public class MainWindowViewModel : ViewModel
         bool hasRefreshNotification,
         bool fallbackToCurrentOwnedCollectionVersion)
     {
+        LibraryChartRefreshEffects effects = hasRefreshNotification
+            ? LibraryChartRefreshEffects.SourceChanged
+            : LibraryChartRefreshEffects.None;
+        return ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
+            sourceGenerationChanged,
+            effects,
+            fallbackToCurrentOwnedCollectionVersion);
+    }
+
+    internal static bool ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
+        bool sourceGenerationChanged,
+        LibraryChartRefreshEffects effects,
+        bool fallbackToCurrentOwnedCollectionVersion)
+    {
+        bool hasRefreshNotification = effects != LibraryChartRefreshEffects.None;
         NormalLibraryRefreshNotificationBatch notificationBatch = hasRefreshNotification
             ? new NormalLibraryRefreshNotificationBatch(
                 latestVersion: 1,
                 ownedCollectionVersion: 1,
-                LibraryChartRefreshEffects.SourceChanged,
+                effects,
                 [],
                 notifiesStorageRows: true,
                 notifiesInstallDestinationOverlayProperties: false,
@@ -14632,6 +14646,7 @@ public class MainWindowViewModel : ViewModel
                 fallbackToCurrentOwnedCollectionVersion);
             if (!refreshLibraryMainView)
             {
+                RefreshNormalLibraryForNotificationPresentationEffects(refreshNotification);
                 RefreshPlaylistSummaryIfVisible("library_charts_changed");
                 return;
             }
@@ -14666,6 +14681,7 @@ public class MainWindowViewModel : ViewModel
             RefreshPlaylistSummaryIfVisible("library_bmsons_changed");
             if (!refreshLibraryMainView)
             {
+                RefreshNormalLibraryForNotificationPresentationEffects(refreshNotification);
                 return;
             }
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
