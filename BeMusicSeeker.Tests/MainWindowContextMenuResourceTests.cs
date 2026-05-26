@@ -1801,8 +1801,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(batchContext.Contains("AddedBmsonSongs"));
         StringAssert.Contains(batchContext, "AddInstalledTargets(ChartStorageTargetSet addedTargets");
         StringAssert.Contains(libraryCode, "static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)");
-        Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetCharts(installResult?.AddedCharts)"));
-        Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles"));
+        Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(installResult?.AddedCharts)"));
+        Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(IEnumerable<BMSFile> bmsFiles"));
         StringAssert.Contains(libraryCode, "CreateBmsResourceMaintenanceTargetCharts(IEnumerable<BMSFile> bmsFiles)");
         StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
@@ -1847,7 +1847,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mergeMethod, "destinationMaintenanceTargets.Charts.Concat(movedTargets.Charts)");
         StringAssert.Contains(mergeMethod, "maintenanceTargets.Charts");
         StringAssert.Contains(mergeMethod, "ApplyInstalledChartStorageTargets(movedTargets, \"merge_folder\")");
-        Assert.IsFalse(mergeMethod.Contains("CreateResourceMaintenanceTargetCharts(maintenanceTargets"));
+        Assert.IsFalse(mergeMethod.Contains("NormalizeResourceMaintenanceTargetCharts(maintenanceTargets"));
         Assert.IsFalse(mergeMethod.Contains("ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs)"));
         StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
         StringAssert.Contains(mergeMethod, "resourceHealthMutationReason: \"merge_folder\"");
@@ -1872,17 +1872,14 @@ public sealed class MainWindowContextMenuResourceTests
         string dispatchMethod = ExtractMethodBody(libraryCode, "private void DispatchOwnedChartCollectionMutation");
         string alignMethod = ExtractMethodBody(libraryCode, "private static void AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification");
 
-        StringAssert.Contains(method, "CreateFullOwnedResourceMaintenanceTargetCharts(");
+        StringAssert.Contains(method, "CreateFullOwnedResourceMaintenanceTargetSet(");
         StringAssert.Contains(method, "\"force_resource_health_filter\"");
-        StringAssert.Contains(method, "out StorageRowsVersionSnapshot capturedStorageRowsVersion");
-        StringAssert.Contains(method, "fullOwnedTargetStorageRowsVersion: fullOwnedTargetStorageRowsVersion");
-        StringAssert.Contains(method, "fullOwnedTargetOwnedCollectionVersion: fullOwnedTargetOwnedCollectionVersion");
-        StringAssert.Contains(setOwnedMethod, "out StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion");
-        StringAssert.Contains(setOwnedMethod, "fullOwnedTargetStorageRowsVersion");
-        StringAssert.Contains(setOwnedMethod, "fullOwnedTargetOwnedCollectionVersion");
-        StringAssert.Contains(libraryCode, "targets = null;");
+        StringAssert.Contains(method, "ResourceMaintenanceTargetSet targetSet = useOwnedSnapshot");
+        StringAssert.Contains(method, "List<ChartFile> targets = targetSet.Charts");
+        StringAssert.Contains(setOwnedMethod, "ResourceMaintenanceTargetSet maintenanceTargets = CreateFullOwnedResourceMaintenanceTargetSet(reason)");
+        Assert.IsFalse(libraryCode.Contains("targets = null;"));
         StringAssert.Contains(method, "setMaintenanceInfoCoreLocked(");
-        StringAssert.Contains(method, "maintenanceTargetIsFullOwned: useOwnedSnapshot");
+        StringAssert.Contains(method, "targetSet,");
         StringAssert.Contains(method, "currentMaintenanceTargetCharts: out targets");
         Assert.IsFalse(method.Contains("RescanResourceHealthCharts(targets);"));
 
@@ -1891,11 +1888,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(MaintenanceWorkflowResult workflowResult)");
         StringAssert.Contains(coreMethod, "if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))");
         StringAssert.Contains(coreMethod, "maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);");
-        StringAssert.Contains(buildMutationMethod, "FullOwnedTargetStorageRowsVersion");
-        StringAssert.Contains(buildMutationMethod, "FullOwnedTargetResourceHealthInputVersion");
+        StringAssert.Contains(coreMethod, "maintenanceTargets = maintenanceTargets.WithCharts(maintenanceTargetCharts);");
+        StringAssert.Contains(buildMutationMethod, "List<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts");
+        StringAssert.Contains(buildMutationMethod, "mutation.FullOwnedTargetSet = maintenanceTargets;");
         StringAssert.Contains(dispatchMethod, "PublishOwnedCollectionChangeNotification(result);");
         StringAssert.Contains(dispatchMethod, "AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);");
-        StringAssert.Contains(alignMethod, "mutation.FullOwnedTargetOwnedCollectionVersion = result.OwnedCollectionVersion;");
+        StringAssert.Contains(alignMethod, "mutation.FullOwnedTargetSet = mutation.FullOwnedTargetSet.WithOwnedCollectionVersion(result.OwnedCollectionVersion);");
     }
 
     [TestMethod]
@@ -1911,17 +1909,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(applyMethod, "foreach (BMSFile item in ownerView.BmsFiles)");
         StringAssert.Contains(applyMethod, "foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)");
         StringAssert.Contains(applyMethod, "ownerView.ContainsOwnerPath(maintenancePath)");
-        StringAssert.Contains(applyMethod, "resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetCharts");
-        StringAssert.Contains(applyMethod, "out resourceHealthTargetStorageRowsVersion");
+        StringAssert.Contains(applyMethod, "ResourceMaintenanceTargetSet resourceHealthTargets = default;");
+        StringAssert.Contains(applyMethod, "resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetSet");
         StringAssert.Contains(applyMethod, "DispatchMaintenanceHydrationResult(");
-        StringAssert.Contains(applyMethod, "resourceHealthTargetOwnedCollectionVersion");
-        StringAssert.Contains(applyMethod, "resourceHealthTargetInputVersion");
+        Assert.IsFalse(applyMethod.Contains("resourceHealthTargetOwnedCollectionVersion"));
+        Assert.IsFalse(applyMethod.Contains("resourceHealthTargetInputVersion"));
         Assert.IsFalse(applyMethod.Contains("RebuildResourceHealthIndexSnapshotLocked(\"maintenance_hydration\")"));
         StringAssert.Contains(libraryCode, "BuildMaintenanceHydrationMutationResult");
         StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.RebuildFull = true");
-        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetStorageRowsVersion = fullOwnedTargetStorageRowsVersion");
-        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion");
-        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion");
+        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetSet = fullOwnedTargets");
         StringAssert.Contains(libraryCode, "resource_health_index_full_target_stale");
         Assert.IsFalse(applyMethod.Contains("foreach (BMSFile item in BMSFiles"));
         Assert.IsFalse(applyMethod.Contains("foreach (LR2SongDBExtended.bmson_song item in BmsonSongs"));

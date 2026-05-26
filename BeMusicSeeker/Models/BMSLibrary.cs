@@ -5289,7 +5289,7 @@ completeFileEnumerationOnce,
         string reason,
         IEnumerable<ChartFile> charts)
     {
-        List<ChartFile> targetCharts = CreateResourceMaintenanceTargetCharts(charts);
+        List<ChartFile> targetCharts = NormalizeResourceMaintenanceTargetCharts(charts);
         ChartStorageTargetSet storageTargets = ChartStorageTargetSet.FromCharts(targetCharts);
         var result = new ChartInfoInlineBuildResult();
         bool completed = false;
@@ -5563,10 +5563,7 @@ completeFileEnumerationOnce,
             return;
         }
         var applyStopwatch = Stopwatch.StartNew();
-        List<ChartFile> resourceHealthTargets = [];
-        StorageRowsVersionSnapshot resourceHealthTargetStorageRowsVersion = default;
-        int resourceHealthTargetOwnedCollectionVersion = 0;
-        int resourceHealthTargetInputVersion = 0;
+        ResourceMaintenanceTargetSet resourceHealthTargets = default;
         using (rwlockBMSFiles.GetWriterGuard())
         {
             OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe();
@@ -5635,11 +5632,7 @@ completeFileEnumerationOnce,
             }
             attachStopwatch.Stop();
             result.MaintenanceAttachMs = attachStopwatch.ElapsedMilliseconds;
-            resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetCharts(
-                "maintenance_hydration",
-                out resourceHealthTargetStorageRowsVersion,
-                out resourceHealthTargetOwnedCollectionVersion,
-                out resourceHealthTargetInputVersion);
+            resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetSet("maintenance_hydration");
             result.OwnerPathCount = ownerView.OwnerPathCount;
             foreach (string maintenancePath in result.MaintenanceMap.Keys)
             {
@@ -5671,12 +5664,7 @@ completeFileEnumerationOnce,
             result.CleanupMs = cleanupStopwatch.ElapsedMilliseconds;
         }
         result.ViewRefreshQueued = true;
-        DispatchMaintenanceHydrationResult(
-            result,
-            resourceHealthTargets,
-            resourceHealthTargetStorageRowsVersion,
-            resourceHealthTargetOwnedCollectionVersion,
-            resourceHealthTargetInputVersion);
+        DispatchMaintenanceHydrationResult(result, resourceHealthTargets);
     }
 
     private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)
@@ -6649,13 +6637,7 @@ completeFileEnumerationOnce,
 
         public List<ChartFile> RemovedTargets { get; } = [];
 
-        public List<ChartFile> FullOwnedTargets { get; set; }
-
-        public StorageRowsVersionSnapshot? FullOwnedTargetStorageRowsVersion { get; set; }
-
-        public int? FullOwnedTargetOwnedCollectionVersion { get; set; }
-
-        public int? FullOwnedTargetResourceHealthInputVersion { get; set; }
+        public ResourceMaintenanceTargetSet FullOwnedTargetSet { get; set; }
 
         public int? DeltaBaseResourceHealthInputVersion { get; set; }
 
@@ -7577,6 +7559,95 @@ completeFileEnumerationOnce,
         internal int BmsonRowsVersion { get; }
     }
 
+    private readonly struct ResourceMaintenanceTargetSet
+    {
+        private readonly List<ChartFile> charts;
+
+        private ResourceMaintenanceTargetSet(
+            List<ChartFile> charts,
+            bool isFullOwned,
+            StorageRowsVersionSnapshot? storageRowsVersion,
+            int? ownedCollectionVersion,
+            int? resourceHealthInputVersion)
+        {
+            this.charts = charts ?? [];
+            IsSpecified = true;
+            IsFullOwned = isFullOwned;
+            StorageRowsVersion = storageRowsVersion;
+            OwnedCollectionVersion = ownedCollectionVersion;
+            ResourceHealthInputVersion = resourceHealthInputVersion;
+        }
+
+        internal List<ChartFile> Charts => charts ?? [];
+
+        internal bool IsSpecified { get; }
+
+        internal bool IsFullOwned { get; }
+
+        internal StorageRowsVersionSnapshot? StorageRowsVersion { get; }
+
+        internal int? OwnedCollectionVersion { get; }
+
+        internal int? ResourceHealthInputVersion { get; }
+
+        internal int Count => Charts.Count;
+
+        internal static ResourceMaintenanceTargetSet ForSubset(List<ChartFile> charts)
+        {
+            return new ResourceMaintenanceTargetSet(charts, false, null, null, null);
+        }
+
+        internal static ResourceMaintenanceTargetSet ForFullOwned(
+            List<ChartFile> charts,
+            StorageRowsVersionSnapshot storageRowsVersion,
+            int ownedCollectionVersion,
+            int resourceHealthInputVersion)
+        {
+            return new ResourceMaintenanceTargetSet(
+                charts,
+                true,
+                storageRowsVersion,
+                ownedCollectionVersion,
+                resourceHealthInputVersion);
+        }
+
+        internal ResourceMaintenanceTargetSet WithCharts(List<ChartFile> charts)
+        {
+            return IsSpecified
+                ? new ResourceMaintenanceTargetSet(
+                    charts,
+                    IsFullOwned,
+                    StorageRowsVersion,
+                    OwnedCollectionVersion,
+                    ResourceHealthInputVersion)
+                : default;
+        }
+
+        internal ResourceMaintenanceTargetSet WithOwnedCollectionVersion(int ownedCollectionVersion)
+        {
+            return IsSpecified
+                ? new ResourceMaintenanceTargetSet(
+                    Charts,
+                    IsFullOwned,
+                    StorageRowsVersion,
+                    ownedCollectionVersion,
+                    ResourceHealthInputVersion)
+                : default;
+        }
+
+        internal ResourceMaintenanceTargetSet WithResourceHealthInputVersion(int resourceHealthInputVersion)
+        {
+            return IsSpecified
+                ? new ResourceMaintenanceTargetSet(
+                    Charts,
+                    IsFullOwned,
+                    StorageRowsVersion,
+                    OwnedCollectionVersion,
+                    resourceHealthInputVersion)
+                : default;
+        }
+    }
+
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(
         LibraryMutationDelta delta,
         int? deltaBaseResourceHealthInputVersion = null,
@@ -7783,10 +7854,7 @@ completeFileEnumerationOnce,
         }
         destination.UpdatedTargets.AddRange(source.UpdatedTargets);
         destination.RemovedTargets.AddRange(source.RemovedTargets);
-        destination.FullOwnedTargets = source.FullOwnedTargets;
-        destination.FullOwnedTargetStorageRowsVersion = source.FullOwnedTargetStorageRowsVersion;
-        destination.FullOwnedTargetOwnedCollectionVersion = source.FullOwnedTargetOwnedCollectionVersion;
-        destination.FullOwnedTargetResourceHealthInputVersion = source.FullOwnedTargetResourceHealthInputVersion;
+        destination.FullOwnedTargetSet = source.FullOwnedTargetSet;
         destination.DeltaBaseResourceHealthInputVersion = source.DeltaBaseResourceHealthInputVersion;
         destination.DeltaTargetResourceHealthInputVersion = source.DeltaTargetResourceHealthInputVersion;
         destination.Invalidate = source.Invalidate;
@@ -7888,16 +7956,12 @@ completeFileEnumerationOnce,
         if (result?.OwnedCollectionChanged != true
             || result.OwnedCollectionVersion <= 0
             || mutation?.RebuildFull != true
-            || mutation.FullOwnedTargets == null
-            || !HasFullOwnedResourceHealthTargetVersion(
-                mutation.FullOwnedTargetStorageRowsVersion,
-                mutation.FullOwnedTargetOwnedCollectionVersion,
-                mutation.FullOwnedTargetResourceHealthInputVersion))
+            || !HasFullOwnedResourceHealthTargetVersion(mutation.FullOwnedTargetSet))
         {
             return;
         }
 
-        mutation.FullOwnedTargetOwnedCollectionVersion = result.OwnedCollectionVersion;
+        mutation.FullOwnedTargetSet = mutation.FullOwnedTargetSet.WithOwnedCollectionVersion(result.OwnedCollectionVersion);
     }
 
     private void DispatchOwnedChartHashChanges(
@@ -7934,16 +7998,9 @@ completeFileEnumerationOnce,
 
     private void DispatchMaintenanceHydrationResult(
         MaintenanceTableHydrationResult hydrationResult,
-        List<ChartFile> fullOwnedTargets,
-        StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion,
-        int fullOwnedTargetOwnedCollectionVersion,
-        int fullOwnedTargetResourceHealthInputVersion)
+        ResourceMaintenanceTargetSet fullOwnedTargets)
     {
-        OwnedChartCollectionMutationResult mutationResult = BuildMaintenanceHydrationMutationResult(
-            fullOwnedTargets,
-            fullOwnedTargetStorageRowsVersion,
-            fullOwnedTargetOwnedCollectionVersion,
-            fullOwnedTargetResourceHealthInputVersion);
+        OwnedChartCollectionMutationResult mutationResult = BuildMaintenanceHydrationMutationResult(fullOwnedTargets);
         DispatchOwnedChartCollectionMutation(mutationResult, "maintenance_hydration");
         if (hydrationResult != null)
         {
@@ -7952,10 +8009,7 @@ completeFileEnumerationOnce,
     }
 
     private static OwnedChartCollectionMutationResult BuildMaintenanceHydrationMutationResult(
-        List<ChartFile> fullOwnedTargets,
-        StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion,
-        int fullOwnedTargetOwnedCollectionVersion,
-        int fullOwnedTargetResourceHealthInputVersion)
+        ResourceMaintenanceTargetSet fullOwnedTargets)
     {
         var result = new OwnedChartCollectionMutationResult
         {
@@ -7963,10 +8017,7 @@ completeFileEnumerationOnce,
             MaintenancePresentationChanged = true
         };
         result.ResourceHealthMutation.RebuildFull = true;
-        result.ResourceHealthMutation.FullOwnedTargets = fullOwnedTargets ?? [];
-        result.ResourceHealthMutation.FullOwnedTargetStorageRowsVersion = fullOwnedTargetStorageRowsVersion;
-        result.ResourceHealthMutation.FullOwnedTargetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion;
-        result.ResourceHealthMutation.FullOwnedTargetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion;
+        result.ResourceHealthMutation.FullOwnedTargetSet = fullOwnedTargets;
         return result;
     }
 
@@ -9005,9 +9056,14 @@ completeFileEnumerationOnce,
             includeScoreSnapshot: false);
     }
 
-    private static List<ChartFile> CreateResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts)
+    private static List<ChartFile> NormalizeResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? []).Where(chart => chart != null)];
+    }
+
+    private static ResourceMaintenanceTargetSet CreateResourceMaintenanceTargetSet(IEnumerable<ChartFile> charts)
+    {
+        return ResourceMaintenanceTargetSet.ForSubset(NormalizeResourceMaintenanceTargetCharts(charts));
     }
 
     private static List<ChartFile> RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(IEnumerable<ChartFile> charts)
@@ -9026,21 +9082,14 @@ completeFileEnumerationOnce,
         return workflowResult?.HasUpdates == true;
     }
 
-    private List<ChartFile> CreateFullOwnedResourceMaintenanceTargetCharts(string reason)
-    {
-        return CreateFullOwnedResourceMaintenanceTargetCharts(reason, out _, out _, out _);
-    }
-
-    private List<ChartFile> CreateFullOwnedResourceMaintenanceTargetCharts(
-        string reason,
-        out StorageRowsVersionSnapshot storageRowsVersion,
-        out int ownedCollectionVersion,
-        out int resourceHealthInputVersion)
+    private ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
-        resourceHealthInputVersion = Volatile.Read(ref this.resourceHealthInputVersion);
+        int resourceHealthInputVersion = Volatile.Read(ref this.resourceHealthInputVersion);
         EnsureOwnedChartCollectionBuiltUnsafe();
         List<ChartFile> targets;
+        StorageRowsVersionSnapshot storageRowsVersion;
+        int ownedCollectionVersion;
         lock (lockOwnedChartCollection)
         {
             targets = ownedChartCollection.CreateFullResourceMaintenanceTargetSnapshot();
@@ -9053,7 +9102,11 @@ completeFileEnumerationOnce,
             + " reason=" + (reason ?? "unknown")
             + " targetCount=" + targets.Count
             + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-        return targets;
+        return ResourceMaintenanceTargetSet.ForFullOwned(
+            targets,
+            storageRowsVersion,
+            ownedCollectionVersion,
+            resourceHealthInputVersion);
     }
 
     private void InvalidateResourceHealthIndex(string reason)
@@ -9231,62 +9284,37 @@ completeFileEnumerationOnce,
         }
     }
 
-    private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(string reason, List<ChartFile> fullOwnedTargets = null)
+    private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(string reason)
     {
         return RebuildResourceHealthIndexSnapshotLocked(
             reason,
-            fullOwnedTargets,
-            fullOwnedTargetStorageRowsVersion: null,
-            fullOwnedTargetOwnedCollectionVersion: null,
-            fullOwnedTargetResourceHealthInputVersion: null,
+            default,
             out _);
     }
 
     private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(
         string reason,
-        List<ChartFile> fullOwnedTargets,
-        StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion,
-        int? fullOwnedTargetOwnedCollectionVersion,
-        int? fullOwnedTargetResourceHealthInputVersion,
+        ResourceMaintenanceTargetSet fullOwnedTargetSet,
         out bool staleFullOwnedTarget)
     {
         staleFullOwnedTarget = false;
-        List<ChartFile> targets = fullOwnedTargets;
-        StorageRowsVersionSnapshot? targetStorageRowsVersion = fullOwnedTargetStorageRowsVersion;
-        int? targetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion;
-        int? targetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion;
-        if (targets != null
-            && !HasFullOwnedResourceHealthTargetVersion(
-                targetStorageRowsVersion,
-                targetOwnedCollectionVersion,
-                targetResourceHealthInputVersion))
+        ResourceMaintenanceTargetSet targetSet = fullOwnedTargetSet;
+        if (targetSet.IsSpecified && !HasFullOwnedResourceHealthTargetVersion(targetSet))
         {
-            targets = null;
+            targetSet = default;
         }
-        if (targets == null)
+        if (!targetSet.IsSpecified)
         {
-            targets = CreateFullOwnedResourceMaintenanceTargetCharts(
-                reason,
-                out StorageRowsVersionSnapshot capturedStorageRowsVersion,
-                out int capturedOwnedCollectionVersion,
-                out int capturedResourceHealthInputVersion);
-            targetStorageRowsVersion = capturedStorageRowsVersion;
-            targetOwnedCollectionVersion = capturedOwnedCollectionVersion;
-            targetResourceHealthInputVersion = capturedResourceHealthInputVersion;
+            targetSet = CreateFullOwnedResourceMaintenanceTargetSet(reason);
         }
+        List<ChartFile> targets = targetSet.Charts;
         int version = Interlocked.Increment(ref resourceHealthIndexVersionSeed);
         var snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version);
-        if (HasFullOwnedResourceHealthTargetVersion(
-            targetStorageRowsVersion,
-            targetOwnedCollectionVersion,
-            targetResourceHealthInputVersion))
+        if (HasFullOwnedResourceHealthTargetVersion(targetSet))
         {
             lock (resourceHealthIndexLock)
             {
-                if (!IsCurrentFullOwnedResourceHealthTargetVersion(
-                    targetStorageRowsVersion,
-                    targetOwnedCollectionVersion,
-                    targetResourceHealthInputVersion))
+                if (!IsCurrentFullOwnedResourceHealthTargetVersion(targetSet))
                 {
                     InvalidateResourceHealthIndexIfSnapshotInputIsStaleUnsafe();
                     staleFullOwnedTarget = true;
@@ -9313,6 +9341,15 @@ completeFileEnumerationOnce,
         return snapshot;
     }
 
+    private static bool HasFullOwnedResourceHealthTargetVersion(ResourceMaintenanceTargetSet targetSet)
+    {
+        return targetSet.IsFullOwned
+            && HasFullOwnedResourceHealthTargetVersion(
+                targetSet.StorageRowsVersion,
+                targetSet.OwnedCollectionVersion,
+                targetSet.ResourceHealthInputVersion);
+    }
+
     private static bool HasFullOwnedResourceHealthTargetVersion(
         StorageRowsVersionSnapshot? storageRowsVersion,
         int? ownedCollectionVersion,
@@ -9321,6 +9358,15 @@ completeFileEnumerationOnce,
         return storageRowsVersion.HasValue
             && ownedCollectionVersion.HasValue
             && resourceHealthInputVersion.HasValue;
+    }
+
+    private bool IsCurrentFullOwnedResourceHealthTargetVersion(ResourceMaintenanceTargetSet targetSet)
+    {
+        return targetSet.IsFullOwned
+            && IsCurrentFullOwnedResourceHealthTargetVersion(
+                targetSet.StorageRowsVersion,
+                targetSet.OwnedCollectionVersion,
+                targetSet.ResourceHealthInputVersion);
     }
 
     private bool IsCurrentFullOwnedResourceHealthTargetVersion(
@@ -9386,8 +9432,8 @@ completeFileEnumerationOnce,
         {
             return false;
         }
-        List<ChartFile> updatedTargetList = CreateResourceMaintenanceTargetCharts(updatedTargets);
-        List<ChartFile> removedTargetList = CreateResourceMaintenanceTargetCharts(removedTargets);
+        List<ChartFile> updatedTargetList = NormalizeResourceMaintenanceTargetCharts(updatedTargets);
+        List<ChartFile> removedTargetList = NormalizeResourceMaintenanceTargetCharts(removedTargets);
         if (updatedTargetList.Count == 0 && removedTargetList.Count == 0)
         {
             return false;
@@ -9475,10 +9521,7 @@ completeFileEnumerationOnce,
         {
             result.Snapshot = RebuildResourceHealthIndexSnapshotLocked(
                 reason,
-                mutation.FullOwnedTargets,
-                mutation.FullOwnedTargetStorageRowsVersion,
-                mutation.FullOwnedTargetOwnedCollectionVersion,
-                mutation.FullOwnedTargetResourceHealthInputVersion,
+                mutation.FullOwnedTargetSet,
                 out bool staleFullOwnedTarget);
             if (staleFullOwnedTarget)
             {
@@ -9491,18 +9534,15 @@ completeFileEnumerationOnce,
     }
 
     private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthIndexMutation(
-        List<ChartFile> maintenanceTargetCharts,
-        bool maintenanceTargetIsFullOwned,
+        ResourceMaintenanceTargetSet maintenanceTargets,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         bool resourceHealthIndexCurrent,
         bool workflowHasUpdates,
         int? deltaBaseResourceHealthInputVersion = null,
-        int? deltaTargetResourceHealthInputVersion = null,
-        StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion = null,
-        int? fullOwnedTargetOwnedCollectionVersion = null,
-        int? fullOwnedTargetResourceHealthInputVersion = null)
+        int? deltaTargetResourceHealthInputVersion = null)
     {
         var mutation = new ResourceHealthIndexMutation();
+        List<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts;
         bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
         bool shouldUpdateIndex = workflowHasUpdates || !resourceHealthIndexCurrent || forceResourceHealthDelta;
         if (!shouldUpdateIndex)
@@ -9531,17 +9571,11 @@ completeFileEnumerationOnce,
             return mutation;
         }
         mutation.RebuildFull = true;
-        if (maintenanceTargetIsFullOwned)
+        if (maintenanceTargets.IsFullOwned)
         {
-            mutation.FullOwnedTargets = maintenanceTargetCharts;
-            if (HasFullOwnedResourceHealthTargetVersion(
-                fullOwnedTargetStorageRowsVersion,
-                fullOwnedTargetOwnedCollectionVersion,
-                fullOwnedTargetResourceHealthInputVersion))
+            if (HasFullOwnedResourceHealthTargetVersion(maintenanceTargets))
             {
-                mutation.FullOwnedTargetStorageRowsVersion = fullOwnedTargetStorageRowsVersion;
-                mutation.FullOwnedTargetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion;
-                mutation.FullOwnedTargetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion;
+                mutation.FullOwnedTargetSet = maintenanceTargets;
             }
         }
         return mutation;
@@ -9590,10 +9624,9 @@ completeFileEnumerationOnce,
         }
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<ChartFile> maintenanceTargetCharts = CreateResourceMaintenanceTargetCharts(charts);
+            ResourceMaintenanceTargetSet maintenanceTargets = CreateResourceMaintenanceTargetSet(charts);
             return setMaintenanceInfoCoreLocked(
-                maintenanceTargetCharts,
-                maintenanceTargetIsFullOwned: false,
+                maintenanceTargets,
                 forceUpdate,
                 progressReporter,
                 cancellationToken,
@@ -9613,37 +9646,28 @@ completeFileEnumerationOnce,
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<ChartFile> maintenanceTargetCharts = CreateFullOwnedResourceMaintenanceTargetCharts(
-                reason,
-                out StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion,
-                out int fullOwnedTargetOwnedCollectionVersion,
-                out _);
+            ResourceMaintenanceTargetSet maintenanceTargets = CreateFullOwnedResourceMaintenanceTargetSet(reason);
             return setMaintenanceInfoCoreLocked(
-                maintenanceTargetCharts,
-                maintenanceTargetIsFullOwned: true,
+                maintenanceTargets,
                 forceUpdate,
                 progressReporter,
                 cancellationToken,
                 resourceHealthIndexUpdateMode,
                 resourceHealthMutationReason ?? reason,
-                out _,
-                fullOwnedTargetStorageRowsVersion,
-                fullOwnedTargetOwnedCollectionVersion);
+                out _);
         }
     }
 
     private MaintenanceWorkflowResult setMaintenanceInfoCoreLocked(
-        List<ChartFile> maintenanceTargetCharts,
-        bool maintenanceTargetIsFullOwned,
+        ResourceMaintenanceTargetSet maintenanceTargets,
         bool forceUpdate,
         Action<MaintenanceWorkflowProgress> progressReporter,
         CancellationToken cancellationToken,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         string resourceHealthMutationReason,
-        out List<ChartFile> currentMaintenanceTargetCharts,
-        StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion = null,
-        int? fullOwnedTargetOwnedCollectionVersion = null)
+        out List<ChartFile> currentMaintenanceTargetCharts)
     {
+        List<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts;
         currentMaintenanceTargetCharts = maintenanceTargetCharts ?? [];
         if (maintenanceTargetCharts == null || maintenanceTargetCharts.Count == 0)
         {
@@ -9678,6 +9702,7 @@ completeFileEnumerationOnce,
                     if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))
                     {
                         maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);
+                        maintenanceTargets = maintenanceTargets.WithCharts(maintenanceTargetCharts);
                     }
                 }
                 finally
@@ -9694,15 +9719,11 @@ completeFileEnumerationOnce,
         }
         currentMaintenanceTargetCharts = maintenanceTargetCharts;
         ResourceHealthIndexMutation resourceHealthMutation = BuildMaintenanceResourceHealthIndexMutation(
-            maintenanceTargetCharts,
-            maintenanceTargetIsFullOwned,
+            maintenanceTargets.WithResourceHealthInputVersion(deltaTargetResourceHealthInputVersion),
             resourceHealthIndexUpdateMode,
             resourceHealthIndexCurrentBeforeUpdate,
             workflowResult.HasUpdates,
             deltaBaseResourceHealthInputVersion,
-            deltaTargetResourceHealthInputVersion,
-            fullOwnedTargetStorageRowsVersion,
-            fullOwnedTargetOwnedCollectionVersion,
             deltaTargetResourceHealthInputVersion);
         resourceHealthMutationReason = string.IsNullOrWhiteSpace(resourceHealthMutationReason)
             ? "setMaintenanceInfo"
@@ -9794,39 +9815,23 @@ completeFileEnumerationOnce,
                     ResourceHealthIndexSnapshot currentSnapshot = GetResourceHealthIndexSnapshot("resource_health_filter");
                     return [.. (isInIgnoredList ? currentSnapshot.IgnoredTargets : currentSnapshot.ActiveTargets)];
                 }
-                List<ChartFile> targets;
-                StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion = null;
-                int? fullOwnedTargetOwnedCollectionVersion = null;
-                if (useOwnedSnapshot)
-                {
-                    targets = CreateFullOwnedResourceMaintenanceTargetCharts(
-                        "force_resource_health_filter",
-                        out StorageRowsVersionSnapshot capturedStorageRowsVersion,
-                        out int capturedOwnedCollectionVersion,
-                        out _);
-                    fullOwnedTargetStorageRowsVersion = capturedStorageRowsVersion;
-                    fullOwnedTargetOwnedCollectionVersion = capturedOwnedCollectionVersion;
-                }
-                else
-                {
-                    targets = CreateResourceMaintenanceTargetCharts(charts);
-                }
+                ResourceMaintenanceTargetSet targetSet = useOwnedSnapshot
+                    ? CreateFullOwnedResourceMaintenanceTargetSet("force_resource_health_filter")
+                    : CreateResourceMaintenanceTargetSet(charts);
+                List<ChartFile> targets = targetSet.Charts;
                 string resourceHealthReason = useOwnedSnapshot && forceUpdate
                     ? "force_resource_health_filter"
                     : "resource_health_filter";
                 if (forceUpdate)
                 {
                     setMaintenanceInfoCoreLocked(
-                        targets,
-                        maintenanceTargetIsFullOwned: useOwnedSnapshot,
+                        targetSet,
                         forceUpdate: true,
                         progressReporter: null,
                         cancellationToken: default,
                         resourceHealthIndexUpdateMode: useOwnedSnapshot ? ResourceHealthIndexUpdateMode.FullOnUpdates : ResourceHealthIndexUpdateMode.DeltaOnUpdates,
                         resourceHealthMutationReason: resourceHealthReason,
-                        currentMaintenanceTargetCharts: out targets,
-                        fullOwnedTargetStorageRowsVersion: fullOwnedTargetStorageRowsVersion,
-                        fullOwnedTargetOwnedCollectionVersion: fullOwnedTargetOwnedCollectionVersion);
+                        currentMaintenanceTargetCharts: out targets);
                 }
                 if (useOwnedSnapshot)
                 {
@@ -9901,7 +9906,7 @@ completeFileEnumerationOnce,
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<ChartFile> targets = CreateResourceMaintenanceTargetCharts(charts);
+                List<ChartFile> targets = NormalizeResourceMaintenanceTargetCharts(charts);
                 if (targets.Count == 0)
                 {
                     return;
@@ -10860,7 +10865,7 @@ completeFileEnumerationOnce,
     private static List<ChartFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<ChartFile> charts)
     {
         var targetsByKey = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile target in CreateResourceMaintenanceTargetCharts(charts))
+        foreach (ChartFile target in NormalizeResourceMaintenanceTargetCharts(charts))
         {
             string key = target.Kind + "|" + target.Path;
             if (!string.IsNullOrWhiteSpace(target.Path))
@@ -13205,7 +13210,7 @@ completeFileEnumerationOnce,
                 {
                     RemoveLibraryCharts(result.ChartsToRemove);
                 }
-                List<ChartFile> maintenanceTargets = CreateResourceMaintenanceTargetCharts(result.MaintenanceCharts);
+                List<ChartFile> maintenanceTargets = NormalizeResourceMaintenanceTargetCharts(result.MaintenanceCharts);
                 if (maintenanceTargets.Count > 0)
                 {
                     setMaintenanceInfo(
