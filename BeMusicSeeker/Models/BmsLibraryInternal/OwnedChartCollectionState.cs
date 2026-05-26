@@ -331,6 +331,37 @@ internal sealed class OwnedChartCollectionState
         return new OwnedChartStorageOwnerView(bmsFiles, bmsonSongs, ownerPaths);
     }
 
+    internal OwnedChartStorageOwnerView CreateNormalLibrarySourceStorageOwnerView()
+    {
+        var bmsFiles = new List<BMSFile>();
+        var bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
+        var ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in charts)
+        {
+            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                bmsFiles.Add(bmsOwner);
+                AddOwnerPath(ownerPaths, bmsOwner.path);
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                AddOwnerPath(ownerPaths, bmsonOwner.path);
+                if (!string.IsNullOrWhiteSpace(bmsonOwner.path))
+                {
+                    bmsonSongs.Add(bmsonOwner);
+                }
+            }
+        }
+        return new OwnedChartStorageOwnerView(
+            bmsFiles,
+            [.. bmsonSongs.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)],
+            ownerPaths);
+    }
+
     internal List<ChartFile> CreateFileScanRemovedStorageOwnerIdentityCharts(
         IEnumerable<string> deletedBmsPaths,
         IEnumerable<string> deletedBmsonPaths,

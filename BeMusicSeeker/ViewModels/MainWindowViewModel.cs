@@ -10941,9 +10941,6 @@ public class MainWindowViewModel : ViewModel
         out long sourceGeneration,
         out long sortKeyGeneration)
     {
-        int bmsRowCount = CountIfCheap(BMSFiles);
-        int bmsonRowCount = includeBmsonRows ? CountIfCheap(files?.BmsonSongs) : 0;
-        int expectedRowCount = (bmsRowCount >= 0 && bmsonRowCount >= 0) ? bmsRowCount + bmsonRowCount : -1;
         long sourceGenerationAtLookup;
         long sortKeyGenerationAtLookup;
         lock (normalLibrarySortCacheLock)
@@ -10953,8 +10950,7 @@ public class MainWindowViewModel : ViewModel
             if (virtualNormalLibrarySourceRowCacheAvailable
                 && virtualNormalLibrarySourceRowCache != null
                 && virtualNormalLibrarySourceRowCacheSourceGeneration == sourceGenerationAtLookup
-                && virtualNormalLibrarySourceRowCacheIncludeBmsonRows == includeBmsonRows
-                && (expectedRowCount < 0 || virtualNormalLibrarySourceRowCacheRowCount == expectedRowCount))
+                && virtualNormalLibrarySourceRowCacheIncludeBmsonRows == includeBmsonRows)
             {
                 cacheHit = true;
                 sourceGeneration = sourceGenerationAtLookup;
@@ -10963,7 +10959,11 @@ public class MainWindowViewModel : ViewModel
             }
         }
 
-        List<ChartListSourceRow> sourceRows = BuildVirtualNormalLibrarySourceRows(includeBmsonRows, expectedRowCount);
+        OwnedChartStorageOwnerView sourceOwnerView = files?.CreateNormalLibrarySourceStorageOwnerView();
+        int expectedRowCount = sourceOwnerView == null
+            ? 0
+            : sourceOwnerView.BmsFiles.Count + (includeBmsonRows ? sourceOwnerView.BmsonSongs.Count : 0);
+        List<ChartListSourceRow> sourceRows = BuildVirtualNormalLibrarySourceRows(sourceOwnerView, includeBmsonRows, expectedRowCount);
         lock (normalLibrarySortCacheLock)
         {
             if (normalLibrarySourceGeneration == sourceGenerationAtLookup
@@ -10982,15 +10982,15 @@ public class MainWindowViewModel : ViewModel
         return sourceRows;
     }
 
-    private List<ChartListSourceRow> BuildVirtualNormalLibrarySourceRows(bool includeBmsonRows, int expectedRowCount)
+    private List<ChartListSourceRow> BuildVirtualNormalLibrarySourceRows(OwnedChartStorageOwnerView sourceOwnerView, bool includeBmsonRows, int expectedRowCount)
     {
         var sourceRows = expectedRowCount > 0
             ? new List<ChartListSourceRow>(expectedRowCount)
             : [];
-        AppendVirtualNormalLibrarySourceRows(BMSFiles, sourceRows);
+        AppendVirtualNormalLibrarySourceRows(sourceOwnerView?.BmsFiles, sourceRows);
         if (includeBmsonRows)
         {
-            AppendVirtualNormalLibrarySourceRows(files?.BmsonSongs, sourceRows);
+            AppendVirtualNormalLibrarySourceRows(sourceOwnerView?.BmsonSongs, sourceRows);
         }
         return sourceRows;
     }
@@ -11038,7 +11038,7 @@ public class MainWindowViewModel : ViewModel
         Func<int> chartInfoProjectionVersionProvider = GetChartInfoProjectionVersion;
         Func<int> scoreSnapshotVersionProvider = GetScoreSnapshotProjectionVersion;
         Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = ResolveScoreSnapshotForSourceRow;
-        foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)).OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase))
+        foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
         {
             ChartListSourceRow row = ChartListSourceRow.FromBmsonStorageOwner(
                 song,

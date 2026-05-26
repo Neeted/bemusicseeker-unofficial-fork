@@ -886,7 +886,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - 残タスクは、新しい hot path が増えた時に owned view / index / bounded projection のどれに属するかをこの文書の分類どおりに保つこと。
 
 8. **Storage row collection の役割縮小: 進行中**
-   - `BMSFiles` / `BmsonSongs` は DB commit、BMS-only producer、bmson-only producer、既存 binding 互換、external full refresh、通常一覧 virtual source row の owner-backed input として残る。internal mutation では BMS-only / bmson-only の storage owner 変更に対応する property だけを通知し、BMSFiles を chart-common refresh signal として使い回さない。
+   - `BMSFiles` / `BmsonSongs` は DB commit、BMS-only producer、bmson-only producer、既存 binding 互換、external full refresh の境界として残る。通常一覧 virtual source row は owner-backed input を読むが、ViewModel が `BMSFiles` / `BmsonSongs` を直接束ねず、BMSLibrary の `CreateNormalLibrarySourceStorageOwnerView()` から用途名付き owned view を受ける。internal mutation では BMS-only / bmson-only の storage owner 変更に対応する property だけを通知し、BMSFiles を chart-common refresh signal として使い回さない。
    - chart-common lookup / snapshot / refs は owned collection へ寄せている。残る direct enumeration は、BMS-only / bmson-only / DB load-save / input rows projection / ViewModel read model boundary として分類できるものに限定する。
    - manual install destination validation の standalone 所持判定は owned collection の known chart view を使う。owner-backed match、canonical path match、ambiguous same-kind path fallback は owned collection 側の owner/path lookup で扱い、caller が BMS / bmson storage rows を直接結合しない。
    - maintenance hydration の storage owner attach と installable maintenance 件数は owned collection の storage owner view を使う。maintenance producer は BMS / bmson owner を直接更新するが、caller 側で `BMSFiles` / `BmsonSongs` を束ねる入口は持たない。

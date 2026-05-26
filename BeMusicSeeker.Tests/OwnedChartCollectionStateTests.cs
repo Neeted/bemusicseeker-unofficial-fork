@@ -115,6 +115,26 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void CreateNormalLibrarySourceStorageOwnerView_SortsBmsonRowsAndExcludesPathlessRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        var lateBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var earlyBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "cccccccccccccccccccccccccccccccc");
+        var pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], [lateBmson, pathlessBmson, earlyBmson]);
+
+        OwnedChartStorageOwnerView view = state.CreateNormalLibrarySourceStorageOwnerView();
+
+        Assert.AreEqual(3, view.Count);
+        Assert.AreSame(bmsFile, view.BmsFiles.Single());
+        CollectionAssert.AreEqual(new[] { earlyBmson, lateBmson }, view.BmsonSongs.ToArray());
+        Assert.IsTrue(view.ContainsOwnerPath(lateBmson.path));
+        Assert.IsTrue(view.ContainsOwnerPath(earlyBmson.path));
+        Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.path));
+    }
+
+    [TestMethod]
     public void CreateFileScanRemovedStorageOwnerIdentityCharts_UsesOwnedCurrentOwners()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -7257,6 +7257,18 @@ completeFileEnumerationOnce,
         }
     }
 
+    internal OwnedChartStorageOwnerView CreateNormalLibrarySourceStorageOwnerView()
+    {
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            EnsureOwnedChartCollectionBuiltUnsafe();
+            lock (lockOwnedChartCollection)
+            {
+                return ownedChartCollection.CreateNormalLibrarySourceStorageOwnerView();
+            }
+        }
+    }
+
     private InstalledChartLookupIndexState CreateOwnedInstalledChartLookupIndexStateUnsafe(out int bmsCount, out int bmsonCount)
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
