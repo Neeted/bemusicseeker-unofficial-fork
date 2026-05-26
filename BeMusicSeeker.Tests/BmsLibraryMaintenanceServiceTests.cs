@@ -527,8 +527,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 BMSFiles = [],
                 BmsonSongs = []
             };
-            SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
-            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+            SetCurrentResourceHealthIndexSnapshot(library, snapshot);
 
             List<ChartFile> result = library.GetChartsNeedResourceFix(null);
 
@@ -602,8 +601,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var library = new BMSLibrary(songDbPath);
             SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
             SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
-            SetPrivateField(library, "resourceHealthIndexSnapshot", currentSnapshot);
-            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+            SetCurrentResourceHealthIndexSnapshot(library, currentSnapshot);
 
             MaintenanceWorkflowResult result = library.RescanResourceHealthCharts([targetChart]);
             ResourceHealthIndexSnapshot updatedSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
@@ -634,7 +632,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var library = new BMSLibrary(songDbPath);
             SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
             SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
-            SetPrivateField(library, "resourceHealthIndexSnapshot", ResourceHealthIndexSnapshot.Empty);
+            SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
             SetPrivateField(library, "resourceHealthIndexInvalidated", true);
 
             List<ChartFile> result = library.GetChartsNeedResourceFix([targetChart], forceUpdate: true);
@@ -677,10 +675,40 @@ public sealed class BmsLibraryMaintenanceServiceTests
             InvokeApplyMaintenanceHydrationResult(library, hydrationResult);
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            ResourceHealthIndexSnapshot currentResourceHealth = library.TryGetCurrentResourceHealthIndexSnapshotForView();
             Assert.IsTrue(hydrationResult.ViewRefreshQueued);
+            Assert.AreEqual(1, currentResourceHealth.TargetCount);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
             Assert.AreEqual(1, refreshNotificationChanged);
+        });
+    }
+
+    [TestMethod]
+    public void DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = Path.Combine(Path.GetDirectoryName(songDbPath), "stale-target.bms");
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
+            var hydrationResult = new MaintenanceTableHydrationResult();
+            var library = new BMSLibrary(songDbPath);
+            SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
+
+            InvokeDispatchMaintenanceHydrationResult(
+                library,
+                hydrationResult,
+                [chart],
+                bmsRowsVersion: -1,
+                bmsonRowsVersion: -1,
+                ownedCollectionVersion: -1,
+                resourceHealthInputVersion: -1);
+
+            ResourceHealthIndexSnapshot currentResourceHealth = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.AreEqual(0, currentResourceHealth.TargetCount);
+            Assert.AreEqual(0, hydrationResult.ResourceHealthIndexMs);
         });
     }
 
@@ -704,8 +732,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var library = new BMSLibrary(songDbPath);
             SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
             SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
-            SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
-            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+            SetCurrentResourceHealthIndexSnapshot(library, snapshot);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -757,7 +784,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var library = new BMSLibrary(songDbPath);
             SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
             SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
-            SetPrivateField(library, "resourceHealthIndexSnapshot", ResourceHealthIndexSnapshot.Empty);
+            SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
             SetPrivateField(library, "resourceHealthIndexInvalidated", true);
 
             library.SetChartResourceWarningsIgnored([targetChart], unset: false);
@@ -788,8 +815,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var library = new BMSLibrary(songDbPath);
             SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
             SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
-            SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
-            SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+            SetCurrentResourceHealthIndexSnapshot(library, snapshot);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
             library.SetChartResourceWarningsIgnored([chart], unset: false);
@@ -2380,6 +2406,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
         fieldInfo.SetValue(target, value);
     }
 
+    private static void SetCurrentResourceHealthIndexSnapshot(BMSLibrary library, ResourceHealthIndexSnapshot snapshot)
+    {
+        SetPrivateField(library, "resourceHealthInputVersion", 0);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("PublishResourceHealthIndexSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [snapshot]);
+    }
+
     private static void InvokeDispatchOwnedChartHashChanges(
         BMSLibrary library,
         IEnumerable<LibraryChartHashChange> hashChanges,
@@ -2399,6 +2433,29 @@ public sealed class BmsLibraryMaintenanceServiceTests
         methodInfo.Invoke(library, [result]);
     }
 
+    private static void InvokeDispatchMaintenanceHydrationResult(
+        BMSLibrary library,
+        MaintenanceTableHydrationResult result,
+        List<ChartFile> fullOwnedTargets,
+        int bmsRowsVersion,
+        int bmsonRowsVersion,
+        int ownedCollectionVersion,
+        int resourceHealthInputVersion)
+    {
+        Type storageRowsVersionType = typeof(BMSLibrary).GetNestedType("StorageRowsVersionSnapshot", BindingFlags.NonPublic);
+        Assert.IsNotNull(storageRowsVersionType);
+        ConstructorInfo constructor = storageRowsVersionType.GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+            null,
+            [typeof(int), typeof(int)],
+            null);
+        Assert.IsNotNull(constructor);
+        object storageRowsVersion = constructor.Invoke([bmsRowsVersion, bmsonRowsVersion]);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchMaintenanceHydrationResult", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [result, fullOwnedTargets, storageRowsVersion, ownedCollectionVersion, resourceHealthInputVersion]);
+    }
+
     private static object InvokeBuildMaintenanceResourceHealthIndexMutation(
         List<ChartFile> charts,
         bool maintenanceTargetIsFullOwned,
@@ -2411,7 +2468,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Type updateModeType = typeof(BMSLibrary).GetNestedType("ResourceHealthIndexUpdateMode", BindingFlags.NonPublic);
         Assert.IsNotNull(updateModeType);
         object updateMode = Enum.Parse(updateModeType, updateModeName);
-        object mutation = methodInfo.Invoke(null, [charts, maintenanceTargetIsFullOwned, updateMode, resourceHealthIndexCurrent, workflowHasUpdates]);
+        object mutation = methodInfo.Invoke(null, [charts, maintenanceTargetIsFullOwned, updateMode, resourceHealthIndexCurrent, workflowHasUpdates, null, null]);
         Assert.IsNotNull(mutation);
         return mutation;
     }

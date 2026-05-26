@@ -1794,7 +1794,9 @@ public sealed class MainWindowContextMenuResourceTests
         string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string method = ExtractMethodBody(libraryCode, "internal List<ChartFile> GetChartsNeedResourceFix");
 
-        StringAssert.Contains(method, "CreateFullOwnedResourceMaintenanceTargetCharts(\"force_resource_health_filter\")");
+        StringAssert.Contains(method, "CreateFullOwnedResourceMaintenanceTargetCharts(");
+        StringAssert.Contains(method, "\"force_resource_health_filter\"");
+        StringAssert.Contains(libraryCode, "targets = null;");
         StringAssert.Contains(method, "setMaintenanceInfoCoreLocked(");
         StringAssert.Contains(method, "maintenanceTargetIsFullOwned: useOwnedSnapshot");
         StringAssert.Contains(method, "currentMaintenanceTargetCharts: out targets");
@@ -1820,6 +1822,18 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(applyMethod, "foreach (BMSFile item in ownerView.BmsFiles)");
         StringAssert.Contains(applyMethod, "foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)");
         StringAssert.Contains(applyMethod, "ownerView.ContainsOwnerPath(maintenancePath)");
+        StringAssert.Contains(applyMethod, "resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetCharts");
+        StringAssert.Contains(applyMethod, "out resourceHealthTargetStorageRowsVersion");
+        StringAssert.Contains(applyMethod, "DispatchMaintenanceHydrationResult(");
+        StringAssert.Contains(applyMethod, "resourceHealthTargetOwnedCollectionVersion");
+        StringAssert.Contains(applyMethod, "resourceHealthTargetInputVersion");
+        Assert.IsFalse(applyMethod.Contains("RebuildResourceHealthIndexSnapshotLocked(\"maintenance_hydration\")"));
+        StringAssert.Contains(libraryCode, "BuildMaintenanceHydrationMutationResult");
+        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.RebuildFull = true");
+        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetStorageRowsVersion = fullOwnedTargetStorageRowsVersion");
+        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion");
+        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion");
+        StringAssert.Contains(libraryCode, "resource_health_index_full_target_stale");
         Assert.IsFalse(applyMethod.Contains("foreach (BMSFile item in BMSFiles"));
         Assert.IsFalse(applyMethod.Contains("foreach (LR2SongDBExtended.bmson_song item in BmsonSongs"));
         StringAssert.Contains(countMethod, "CreateOwnedChartStorageOwnerViewUnsafe().Count");
@@ -1839,7 +1853,8 @@ public sealed class MainWindowContextMenuResourceTests
         string buildMethod = ExtractMethodBody(libraryCode, "private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult");
 
         StringAssert.Contains(applyMethod, "bool removedPayloadAvailable = TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(fileCheckResult, out List<ChartFile> removedCharts);");
-        StringAssert.Contains(applyMethod, "mutationResult = BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, removedCharts, removedPayloadAvailable);");
+        StringAssert.Contains(applyMethod, "mutationResult = BuildOwnedChartCollectionFileScanMutationResult(");
+        StringAssert.Contains(applyMethod, "resourceHealthMutation.BaseIndexCurrent");
         Assert.IsFalse(applyMethod.Contains("BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, BMSFiles, BmsonSongs)"));
         StringAssert.Contains(buildMethod, "if (removedPayloadAvailable)");
         StringAssert.Contains(buildMethod, "storageMutation.UnregisteredCharts.AddRange(removedCharts ?? [])");

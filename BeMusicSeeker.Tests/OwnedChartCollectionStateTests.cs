@@ -2848,8 +2848,10 @@ public sealed class OwnedChartCollectionStateTests
     private static void SetCurrentResourceHealthIndex(BMSLibrary library, IEnumerable<ChartFile> charts)
     {
         var snapshot = ResourceHealthIndexSnapshot.Build(charts, new BmsLibraryMaintenanceService(), version: 1);
-        SetPrivateField(library, "resourceHealthIndexSnapshot", snapshot);
-        SetPrivateField(library, "resourceHealthIndexInvalidated", false);
+        SetPrivateField(library, "resourceHealthInputVersion", 0);
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("PublishResourceHealthIndexSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(library, [snapshot]);
     }
 
     private static bool IsResourceHealthIndexInvalidated(BMSLibrary library)

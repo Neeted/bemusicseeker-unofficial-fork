@@ -1054,13 +1054,17 @@ public class BMSLibrary : NotificationObject
 
     private readonly object resourceHealthIndexLock = new();
 
-    private ResourceHealthIndexSnapshot resourceHealthIndexSnapshot = ResourceHealthIndexSnapshot.Empty;
+    private ResourceHealthIndexSnapshotState resourceHealthIndexState = new(ResourceHealthIndexSnapshot.Empty, -1);
 
     private bool resourceHealthIndexInvalidated = true;
 
     private int suppressResourceHealthIndexInvalidation;
 
     private int resourceHealthIndexVersionSeed;
+
+    private int resourceHealthInputVersion;
+
+    private int resourceHealthInputMutationDepth;
 
     private List<DuplicateGroup> _DuplicateChartGroups;
 
@@ -1205,18 +1209,21 @@ public class BMSLibrary : NotificationObject
             List<BMSFile> normalized = NormalizeBmsStorageRows(value);
             if (!ReferenceEquals(_BMSFiles, normalized))
             {
-                SetBmsStorageRowsCoreUnsafe(normalized);
-                InvalidatePlaylistSummaryOwnedHashSnapshot();
-                InvalidateOwnedChartCollection();
-                NotifyOwnedChartCollectionChanged();
-                PublishExternalReplacementNormalLibraryRefreshNotification(
-                    notifiesBmsFiles: true,
-                    notifiesBmsonSongs: false);
-                InvalidateInstalledDirectoryIndex();
-                InvalidateBMSParentFolderListCache();
-                InvalidateDuplicateChartGroupsCache();
-                InvalidateResourceHealthIndex("bmsfiles_changed");
-                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                using (BeginResourceHealthInputMutation())
+                {
+                    SetBmsStorageRowsCoreUnsafe(normalized);
+                    InvalidatePlaylistSummaryOwnedHashSnapshot();
+                    InvalidateOwnedChartCollection();
+                    NotifyOwnedChartCollectionChanged();
+                    PublishExternalReplacementNormalLibraryRefreshNotification(
+                        notifiesBmsFiles: true,
+                        notifiesBmsonSongs: false);
+                    InvalidateInstalledDirectoryIndex();
+                    InvalidateBMSParentFolderListCache();
+                    InvalidateDuplicateChartGroupsCache();
+                    InvalidateResourceHealthIndex("bmsfiles_changed");
+                    PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                }
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
@@ -1310,19 +1317,22 @@ public class BMSLibrary : NotificationObject
             List<LR2SongDBExtended.bmson_song> normalized = NormalizeBmsonStorageRows(value);
             if (!ReferenceEquals(_BmsonSongs, normalized))
             {
-                SetBmsonStorageRowsCoreUnsafe(normalized);
-                InvalidatePlaylistSummaryOwnedHashSnapshot();
-                InvalidateOwnedChartCollection();
-                NotifyOwnedChartCollectionChanged();
-                PublishExternalReplacementNormalLibraryRefreshNotification(
-                    notifiesBmsFiles: false,
-                    notifiesBmsonSongs: true);
-                InvalidateInstalledDirectoryIndex();
-                InvalidateBMSParentFolderListCache();
-                InvalidateInstallEstimationMetadataProfileCache();
-                InvalidateDuplicateChartGroupsCache();
-                InvalidateResourceHealthIndex("bmsons_changed");
-                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                using (BeginResourceHealthInputMutation())
+                {
+                    SetBmsonStorageRowsCoreUnsafe(normalized);
+                    InvalidatePlaylistSummaryOwnedHashSnapshot();
+                    InvalidateOwnedChartCollection();
+                    NotifyOwnedChartCollectionChanged();
+                    PublishExternalReplacementNormalLibraryRefreshNotification(
+                        notifiesBmsFiles: false,
+                        notifiesBmsonSongs: true);
+                    InvalidateInstalledDirectoryIndex();
+                    InvalidateBMSParentFolderListCache();
+                    InvalidateInstallEstimationMetadataProfileCache();
+                    InvalidateDuplicateChartGroupsCache();
+                    InvalidateResourceHealthIndex("bmsons_changed");
+                    PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                }
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BmsonSongs");
@@ -5687,73 +5697,83 @@ completeFileEnumerationOnce,
             return;
         }
         var applyStopwatch = Stopwatch.StartNew();
+        List<ChartFile> resourceHealthTargets = [];
+        StorageRowsVersionSnapshot resourceHealthTargetStorageRowsVersion = default;
+        int resourceHealthTargetOwnedCollectionVersion = 0;
+        int resourceHealthTargetInputVersion = 0;
         using (rwlockBMSFiles.GetWriterGuard())
         {
             OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe();
             var attachStopwatch = Stopwatch.StartNew();
-            foreach (BMSFile item in ownerView.BmsFiles)
+            using (BeginResourceHealthInputMutation())
             {
-                if (item == null)
+                foreach (BMSFile item in ownerView.BmsFiles)
                 {
-                    continue;
-                }
-                BMSFileMaintenanceInfo nextInfo = null;
-                if (!string.IsNullOrWhiteSpace(item.path)
-                    && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
-                    && (item.HasMaintenanceInfoHash(value.hash) || string.Equals(value.hash, item.hash, StringComparison.OrdinalIgnoreCase)))
-                {
-                    nextInfo = value;
-                    result.AppliedBmsCount++;
-                    item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.DbHydrated);
-                    result.ValidSnapshotCount++;
-                }
-                else
-                {
-                    result.DefaultBmsCount++;
-                    if (item.HasValidMaintenanceInfoSnapshot)
+                    if (item == null)
                     {
+                        continue;
+                    }
+                    BMSFileMaintenanceInfo nextInfo = null;
+                    if (!string.IsNullOrWhiteSpace(item.path)
+                        && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
+                        && (item.HasMaintenanceInfoHash(value.hash) || string.Equals(value.hash, item.hash, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        nextInfo = value;
+                        result.AppliedBmsCount++;
+                        item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.DbHydrated);
                         result.ValidSnapshotCount++;
                     }
                     else
                     {
-                        nextInfo = item.TryGetMaintenanceInfoWithoutCreating() ?? new BMSFileMaintenanceInfo(item);
-                        item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Placeholder);
-                        result.PlaceholderCount++;
+                        result.DefaultBmsCount++;
+                        if (item.HasValidMaintenanceInfoSnapshot)
+                        {
+                            result.ValidSnapshotCount++;
+                        }
+                        else
+                        {
+                            nextInfo = item.TryGetMaintenanceInfoWithoutCreating() ?? new BMSFileMaintenanceInfo(item);
+                            item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Placeholder);
+                            result.PlaceholderCount++;
+                        }
                     }
                 }
-            }
-            foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)
-            {
-                if (item == null)
+                foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)
                 {
-                    continue;
-                }
-                if (!string.IsNullOrWhiteSpace(item.path)
-                    && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
-                    && string.Equals(value.hash, item.md5, StringComparison.OrdinalIgnoreCase))
-                {
-                    value.NormalizeForBmson(item.path, item.md5);
-                    item.MaintenanceInfo = value;
-                    result.AppliedBmsonCount++;
-                    result.ValidSnapshotCount++;
-                }
-                else
-                {
-                    result.DefaultBmsonCount++;
-                    if (item.MaintenanceInfo != null)
+                    if (item == null)
                     {
+                        continue;
+                    }
+                    if (!string.IsNullOrWhiteSpace(item.path)
+                        && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
+                        && string.Equals(value.hash, item.md5, StringComparison.OrdinalIgnoreCase))
+                    {
+                        value.NormalizeForBmson(item.path, item.md5);
+                        item.MaintenanceInfo = value;
+                        result.AppliedBmsonCount++;
                         result.ValidSnapshotCount++;
                     }
                     else
                     {
-                        result.PlaceholderCount++;
+                        result.DefaultBmsonCount++;
+                        if (item.MaintenanceInfo != null)
+                        {
+                            result.ValidSnapshotCount++;
+                        }
+                        else
+                        {
+                            result.PlaceholderCount++;
+                        }
                     }
                 }
             }
             attachStopwatch.Stop();
             result.MaintenanceAttachMs = attachStopwatch.ElapsedMilliseconds;
-            ResourceHealthIndexSnapshot healthIndexSnapshot = RebuildResourceHealthIndexSnapshotLocked("maintenance_hydration");
-            result.ResourceHealthIndexMs = healthIndexSnapshot.BuildMs;
+            resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetCharts(
+                "maintenance_hydration",
+                out resourceHealthTargetStorageRowsVersion,
+                out resourceHealthTargetOwnedCollectionVersion,
+                out resourceHealthTargetInputVersion);
             result.OwnerPathCount = ownerView.OwnerPathCount;
             foreach (string maintenancePath in result.MaintenanceMap.Keys)
             {
@@ -5768,16 +5788,29 @@ completeFileEnumerationOnce,
             var cleanupStopwatch = Stopwatch.StartNew();
             if (result.StaleMaintenancePaths.Count > 0)
             {
-                using (rwlockSongDBMaintenance.GetWriterGuard())
+                try
                 {
-                    result.CleanupDeletedCount = dbGateway.DeleteMaintenanceRows(result.StaleMaintenancePaths);
+                    using (rwlockSongDBMaintenance.GetWriterGuard())
+                    {
+                        result.CleanupDeletedCount = dbGateway.DeleteMaintenanceRows(result.StaleMaintenancePaths);
+                    }
+                }
+                catch
+                {
+                    ForceInvalidateResourceHealthIndex("maintenance_hydration_cleanup_failed");
+                    throw;
                 }
             }
             cleanupStopwatch.Stop();
             result.CleanupMs = cleanupStopwatch.ElapsedMilliseconds;
         }
         result.ViewRefreshQueued = true;
-        DispatchMaintenanceHydrationPresentationChanged();
+        DispatchMaintenanceHydrationResult(
+            result,
+            resourceHealthTargets,
+            resourceHealthTargetStorageRowsVersion,
+            resourceHealthTargetOwnedCollectionVersion,
+            resourceHealthTargetInputVersion);
     }
 
     private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)
@@ -6886,6 +6919,16 @@ completeFileEnumerationOnce,
 
         public List<ChartFile> FullOwnedTargets { get; set; }
 
+        public StorageRowsVersionSnapshot? FullOwnedTargetStorageRowsVersion { get; set; }
+
+        public int? FullOwnedTargetOwnedCollectionVersion { get; set; }
+
+        public int? FullOwnedTargetResourceHealthInputVersion { get; set; }
+
+        public int? DeltaBaseResourceHealthInputVersion { get; set; }
+
+        public int? DeltaTargetResourceHealthInputVersion { get; set; }
+
         public bool Invalidate { get; set; }
 
         public bool RebuildFull { get; set; }
@@ -7366,65 +7409,77 @@ completeFileEnumerationOnce,
         using (rwlockBMSFiles.GetWriterGuard())
         {
             bool removedPayloadAvailable = TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(fileCheckResult, out List<ChartFile> removedCharts);
-            mutationResult = BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, removedCharts, removedPayloadAvailable);
-            PublishOwnedCollectionChangeNotification(mutationResult);
+            ResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
             try
             {
-                using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
-                using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
-                using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-                using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
-                using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
-                using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-                using (SuppressOwnedChartCollectionInvalidation())
+                mutationResult = BuildOwnedChartCollectionFileScanMutationResult(
+                    fileCheckResult,
+                    removedCharts,
+                    removedPayloadAvailable,
+                    resourceHealthMutation.BaseIndexCurrent);
+                PublishOwnedCollectionChangeNotification(mutationResult);
+                try
                 {
-                    StorageRowsSnapshot storageRows = SetStorageRowsFromInternalMutationUnsafe(
-                        fileCheckResult.NextFiles,
-                        fileCheckResult.NextBmsonSongs);
-                    libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
-                    directoryResourceLookupCache = libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
-                    ApplyOwnedChartCollectionStorageReplacement(storageRows);
+                    using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
+                    using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
+                    using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
+                    using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
+                    using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
+                    using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
+                    using (SuppressOwnedChartCollectionInvalidation())
+                    {
+                        StorageRowsSnapshot storageRows = SetStorageRowsFromInternalMutationUnsafe(
+                            fileCheckResult.NextFiles,
+                            fileCheckResult.NextBmsonSongs);
+                        libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
+                        directoryResourceLookupCache = libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
+                        ApplyOwnedChartCollectionStorageReplacement(storageRows);
+                    }
+                }
+                catch
+                {
+                    if (mutationResult.ShouldDispatchInstalledLookup)
+                    {
+                        InvalidateInstalledDirectoryIndex();
+                    }
+                    else if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
+                    {
+                        InvalidateInstallEstimationMetadataProfileCache();
+                    }
+                    if (mutationResult.ParentFolderInvalidated)
+                    {
+                        InvalidateBMSParentFolderListCacheAndNotify();
+                    }
+                    if (mutationResult.DuplicateCacheInvalidated)
+                    {
+                        InvalidateDuplicateChartGroupsCache();
+                    }
+                    if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
+                    {
+                        InvalidatePlaylistSummaryOwnedHashSnapshot();
+                    }
+                    if (mutationResult.OwnedCollectionChanged)
+                    {
+                        PublishOwnedCollectionChangeNotification(mutationResult);
+                    }
+                    if (mutationResult.ResourceHealthMutation.HasChanges)
+                    {
+                        ForceInvalidateResourceHealthIndex("file_scan_storage_failed");
+                    }
+                    if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges
+                        || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
+                    {
+                        PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                    }
+                    InvalidateOwnedChartCollection();
+                    ClearNormalLibraryRefreshNotification(mutationResult);
+                    RaiseStorageRowPropertyChanges(mutationResult);
+                    throw;
                 }
             }
-            catch
+            finally
             {
-                if (mutationResult.ShouldDispatchInstalledLookup)
-                {
-                    InvalidateInstalledDirectoryIndex();
-                }
-                else if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
-                {
-                    InvalidateInstallEstimationMetadataProfileCache();
-                }
-                if (mutationResult.ParentFolderInvalidated)
-                {
-                    InvalidateBMSParentFolderListCacheAndNotify();
-                }
-                if (mutationResult.DuplicateCacheInvalidated)
-                {
-                    InvalidateDuplicateChartGroupsCache();
-                }
-                if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
-                {
-                    InvalidatePlaylistSummaryOwnedHashSnapshot();
-                }
-                if (mutationResult.OwnedCollectionChanged)
-                {
-                    PublishOwnedCollectionChangeNotification(mutationResult);
-                }
-                if (mutationResult.ResourceHealthMutation.HasChanges)
-                {
-                    ForceInvalidateResourceHealthIndex("file_scan_storage_failed");
-                }
-                if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges
-                    || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
-                {
-                    PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
-                }
-                InvalidateOwnedChartCollection();
-                ClearNormalLibraryRefreshNotification(mutationResult);
-                RaiseStorageRowPropertyChanges(mutationResult);
-                throw;
+                resourceHealthMutation.Dispose();
             }
         }
 
@@ -7437,55 +7492,78 @@ completeFileEnumerationOnce,
         {
             return;
         }
-        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionUpsertMutationResult(addedTargets);
-        PublishOwnedCollectionChangeNotification(mutationResult);
+        OwnedChartCollectionMutationResult mutationResult = null;
         try
         {
-            using (SuppressInstalledChartLookupInvalidation())
-            using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
-            using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
-            using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-            using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
-            using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
-            using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-            using (SuppressOwnedChartCollectionInvalidation())
+            ResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
+            try
             {
-                StorageRowsVersionSnapshot storageRowsVersion = ApplyInstalledChartStorageRowsUnsafe(addedTargets);
-                ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+                mutationResult = BuildOwnedChartCollectionUpsertMutationResult(
+                    addedTargets,
+                    resourceHealthMutation.BaseInputVersion,
+                    resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
+                PublishOwnedCollectionChangeNotification(mutationResult);
+                using (SuppressInstalledChartLookupInvalidation())
+                using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
+                using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
+                using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
+                using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
+                using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
+                using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
+                using (SuppressOwnedChartCollectionInvalidation())
+                {
+                    StorageRowsVersionSnapshot storageRowsVersion = ApplyInstalledChartStorageRowsUnsafe(addedTargets);
+                    ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+                }
+            }
+            finally
+            {
+                resourceHealthMutation.Dispose();
+            }
+            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
+            if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
+            {
+                mutationResult.ResourceHealthMutation.Invalidate = true;
             }
             DispatchOwnedChartCollectionMutation(mutationResult, lookupReason);
         }
         catch
         {
-            InvalidateInstalledDirectoryIndex();
-            if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
+            if (mutationResult?.ShouldDispatchInstalledLookup != false)
+            {
+                InvalidateInstalledDirectoryIndex();
+            }
+            if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
             {
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
             }
-            if (mutationResult.ParentFolderInvalidated)
+            if (mutationResult?.ParentFolderInvalidated == true)
             {
                 InvalidateBMSParentFolderListCacheAndNotify();
             }
-            if (mutationResult.DuplicateCacheInvalidated)
+            if (mutationResult?.DuplicateCacheInvalidated == true)
             {
                 InvalidateDuplicateChartGroupsCache();
             }
-            if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges
-                || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
+            if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true
+                || mutationResult?.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts == true)
             {
                 PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
             }
-            if (mutationResult.OwnedCollectionChanged)
+            if (mutationResult?.OwnedCollectionChanged == true)
             {
                 PublishOwnedCollectionChangeNotification(mutationResult);
             }
-            if (mutationResult.ResourceHealthMutation.HasChanges)
+            if (mutationResult?.ResourceHealthMutation.HasChanges == true)
             {
                 ForceInvalidateResourceHealthIndex("install_package_failed");
             }
             InvalidateOwnedChartCollection();
-            ClearNormalLibraryRefreshNotification(mutationResult);
-            RaiseStorageRowPropertyChanges(mutationResult);
+            if (mutationResult != null)
+            {
+                ClearNormalLibraryRefreshNotification(mutationResult);
+                RaiseStorageRowPropertyChanges(mutationResult);
+            }
             throw;
         }
     }
@@ -7493,7 +7571,8 @@ completeFileEnumerationOnce,
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult(
         SongTableFileCheckResult fileCheckResult,
         List<ChartFile> removedCharts,
-        bool removedPayloadAvailable)
+        bool removedPayloadAvailable,
+        bool? resourceHealthIndexCurrentAtBase = null)
     {
         var storageMutation = new OwnedChartCollectionStorageMutation();
         if (removedPayloadAvailable)
@@ -7504,7 +7583,7 @@ completeFileEnumerationOnce,
         bool bmsRowsChanged = fileCheckResult.DeletedPaths.Count > 0 || fileCheckResult.AddedFiles.Count > 0;
         bool bmsonRowsChanged = fileCheckResult.DeletedBmsonPaths.Count > 0 || fileCheckResult.AddedBmsonSongs.Count > 0;
         bool storageRowsChanged = bmsRowsChanged || bmsonRowsChanged || fileCheckResult.HasDbDiff;
-        bool resourceHealthShouldInvalidate = fileCheckResult.HasDbDiff || IsResourceHealthIndexCurrent();
+        bool resourceHealthShouldInvalidate = fileCheckResult.HasDbDiff || (resourceHealthIndexCurrentAtBase ?? IsResourceHealthIndexCurrent());
         bool fileScanPresentationChanged = fileCheckResult.HasDbDiff || resourceHealthShouldInvalidate;
 
         var result = new OwnedChartCollectionMutationResult
@@ -7769,7 +7848,11 @@ completeFileEnumerationOnce,
         internal int BmsonRowsVersion { get; }
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(LibraryMutationDelta delta)
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(
+        LibraryMutationDelta delta,
+        int? deltaBaseResourceHealthInputVersion = null,
+        int? deltaTargetResourceHealthInputVersion = null,
+        bool? resourceHealthIndexCurrentAtBase = null)
     {
         OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(delta);
         var result = new OwnedChartCollectionMutationResult
@@ -7799,7 +7882,12 @@ completeFileEnumerationOnce,
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.RemovedCount > 0;
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta, storageMutation.PathChanges));
-        ConfigureResourceHealthMutationForStorageMutation(result, storageMutation);
+        ConfigureResourceHealthMutationForStorageMutation(
+            result,
+            storageMutation,
+            deltaBaseResourceHealthInputVersion,
+            deltaTargetResourceHealthInputVersion,
+            resourceHealthIndexCurrentAtBase);
         return result;
     }
 
@@ -7840,7 +7928,11 @@ completeFileEnumerationOnce,
         return mutation?.PathChanges.Any(change => change?.GetBmsonStorageOwner() != null) == true;
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionUpsertMutationResult(ChartStorageTargetSet addedTargets)
+    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionUpsertMutationResult(
+        ChartStorageTargetSet addedTargets,
+        int? deltaBaseResourceHealthInputVersion = null,
+        int? deltaTargetResourceHealthInputVersion = null,
+        bool? resourceHealthIndexCurrentAtBase = null)
     {
         var result = new OwnedChartCollectionMutationResult();
         result.StorageMutation.AddAddedTargets(addedTargets);
@@ -7855,19 +7947,28 @@ completeFileEnumerationOnce,
         result.BmsFilesPropertyChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
         result.BmsonSongsPropertyChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = result.StorageMutation.AddedCount > 0;
-        ConfigureResourceHealthMutationForStorageMutation(result, result.StorageMutation);
+        ConfigureResourceHealthMutationForStorageMutation(
+            result,
+            result.StorageMutation,
+            deltaBaseResourceHealthInputVersion,
+            deltaTargetResourceHealthInputVersion,
+            resourceHealthIndexCurrentAtBase);
         return result;
     }
 
     private void ConfigureResourceHealthMutationForStorageMutation(
         OwnedChartCollectionMutationResult result,
-        OwnedChartCollectionStorageMutation storageMutation)
+        OwnedChartCollectionStorageMutation storageMutation,
+        int? deltaBaseResourceHealthInputVersion = null,
+        int? deltaTargetResourceHealthInputVersion = null,
+        bool? resourceHealthIndexCurrentAtBase = null)
     {
         if (result == null || storageMutation?.HasChanges != true)
         {
             return;
         }
-        if (!IsResourceHealthIndexCurrent() || storageMutation.PathChanges.Count > 0)
+        bool resourceHealthIndexCurrent = resourceHealthIndexCurrentAtBase ?? IsResourceHealthIndexCurrent();
+        if (!resourceHealthIndexCurrent || storageMutation.PathChanges.Count > 0)
         {
             result.ResourceHealthIndexInvalidated = true;
             return;
@@ -7875,6 +7976,8 @@ completeFileEnumerationOnce,
 
         result.ResourceHealthMutation.RemovedTargets.AddRange(storageMutation.UnregisteredCharts.Where(chart => chart != null));
         result.ResourceHealthMutation.UpdatedTargets.AddRange(storageMutation.AddedCharts.Where(chart => chart != null));
+        result.ResourceHealthMutation.DeltaBaseResourceHealthInputVersion = deltaBaseResourceHealthInputVersion ?? Volatile.Read(ref resourceHealthInputVersion);
+        result.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion = deltaTargetResourceHealthInputVersion;
         result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
     }
 
@@ -7952,6 +8055,11 @@ completeFileEnumerationOnce,
         destination.UpdatedTargets.AddRange(source.UpdatedTargets);
         destination.RemovedTargets.AddRange(source.RemovedTargets);
         destination.FullOwnedTargets = source.FullOwnedTargets;
+        destination.FullOwnedTargetStorageRowsVersion = source.FullOwnedTargetStorageRowsVersion;
+        destination.FullOwnedTargetOwnedCollectionVersion = source.FullOwnedTargetOwnedCollectionVersion;
+        destination.FullOwnedTargetResourceHealthInputVersion = source.FullOwnedTargetResourceHealthInputVersion;
+        destination.DeltaBaseResourceHealthInputVersion = source.DeltaBaseResourceHealthInputVersion;
+        destination.DeltaTargetResourceHealthInputVersion = source.DeltaTargetResourceHealthInputVersion;
         destination.Invalidate = source.Invalidate;
         destination.RebuildFull = source.RebuildFull;
         destination.Defer = source.Defer;
@@ -7959,13 +8067,17 @@ completeFileEnumerationOnce,
     }
 
     private static OwnedChartCollectionMutationResult BuildResourceHealthWarningPresentationMutationResult(
-        IEnumerable<ChartFile> updatedTargets)
+        IEnumerable<ChartFile> updatedTargets,
+        int? deltaBaseResourceHealthInputVersion = null,
+        int? deltaTargetResourceHealthInputVersion = null)
     {
         var result = new OwnedChartCollectionMutationResult
         {
             WarningPresentationChanged = true
         };
         result.ResourceHealthMutation.UpdatedTargets.AddRange((updatedTargets ?? []).Where(chart => chart != null));
+        result.ResourceHealthMutation.DeltaBaseResourceHealthInputVersion = deltaBaseResourceHealthInputVersion;
+        result.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion = deltaTargetResourceHealthInputVersion;
         result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
         return result;
     }
@@ -8073,15 +8185,42 @@ completeFileEnumerationOnce,
             reason);
     }
 
-    private void DispatchMaintenanceHydrationPresentationChanged()
+    private void DispatchMaintenanceHydrationResult(
+        MaintenanceTableHydrationResult hydrationResult,
+        List<ChartFile> fullOwnedTargets,
+        StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion,
+        int fullOwnedTargetOwnedCollectionVersion,
+        int fullOwnedTargetResourceHealthInputVersion)
     {
-        DispatchOwnedChartCollectionMutation(
-            new OwnedChartCollectionMutationResult
-            {
-                WarningPresentationChanged = true,
-                MaintenancePresentationChanged = true
-            },
-            "maintenance_hydration");
+        OwnedChartCollectionMutationResult mutationResult = BuildMaintenanceHydrationMutationResult(
+            fullOwnedTargets,
+            fullOwnedTargetStorageRowsVersion,
+            fullOwnedTargetOwnedCollectionVersion,
+            fullOwnedTargetResourceHealthInputVersion);
+        DispatchOwnedChartCollectionMutation(mutationResult, "maintenance_hydration");
+        if (hydrationResult != null)
+        {
+            hydrationResult.ResourceHealthIndexMs = mutationResult.ResourceHealthDispatchResult?.IndexMs ?? 0L;
+        }
+    }
+
+    private static OwnedChartCollectionMutationResult BuildMaintenanceHydrationMutationResult(
+        List<ChartFile> fullOwnedTargets,
+        StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion,
+        int fullOwnedTargetOwnedCollectionVersion,
+        int fullOwnedTargetResourceHealthInputVersion)
+    {
+        var result = new OwnedChartCollectionMutationResult
+        {
+            WarningPresentationChanged = true,
+            MaintenancePresentationChanged = true
+        };
+        result.ResourceHealthMutation.RebuildFull = true;
+        result.ResourceHealthMutation.FullOwnedTargets = fullOwnedTargets ?? [];
+        result.ResourceHealthMutation.FullOwnedTargetStorageRowsVersion = fullOwnedTargetStorageRowsVersion;
+        result.ResourceHealthMutation.FullOwnedTargetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion;
+        result.ResourceHealthMutation.FullOwnedTargetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion;
+        return result;
     }
 
     private void RaiseStorageRowPropertyChanges(OwnedChartCollectionMutationResult result)
@@ -9189,12 +9328,26 @@ completeFileEnumerationOnce,
 
     private List<ChartFile> CreateFullOwnedResourceMaintenanceTargetCharts(string reason)
     {
+        return CreateFullOwnedResourceMaintenanceTargetCharts(reason, out _, out _, out _);
+    }
+
+    private List<ChartFile> CreateFullOwnedResourceMaintenanceTargetCharts(
+        string reason,
+        out StorageRowsVersionSnapshot storageRowsVersion,
+        out int ownedCollectionVersion,
+        out int resourceHealthInputVersion)
+    {
         var stopwatch = Stopwatch.StartNew();
+        resourceHealthInputVersion = Volatile.Read(ref this.resourceHealthInputVersion);
         EnsureOwnedChartCollectionBuiltUnsafe();
         List<ChartFile> targets;
         lock (lockOwnedChartCollection)
         {
             targets = ownedChartCollection.CreateFullResourceMaintenanceTargetSnapshot();
+            storageRowsVersion = new StorageRowsVersionSnapshot(
+                ownedChartCollectionBmsStorageRowsVersion,
+                ownedChartCollectionBmsonStorageRowsVersion);
+            ownedCollectionVersion = OwnedChartCollectionVersion;
         }
         LogInstallPerformance("resource_maintenance_target build mode=full"
             + " reason=" + (reason ?? "unknown")
@@ -9218,12 +9371,40 @@ completeFileEnumerationOnce,
         _ = reason;
         lock (resourceHealthIndexLock)
         {
+            BumpResourceHealthInputVersionUnsafe();
             if (!ignoreSuppression && suppressResourceHealthIndexInvalidation > 0)
             {
                 return;
             }
             Volatile.Write(ref resourceHealthIndexInvalidated, true);
         }
+    }
+
+    private void IncrementResourceHealthInputVersionUnsafe()
+    {
+        unchecked
+        {
+            resourceHealthInputVersion++;
+        }
+    }
+
+    private void BumpResourceHealthInputVersionUnsafe()
+    {
+        unchecked
+        {
+            resourceHealthInputVersion += 2;
+        }
+    }
+
+    private static bool IsStableResourceHealthInputVersion(int version)
+    {
+        return (version & 1) == 0;
+    }
+
+    private int GetCurrentStableResourceHealthInputVersion()
+    {
+        int version = Volatile.Read(ref resourceHealthInputVersion);
+        return IsStableResourceHealthInputVersion(version) ? version : -1;
     }
 
     private IDisposable SuppressResourceHealthIndexInvalidation()
@@ -9252,18 +9433,94 @@ completeFileEnumerationOnce,
         }
     }
 
+    private sealed class ResourceHealthIndexSnapshotState(ResourceHealthIndexSnapshot snapshot, int inputVersion)
+    {
+        public ResourceHealthIndexSnapshot Snapshot { get; } = snapshot ?? ResourceHealthIndexSnapshot.Empty;
+
+        public int InputVersion { get; } = inputVersion;
+    }
+
     private bool IsResourceHealthIndexCurrent()
     {
-        return !Volatile.Read(ref resourceHealthIndexInvalidated)
-            && Volatile.Read(ref resourceHealthIndexSnapshot) != null;
+        return IsResourceHealthIndexStateCurrent(Volatile.Read(ref resourceHealthIndexState));
+    }
+
+    private bool IsResourceHealthIndexStateCurrent(ResourceHealthIndexSnapshotState state)
+    {
+        return state?.Snapshot != null
+            && !Volatile.Read(ref resourceHealthIndexInvalidated)
+            && IsStableCurrentResourceHealthInputVersion(state.InputVersion);
+    }
+
+    private bool IsStableCurrentResourceHealthInputVersion(int snapshotInputVersion)
+    {
+        int currentInputVersion = Volatile.Read(ref resourceHealthInputVersion);
+        return snapshotInputVersion == currentInputVersion
+            && IsStableResourceHealthInputVersion(currentInputVersion);
+    }
+
+    private ResourceHealthIndexSnapshot GetPublishedResourceHealthIndexSnapshotOrEmpty()
+    {
+        return Volatile.Read(ref resourceHealthIndexState)?.Snapshot ?? ResourceHealthIndexSnapshot.Empty;
+    }
+
+    private ResourceHealthInputMutationScope BeginResourceHealthInputMutation()
+    {
+        lock (resourceHealthIndexLock)
+        {
+            int baseInputVersion = resourceHealthInputVersion;
+            bool baseIndexCurrent = resourceHealthInputMutationDepth == 0
+                && resourceHealthIndexState?.InputVersion == baseInputVersion
+                && !resourceHealthIndexInvalidated
+                && IsStableResourceHealthInputVersion(baseInputVersion);
+            if (resourceHealthInputMutationDepth == 0)
+            {
+                IncrementResourceHealthInputVersionUnsafe();
+            }
+            resourceHealthInputMutationDepth++;
+            return new ResourceHealthInputMutationScope(this, baseInputVersion, baseIndexCurrent);
+        }
+    }
+
+    private int EndResourceHealthInputMutation()
+    {
+        lock (resourceHealthIndexLock)
+        {
+            resourceHealthInputMutationDepth = Math.Max(0, resourceHealthInputMutationDepth - 1);
+            if (resourceHealthInputMutationDepth == 0)
+            {
+                IncrementResourceHealthInputVersionUnsafe();
+            }
+            return resourceHealthInputVersion;
+        }
+    }
+
+    private sealed class ResourceHealthInputMutationScope(BMSLibrary owner, int baseInputVersion, bool baseIndexCurrent) : IDisposable
+    {
+        private BMSLibrary owner = owner;
+
+        public int BaseInputVersion { get; } = baseInputVersion;
+
+        public bool BaseIndexCurrent { get; } = baseIndexCurrent;
+
+        public int TargetInputVersion { get; private set; } = -1;
+
+        public void Dispose()
+        {
+            if (owner != null)
+            {
+                TargetInputVersion = owner.EndResourceHealthInputMutation();
+                owner = null;
+            }
+        }
     }
 
     private ResourceHealthIndexSnapshot GetResourceHealthIndexSnapshot(string reason)
     {
-        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-        if (!Volatile.Read(ref resourceHealthIndexInvalidated) && currentSnapshot != null)
+        ResourceHealthIndexSnapshotState currentState = Volatile.Read(ref resourceHealthIndexState);
+        if (IsResourceHealthIndexStateCurrent(currentState))
         {
-            return currentSnapshot;
+            return currentState.Snapshot;
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -9276,13 +9533,76 @@ completeFileEnumerationOnce,
 
     private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(string reason, List<ChartFile> fullOwnedTargets = null)
     {
-        List<ChartFile> targets = fullOwnedTargets ?? CreateFullOwnedResourceMaintenanceTargetCharts(reason);
+        return RebuildResourceHealthIndexSnapshotLocked(
+            reason,
+            fullOwnedTargets,
+            fullOwnedTargetStorageRowsVersion: null,
+            fullOwnedTargetOwnedCollectionVersion: null,
+            fullOwnedTargetResourceHealthInputVersion: null,
+            out _);
+    }
+
+    private ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshotLocked(
+        string reason,
+        List<ChartFile> fullOwnedTargets,
+        StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion,
+        int? fullOwnedTargetOwnedCollectionVersion,
+        int? fullOwnedTargetResourceHealthInputVersion,
+        out bool staleFullOwnedTarget)
+    {
+        staleFullOwnedTarget = false;
+        List<ChartFile> targets = fullOwnedTargets;
+        StorageRowsVersionSnapshot? targetStorageRowsVersion = fullOwnedTargetStorageRowsVersion;
+        int? targetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion;
+        int? targetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion;
+        if (targets != null
+            && !HasFullOwnedResourceHealthTargetVersion(
+                targetStorageRowsVersion,
+                targetOwnedCollectionVersion,
+                targetResourceHealthInputVersion))
+        {
+            targets = null;
+        }
+        if (targets == null)
+        {
+            targets = CreateFullOwnedResourceMaintenanceTargetCharts(
+                reason,
+                out StorageRowsVersionSnapshot capturedStorageRowsVersion,
+                out int capturedOwnedCollectionVersion,
+                out int capturedResourceHealthInputVersion);
+            targetStorageRowsVersion = capturedStorageRowsVersion;
+            targetOwnedCollectionVersion = capturedOwnedCollectionVersion;
+            targetResourceHealthInputVersion = capturedResourceHealthInputVersion;
+        }
         int version = Interlocked.Increment(ref resourceHealthIndexVersionSeed);
         var snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version);
-        lock (resourceHealthIndexLock)
+        if (HasFullOwnedResourceHealthTargetVersion(
+            targetStorageRowsVersion,
+            targetOwnedCollectionVersion,
+            targetResourceHealthInputVersion))
         {
-            resourceHealthIndexSnapshot = snapshot;
-            Volatile.Write(ref resourceHealthIndexInvalidated, false);
+            lock (resourceHealthIndexLock)
+            {
+                if (!IsCurrentFullOwnedResourceHealthTargetVersion(
+                    targetStorageRowsVersion,
+                    targetOwnedCollectionVersion,
+                    targetResourceHealthInputVersion))
+                {
+                    InvalidateResourceHealthIndexIfSnapshotInputIsStaleUnsafe();
+                    staleFullOwnedTarget = true;
+                    LogInstallPerformance("resource_health_index_full_target_stale reason=" + (reason ?? "unknown")
+                        + " targetCount=" + targets.Count);
+                    return GetPublishedResourceHealthIndexSnapshotOrEmpty();
+                }
+                PublishResourceHealthIndexSnapshotUnsafe(snapshot);
+            }
+        }
+        else
+        {
+            lock (resourceHealthIndexLock)
+            {
+                PublishResourceHealthIndexSnapshotUnsafe(snapshot);
+            }
         }
         LogInstallPerformance("resource_health_index_build reason=" + (reason ?? "unknown")
             + " version=" + snapshot.Version
@@ -9291,6 +9611,46 @@ completeFileEnumerationOnce,
             + " ignored=" + snapshot.IgnoredCount
             + " buildMs=" + snapshot.BuildMs);
         return snapshot;
+    }
+
+    private static bool HasFullOwnedResourceHealthTargetVersion(
+        StorageRowsVersionSnapshot? storageRowsVersion,
+        int? ownedCollectionVersion,
+        int? resourceHealthInputVersion)
+    {
+        return storageRowsVersion.HasValue
+            && ownedCollectionVersion.HasValue
+            && resourceHealthInputVersion.HasValue;
+    }
+
+    private bool IsCurrentFullOwnedResourceHealthTargetVersion(
+        StorageRowsVersionSnapshot? storageRowsVersion,
+        int? ownedCollectionVersion,
+        int? resourceHealthInputVersion)
+    {
+        return HasFullOwnedResourceHealthTargetVersion(storageRowsVersion, ownedCollectionVersion, resourceHealthInputVersion)
+            && Volatile.Read(ref bmsStorageRowsVersion) == storageRowsVersion.Value.BmsRowsVersion
+            && Volatile.Read(ref bmsonStorageRowsVersion) == storageRowsVersion.Value.BmsonRowsVersion
+            && OwnedChartCollectionVersion == ownedCollectionVersion.Value
+            && Volatile.Read(ref this.resourceHealthInputVersion) == resourceHealthInputVersion.Value
+            && IsStableResourceHealthInputVersion(resourceHealthInputVersion.Value);
+    }
+
+    private void InvalidateResourceHealthIndexIfSnapshotInputIsStaleUnsafe()
+    {
+        int currentInputVersion = resourceHealthInputVersion;
+        ResourceHealthIndexSnapshotState currentState = resourceHealthIndexState;
+        if (currentState?.InputVersion != currentInputVersion
+            || !IsStableResourceHealthInputVersion(currentInputVersion))
+        {
+            Volatile.Write(ref resourceHealthIndexInvalidated, true);
+        }
+    }
+
+    private void PublishResourceHealthIndexSnapshotUnsafe(ResourceHealthIndexSnapshot snapshot)
+    {
+        resourceHealthIndexState = new ResourceHealthIndexSnapshotState(snapshot, resourceHealthInputVersion);
+        Volatile.Write(ref resourceHealthIndexInvalidated, false);
     }
 
     private enum ResourceHealthIndexUpdateMode
@@ -9304,11 +9664,25 @@ completeFileEnumerationOnce,
         string reason,
         IEnumerable<ChartFile> updatedTargets,
         IEnumerable<ChartFile> removedTargets,
+        int? deltaBaseResourceHealthInputVersion,
+        int? deltaTargetResourceHealthInputVersion,
         out ResourceHealthIndexSnapshot snapshot)
     {
         snapshot = null;
-        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-        if (Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null)
+        ResourceHealthIndexSnapshotState currentState = Volatile.Read(ref resourceHealthIndexState);
+        ResourceHealthIndexSnapshot currentSnapshot = currentState?.Snapshot;
+        int baseInputVersion = deltaBaseResourceHealthInputVersion ?? currentState?.InputVersion ?? -1;
+        if (!deltaTargetResourceHealthInputVersion.HasValue)
+        {
+            return false;
+        }
+        int targetInputVersion = deltaTargetResourceHealthInputVersion.Value;
+        if (currentState == null
+            || currentSnapshot == null
+            || Volatile.Read(ref resourceHealthIndexInvalidated)
+            || currentState.InputVersion != baseInputVersion
+            || !IsStableResourceHealthInputVersion(baseInputVersion)
+            || !IsStableResourceHealthInputVersion(targetInputVersion))
         {
             return false;
         }
@@ -9323,12 +9697,18 @@ completeFileEnumerationOnce,
         lock (resourceHealthIndexLock)
         {
             if (Volatile.Read(ref resourceHealthIndexInvalidated)
-                || !ReferenceEquals(resourceHealthIndexSnapshot, currentSnapshot))
+                || !ReferenceEquals(resourceHealthIndexState, currentState))
             {
                 snapshot = null;
                 return false;
             }
-            resourceHealthIndexSnapshot = snapshot;
+            if (resourceHealthInputVersion != targetInputVersion
+                || !IsStableResourceHealthInputVersion(targetInputVersion))
+            {
+                snapshot = null;
+                return false;
+            }
+            resourceHealthIndexState = new ResourceHealthIndexSnapshotState(snapshot, targetInputVersion);
             Volatile.Write(ref resourceHealthIndexInvalidated, false);
         }
         LogInstallPerformance("resource_health_index_delta reason=" + (reason ?? "unknown")
@@ -9348,7 +9728,7 @@ completeFileEnumerationOnce,
     {
         var result = new ResourceHealthIndexDispatchResult
         {
-            Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty
+            Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty()
         };
         if (mutation == null || !mutation.HasChanges)
         {
@@ -9357,13 +9737,13 @@ completeFileEnumerationOnce,
         if (mutation.Invalidate)
         {
             InvalidateResourceHealthIndex(reason);
-            result.Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            result.Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty();
             return result;
         }
         if (mutation.Defer)
         {
             result.Deferred = true;
-            result.Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            result.Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty();
             LogInstallPerformance("resource_health_index_deferred reason=" + (reason ?? "unknown")
                 + " targetCount=" + result.Snapshot.TargetCount
                 + " updateTargets=" + mutation.UpdateTargetCount
@@ -9372,7 +9752,13 @@ completeFileEnumerationOnce,
         }
         if (!mutation.RebuildFull
             && mutation.HasDeltaTargets
-            && TryApplyResourceHealthIndexDeltaLocked(reason, mutation.UpdatedTargets, mutation.RemovedTargets, out ResourceHealthIndexSnapshot deltaSnapshot))
+            && TryApplyResourceHealthIndexDeltaLocked(
+                reason,
+                mutation.UpdatedTargets,
+                mutation.RemovedTargets,
+                mutation.DeltaBaseResourceHealthInputVersion,
+                mutation.DeltaTargetResourceHealthInputVersion,
+                out ResourceHealthIndexSnapshot deltaSnapshot))
         {
             result.Snapshot = deltaSnapshot;
             result.DeltaApplied = true;
@@ -9382,12 +9768,22 @@ completeFileEnumerationOnce,
         if (!mutation.RebuildFull && mutation.HasDeltaTargets && mutation.InvalidateIfDeltaFails)
         {
             InvalidateResourceHealthIndex(reason);
-            result.Snapshot = Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            result.Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty();
             return result;
         }
         if (mutation.RebuildFull || mutation.HasDeltaTargets)
         {
-            result.Snapshot = RebuildResourceHealthIndexSnapshotLocked(reason, mutation.FullOwnedTargets);
+            result.Snapshot = RebuildResourceHealthIndexSnapshotLocked(
+                reason,
+                mutation.FullOwnedTargets,
+                mutation.FullOwnedTargetStorageRowsVersion,
+                mutation.FullOwnedTargetOwnedCollectionVersion,
+                mutation.FullOwnedTargetResourceHealthInputVersion,
+                out bool staleFullOwnedTarget);
+            if (staleFullOwnedTarget)
+            {
+                return result;
+            }
             result.FullRebuilt = true;
             result.IndexMs = result.Snapshot.BuildMs;
         }
@@ -9399,7 +9795,9 @@ completeFileEnumerationOnce,
         bool maintenanceTargetIsFullOwned,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         bool resourceHealthIndexCurrent,
-        bool workflowHasUpdates)
+        bool workflowHasUpdates,
+        int? deltaBaseResourceHealthInputVersion = null,
+        int? deltaTargetResourceHealthInputVersion = null)
     {
         var mutation = new ResourceHealthIndexMutation();
         bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
@@ -9419,6 +9817,8 @@ completeFileEnumerationOnce,
             if (resourceHealthIndexCurrent)
             {
                 mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
+                mutation.DeltaBaseResourceHealthInputVersion = deltaBaseResourceHealthInputVersion;
+                mutation.DeltaTargetResourceHealthInputVersion = deltaTargetResourceHealthInputVersion;
                 mutation.InvalidateIfDeltaFails = true;
             }
             else
@@ -9437,18 +9837,18 @@ completeFileEnumerationOnce,
 
     internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFile chart)
     {
-        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-        return Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null
+        ResourceHealthIndexSnapshotState currentState = Volatile.Read(ref resourceHealthIndexState);
+        return !IsResourceHealthIndexStateCurrent(currentState)
             ? ResourceHealthWarningProjection.Empty
-            : currentSnapshot.GetProjection(chart);
+            : currentState.Snapshot.GetProjection(chart);
     }
 
     internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFileKind kind, string path, string md5)
     {
-        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-        return Volatile.Read(ref resourceHealthIndexInvalidated) || currentSnapshot == null
+        ResourceHealthIndexSnapshotState currentState = Volatile.Read(ref resourceHealthIndexState);
+        return !IsResourceHealthIndexStateCurrent(currentState)
             ? ResourceHealthWarningProjection.Empty
-            : currentSnapshot.GetProjection(kind, path, md5);
+            : currentState.Snapshot.GetProjection(kind, path, md5);
     }
 
     internal ResourceHealthIndexSnapshot GetResourceHealthIndexSnapshotForView(string reason)
@@ -9458,10 +9858,10 @@ completeFileEnumerationOnce,
 
     internal ResourceHealthIndexSnapshot TryGetCurrentResourceHealthIndexSnapshotForView()
     {
-        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-        return Volatile.Read(ref resourceHealthIndexInvalidated)
-            ? ResourceHealthIndexSnapshot.Empty
-            : currentSnapshot ?? ResourceHealthIndexSnapshot.Empty;
+        ResourceHealthIndexSnapshotState currentState = Volatile.Read(ref resourceHealthIndexState);
+        return IsResourceHealthIndexStateCurrent(currentState)
+            ? currentState.Snapshot
+            : ResourceHealthIndexSnapshot.Empty;
     }
 
     private MaintenanceWorkflowResult setMaintenanceInfo(
@@ -9540,12 +9940,30 @@ completeFileEnumerationOnce,
             + " bmsTargets=" + bmsTargetCount
             + " bmsonTargets=" + bmsonTargetCount);
         MaintenanceWorkflowResult workflowResult;
+        int deltaBaseResourceHealthInputVersion;
+        int deltaTargetResourceHealthInputVersion;
+        bool resourceHealthIndexCurrentBeforeUpdate;
         try
         {
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
                 var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
-                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
+                ResourceHealthInputMutationScope resourceHealthInputMutation = BeginResourceHealthInputMutation();
+                deltaBaseResourceHealthInputVersion = resourceHealthInputMutation.BaseInputVersion;
+                resourceHealthIndexCurrentBeforeUpdate = resourceHealthInputMutation.BaseIndexCurrent;
+                try
+                {
+                    workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
+                    if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))
+                    {
+                        maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);
+                    }
+                }
+                finally
+                {
+                    resourceHealthInputMutation.Dispose();
+                }
+                deltaTargetResourceHealthInputVersion = resourceHealthInputMutation.TargetInputVersion;
             }
         }
         catch
@@ -9553,18 +9971,15 @@ completeFileEnumerationOnce,
             DispatchOwnedPotentialHashChanges(maintenanceTargetCharts, "maintenance_hash_changed_failed");
             throw;
         }
-        if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))
-        {
-            maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);
-        }
         currentMaintenanceTargetCharts = maintenanceTargetCharts;
-        bool resourceHealthIndexCurrent = IsResourceHealthIndexCurrent();
         ResourceHealthIndexMutation resourceHealthMutation = BuildMaintenanceResourceHealthIndexMutation(
             maintenanceTargetCharts,
             maintenanceTargetIsFullOwned,
             resourceHealthIndexUpdateMode,
-            resourceHealthIndexCurrent,
-            workflowResult.HasUpdates);
+            resourceHealthIndexCurrentBeforeUpdate,
+            workflowResult.HasUpdates,
+            deltaBaseResourceHealthInputVersion,
+            deltaTargetResourceHealthInputVersion);
         resourceHealthMutationReason = string.IsNullOrWhiteSpace(resourceHealthMutationReason)
             ? "setMaintenanceInfo"
             : resourceHealthMutationReason;
@@ -9591,6 +10006,21 @@ completeFileEnumerationOnce,
         workflowResult.ResourceHealthIndexMs = resourceHealthMutation.HasChanges && !resourceHealthIndexDeferred ? resourceHealthDispatch.IndexMs : 0L;
         workflowResult.WarningReapplyTargets = 0;
         workflowResult.WarningChangedCount = 0;
+        return LogAndReturnMaintenanceWorkflowResult(
+            workflowResult,
+            resourceHealthSnapshot,
+            resourceHealthDeltaApplied,
+            resourceHealthIndexDeferred,
+            resourceHealthIndexFullRebuilt);
+    }
+
+    private MaintenanceWorkflowResult LogAndReturnMaintenanceWorkflowResult(
+        MaintenanceWorkflowResult workflowResult,
+        ResourceHealthIndexSnapshot resourceHealthSnapshot,
+        bool resourceHealthDeltaApplied,
+        bool resourceHealthIndexDeferred,
+        bool resourceHealthIndexFullRebuilt)
+    {
         if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0 || resourceHealthSnapshot.TargetCount > 0)
         {
             LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
@@ -9640,10 +10070,15 @@ completeFileEnumerationOnce,
                     ResourceHealthIndexSnapshot currentSnapshot = GetResourceHealthIndexSnapshot("resource_health_filter");
                     return [.. (isInIgnoredList ? currentSnapshot.IgnoredTargets : currentSnapshot.ActiveTargets)];
                 }
-
-                List<ChartFile> targets = useOwnedSnapshot
-                    ? CreateFullOwnedResourceMaintenanceTargetCharts("force_resource_health_filter")
-                    : CreateResourceMaintenanceTargetCharts(charts);
+                List<ChartFile> targets;
+                if (useOwnedSnapshot)
+                {
+                    targets = CreateFullOwnedResourceMaintenanceTargetCharts("force_resource_health_filter");
+                }
+                else
+                {
+                    targets = CreateResourceMaintenanceTargetCharts(charts);
+                }
                 string resourceHealthReason = useOwnedSnapshot && forceUpdate
                     ? "force_resource_health_filter"
                     : "resource_health_filter";
@@ -9668,8 +10103,9 @@ completeFileEnumerationOnce,
                 {
                     return [];
                 }
-                ResourceHealthIndexSnapshot snapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
-                if (Volatile.Read(ref resourceHealthIndexInvalidated) || snapshot == null)
+                ResourceHealthIndexSnapshotState currentState = Volatile.Read(ref resourceHealthIndexState);
+                ResourceHealthIndexSnapshot snapshot = currentState?.Snapshot;
+                if (!IsResourceHealthIndexStateCurrent(currentState))
                 {
                     snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version: 0);
                 }
@@ -9738,10 +10174,29 @@ completeFileEnumerationOnce,
                 }
                 using (rwlockSongDBMaintenance.GetWriterGuard())
                 {
-                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
-                    dbGateway.UpsertMaintenanceInfos(changes);
+                    ResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
+                    try
+                    {
+                        try
+                        {
+                            List<BMSFileMaintenanceInfo> changes = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
+                            dbGateway.UpsertMaintenanceInfos(changes);
+                        }
+                        catch
+                        {
+                            ForceInvalidateResourceHealthIndex("resource_health_ignore_failed");
+                            throw;
+                        }
+                    }
+                    finally
+                    {
+                        resourceHealthMutation.Dispose();
+                    }
+                    mutationResult = BuildResourceHealthWarningPresentationMutationResult(
+                        targets,
+                        resourceHealthMutation.BaseInputVersion,
+                        resourceHealthMutation.TargetInputVersion);
                 }
-                mutationResult = BuildResourceHealthWarningPresentationMutationResult(targets);
             }
         }
         DispatchOwnedChartCollectionMutation(mutationResult, reason);
@@ -13484,62 +13939,81 @@ completeFileEnumerationOnce,
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
-        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMutationResult(delta);
-        PublishOwnedCollectionChangeNotification(mutationResult);
+        OwnedChartCollectionMutationResult mutationResult = null;
         try
         {
-            StorageRowsVersionSnapshot storageRowsVersion;
-            using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
-            using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
-            using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
-            using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-            using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
-            using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
-            using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-            using (SuppressOwnedChartCollectionInvalidation())
+            ResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
+            try
             {
-                storageRowsVersion = ApplyLibraryUnregisterStorageRowsUnsafe(delta?.ChartsToUnregister);
-                stateApplier.ApplyLibraryMutationDelta(delta);
+                mutationResult = BuildOwnedChartCollectionMutationResult(
+                    delta,
+                    resourceHealthMutation.BaseInputVersion,
+                    resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
+                PublishOwnedCollectionChangeNotification(mutationResult);
+                using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
+                using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
+                using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
+                using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
+                using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
+                using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
+                using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
+                using (SuppressOwnedChartCollectionInvalidation())
+                {
+                    StorageRowsVersionSnapshot storageRowsVersion = ApplyLibraryUnregisterStorageRowsUnsafe(delta?.ChartsToUnregister);
+                    stateApplier.ApplyLibraryMutationDelta(delta);
+                    ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+                }
             }
-            ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+            finally
+            {
+                resourceHealthMutation.Dispose();
+            }
+            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
+            if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
+            {
+                mutationResult.ResourceHealthMutation.Invalidate = true;
+            }
         }
         catch
         {
-            if (mutationResult.ShouldDispatchInstalledLookup)
+            if (mutationResult?.ShouldDispatchInstalledLookup == true)
             {
                 InvalidateInstalledDirectoryIndex();
             }
-            else if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
+            else if (mutationResult?.InstallEstimationMetadataProfileCacheInvalidated == true)
             {
                 InvalidateInstallEstimationMetadataProfileCache();
             }
-            if (mutationResult.ParentFolderInvalidated)
+            if (mutationResult?.ParentFolderInvalidated == true)
             {
                 InvalidateBMSParentFolderListCacheAndNotify();
             }
-            if (mutationResult.DuplicateCacheInvalidated)
+            if (mutationResult?.DuplicateCacheInvalidated == true)
             {
                 InvalidateDuplicateChartGroupsCache();
             }
-            if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
+            if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
             {
                 InvalidatePlaylistSummaryOwnedHashSnapshot();
             }
-            if (mutationResult.OwnedCollectionChanged)
+            if (mutationResult?.OwnedCollectionChanged == true)
             {
                 PublishOwnedCollectionChangeNotification(mutationResult);
             }
-            if (mutationResult.ResourceHealthMutation.HasChanges)
+            if (mutationResult?.ResourceHealthMutation.HasChanges == true)
             {
                 ForceInvalidateResourceHealthIndex("library_delta_failed");
             }
-            if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges)
+            if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true)
             {
                 PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
             }
             InvalidateOwnedChartCollection();
-            ClearNormalLibraryRefreshNotification(mutationResult);
-            RaiseStorageRowPropertyChanges(mutationResult);
+            if (mutationResult != null)
+            {
+                ClearNormalLibraryRefreshNotification(mutationResult);
+                RaiseStorageRowPropertyChanges(mutationResult);
+            }
             throw;
         }
         DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
