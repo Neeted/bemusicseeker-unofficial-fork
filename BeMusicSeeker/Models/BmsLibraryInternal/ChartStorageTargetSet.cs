@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -22,6 +23,16 @@ internal sealed class ChartStorageTargetSet
     internal List<LR2SongDBExtended.bmson_song> BmsonSongs { get; }
 
     internal List<ChartFile> Charts { get; }
+
+    internal List<string> GetDistinctChartDirectories()
+    {
+        return [.. Charts
+            .Select(chart => chart?.Path)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(DirectoryExt.GetDirectoryNameSimple)
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
 
     internal static ChartStorageTargetSet FromCharts(IEnumerable<ChartFile> charts)
     {

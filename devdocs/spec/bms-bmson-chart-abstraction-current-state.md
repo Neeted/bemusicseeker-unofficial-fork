@@ -880,6 +880,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
    - duplicate merge / folder move / delete / folder auto rename は targeted input / subtree view / overlay target へ移行済み。
    - duplicate full search は `BMSFiles` + `BmsonSongs` の caller-side snapshot ではなく、owned collection の lightweight duplicate row snapshot を使う。log は `ownedSnapshotMs` で計測し、BMS / bmson storage row snapshot stage を分けない。
    - resource-only merge display package は installed lookup の primary hash -> path lookup から destination 直下候補だけを引き、path-only exact lookup で candidate path だけを `PackageChartEntry` 化する。
+   - install result の resource lookup cache 更新は `ChartStorageTargetSet.GetDistinctChartDirectories()` を使い、BMS row list と bmson row list を caller 側で結合しない。
    - playlist detail source build の library hash resolve は model-owned `PlaylistLibraryResolveIndexSnapshot` へ移行済み。ViewModel は snapshot 生成ではなく cache / readiness 表示だけを扱う。
    - normal library sortable column contract は test で検証済み。未対応 sort は default title sort へ reset し、full regular fallback に落とさない。
    - 残タスクは、新しい hot path が増えた時に owned view / index / bounded projection のどれに属するかをこの文書の分類どおりに保つこと。

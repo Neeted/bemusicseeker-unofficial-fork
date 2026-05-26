@@ -488,6 +488,26 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ChartStorageTargetSet_ReturnsDistinctChartDirectoriesFromChartView()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string sharedDirectory = Path.Combine("C:\\Installed", "Shared");
+        string nestedDirectory = Path.Combine(sharedDirectory, "Nested");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sharedDirectory, "chart.bms"));
+        var sameDirectoryBmson = CreateBmsonSong(Path.Combine(sharedDirectory.ToUpperInvariant(), "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var nestedBmson = CreateBmsonSong(Path.Combine(nestedDirectory, "nested.bmson"), "cccccccccccccccccccccccccccccccc");
+        ChartStorageTargetSet targets = ChartStorageTargetSet.FromCharts([
+            ChartFileProjection.FromBmsFile(bmsFile),
+            ChartFileProjection.FromBmsonSong(sameDirectoryBmson),
+            ChartFileProjection.FromBmsonSong(nestedBmson)
+        ]);
+
+        List<string> directories = targets.GetDistinctChartDirectories();
+
+        CollectionAssert.AreEqual(new[] { sharedDirectory, nestedDirectory }, directories);
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -10596,12 +10596,9 @@ completeFileEnumerationOnce,
                 return;
             }
             ApplyInstalledChartStorageTargets(addedTargets, "install_package");
-            if (addedTargets.BmsFiles.Count > 0 || addedTargets.BmsonSongs.Count > 0)
+            List<string> addedDirectories = addedTargets.GetDistinctChartDirectories();
+            if (addedDirectories.Count > 0)
             {
-                IEnumerable<string> addedDirectories = addedTargets.BmsFiles
-                    .Select(file => DirectoryExt.GetDirectoryNameSimple(file.path))
-                    .Concat(addedTargets.BmsonSongs.Select(song => DirectoryExt.GetDirectoryNameSimple(song.path)))
-                    .Distinct(StringComparer.OrdinalIgnoreCase);
                 ChartScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedDirectories);
                 DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                 foreach (string dir in addedDirectoryScan.ChartDirectories)
