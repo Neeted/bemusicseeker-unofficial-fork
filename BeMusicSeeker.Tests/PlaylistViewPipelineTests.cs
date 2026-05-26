@@ -2281,23 +2281,6 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void BmsonSongsChangedRefreshPolicy_RefreshesPlaylistDetailModes()
-    {
-        Assert.IsTrue(MainWindowViewModel.ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistFilter));
-        Assert.IsTrue(MainWindowViewModel.ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest(17));
-    }
-
-    [TestMethod]
-    public void BmsonSongsChangedRefreshPolicy_RefreshesMaintenanceModesExceptDuplicate()
-    {
-        Assert.IsTrue(MainWindowViewModel.ShouldRefreshMaintenanceViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.MaintenanceFilterType.FileMissingFilter));
-        Assert.IsTrue(MainWindowViewModel.ShouldRefreshMaintenanceViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.MaintenanceFilterType.ChartInfoParseErrorFilter));
-        Assert.IsFalse(MainWindowViewModel.ShouldRefreshMaintenanceViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.MaintenanceFilterType.DuplicateFilter));
-        Assert.IsFalse(MainWindowViewModel.ShouldRefreshMaintenanceViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
-    }
-
-    [TestMethod]
     public void ChartOperationTarget_MissingSha256_DisablesRepositoryCapability()
     {
         var file = new TestableBmsFile();

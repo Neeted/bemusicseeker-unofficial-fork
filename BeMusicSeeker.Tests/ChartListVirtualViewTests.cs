@@ -1683,44 +1683,6 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void StorageRowsChangedRefreshPolicy_SkipsMainViewWhenNotificationAlreadyHandled()
-    {
-        Assert.IsFalse(MainWindowViewModel.ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefreshForTest(
-            hasRefreshNotification: false,
-            signalHandledNotificationVersionBeforeStorageRefresh: 3,
-            normalLibraryRefreshHandledNotificationVersion: 3));
-        Assert.IsTrue(MainWindowViewModel.ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefreshForTest(
-            hasRefreshNotification: false,
-            signalHandledNotificationVersionBeforeStorageRefresh: 0,
-            normalLibraryRefreshHandledNotificationVersion: 3));
-        Assert.IsFalse(MainWindowViewModel.ShouldFallbackToCurrentOwnedCollectionVersionForStorageRefreshForTest(
-            hasRefreshNotification: true,
-            signalHandledNotificationVersionBeforeStorageRefresh: 0,
-            normalLibraryRefreshHandledNotificationVersion: 3));
-
-        Assert.IsFalse(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
-            sourceGenerationChanged: false,
-            hasRefreshNotification: false,
-            fallbackToCurrentOwnedCollectionVersion: false));
-        Assert.IsTrue(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
-            sourceGenerationChanged: true,
-            hasRefreshNotification: false,
-            fallbackToCurrentOwnedCollectionVersion: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
-            sourceGenerationChanged: false,
-            hasRefreshNotification: true,
-            fallbackToCurrentOwnedCollectionVersion: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
-            sourceGenerationChanged: false,
-            LibraryChartRefreshEffects.WarningPresentationChanged,
-            fallbackToCurrentOwnedCollectionVersion: false));
-        Assert.IsTrue(MainWindowViewModel.ShouldRefreshLibraryMainViewAfterStorageRowsChangedForTest(
-            sourceGenerationChanged: false,
-            hasRefreshNotification: false,
-            fallbackToCurrentOwnedCollectionVersion: true));
-    }
-
-    [TestMethod]
     public void MainSummaryCacheKey_UsesGenerationsForIdentity()
     {
         var current = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");

@@ -894,6 +894,39 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void NormalLibraryRefreshNotificationOwnsStorageRowSourceRefresh()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string notificationVersionHandler = ExtractBetween(
+            viewModelCode,
+            "listenerForBMSLibrary.RegisterHandler(() => files.NormalLibraryRefreshNotificationVersion",
+            "listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles");
+        string bmsFilesHandler = ExtractBetween(
+            viewModelCode,
+            "listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles",
+            "listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs");
+        string bmsonSongsHandler = ExtractBetween(
+            viewModelCode,
+            "listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs",
+            "listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress");
+        string notificationSyncHelper = ExtractBetween(
+            viewModelCode,
+            "private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification",
+            "private static bool ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion");
+
+        StringAssert.Contains(notificationVersionHandler, "SyncNormalLibraryStorageRowCachesForRefreshNotification(refreshNotification)");
+        StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsFiles");
+        StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsonSongs");
+        StringAssert.Contains(notificationSyncHelper, "PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles)");
+        StringAssert.Contains(notificationSyncHelper, "SyncBmsonLibraryRowCache()");
+        Assert.IsFalse(bmsFilesHandler.Contains("ApplyNormalLibraryRefreshNotification"));
+        Assert.IsFalse(bmsFilesHandler.Contains("RefreshNormalLibraryAfterSourceChanged"));
+        Assert.IsFalse(bmsonSongsHandler.Contains("ApplyNormalLibraryRefreshNotification"));
+        Assert.IsFalse(bmsonSongsHandler.Contains("ConsumeNormalLibrarySourceChangeForBmsonSync"));
+        Assert.IsFalse(bmsonSongsHandler.Contains("RefreshChartRowsView"));
+    }
+
+    [TestMethod]
     public void DuplicateFilterViewUsesChartFileParameters()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
