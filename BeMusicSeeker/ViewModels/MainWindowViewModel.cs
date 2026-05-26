@@ -11680,6 +11680,11 @@ public class MainWindowViewModel : ViewModel
         return IsVirtualChartSubsetRequestModeSupported((viewUpdateMode)mode, (viewUpdateMode)treeMode);
     }
 
+    internal static bool IsVirtualChartSubsetRequiredForRequestForTest(int mode, int treeMode)
+    {
+        return IsVirtualChartSubsetRequiredForRequest((viewUpdateMode)mode, (viewUpdateMode)treeMode);
+    }
+
     internal static bool ShouldApplyResourceHealthProjectionForVirtualSubsetForTest(int mode)
     {
         return ShouldApplyResourceHealthProjectionForVirtualSubset((viewUpdateMode)mode);
@@ -11734,6 +11739,12 @@ public class MainWindowViewModel : ViewModel
                 || mode == viewUpdateMode.KeywordFilterUpdated
                 || mode == viewUpdateMode.ModeFilterUpdated
                 || mode == viewUpdateMode.SortUpdated);
+    }
+
+    private static bool IsVirtualChartSubsetRequiredForRequest(viewUpdateMode mode, viewUpdateMode treeMode)
+    {
+        return IsVirtualChartSubsetRequestModeSupported(mode, treeMode)
+            || IsVirtualChartSubsetTreeModeSupported(mode);
     }
 
     private static bool IsVirtualChartSubsetTreeModeSupported(viewUpdateMode mode)
@@ -16307,7 +16318,7 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         bool virtualChartSubsetRequiredFailure = false;
-        if (IsVirtualChartSubsetRequestModeSupported(mode, treeViewFilterTypeSelected))
+        if (IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected))
         {
             LogVirtualChartSubsetRequiredFailure(mode, requestedMode, treeViewFilterTypeSelected);
             ChartRowsFolderView = [];
@@ -16327,143 +16338,6 @@ public class MainWindowViewModel : ViewModel
                 case viewUpdateMode.FullScanAllChartsFilterSelected:
                     LogVirtualNormalLibraryRequiredFailure(mode, requestedMode, includeBmsonRows);
                     ChartRowsFolderView = [];
-                    break;
-                case viewUpdateMode.FileMissingFilterSelected:
-                    ChartRowsFolderView = ToLibraryChartRows(ChartFilesNeedResourceFix, CreateLibraryChartRowWithResourceHealthProjection);
-                    LogResourceHealthProjection(mode, ChartRowsFolderView);
-                    break;
-                case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                    ChartRowsFolderView = ToLibraryChartRows(ChartFilesNeedResourceFixIgnored, CreateLibraryChartRowWithResourceHealthProjection);
-                    LogResourceHealthProjection(mode, ChartRowsFolderView);
-                    break;
-                case viewUpdateMode.DuplicateFilterSelected:
-                    if (DuplicateChartGroups == null)
-                    {
-                        ChartRowsFolderView = null;
-                        break;
-                    }
-                    parameter = NormalizeDuplicateViewParameter(parameter);
-                    if (parameter != null)
-                    {
-                        if (parameter is DuplicateViewContext duplicateContext)
-                        {
-                            if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
-                            {
-                                DuplicateGroup duplicateGroup = DuplicateChartGroups.FirstOrDefault(group => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                                ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.ChartFiles : DuplicateChartGroups.SelectMany(g => g.ChartFiles));
-                            }
-                            else
-                            {
-                                string dirname2 = duplicateContext.Value;
-                                RetryHelper.RetryIfError(delegate
-                                {
-                                    ChartRowsFolderView = ToLibraryChartRows(from chart in DuplicateChartGroups.SelectMany(g => g.ChartFiles)
-                                                                             where !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                                                             select chart);
-                                }, delegate (Exception ex)
-                                {
-                                    ExceptionDispatchInfo.Capture(ex).Throw();
-                                }, delegate
-                                {
-                                    Thread.Sleep(100);
-                                }, 100u);
-                            }
-                        }
-                        else if (parameter is DuplicateGroup)
-                        {
-                            ChartRowsFolderView = ToLibraryChartRows((parameter as DuplicateGroup).ChartFiles);
-                        }
-                        else
-                        {
-                            if (parameter is not string)
-                            {
-                                break;
-                            }
-                            string dirname = parameter as string;
-                            RetryHelper.RetryIfError(delegate
-                            {
-                                ChartRowsFolderView = ToLibraryChartRows(from chart in DuplicateChartGroups.SelectMany(g => g.ChartFiles)
-                                                                         where !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                                                         select chart);
-                            }, delegate (Exception ex)
-                            {
-                                ExceptionDispatchInfo.Capture(ex).Throw();
-                            }, delegate
-                            {
-                                Thread.Sleep(100);
-                            }, 100u);
-                        }
-                        break;
-                    }
-                    RetryHelper.RetryIfError(delegate
-                    {
-                        ChartRowsFolderView = ToLibraryChartRows(DuplicateChartGroups.SelectMany(g => g.ChartFiles));
-                    }, delegate (Exception ex)
-                    {
-                        ExceptionDispatchInfo.Capture(ex).Throw();
-                    }, delegate
-                    {
-                        Thread.Sleep(100);
-                    }, 100u);
-                    break;
-                case viewUpdateMode.GarbledFilterSelected:
-                    ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesGarbled), CreateBmsLibraryChartRowFromChart);
-                    break;
-                case viewUpdateMode.GarbleFixedFilterSelected:
-                    ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesGarbleFixed), CreateBmsLibraryChartRowFromChart);
-                    break;
-                case viewUpdateMode.UnregisteredFilterSelected:
-                    ChartRowsFolderView = ToLibraryChartRows(CreateBmsChartSnapshot(BMSFilesUnregistered), CreateBmsLibraryChartRowFromChart);
-                    break;
-                case viewUpdateMode.ZeroNoteFilterSelected:
-                    ChartRowsFolderView = ToLibraryChartRows(ChartFilesZeroNote, CreateBmsLibraryChartRowFromChart);
-                    break;
-                case viewUpdateMode.ChartInfoParseErrorFilterSelected:
-                    ChartRowsFolderView = ToLibraryChartRows(ChartInfoParseFailedChartFiles);
-                    break;
-                case viewUpdateMode.NewlyInstalledFolderSelected:
-                    if (ChartPackagesInstalled == null)
-                    {
-                        ChartRowsFolderView = null;
-                        break;
-                    }
-                    if (parameter != null && parameter is ChartPackage)
-                    {
-                        ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage)?.ChartEntries, CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection);
-                        break;
-                    }
-                    RetryHelper.RetryIfError(delegate
-                    {
-                        ChartRowsFolderView = ToLibraryChartRows(CreatePackageChartEntrySnapshot(ChartPackagesInstalled), CreateLibraryChartRowFromPackageEntryWithResourceHealthProjection);
-                    }, delegate (Exception ex)
-                    {
-                        ExceptionDispatchInfo.Capture(ex).Throw();
-                    }, delegate
-                    {
-                        Thread.Sleep(100);
-                    }, 100u);
-                    break;
-                case viewUpdateMode.PendingInstallFolderSelected:
-                    if (ChartPackagesPending == null)
-                    {
-                        ChartRowsFolderView = null;
-                        break;
-                    }
-                    if (parameter != null && parameter is ChartPackage)
-                    {
-                        ChartRowsFolderView = ToLibraryChartRows((parameter as ChartPackage)?.ChartEntries, CreateLibraryChartRowFromPackageEntry);
-                        break;
-                    }
-                    RetryHelper.RetryIfError(delegate
-                    {
-                        ChartRowsFolderView = ToLibraryChartRows(CreatePackageChartEntrySnapshot(ChartPackagesPending), CreateLibraryChartRowFromPackageEntry);
-                    }, delegate (Exception ex)
-                    {
-                        ExceptionDispatchInfo.Capture(ex).Throw();
-                    }, delegate
-                    {
-                        Thread.Sleep(100);
-                    }, 100u);
                     break;
             }
         }

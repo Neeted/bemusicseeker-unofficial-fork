@@ -966,18 +966,21 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private void RefreshChartRowsView",
             "private static bool TryNormalizeNormalLibrarySortCacheColumn");
-        string duplicateFilterBranch = ExtractBetween(
-            refreshChartRowsView,
-            "case viewUpdateMode.DuplicateFilterSelected:",
-            "case viewUpdateMode.GarbledFilterSelected:");
+        string virtualDuplicateSource = ExtractBetween(
+            viewModelCode,
+            "private static bool TryGetVirtualDuplicateSourceChartsCore",
+            "private List<ChartFile> CreateDuplicateChartFileSnapshot");
 
         StringAssert.Contains(refreshChartRowsView, "bool virtualChartSubsetRequiredFailure = false");
-        StringAssert.Contains(refreshChartRowsView, "LogVirtualChartSubsetRequiredFailure(mode, requestedMode, treeViewFilterTypeSelected)");
+        StringAssert.Contains(refreshChartRowsView, "IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected)");
         StringAssert.Contains(refreshChartRowsView, "if (!virtualChartSubsetRequiredFailure)");
-        StringAssert.Contains(duplicateFilterBranch, "DuplicateGroup");
-        StringAssert.Contains(duplicateFilterBranch, "DuplicateChartGroups.SelectMany(g => g.ChartFiles)");
-        Assert.IsFalse(duplicateFilterBranch.Contains("List<BeMusicSeeker.Models.BMSFile>"));
-        Assert.IsFalse(duplicateFilterBranch.Contains("parameter as List<BeMusicSeeker.Models.BMSFile>"));
+        Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.DuplicateFilterSelected:"));
+        Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.FileMissingFilterSelected:"));
+        Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.NewlyInstalledFolderSelected:"));
+        StringAssert.Contains(virtualDuplicateSource, "DuplicateGroup");
+        StringAssert.Contains(virtualDuplicateSource, "CreateDuplicateChartFileSnapshot(groupSnapshot)");
+        Assert.IsFalse(virtualDuplicateSource.Contains("List<BeMusicSeeker.Models.BMSFile>"));
+        Assert.IsFalse(virtualDuplicateSource.Contains("parameter as List<BeMusicSeeker.Models.BMSFile>"));
     }
 
     [TestMethod]

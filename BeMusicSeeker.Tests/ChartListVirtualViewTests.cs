@@ -1515,6 +1515,11 @@ public sealed class ChartListVirtualViewTests
                     expectedRequestSupport,
                     MainWindowViewModel.IsVirtualChartSubsetRequestModeSupportedForTest((int)requestMode, (int)treeMode),
                     treeMode + " request " + requestMode);
+                bool expectedRequired = expectedRequestSupport || treeModes.Contains(requestMode);
+                Assert.AreEqual(
+                    expectedRequired,
+                    MainWindowViewModel.IsVirtualChartSubsetRequiredForRequestForTest((int)requestMode, (int)treeMode),
+                    treeMode + " required " + requestMode);
             }
         }
     }
