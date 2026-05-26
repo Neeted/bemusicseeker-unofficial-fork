@@ -33,7 +33,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")),
                 CreatePendingFile("cccccccccccccccccccccccccccccccc", Path.Combine(tempRoot, "Pending", "c.pms")));
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsTrue(resolution.Success);
@@ -59,7 +59,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -84,7 +84,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             ChartPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")));
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -108,7 +108,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -132,7 +132,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 missingPendingFile);
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             ChartFile chart = BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, snapshot);
 
             Assert.IsNotNull(chart);
@@ -156,7 +156,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             TestableBmsFile pendingFile = CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms"));
             ChartPackage package = CreatePendingPackage(pendingFile);
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             ChartFile chart = BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, snapshot);
 
             Assert.IsNotNull(chart);
@@ -184,7 +184,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingA, installedDir1),
                 ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingB, installedDir1));
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -206,7 +206,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             pendingFile.SetSha256(new string('b', 64));
             ChartPackage package = CreatePendingPackage(pendingFile);
 
-            InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [installedFile]);
+            InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot([installedFile]);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -216,7 +216,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
     }
 
     [TestMethod]
-    public void BuildInstalledHashToDirectoryMap_RebuildsAfterBmsFilesReplacement()
+    public void CreateInstalledChartLookupIndexSnapshot_RebuildsAfterBmsFilesReplacement()
     {
         WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)
         {
@@ -227,7 +227,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms"))
             ];
 
-            InstalledChartLookupIndexSnapshot firstSnapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot firstSnapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             CollectionAssert.AreEqual(new[] { installedDir1 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(firstSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 
             installedFiles =
@@ -235,7 +235,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir2, "a.bms"))
             ];
 
-            InstalledChartLookupIndexSnapshot secondSnapshot = BuildInstalledHashToDirectoryMap(service, installedFiles);
+            InstalledChartLookupIndexSnapshot secondSnapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
             CollectionAssert.AreEqual(new[] { installedDir2 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(secondSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         });
     }
@@ -256,9 +256,8 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         }
     }
 
-    private static InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> installedFiles)
+    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookupIndexSnapshot(IEnumerable<BMSFile> installedFiles)
     {
-        _ = service;
         var state = new InstalledChartLookupIndexState();
         foreach (BMSFile file in installedFiles ?? [])
         {

@@ -2123,11 +2123,9 @@ public sealed class OwnedChartCollectionStateTests
             var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
             var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
             var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "keep.bmson"), "cccccccccccccccccccccccccccccccc");
-            var library = new BMSLibrary(songDbPath)
-            {
-                BMSFiles = [keptBms, removedBms],
-                BmsonSongs = [keptBmson]
-            };
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [keptBms, removedBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, [keptBmson]);
             Assert.IsFalse(IsOwnedChartCollectionInitialized(library));
             int bmsFilesChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)

@@ -114,7 +114,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
             [PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingC))],
-            BuildInstalledHashToDirectoryMap(service, installedFiles));
+            CreateInstalledChartLookupIndexSnapshot(installedFiles));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
         Assert.AreEqual(3, result.MatchedHashCount);
@@ -161,7 +161,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
             package.ChartEntries,
-            BuildInstalledHashToDirectoryMap(service, installedFiles, [installedBmson]));
+            CreateInstalledChartLookupIndexSnapshot(installedFiles, [installedBmson]));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
         Assert.AreEqual(3, result.MatchedHashCount);
@@ -191,7 +191,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
             [PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(pendingMissing))],
-            BuildInstalledHashToDirectoryMap(service, installedFiles));
+            CreateInstalledChartLookupIndexSnapshot(installedFiles));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
         Assert.IsFalse(result.Success);
@@ -235,7 +235,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
             package.ChartEntries,
-            BuildInstalledHashToDirectoryMap(service, installedFiles, [installedBmson]));
+            CreateInstalledChartLookupIndexSnapshot(installedFiles, [installedBmson]));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
         Assert.IsFalse(result.Success);
@@ -1959,10 +1959,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void BuildInstalledHashToDirectoryMap_IncludesBmsonMd5AndSha256Directories()
+    public void CreateInstalledChartLookupIndexSnapshot_IncludesBmsonMd5AndSha256Directories()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryInstallEstimationService service = CreateService();
         string installDir = Path.Combine("C:\\Installed", "Bmson");
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {
@@ -1974,7 +1973,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             sha256 = new string('b', 64)
         };
 
-        InstalledChartLookupIndexSnapshot result = BuildInstalledHashToDirectoryMap(service, [], [bmsonSong]);
+        InstalledChartLookupIndexSnapshot result = CreateInstalledChartLookupIndexSnapshot([], [bmsonSong]);
 
         CollectionAssert.AreEqual(new[] { installDir }, result.Md5Directories[bmsonSong.md5].ToArray());
         CollectionAssert.AreEqual(new[] { installDir }, result.Sha256Directories[bmsonSong.sha256].ToArray());
@@ -1982,17 +1981,16 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void BuildInstalledHashToDirectoryMap_CountsPrimaryHashesForExcludingLookup()
+    public void CreateInstalledChartLookupIndexSnapshot_CountsPrimaryHashesForExcludingLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryInstallEstimationService service = CreateService();
         string duplicateHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         string otherHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         TestableBmsFile first = CreateFile(duplicateHash, "C:\\Installed\\A\\chart.bms");
         TestableBmsFile second = CreateFile(duplicateHash, "C:\\Installed\\B\\chart.bms");
         TestableBmsFile other = CreateFile(otherHash, "C:\\Installed\\C\\chart.bms");
 
-        InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [first, second, other]);
+        InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot([first, second, other]);
 
         Assert.AreEqual(2, snapshot.DistinctPrimaryHashCount);
         Assert.AreEqual(2, snapshot.GetPrimaryHashCount(duplicateHash));
@@ -3181,10 +3179,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void GetDistinctInstalledDirectoriesByHash_ChartWithMd5DoesNotFallBackToSha256()
+    public void GetDistinctInstalledDirectoriesForChart_ChartWithMd5DoesNotFallBackToSha256()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryInstallEstimationService service = CreateService();
         string installDir = Path.Combine("C:\\Installed", "PrimaryOnly");
         TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installDir, "chart.bms"));
         installedFile.SetSha256(new string('b', 64));
@@ -3192,17 +3189,16 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         pendingFile.SetSha256(new string('b', 64));
         ChartFile pendingChart = ChartFileProjection.FromBmsFile(pendingFile, includeWarningSnapshot: false);
 
-        InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [installedFile]);
-        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingChart);
+        InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot([installedFile]);
+        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(snapshot, pendingChart);
 
         Assert.AreEqual(0, directories.Count);
     }
 
     [TestMethod]
-    public void GetDistinctInstalledDirectoriesByHash_Sha256OnlyChartUsesSha256()
+    public void GetDistinctInstalledDirectoriesForChart_Sha256OnlyChartUsesSha256()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BmsLibraryInstallEstimationService service = CreateService();
         string installDir = Path.Combine("C:\\Installed", "ShaOnly");
         var bmsonSong = new LR2SongDBExtended.bmson_song
         {
@@ -3218,8 +3214,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             sha256 = new string('c', 64)
         }, includeWarningSnapshot: false);
 
-        InstalledChartLookupIndexSnapshot snapshot = BuildInstalledHashToDirectoryMap(service, [], [bmsonSong]);
-        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingChart);
+        InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot([], [bmsonSong]);
+        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(snapshot, pendingChart);
 
         CollectionAssert.AreEqual(new[] { installDir }, directories);
     }
@@ -3243,13 +3239,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
     }
 
-    private static InstalledChartLookupIndexSnapshot BuildInstalledHashToDirectoryMap(BmsLibraryInstallEstimationService service, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs = null)
-    {
-        _ = service;
-        return CreateInstalledChartLookupIndexSnapshot(installedFiles, installedBmsonSongs);
-    }
-
-    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookupIndexSnapshot(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs)
+    private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookupIndexSnapshot(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song>? installedBmsonSongs = null)
     {
         var state = new InstalledChartLookupIndexState();
         foreach (BMSFile file in installedFiles ?? [])

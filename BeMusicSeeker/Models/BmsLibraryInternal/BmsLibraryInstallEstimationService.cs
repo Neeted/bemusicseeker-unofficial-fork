@@ -363,18 +363,18 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         var distinctDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (PackageChartEntry item in packageEntries)
         {
-            List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, item.Chart);
-            if (directoriesByHash.Count == 0)
+            List<string> chartDirectories = GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, item.Chart);
+            if (chartDirectories.Count == 0)
             {
                 result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
                 return result;
             }
-            if (directoriesByHash.Count > 1)
+            if (chartDirectories.Count > 1)
             {
                 result.Reason = InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories;
                 return result;
             }
-            distinctDirectories.Add(directoriesByHash[0]);
+            distinctDirectories.Add(chartDirectories[0]);
             if (distinctDirectories.Count > 1)
             {
                 result.Reason = InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories;
@@ -402,7 +402,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         var directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (PackageChartEntry item in package.ChartEntries ?? [])
         {
-            List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, item?.Chart);
+            List<string> directories = GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, item?.Chart);
             if (item == null || directories.Count == 0)
             {
                 continue;
@@ -1119,7 +1119,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public static List<string> GetDistinctInstalledDirectoriesByHash(IInstalledChartLookupIndex installedDirectoryIndex, ChartFile chart)
+    public static List<string> GetDistinctInstalledDirectoriesForChart(IInstalledChartLookupIndex installedDirectoryIndex, ChartFile chart)
     {
         return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndex, chart?.PrimaryLookupHash);
     }
@@ -1136,14 +1136,14 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     public static ChartFile FindChartWithMissingInstalledDirectory(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         return (package?.ChartEntries ?? [])
-            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, entry.Chart).Count == 0)
+            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, entry.Chart).Count == 0)
             ?.Chart;
     }
 
     public static ChartFile FindChartWithMultipleInstalledDirectories(ChartPackage package, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         return (package?.ChartEntries ?? [])
-            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, entry.Chart).Count > 1)
+            .FirstOrDefault(entry => entry?.Chart != null && GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, entry.Chart).Count > 1)
             ?.Chart;
     }
 
@@ -1151,7 +1151,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     {
         return (package?.ChartEntries ?? [])
             .Where(entry => entry?.Chart != null)
-            .SelectMany(entry => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndex, entry.Chart))
+            .SelectMany(entry => GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, entry.Chart))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }
