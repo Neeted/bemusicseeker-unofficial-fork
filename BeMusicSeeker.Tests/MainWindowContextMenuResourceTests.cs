@@ -906,6 +906,9 @@ public sealed class MainWindowContextMenuResourceTests
             "case viewUpdateMode.DuplicateFilterSelected:",
             "case viewUpdateMode.GarbledFilterSelected:");
 
+        StringAssert.Contains(refreshChartRowsView, "bool virtualChartSubsetRequiredFailure = false");
+        StringAssert.Contains(refreshChartRowsView, "LogVirtualChartSubsetRequiredFailure(mode, requestedMode, treeViewFilterTypeSelected)");
+        StringAssert.Contains(refreshChartRowsView, "if (!virtualChartSubsetRequiredFailure)");
         StringAssert.Contains(duplicateFilterBranch, "DuplicateGroup");
         StringAssert.Contains(duplicateFilterBranch, "DuplicateChartGroups.SelectMany(g => g.ChartFiles)");
         Assert.IsFalse(duplicateFilterBranch.Contains("List<BeMusicSeeker.Models.BMSFile>"));
