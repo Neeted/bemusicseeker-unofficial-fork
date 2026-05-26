@@ -913,8 +913,24 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification",
             "private static bool ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion");
+        string notificationBatchApplier = ExtractBetween(
+            viewModelCode,
+            "private void ApplyNormalLibraryRefreshNotificationBatch",
+            "private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification");
+        string latestNotificationApplier = ExtractBetween(
+            viewModelCode,
+            "private bool ApplyLatestNormalLibraryRefreshNotification",
+            "private void ApplyNormalLibraryRefreshNotificationBatch");
 
-        StringAssert.Contains(notificationVersionHandler, "SyncNormalLibraryStorageRowCachesForRefreshNotification(refreshNotification)");
+        StringAssert.Contains(notificationVersionHandler, "ApplyNormalLibraryRefreshNotificationBatch(refreshNotification, \"normal_library_refresh\")");
+        StringAssert.Contains(latestNotificationApplier, "ApplyNormalLibraryRefreshNotificationBatch(notificationBatch, \"library_charts_changed\")");
+        StringAssert.Contains(notificationBatchApplier, "SyncNormalLibraryStorageRowCachesForRefreshNotification(notificationBatch)");
+        string sourceChangedBranch = ExtractBlockAfter(notificationBatchApplier, "if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))");
+        string presentationBranch = ExtractBlockAfter(notificationBatchApplier, "else");
+        StringAssert.Contains(sourceChangedBranch, "RefreshNormalLibraryAfterSourceChanged(reason)");
+        Assert.IsFalse(sourceChangedBranch.Contains("RefreshNormalLibraryForNotificationPresentationEffects"));
+        StringAssert.Contains(presentationBranch, "RefreshNormalLibraryForNotificationPresentationEffects(notificationBatch)");
+        Assert.IsFalse(presentationBranch.Contains("RefreshNormalLibraryAfterSourceChanged"));
         StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsFiles");
         StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsonSongs");
         StringAssert.Contains(notificationSyncHelper, "PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles)");
@@ -2055,6 +2071,32 @@ public sealed class MainWindowContextMenuResourceTests
         int endIndex = text.IndexOf(end, startIndex + start.Length, StringComparison.Ordinal);
         Assert.IsTrue(endIndex > startIndex, "End marker was not found.");
         return text.Substring(startIndex, endIndex - startIndex);
+    }
+
+    private static string ExtractBlockAfter(string text, string marker)
+    {
+        int markerIndex = text.IndexOf(marker, StringComparison.Ordinal);
+        Assert.IsTrue(markerIndex >= 0, "Block marker was not found.");
+        int braceIndex = text.IndexOf('{', markerIndex + marker.Length);
+        Assert.IsTrue(braceIndex >= 0, "Block start was not found.");
+        int depth = 0;
+        for (int index = braceIndex; index < text.Length; index++)
+        {
+            if (text[index] == '{')
+            {
+                depth++;
+            }
+            else if (text[index] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return text.Substring(braceIndex, index - braceIndex + 1);
+                }
+            }
+        }
+        Assert.Fail("Block end was not found.");
+        return string.Empty;
     }
 
     private static string ExtractMethodBody(string text, string signature)

@@ -9961,19 +9961,31 @@ public class MainWindowViewModel : ViewModel
     private bool ApplyLatestNormalLibraryRefreshNotification()
     {
         NormalLibraryRefreshNotificationBatch notificationBatch = ApplyNormalLibraryRefreshNotification();
-        SyncNormalLibraryStorageRowCachesForRefreshNotification(notificationBatch);
-        ApplyNormalLibraryRefreshNotificationEffects(
-            notificationBatch,
-            "library_charts_changed",
-            fallbackToCurrentOwnedCollectionVersion: false,
-            out _,
-            out _);
-        RefreshNormalLibraryForNotificationPresentationEffects(notificationBatch);
+        ApplyNormalLibraryRefreshNotificationBatch(notificationBatch, "library_charts_changed");
         if (!notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged))
         {
             return false;
         }
         return true;
+    }
+
+    private void ApplyNormalLibraryRefreshNotificationBatch(NormalLibraryRefreshNotificationBatch notificationBatch, string reason)
+    {
+        SyncNormalLibraryStorageRowCachesForRefreshNotification(notificationBatch);
+        ApplyNormalLibraryRefreshNotificationEffects(
+            notificationBatch,
+            reason,
+            fallbackToCurrentOwnedCollectionVersion: false,
+            out _,
+            out _);
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+        {
+            RefreshNormalLibraryAfterSourceChanged(reason);
+        }
+        else
+        {
+            RefreshNormalLibraryForNotificationPresentationEffects(notificationBatch);
+        }
     }
 
     private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification(
@@ -14522,21 +14534,7 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.NormalLibraryRefreshNotificationVersion, delegate
         {
             NormalLibraryRefreshNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
-            SyncNormalLibraryStorageRowCachesForRefreshNotification(refreshNotification);
-            ApplyNormalLibraryRefreshNotificationEffects(
-                refreshNotification,
-                "normal_library_refresh",
-                fallbackToCurrentOwnedCollectionVersion: false,
-                out _,
-                out _);
-            if (refreshNotification.HasEffect(LibraryChartRefreshEffects.SourceChanged))
-            {
-                RefreshNormalLibraryAfterSourceChanged("normal_library_refresh");
-            }
-            else
-            {
-                RefreshNormalLibraryForNotificationPresentationEffects(refreshNotification);
-            }
+            ApplyNormalLibraryRefreshNotificationBatch(refreshNotification, "normal_library_refresh");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
