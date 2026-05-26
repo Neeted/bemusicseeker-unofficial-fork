@@ -937,6 +937,28 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void OwnedMutationDispatcherDoesNotUseLegacyInvalidationSuppressions()
+    {
+        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string[] removedSuppressions =
+        [
+            "SuppressInstalledChartLookupInvalidation",
+            "SuppressParentFolderListInvalidationOnCurrentThread",
+            "SuppressDuplicateChartGroupsInvalidationOnCurrentThread",
+            "SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread",
+            "SuppressOwnedChartCollectionInvalidation",
+            "SuppressOwnedChartCollectionChangeNotificationOnCurrentThread",
+            "SuppressInstallDestinationRuntimeStatePruning"
+        ];
+
+        foreach (string removedSuppression in removedSuppressions)
+        {
+            Assert.IsFalse(libraryCode.Contains(removedSuppression), removedSuppression);
+        }
+        StringAssert.Contains(libraryCode, "SuppressResourceHealthIndexInvalidation");
+    }
+
+    [TestMethod]
     public void DuplicateFilterViewUsesChartFileParameters()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

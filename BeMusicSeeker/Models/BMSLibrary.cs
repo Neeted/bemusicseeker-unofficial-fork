@@ -840,10 +840,6 @@ public class BMSLibrary : NotificationObject
 
     private int bmsParentFolderListDirtyVersion;
 
-    private int suppressParentFolderListInvalidation;
-
-    private int suppressParentFolderListInvalidationThreadId;
-
     private readonly object lockOwnedChartCollection = new();
 
     private OwnedChartCollectionState ownedChartCollection = new();
@@ -854,12 +850,6 @@ public class BMSLibrary : NotificationObject
 
     private int ownedChartCollectionBmsonStorageRowsVersion = -1;
 
-    private int suppressOwnedChartCollectionInvalidation;
-
-    private int suppressOwnedChartCollectionChangeNotification;
-
-    private int suppressOwnedChartCollectionChangeNotificationThreadId;
-
     private int ownedChartCollectionVersion;
 
     private int duplicateChartGroupsInvalidationVersion;
@@ -869,8 +859,6 @@ public class BMSLibrary : NotificationObject
     private InstalledChartLookupIndexState installedChartLookupIndex = new();
 
     private bool installedChartLookupIndexInitialized;
-
-    private int suppressInstalledChartLookupInvalidation;
 
     private readonly object lockInstallEstimationMetadataProfileCache = new();
 
@@ -887,10 +875,6 @@ public class BMSLibrary : NotificationObject
     private readonly ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedMin = new();
 
     private readonly ReaderWriterLockSlimWrapper rwlockDuplicateChartGroups = new();
-
-    private int suppressDuplicateChartGroupsInvalidation;
-
-    private int suppressDuplicateChartGroupsInvalidationThreadId;
 
     private readonly ReaderWriterLockSlimWrapper rwlockPendingInstallCharts = new();
 
@@ -955,10 +939,6 @@ public class BMSLibrary : NotificationObject
     private PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
 
     private int playlistSummaryOwnedHashSnapshotVersion;
-
-    private int suppressPlaylistSummaryOwnedHashInvalidation;
-
-    private int suppressPlaylistSummaryOwnedHashInvalidationThreadId;
 
     private int chartInfoBackfillRequestedVersion;
 
@@ -1037,8 +1017,6 @@ public class BMSLibrary : NotificationObject
     private readonly object installDestinationRuntimeStatesLock = new();
 
     private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> installDestinationRuntimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
-
-    private int suppressInstallDestinationRuntimeStatePruning;
 
     private InstallDestinationOverlayChartRefSnapshot installDestinationOverlayChartRefSnapshot;
 
@@ -1218,10 +1196,7 @@ public class BMSLibrary : NotificationObject
                 {
                     RaisePropertyChanged("BMSFiles");
                 }).Logging("BMSFiles");
-                if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
-                {
-                    RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
-                }
+                RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
             }
         }
     }
@@ -1311,10 +1286,7 @@ public class BMSLibrary : NotificationObject
                 {
                     RaisePropertyChanged("BmsonSongs");
                 }).Logging("BmsonSongs");
-                if (!IsParentFolderListInvalidationSuppressedOnCurrentThread())
-                {
-                    RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
-                }
+                RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
             }
         }
     }
@@ -1347,10 +1319,6 @@ public class BMSLibrary : NotificationObject
 
     private void InvalidateDuplicateChartGroupsCache()
     {
-        if (IsDuplicateChartGroupsInvalidationSuppressedOnCurrentThread())
-        {
-            return;
-        }
         if (_DuplicateChartGroups == null)
         {
             return;
@@ -1431,82 +1399,10 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     private void InvalidateBMSParentFolderListCache()
     {
-        if (IsParentFolderListInvalidationSuppressedOnCurrentThread())
-        {
-            return;
-        }
         lock (lockParentFolderList)
         {
             bmsParentFolderListDirty = true;
             bmsParentFolderListDirtyVersion++;
-        }
-    }
-
-    private bool IsParentFolderListInvalidationSuppressedOnCurrentThread()
-    {
-        return suppressParentFolderListInvalidation > 0
-            && suppressParentFolderListInvalidationThreadId == Environment.CurrentManagedThreadId;
-    }
-
-    private IDisposable SuppressParentFolderListInvalidationOnCurrentThread()
-    {
-        if (suppressParentFolderListInvalidation == 0)
-        {
-            suppressParentFolderListInvalidationThreadId = Environment.CurrentManagedThreadId;
-        }
-        suppressParentFolderListInvalidation++;
-        return new ParentFolderListInvalidationSuppression(this);
-    }
-
-    private sealed class ParentFolderListInvalidationSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                owner.suppressParentFolderListInvalidation = Math.Max(0, owner.suppressParentFolderListInvalidation - 1);
-                if (owner.suppressParentFolderListInvalidation == 0)
-                {
-                    owner.suppressParentFolderListInvalidationThreadId = 0;
-                }
-                owner = null;
-            }
-        }
-    }
-
-    private bool IsDuplicateChartGroupsInvalidationSuppressedOnCurrentThread()
-    {
-        return suppressDuplicateChartGroupsInvalidation > 0
-            && suppressDuplicateChartGroupsInvalidationThreadId == Environment.CurrentManagedThreadId;
-    }
-
-    private IDisposable SuppressDuplicateChartGroupsInvalidationOnCurrentThread()
-    {
-        if (suppressDuplicateChartGroupsInvalidation == 0)
-        {
-            suppressDuplicateChartGroupsInvalidationThreadId = Environment.CurrentManagedThreadId;
-        }
-        suppressDuplicateChartGroupsInvalidation++;
-        return new DuplicateChartGroupsInvalidationSuppression(this);
-    }
-
-    private sealed class DuplicateChartGroupsInvalidationSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                owner.suppressDuplicateChartGroupsInvalidation = Math.Max(0, owner.suppressDuplicateChartGroupsInvalidation - 1);
-                if (owner.suppressDuplicateChartGroupsInvalidation == 0)
-                {
-                    owner.suppressDuplicateChartGroupsInvalidationThreadId = 0;
-                }
-                owner = null;
-            }
         }
     }
 
@@ -1521,10 +1417,6 @@ public class BMSLibrary : NotificationObject
 
     private void InvalidateBMSParentFolderListCacheAndNotify()
     {
-        if (IsParentFolderListInvalidationSuppressedOnCurrentThread())
-        {
-            return;
-        }
         InvalidateBMSParentFolderListCache();
         RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
     }
@@ -6613,47 +6505,9 @@ completeFileEnumerationOnce,
 
     private void InvalidatePlaylistSummaryOwnedHashSnapshot()
     {
-        if (IsPlaylistSummaryOwnedHashInvalidationSuppressedOnCurrentThread())
-        {
-            return;
-        }
         lock (lockPlaylistSummaryOwnedHashSnapshot)
         {
             playlistSummaryOwnedHashSnapshot = null;
-        }
-    }
-
-    private bool IsPlaylistSummaryOwnedHashInvalidationSuppressedOnCurrentThread()
-    {
-        return suppressPlaylistSummaryOwnedHashInvalidation > 0
-            && suppressPlaylistSummaryOwnedHashInvalidationThreadId == Environment.CurrentManagedThreadId;
-    }
-
-    private IDisposable SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread()
-    {
-        if (suppressPlaylistSummaryOwnedHashInvalidation == 0)
-        {
-            suppressPlaylistSummaryOwnedHashInvalidationThreadId = Environment.CurrentManagedThreadId;
-        }
-        suppressPlaylistSummaryOwnedHashInvalidation++;
-        return new PlaylistSummaryOwnedHashInvalidationSuppression(this);
-    }
-
-    private sealed class PlaylistSummaryOwnedHashInvalidationSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                owner.suppressPlaylistSummaryOwnedHashInvalidation = Math.Max(0, owner.suppressPlaylistSummaryOwnedHashInvalidation - 1);
-                if (owner.suppressPlaylistSummaryOwnedHashInvalidation == 0)
-                {
-                    owner.suppressPlaylistSummaryOwnedHashInvalidationThreadId = 0;
-                }
-                owner = null;
-            }
         }
     }
 
@@ -6661,10 +6515,6 @@ completeFileEnumerationOnce,
     {
         lock (lockOwnedChartCollection)
         {
-            if (suppressOwnedChartCollectionInvalidation > 0)
-            {
-                return;
-            }
             ownedChartCollection = new OwnedChartCollectionState();
             ownedChartCollectionInitialized = false;
             ownedChartCollectionBmsStorageRowsVersion = -1;
@@ -6672,79 +6522,11 @@ completeFileEnumerationOnce,
         }
     }
 
-    private bool IsOwnedChartCollectionInvalidationSuppressed()
-    {
-        lock (lockOwnedChartCollection)
-        {
-            return suppressOwnedChartCollectionInvalidation > 0;
-        }
-    }
-
     private int NotifyOwnedChartCollectionChanged()
     {
-        if (IsOwnedChartCollectionChangeNotificationSuppressedOnCurrentThread())
-        {
-            return OwnedChartCollectionVersion;
-        }
         int version = Interlocked.Increment(ref ownedChartCollectionVersion);
         RaisePropertyChanged(() => OwnedChartCollectionVersion);
         return version;
-    }
-
-    private bool IsOwnedChartCollectionChangeNotificationSuppressedOnCurrentThread()
-    {
-        return suppressOwnedChartCollectionChangeNotification > 0
-            && suppressOwnedChartCollectionChangeNotificationThreadId == Environment.CurrentManagedThreadId;
-    }
-
-    private IDisposable SuppressOwnedChartCollectionChangeNotificationOnCurrentThread()
-    {
-        if (suppressOwnedChartCollectionChangeNotification == 0)
-        {
-            suppressOwnedChartCollectionChangeNotificationThreadId = Environment.CurrentManagedThreadId;
-        }
-        suppressOwnedChartCollectionChangeNotification++;
-        return new OwnedChartCollectionChangeNotificationSuppression(this);
-    }
-
-    private sealed class OwnedChartCollectionChangeNotificationSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                owner.suppressOwnedChartCollectionChangeNotification = Math.Max(0, owner.suppressOwnedChartCollectionChangeNotification - 1);
-                if (owner.suppressOwnedChartCollectionChangeNotification == 0)
-                {
-                    owner.suppressOwnedChartCollectionChangeNotificationThreadId = 0;
-                }
-                owner = null;
-            }
-        }
-    }
-
-    private IDisposable SuppressOwnedChartCollectionInvalidation()
-    {
-        Monitor.Enter(lockOwnedChartCollection);
-        suppressOwnedChartCollectionInvalidation++;
-        return new OwnedChartCollectionInvalidationSuppression(this);
-    }
-
-    private sealed class OwnedChartCollectionInvalidationSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                owner.suppressOwnedChartCollectionInvalidation = Math.Max(0, owner.suppressOwnedChartCollectionInvalidation - 1);
-                Monitor.Exit(owner.lockOwnedChartCollection);
-                owner = null;
-            }
-        }
     }
 
     /// <summary>
@@ -6753,10 +6535,6 @@ completeFileEnumerationOnce,
     private void InvalidateInstalledDirectoryIndex()
     {
         InvalidateInstallEstimationMetadataProfileCache();
-        if (suppressInstalledChartLookupInvalidation > 0)
-        {
-            return;
-        }
         lock (lockInstalledChartLookupIndex)
         {
             installedChartLookupIndex = new InstalledChartLookupIndexState();
@@ -6769,26 +6547,6 @@ completeFileEnumerationOnce,
         lock (lockInstallEstimationMetadataProfileCache)
         {
             installEstimationMetadataProfileCache.Clear();
-        }
-    }
-
-    private IDisposable SuppressInstalledChartLookupInvalidation()
-    {
-        suppressInstalledChartLookupInvalidation++;
-        return new InstalledChartLookupInvalidationSuppression(this);
-    }
-
-    private sealed class InstalledChartLookupInvalidationSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                owner.suppressInstalledChartLookupInvalidation = Math.Max(0, owner.suppressInstalledChartLookupInvalidation - 1);
-                owner = null;
-            }
         }
     }
 
@@ -7406,13 +7164,7 @@ completeFileEnumerationOnce,
                 PublishOwnedCollectionChangeNotification(mutationResult);
                 try
                 {
-                    using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
-                    using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
                     using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-                    using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
-                    using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
-                    using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-                    using (SuppressOwnedChartCollectionInvalidation())
                     {
                         StorageRowsSnapshot storageRows = SetStorageRowsFromInternalMutationUnsafe(
                             fileCheckResult.NextFiles,
@@ -7488,14 +7240,7 @@ completeFileEnumerationOnce,
                     resourceHealthMutation.BaseInputVersion,
                     resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
                 PublishOwnedCollectionChangeNotification(mutationResult);
-                using (SuppressInstalledChartLookupInvalidation())
-                using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
-                using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
                 using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-                using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
-                using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
-                using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-                using (SuppressOwnedChartCollectionInvalidation())
                 {
                     StorageRowsVersionSnapshot storageRowsVersion = ApplyInstalledChartStorageRowsUnsafe(addedTargets);
                     ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
@@ -8753,11 +8498,6 @@ completeFileEnumerationOnce,
     {
         lock (installDestinationRuntimeStatesLock)
         {
-            if (suppressInstallDestinationRuntimeStatePruning > 0)
-            {
-                return;
-            }
-
             // Startup assigns the full owned chart set before any runtime install
             // destination overlay exists. Avoid building 210k+ ChartFile projection
             // keys for that empty-cache case.
@@ -8783,32 +8523,6 @@ completeFileEnumerationOnce,
             if (removedAny)
             {
                 InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe();
-            }
-        }
-    }
-
-    private IDisposable SuppressInstallDestinationRuntimeStatePruning()
-    {
-        lock (installDestinationRuntimeStatesLock)
-        {
-            suppressInstallDestinationRuntimeStatePruning++;
-        }
-        return new InstallDestinationRuntimeStatePruningSuppression(this);
-    }
-
-    private sealed class InstallDestinationRuntimeStatePruningSuppression(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            if (owner != null)
-            {
-                lock (owner.installDestinationRuntimeStatesLock)
-                {
-                    owner.suppressInstallDestinationRuntimeStatePruning = Math.Max(0, owner.suppressInstallDestinationRuntimeStatePruning - 1);
-                }
-                owner = null;
             }
         }
     }
@@ -13970,14 +13684,7 @@ completeFileEnumerationOnce,
                     resourceHealthMutation.BaseInputVersion,
                     resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
                 PublishOwnedCollectionChangeNotification(mutationResult);
-                using (delta?.InvalidateInstalledDirectoryIndex == true ? SuppressInstalledChartLookupInvalidation() : null)
-                using (mutationResult.OwnedCollectionChanged ? SuppressOwnedChartCollectionChangeNotificationOnCurrentThread() : null)
-                using (mutationResult.PlaylistSummaryOwnedHashInvalidated ? SuppressPlaylistSummaryOwnedHashInvalidationOnCurrentThread() : null)
                 using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-                using (mutationResult.ParentFolderInvalidated ? SuppressParentFolderListInvalidationOnCurrentThread() : null)
-                using (mutationResult.DuplicateCacheInvalidated ? SuppressDuplicateChartGroupsInvalidationOnCurrentThread() : null)
-                using (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges ? SuppressInstallDestinationRuntimeStatePruning() : null)
-                using (SuppressOwnedChartCollectionInvalidation())
                 {
                     StorageRowsVersionSnapshot storageRowsVersion = ApplyLibraryUnregisterStorageRowsUnsafe(delta?.ChartsToUnregister);
                     stateApplier.ApplyLibraryMutationDelta(delta);
@@ -14185,10 +13892,6 @@ completeFileEnumerationOnce,
 
     private void PublishExternalReplacementNormalLibraryRefreshNotification(bool notifiesBmsFiles, bool notifiesBmsonSongs)
     {
-        if (IsOwnedChartCollectionInvalidationSuppressed())
-        {
-            return;
-        }
         PublishNormalLibraryRefreshResetNotification(notifiesBmsFiles, notifiesBmsonSongs);
     }
 
