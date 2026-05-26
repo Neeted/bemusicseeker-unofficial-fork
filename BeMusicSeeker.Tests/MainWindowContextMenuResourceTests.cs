@@ -924,6 +924,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(notificationVersionHandler, "ApplyNormalLibraryRefreshNotificationBatch(refreshNotification, \"normal_library_refresh\")");
         StringAssert.Contains(latestNotificationApplier, "ApplyNormalLibraryRefreshNotificationBatch(notificationBatch, \"library_charts_changed\")");
+        Assert.IsFalse(viewModelCode.Contains("fallbackToCurrentOwnedCollectionVersion"));
         StringAssert.Contains(notificationBatchApplier, "SyncNormalLibraryStorageRowCachesForRefreshNotification(notificationBatch)");
         string sourceChangedBranch = ExtractBlockAfter(notificationBatchApplier, "if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))");
         string presentationBranch = ExtractBlockAfter(notificationBatchApplier, "else");

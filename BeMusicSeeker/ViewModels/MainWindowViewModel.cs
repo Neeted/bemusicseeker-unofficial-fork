@@ -9805,8 +9805,7 @@ public class MainWindowViewModel : ViewModel
 
     private bool TryIncrementNormalLibrarySourceGenerationForRefreshNotification(
         NormalLibraryRefreshNotificationBatch notificationBatch,
-        string reason,
-        bool fallbackToCurrentOwnedCollectionVersion = true)
+        string reason)
     {
         if (notificationBatch?.HasRefreshNotification == true)
         {
@@ -9815,21 +9814,18 @@ public class MainWindowViewModel : ViewModel
                     notificationBatch.OwnedCollectionVersion,
                     reason);
         }
-        return fallbackToCurrentOwnedCollectionVersion
-            && TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(reason);
+        return false;
     }
 
     private bool ApplyNormalLibraryRefreshNotificationEffects(
         NormalLibraryRefreshNotificationBatch notificationBatch,
         string sourceReason,
-        bool fallbackToCurrentOwnedCollectionVersion,
         out bool sourceGenerationChanged,
         out bool installDestinationStateChanged)
     {
         sourceGenerationChanged = TryIncrementNormalLibrarySourceGenerationForRefreshNotification(
             notificationBatch,
-            sourceReason,
-            fallbackToCurrentOwnedCollectionVersion);
+            sourceReason);
         installDestinationStateChanged = notificationBatch?.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged) == true;
         if (!sourceGenerationChanged && installDestinationStateChanged)
         {
@@ -9975,7 +9971,6 @@ public class MainWindowViewModel : ViewModel
         ApplyNormalLibraryRefreshNotificationEffects(
             notificationBatch,
             reason,
-            fallbackToCurrentOwnedCollectionVersion: false,
             out _,
             out _);
         if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
