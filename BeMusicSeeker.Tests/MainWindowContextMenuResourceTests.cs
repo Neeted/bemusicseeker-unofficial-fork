@@ -896,7 +896,9 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void NormalLibraryRefreshNotificationOwnsStorageRowSourceRefresh()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string root = FindRepositoryRoot();
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string notificationVersionHandler = ExtractBetween(
             viewModelCode,
             "listenerForBMSLibrary.RegisterHandler(() => files.NormalLibraryRefreshNotificationVersion",
@@ -925,6 +927,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(notificationVersionHandler, "ApplyNormalLibraryRefreshNotificationBatch(refreshNotification, \"normal_library_refresh\")");
         StringAssert.Contains(latestNotificationApplier, "ApplyNormalLibraryRefreshNotificationBatch(notificationBatch, \"library_charts_changed\")");
         Assert.IsFalse(viewModelCode.Contains("fallbackToCurrentOwnedCollectionVersion"));
+        Assert.IsFalse(viewModelCode.Contains("NotifiesInstallDestinationOverlayProperties"));
+        Assert.IsFalse(libraryCode.Contains("NotifiesInstallDestinationOverlayProperties"));
         StringAssert.Contains(notificationBatchApplier, "SyncNormalLibraryStorageRowCachesForRefreshNotification(notificationBatch)");
         string sourceChangedBranch = ExtractBlockAfter(notificationBatchApplier, "if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))");
         string presentationBranch = ExtractBlockAfter(notificationBatchApplier, "else");

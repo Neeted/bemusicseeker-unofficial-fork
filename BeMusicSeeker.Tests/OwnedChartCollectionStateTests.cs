@@ -2434,7 +2434,6 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsFalse(batch.NotifiesStorageRows);
             Assert.IsFalse(batch.NotifiesBmsFiles);
             Assert.IsFalse(batch.NotifiesBmsonSongs);
-            Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
             Assert.AreEqual(0, ownedCollectionVersionChanged);
@@ -2476,7 +2475,6 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(batch.NotifiesStorageRows);
             Assert.IsTrue(batch.NotifiesBmsFiles);
             Assert.IsFalse(batch.NotifiesBmsonSongs);
-            Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
         });
     }
 
@@ -2522,7 +2520,6 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(batch.NotifiesStorageRows);
             Assert.IsTrue(batch.NotifiesBmsFiles);
             Assert.IsFalse(batch.NotifiesBmsonSongs);
-            Assert.IsFalse(batch.NotifiesInstallDestinationOverlayProperties);
         });
     }
 

@@ -9844,8 +9844,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged)
-            && !notificationBatch.NotifiesInstallDestinationOverlayProperties)
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged))
         {
             RefreshNormalLibraryAfterInstallDestinationChanged("normal_library_install_destination_changed");
         }
