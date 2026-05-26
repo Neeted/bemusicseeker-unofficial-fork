@@ -6885,11 +6885,11 @@ completeFileEnumerationOnce,
 
         public bool MaintenancePresentationChanged { get; set; }
 
-        public bool BmsFilesPropertyChanged { get; set; }
+        public bool BmsFilesStorageRowsChanged { get; set; }
 
-        public bool BmsonSongsPropertyChanged { get; set; }
+        public bool BmsonSongsStorageRowsChanged { get; set; }
 
-        public bool StorageRowPropertyChanged => BmsFilesPropertyChanged || BmsonSongsPropertyChanged;
+        public bool StorageRowsChanged => BmsFilesStorageRowsChanged || BmsonSongsStorageRowsChanged;
 
         public bool ShouldDispatchInstalledLookup => InstalledLookupMutation?.HasChanges == true;
 
@@ -6907,7 +6907,7 @@ completeFileEnumerationOnce,
             || InstallEstimationMetadataProfileCacheInvalidated
             || WarningPresentationChanged
             || MaintenancePresentationChanged
-            || StorageRowPropertyChanged
+            || StorageRowsChanged
             || InstalledLookupMutation?.HasChanges == true;
     }
 
@@ -7485,7 +7485,6 @@ completeFileEnumerationOnce,
                     }
                     InvalidateOwnedChartCollection();
                     ClearNormalLibraryRefreshNotification(mutationResult);
-                    RaiseStorageRowPropertyChanges(mutationResult);
                     throw;
                 }
             }
@@ -7574,7 +7573,6 @@ completeFileEnumerationOnce,
             if (mutationResult != null)
             {
                 ClearNormalLibraryRefreshNotification(mutationResult);
-                RaiseStorageRowPropertyChanges(mutationResult);
             }
             throw;
         }
@@ -7612,8 +7610,8 @@ completeFileEnumerationOnce,
             ResourceHealthIndexInvalidated = resourceHealthShouldInvalidate,
             WarningPresentationChanged = fileScanPresentationChanged,
             MaintenancePresentationChanged = fileScanPresentationChanged,
-            BmsFilesPropertyChanged = bmsRowsChanged,
-            BmsonSongsPropertyChanged = bmsonRowsChanged
+            BmsFilesStorageRowsChanged = bmsRowsChanged,
+            BmsonSongsStorageRowsChanged = bmsonRowsChanged
         };
         result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
         result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
@@ -7881,9 +7879,9 @@ completeFileEnumerationOnce,
             PlaylistSummaryOwnedHashInvalidated = storageMutation.HasHashSetChanges,
             OwnedCollectionChanged = storageMutation.HasChanges,
             WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
-            BmsFilesPropertyChanged = HasBmsStorageRowCollectionChange(storageMutation)
+            BmsFilesStorageRowsChanged = HasBmsStorageRowCollectionChange(storageMutation)
                 || (delta?.NotifyStorageRowPathChanges == true && HasBmsStorageRowPathChange(storageMutation)),
-            BmsonSongsPropertyChanged = HasBmsonStorageRowCollectionChange(storageMutation)
+            BmsonSongsStorageRowsChanged = HasBmsonStorageRowCollectionChange(storageMutation)
                 || (delta?.NotifyStorageRowPathChanges == true && HasBmsonStorageRowPathChange(storageMutation))
         };
         result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
@@ -7956,8 +7954,8 @@ completeFileEnumerationOnce,
         result.PlaylistSummaryOwnedHashInvalidated = result.StorageMutation.HasHashSetChanges;
         result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
         result.WarningPresentationChanged = result.StorageMutation.HasChanges;
-        result.BmsFilesPropertyChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
-        result.BmsonSongsPropertyChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
+        result.BmsFilesStorageRowsChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
+        result.BmsonSongsStorageRowsChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = result.StorageMutation.AddedCount > 0;
         ConfigureResourceHealthMutationForStorageMutation(
             result,
@@ -8010,8 +8008,8 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = anyChanges,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
             WarningPresentationChanged = primaryHashChanged || (resourceHealthIndexInvalidated && md5Changed),
-            BmsFilesPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
-            BmsonSongsPropertyChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
+            BmsFilesStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
+            BmsonSongsStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
         };
         result.HashChanges.AddRange(changes);
         return result;
@@ -8035,8 +8033,8 @@ completeFileEnumerationOnce,
             OwnedCollectionChanged = true,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
             WarningPresentationChanged = resourceHealthIndexInvalidated,
-            BmsFilesPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
-            BmsonSongsPropertyChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
+            BmsFilesStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
+            BmsonSongsStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
         };
     }
 
@@ -8159,11 +8157,10 @@ completeFileEnumerationOnce,
                 + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
                 + " warningPresentation=" + ToInvalidateLogValue(result.WarningPresentationChanged)
                 + " maintenancePresentation=" + ToInvalidateLogValue(result.MaintenancePresentationChanged)
-                + " bmsFilesProperty=" + ToInvalidateLogValue(result.BmsFilesPropertyChanged)
-                + " bmsonSongsProperty=" + ToInvalidateLogValue(result.BmsonSongsPropertyChanged)
+                + " bmsStorageRows=" + ToInvalidateLogValue(result.BmsFilesStorageRowsChanged)
+                + " bmsonStorageRows=" + ToInvalidateLogValue(result.BmsonSongsStorageRowsChanged)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
-        RaiseStorageRowPropertyChanges(result);
     }
 
     private static void AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(OwnedChartCollectionMutationResult result)
@@ -8252,22 +8249,6 @@ completeFileEnumerationOnce,
         result.ResourceHealthMutation.FullOwnedTargetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion;
         result.ResourceHealthMutation.FullOwnedTargetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion;
         return result;
-    }
-
-    private void RaiseStorageRowPropertyChanges(OwnedChartCollectionMutationResult result)
-    {
-        if (result?.StorageRowPropertyChanged != true)
-        {
-            return;
-        }
-        if (result.BmsFilesPropertyChanged)
-        {
-            RaisePropertyChanged(() => BMSFiles);
-        }
-        if (result.BmsonSongsPropertyChanged)
-        {
-            RaisePropertyChanged(() => BmsonSongs);
-        }
     }
 
     private void PublishOwnedCollectionChangeNotification(OwnedChartCollectionMutationResult result)
@@ -14077,7 +14058,6 @@ completeFileEnumerationOnce,
             if (mutationResult != null)
             {
                 ClearNormalLibraryRefreshNotification(mutationResult);
-                RaiseStorageRowPropertyChanges(mutationResult);
             }
             throw;
         }
@@ -14171,11 +14151,11 @@ completeFileEnumerationOnce,
             ownedCollectionVersion,
             effects,
             installDestinationChangedCharts,
-            result.StorageRowPropertyChanged,
+            result.StorageRowsChanged,
             notifiesInstallDestinationOverlayProperties: false,
             resetsPriorNotifications: false,
-            notifiesBmsFiles: result.BmsFilesPropertyChanged,
-            notifiesBmsonSongs: result.BmsonSongsPropertyChanged);
+            notifiesBmsFiles: result.BmsFilesStorageRowsChanged,
+            notifiesBmsonSongs: result.BmsonSongsStorageRowsChanged);
         lock (latestNormalLibraryRefreshNotificationLock)
         {
             latestNormalLibraryRefreshNotification = notification;

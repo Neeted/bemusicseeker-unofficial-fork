@@ -1300,6 +1300,7 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
             int baselineDuplicateInvalidationVersion = library.DuplicateChartGroupsInvalidationVersion;
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int parentFolderVersionChanged = 0;
             int bmsFilesChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -1322,10 +1323,14 @@ public sealed class OwnedChartCollectionStateTests
             delta.ChartsToUnregister.Add(initialSnapshot[0]);
 
             InvokeApplyLibraryMutationDelta(library, delta);
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
             Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
             Assert.AreEqual(1, parentFolderVersionChanged);
-            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.AreEqual(0, bmsFilesChanged);
+            Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsTrue(batch.NotifiesBmsFiles);
+            Assert.IsFalse(batch.NotifiesBmsonSongs);
             Assert.IsNull(library.DuplicateChartGroups);
             Assert.AreEqual(baselineDuplicateInvalidationVersion + 1, library.DuplicateChartGroupsInvalidationVersion);
             Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
@@ -1457,6 +1462,7 @@ public sealed class OwnedChartCollectionStateTests
             SetLibraryBmsonSongsWithoutNotification(library, [first, second]);
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             Assert.AreEqual(2, initialSnapshot.Count);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsonSongsChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -1469,10 +1475,14 @@ public sealed class OwnedChartCollectionStateTests
             delta.ChartsToUnregister.Add(ChartFileProjection.FromBmsonStorageOwnerIdentity(first));
 
             InvokeApplyLibraryMutationDelta(library, delta);
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
             Assert.AreEqual(1, library.BmsonSongs.Count);
             Assert.AreSame(second, library.BmsonSongs.Single());
-            Assert.AreEqual(1, bmsonSongsChanged);
+            Assert.AreEqual(0, bmsonSongsChanged);
+            Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsFalse(batch.NotifiesBmsFiles);
+            Assert.IsTrue(batch.NotifiesBmsonSongs);
             List<ChartFile> afterSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             Assert.AreEqual(1, afterSnapshot.Count);
             Assert.AreSame(second, afterSnapshot[0].GetBmsonStorageOwner());
@@ -1657,6 +1667,7 @@ public sealed class OwnedChartCollectionStateTests
                 SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
                 SetDuplicateChartGroupsWithoutNotification(library, []);
                 int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+                int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
                 int ownedCollectionVersionChanged = 0;
                 int bmsFilesChanged = 0;
                 int bmsonSongsChanged = 0;
@@ -1703,11 +1714,15 @@ public sealed class OwnedChartCollectionStateTests
                 });
 
                 InvokeApplyLibraryMutationDelta(library, delta);
+                NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
                 Assert.AreEqual(1, ownedCollectionVersionChanged);
-                Assert.AreEqual(1, bmsFilesChanged);
-                Assert.AreEqual(1, bmsonSongsChanged);
+                Assert.AreEqual(0, bmsFilesChanged);
+                Assert.AreEqual(0, bmsonSongsChanged);
+                Assert.IsTrue(batch.NotifiesStorageRows);
+                Assert.IsTrue(batch.NotifiesBmsFiles);
+                Assert.IsTrue(batch.NotifiesBmsonSongs);
                 Assert.AreEqual("OwnedChartCollectionVersion", firstChange);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
@@ -1815,6 +1830,7 @@ public sealed class OwnedChartCollectionStateTests
             int parentFolderVersionChanged = 0;
             int bmsFilesChanged = 0;
             int bmsonSongsChanged = 0;
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "OwnedChartCollectionVersion")
@@ -1838,13 +1854,17 @@ public sealed class OwnedChartCollectionStateTests
 
             InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
             List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
             Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
             Assert.AreEqual(1, ownedCollectionVersionChanged);
             Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
             Assert.AreEqual(1, parentFolderVersionChanged);
-            Assert.AreEqual(1, bmsFilesChanged);
-            Assert.AreEqual(1, bmsonSongsChanged);
+            Assert.AreEqual(0, bmsFilesChanged);
+            Assert.AreEqual(0, bmsonSongsChanged);
+            Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsTrue(batch.NotifiesBmsFiles);
+            Assert.IsTrue(batch.NotifiesBmsonSongs);
             Assert.IsNull(library.DuplicateChartGroups);
             Assert.AreEqual(2, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             Assert.IsFalse(IsResourceHealthIndexInvalidated(library));
@@ -2089,8 +2109,8 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(addedBms.hash));
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(updatedBmson.md5));
             Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
-            Assert.AreEqual(1, bmsFilesChanged);
-            Assert.AreEqual(1, bmsonSongsChanged);
+            Assert.AreEqual(0, bmsFilesChanged);
+            Assert.AreEqual(0, bmsonSongsChanged);
             Assert.AreEqual(1, normalLibraryRefreshNotifications);
             Assert.IsFalse(batch.ResetsPriorNotifications);
             Assert.IsTrue(batch.NotifiesStorageRows);
@@ -2166,7 +2186,7 @@ public sealed class OwnedChartCollectionStateTests
             InvokeApplyLibraryFileScanStorageMutation(library, result, "uninitialized");
 
             Assert.IsFalse(IsOwnedChartCollectionInitialized(library));
-            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.AreEqual(0, bmsFilesChanged);
             CollectionAssert.AreEqual(new[] { keptBms }, library.BMSFiles.ToArray());
             CollectionAssert.AreEqual(new[] { keptBmson }, library.BmsonSongs.ToArray());
             List<ChartFile> rebuiltSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
@@ -2563,7 +2583,10 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreNotEqual(initialSummary.Version, updatedSummary.Version);
             Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             Assert.IsNull(library.DuplicateChartGroups);
-            Assert.AreEqual(1, bmsFilesChanged);
+            Assert.IsTrue(batch.NotifiesStorageRows);
+            Assert.IsTrue(batch.NotifiesBmsFiles);
+            Assert.IsFalse(batch.NotifiesBmsonSongs);
+            Assert.AreEqual(0, bmsFilesChanged);
             Assert.AreEqual(1, ownedCollectionVersionChanged);
         });
     }
