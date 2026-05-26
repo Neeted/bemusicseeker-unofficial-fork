@@ -8125,6 +8125,7 @@ completeFileEnumerationOnce,
         if (result.OwnedCollectionChanged)
         {
             PublishOwnedCollectionChangeNotification(result);
+            AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);
         }
         result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;
@@ -8163,6 +8164,24 @@ completeFileEnumerationOnce,
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
         RaiseStorageRowPropertyChanges(result);
+    }
+
+    private static void AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(OwnedChartCollectionMutationResult result)
+    {
+        ResourceHealthIndexMutation mutation = result?.ResourceHealthMutation;
+        if (result?.OwnedCollectionChanged != true
+            || result.OwnedCollectionVersion <= 0
+            || mutation?.RebuildFull != true
+            || mutation.FullOwnedTargets == null
+            || !HasFullOwnedResourceHealthTargetVersion(
+                mutation.FullOwnedTargetStorageRowsVersion,
+                mutation.FullOwnedTargetOwnedCollectionVersion,
+                mutation.FullOwnedTargetResourceHealthInputVersion))
+        {
+            return;
+        }
+
+        mutation.FullOwnedTargetOwnedCollectionVersion = result.OwnedCollectionVersion;
     }
 
     private void DispatchOwnedChartHashChanges(
@@ -9809,7 +9828,10 @@ completeFileEnumerationOnce,
         bool resourceHealthIndexCurrent,
         bool workflowHasUpdates,
         int? deltaBaseResourceHealthInputVersion = null,
-        int? deltaTargetResourceHealthInputVersion = null)
+        int? deltaTargetResourceHealthInputVersion = null,
+        StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion = null,
+        int? fullOwnedTargetOwnedCollectionVersion = null,
+        int? fullOwnedTargetResourceHealthInputVersion = null)
     {
         var mutation = new ResourceHealthIndexMutation();
         bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
@@ -9843,6 +9865,15 @@ completeFileEnumerationOnce,
         if (maintenanceTargetIsFullOwned)
         {
             mutation.FullOwnedTargets = maintenanceTargetCharts;
+            if (HasFullOwnedResourceHealthTargetVersion(
+                fullOwnedTargetStorageRowsVersion,
+                fullOwnedTargetOwnedCollectionVersion,
+                fullOwnedTargetResourceHealthInputVersion))
+            {
+                mutation.FullOwnedTargetStorageRowsVersion = fullOwnedTargetStorageRowsVersion;
+                mutation.FullOwnedTargetOwnedCollectionVersion = fullOwnedTargetOwnedCollectionVersion;
+                mutation.FullOwnedTargetResourceHealthInputVersion = fullOwnedTargetResourceHealthInputVersion;
+            }
         }
         return mutation;
     }
@@ -9913,15 +9944,22 @@ completeFileEnumerationOnce,
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
+            List<ChartFile> maintenanceTargetCharts = CreateFullOwnedResourceMaintenanceTargetCharts(
+                reason,
+                out StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion,
+                out int fullOwnedTargetOwnedCollectionVersion,
+                out _);
             return setMaintenanceInfoCoreLocked(
-                CreateFullOwnedResourceMaintenanceTargetCharts(reason),
+                maintenanceTargetCharts,
                 maintenanceTargetIsFullOwned: true,
                 forceUpdate,
                 progressReporter,
                 cancellationToken,
                 resourceHealthIndexUpdateMode,
                 resourceHealthMutationReason ?? reason,
-                out _);
+                out _,
+                fullOwnedTargetStorageRowsVersion,
+                fullOwnedTargetOwnedCollectionVersion);
         }
     }
 
@@ -9933,7 +9971,9 @@ completeFileEnumerationOnce,
         CancellationToken cancellationToken,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         string resourceHealthMutationReason,
-        out List<ChartFile> currentMaintenanceTargetCharts)
+        out List<ChartFile> currentMaintenanceTargetCharts,
+        StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion = null,
+        int? fullOwnedTargetOwnedCollectionVersion = null)
     {
         currentMaintenanceTargetCharts = maintenanceTargetCharts ?? [];
         if (maintenanceTargetCharts == null || maintenanceTargetCharts.Count == 0)
@@ -9991,6 +10031,9 @@ completeFileEnumerationOnce,
             resourceHealthIndexCurrentBeforeUpdate,
             workflowResult.HasUpdates,
             deltaBaseResourceHealthInputVersion,
+            deltaTargetResourceHealthInputVersion,
+            fullOwnedTargetStorageRowsVersion,
+            fullOwnedTargetOwnedCollectionVersion,
             deltaTargetResourceHealthInputVersion);
         resourceHealthMutationReason = string.IsNullOrWhiteSpace(resourceHealthMutationReason)
             ? "setMaintenanceInfo"
@@ -10083,9 +10126,17 @@ completeFileEnumerationOnce,
                     return [.. (isInIgnoredList ? currentSnapshot.IgnoredTargets : currentSnapshot.ActiveTargets)];
                 }
                 List<ChartFile> targets;
+                StorageRowsVersionSnapshot? fullOwnedTargetStorageRowsVersion = null;
+                int? fullOwnedTargetOwnedCollectionVersion = null;
                 if (useOwnedSnapshot)
                 {
-                    targets = CreateFullOwnedResourceMaintenanceTargetCharts("force_resource_health_filter");
+                    targets = CreateFullOwnedResourceMaintenanceTargetCharts(
+                        "force_resource_health_filter",
+                        out StorageRowsVersionSnapshot capturedStorageRowsVersion,
+                        out int capturedOwnedCollectionVersion,
+                        out _);
+                    fullOwnedTargetStorageRowsVersion = capturedStorageRowsVersion;
+                    fullOwnedTargetOwnedCollectionVersion = capturedOwnedCollectionVersion;
                 }
                 else
                 {
@@ -10104,7 +10155,9 @@ completeFileEnumerationOnce,
                         cancellationToken: default,
                         resourceHealthIndexUpdateMode: useOwnedSnapshot ? ResourceHealthIndexUpdateMode.FullOnUpdates : ResourceHealthIndexUpdateMode.DeltaOnUpdates,
                         resourceHealthMutationReason: resourceHealthReason,
-                        currentMaintenanceTargetCharts: out targets);
+                        currentMaintenanceTargetCharts: out targets,
+                        fullOwnedTargetStorageRowsVersion: fullOwnedTargetStorageRowsVersion,
+                        fullOwnedTargetOwnedCollectionVersion: fullOwnedTargetOwnedCollectionVersion);
                 }
                 if (useOwnedSnapshot)
                 {

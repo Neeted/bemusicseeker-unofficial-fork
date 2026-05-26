@@ -2468,7 +2468,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Type updateModeType = typeof(BMSLibrary).GetNestedType("ResourceHealthIndexUpdateMode", BindingFlags.NonPublic);
         Assert.IsNotNull(updateModeType);
         object updateMode = Enum.Parse(updateModeType, updateModeName);
-        object mutation = methodInfo.Invoke(null, [charts, maintenanceTargetIsFullOwned, updateMode, resourceHealthIndexCurrent, workflowHasUpdates, null, null]);
+        object mutation = methodInfo.Invoke(null, [charts, maintenanceTargetIsFullOwned, updateMode, resourceHealthIndexCurrent, workflowHasUpdates, null, null, null, null, null]);
         Assert.IsNotNull(mutation);
         return mutation;
     }

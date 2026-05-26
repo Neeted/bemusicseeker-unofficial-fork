@@ -1793,9 +1793,19 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string method = ExtractMethodBody(libraryCode, "internal List<ChartFile> GetChartsNeedResourceFix");
+        string setOwnedMethod = ExtractMethodBody(libraryCode, "private MaintenanceWorkflowResult setOwnedMaintenanceInfo");
+        string buildMutationMethod = ExtractMethodBody(libraryCode, "private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthIndexMutation");
+        string dispatchMethod = ExtractMethodBody(libraryCode, "private void DispatchOwnedChartCollectionMutation");
+        string alignMethod = ExtractMethodBody(libraryCode, "private static void AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification");
 
         StringAssert.Contains(method, "CreateFullOwnedResourceMaintenanceTargetCharts(");
         StringAssert.Contains(method, "\"force_resource_health_filter\"");
+        StringAssert.Contains(method, "out StorageRowsVersionSnapshot capturedStorageRowsVersion");
+        StringAssert.Contains(method, "fullOwnedTargetStorageRowsVersion: fullOwnedTargetStorageRowsVersion");
+        StringAssert.Contains(method, "fullOwnedTargetOwnedCollectionVersion: fullOwnedTargetOwnedCollectionVersion");
+        StringAssert.Contains(setOwnedMethod, "out StorageRowsVersionSnapshot fullOwnedTargetStorageRowsVersion");
+        StringAssert.Contains(setOwnedMethod, "fullOwnedTargetStorageRowsVersion");
+        StringAssert.Contains(setOwnedMethod, "fullOwnedTargetOwnedCollectionVersion");
         StringAssert.Contains(libraryCode, "targets = null;");
         StringAssert.Contains(method, "setMaintenanceInfoCoreLocked(");
         StringAssert.Contains(method, "maintenanceTargetIsFullOwned: useOwnedSnapshot");
@@ -1807,6 +1817,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(MaintenanceWorkflowResult workflowResult)");
         StringAssert.Contains(coreMethod, "if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))");
         StringAssert.Contains(coreMethod, "maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);");
+        StringAssert.Contains(buildMutationMethod, "FullOwnedTargetStorageRowsVersion");
+        StringAssert.Contains(buildMutationMethod, "FullOwnedTargetResourceHealthInputVersion");
+        StringAssert.Contains(dispatchMethod, "PublishOwnedCollectionChangeNotification(result);");
+        StringAssert.Contains(dispatchMethod, "AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);");
+        StringAssert.Contains(alignMethod, "mutation.FullOwnedTargetOwnedCollectionVersion = result.OwnedCollectionVersion;");
     }
 
     [TestMethod]
