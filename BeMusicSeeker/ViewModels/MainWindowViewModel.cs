@@ -6628,7 +6628,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="reason">開始理由。</param>
     private void SchedulePlaylistLibraryIndexPrewarm(long targetVersion, string reason)
     {
-        if (BMSFiles == null)
+        if (files == null)
         {
             return;
         }
@@ -9164,18 +9164,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.BMSFiles;
-            }
-            return null;
-        }
-    }
-
     private IEnumerable<ChartFile> ChartFilesNeedResourceFix
     {
         get
@@ -9990,9 +9978,12 @@ public class MainWindowViewModel : ViewModel
             return default;
         }
 
+        OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles || notificationBatch.NotifiesBmsonSongs
+            ? files?.CreateNormalLibrarySourceStorageOwnerView()
+            : null;
         if (notificationBatch.NotifiesBmsFiles)
         {
-            PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles);
+            PruneRegularBmsLibraryRowCacheByBmsFiles(sourceOwnerView?.BmsFiles);
         }
 
         if (!notificationBatch.NotifiesBmsonSongs)
@@ -10000,7 +9991,7 @@ public class MainWindowViewModel : ViewModel
             return default;
         }
 
-        BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache();
+        BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache(sourceOwnerView);
         if (result.SortKeyChanged)
         {
             InvalidateNormalLibrarySortKeysForBmsonSync(result);
@@ -16276,7 +16267,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
         }
-        if (BMSFiles == null)
+        if (files == null)
         {
             return;
         }
@@ -16751,9 +16742,9 @@ public class MainWindowViewModel : ViewModel
         return null;
     }
 
-    private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache()
+    private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache(OwnedChartStorageOwnerView ownerView = null)
     {
-        OwnedChartStorageOwnerView ownerView = files?.CreateNormalLibrarySourceStorageOwnerView();
+        ownerView ??= files?.CreateNormalLibrarySourceStorageOwnerView();
         IReadOnlyList<LR2SongDBExtended.bmson_song> snapshot = ownerView?.BmsonSongs ?? [];
         PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
         return regularBmsLibraryRowCache.SyncBmsonRows(snapshot, ApplyLibraryChartRowProviders);
@@ -17597,9 +17588,10 @@ public class MainWindowViewModel : ViewModel
     /// <param name="bmsTable">参照元 playlist。</param>
     public void ReplaceBMSFileLevelByTableEntryLevel(BMSTable bmsTable)
     {
-        if (bmsTable != null && BMSFiles != null)
+        IReadOnlyList<BeMusicSeeker.Models.BMSFile> currentBmsFiles = files?.BMSFiles;
+        if (bmsTable != null && currentBmsFiles != null)
         {
-            IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles = from file in BMSFiles
+            IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles = from file in currentBmsFiles
                                                                  where file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.path)
                                                                  join entry in from entry in bmsTable.GetEntriesExceptDummy()
                                                                                where !entry.is_removed && entry.level.HasValue
@@ -20786,7 +20778,7 @@ public class MainWindowViewModel : ViewModel
             List<object> playlistEntryRows = [.. sourceRows.Where(ShouldPreservePlaylistEntryForRootFolderDrop)];
             List<ChartFile> source = [.. sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChart).Where(chart => chart != null)];
             tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where(entry => entry != null), bmsTable, folderName, commitFlag: false);
-            if (BMSFiles == null)
+            if (files == null)
             {
                 return;
             }

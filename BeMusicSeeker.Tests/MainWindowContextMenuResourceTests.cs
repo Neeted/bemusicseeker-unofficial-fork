@@ -930,10 +930,13 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(presentationBranch.Contains("RefreshNormalLibraryAfterSourceChanged"));
         StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsFiles");
         StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsonSongs");
-        StringAssert.Contains(notificationSyncHelper, "PruneRegularBmsLibraryRowCacheByBmsFiles(files?.BMSFiles)");
-        StringAssert.Contains(notificationSyncHelper, "SyncBmsonLibraryRowCache()");
+        StringAssert.Contains(notificationSyncHelper, "OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles || notificationBatch.NotifiesBmsonSongs");
+        StringAssert.Contains(notificationSyncHelper, "PruneRegularBmsLibraryRowCacheByBmsFiles(sourceOwnerView?.BmsFiles)");
+        Assert.IsFalse(notificationSyncHelper.Contains("files?.BMSFiles"));
+        StringAssert.Contains(notificationSyncHelper, "SyncBmsonLibraryRowCache(sourceOwnerView)");
         Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles"));
         Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs"));
+        Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles"));
     }
 
     [TestMethod]
