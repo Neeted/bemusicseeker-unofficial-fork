@@ -937,6 +937,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles"));
         Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs"));
         Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles"));
+        Assert.IsFalse(viewModelCode.Contains("files?.BMSFiles"));
+        StringAssert.Contains(libraryCode, "internal void ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)");
+        StringAssert.Contains(libraryCode, "IEnumerable<BMSFile> bmsFiles = from file in _BMSFiles ?? []");
     }
 
     [TestMethod]

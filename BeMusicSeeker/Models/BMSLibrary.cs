@@ -13954,6 +13954,48 @@ completeFileEnumerationOnce,
     }
 
     /// <summary>
+    /// playlist entry が持つ level を LR2 song row へ反映します。
+    /// これは LR2 互換の BMS-only writeback であり、bmson storage row は更新しません。
+    /// </summary>
+    /// <param name="bmsTable">参照元 playlist。</param>
+    internal void ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)
+    {
+        if (bmsTable == null)
+        {
+            return;
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetWriterGuard())
+            {
+                IEnumerable<BMSFile> bmsFiles = from file in _BMSFiles ?? []
+                                                where file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.path)
+                                                join entry in from entry in bmsTable.GetEntriesExceptDummy()
+                                                              where !entry.is_removed && entry.level.HasValue
+                                                              select entry on file.hash equals entry.md5
+                                                select ApplyPlaylistEntryLevel(file, entry.level);
+                dbGateway.UpsertSongs(bmsFiles.Where(file => file != null));
+            }
+        }
+    }
+
+    /// <summary>
+    /// playlist entry の level を LR2 song row の level 値へ正規化して書き込みます。
+    /// </summary>
+    /// <param name="file">更新対象の LR2 song row。</param>
+    /// <param name="entryLevel">playlist entry 側の level。</param>
+    /// <returns>更新後の BMS storage row。入力が不完全な場合は null。</returns>
+    private static BMSFile ApplyPlaylistEntryLevel(BMSFile file, double? entryLevel)
+    {
+        if (file == null || !entryLevel.HasValue)
+        {
+            return null;
+        }
+        file.level = ((!(entryLevel.Value < 0.0)) ? ((int)entryLevel.Value) : 0);
+        return file;
+    }
+
+    /// <summary>
     /// 指定された BMS ファイル群の現在の状態を song.db にコミット（永続化）します。
     /// </summary>
     public void CommitBMSFiles(IEnumerable<BMSFile> _bmsFiles)

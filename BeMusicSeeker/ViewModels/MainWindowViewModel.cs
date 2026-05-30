@@ -17588,33 +17588,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="bmsTable">参照元 playlist。</param>
     public void ReplaceBMSFileLevelByTableEntryLevel(BMSTable bmsTable)
     {
-        IReadOnlyList<BeMusicSeeker.Models.BMSFile> currentBmsFiles = files?.BMSFiles;
-        if (bmsTable != null && currentBmsFiles != null)
-        {
-            IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles = from file in currentBmsFiles
-                                                                 where file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.path)
-                                                                 join entry in from entry in bmsTable.GetEntriesExceptDummy()
-                                                                               where !entry.is_removed && entry.level.HasValue
-                                                                               select entry on file.hash equals entry.md5
-                                                                 select ApplyPlaylistEntryLevel(file, entry.level);
-            files.CommitBMSFiles(bmsFiles);
-        }
-    }
-
-    /// <summary>
-    /// playlist entry が持つ level を LR2 song row へ反映し、その row を返します。
-    /// </summary>
-    /// <param name="file">更新対象の LR2 song row。</param>
-    /// <param name="entryLevel">playlist entry 側の level。</param>
-    /// <returns>更新後の譜面。</returns>
-    private static BeMusicSeeker.Models.BMSFile ApplyPlaylistEntryLevel(BeMusicSeeker.Models.BMSFile file, double? entryLevel)
-    {
-        if (file == null || !entryLevel.HasValue)
-        {
-            return null;
-        }
-        file.level = ((!(entryLevel.Value < 0.0)) ? ((int)entryLevel.Value) : 0);
-        return file;
+        files?.ReplaceBmsFileLevelByTableEntryLevel(bmsTable);
     }
 
     /// <summary>
