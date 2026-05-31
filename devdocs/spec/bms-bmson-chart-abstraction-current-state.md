@@ -814,7 +814,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 | resource / maintenance target | 完了、currentness / 性能監査継続 | `ResourceMaintenanceTargetSet`、`ResourceHealthIndexMutation`、`ResourceHealthIndexUpdateMode`、dispatcher が resource-health contract である。subset は delta / invalidate / defer、明示 full operation は version metadata 付き full targetとして扱う。 |
 | warning / source generation / sort-key | 完了、property fallback 再導入監査継続 | `NormalLibraryRefreshNotification` が refresh effect、owned collection version、storage row coverage を運ぶ。ViewModel は notification batch を消費し、`BMSFiles` / `BmsonSongs` property handler を normal source refresh の入口にしない。 |
 | full snapshot helper | 完了、監査継続 | installed chart snapshot 系 helper と folder operation 向け full ref snapshot は、owned collection の用途別 view / index / bounded projection に分解されている。全件 `ChartFile` materialize は chart_info full backfill と resource maintenance full operation に限定する。 |
-| hot path view / index | 進行中、性能監査継続 | duplicate merge / folder move / delete / folder auto rename / resource-only merge display / install result resource lookup / playlist detail resolve / normal library sort は用途別 view または model-owned index を読む。duplicate merge の existing hash 判定は primary md5 lookup へ分離済みで、real path directory view と playlist summary owned hash は post-startup best-effort warmup で温める。 |
+| hot path view / index | 進行中、性能監査継続 | duplicate merge / folder move / delete / folder auto rename / resource-only merge display / install result resource lookup / playlist detail resolve / normal library sort は用途別 view または model-owned index を読む。duplicate merge の existing hash 判定は primary md5 lookup へ分離済みで、real path directory view、install destination overlay、installed primary hash、playlist summary owned hash は post-startup best-effort warmup で温める。 |
 | storage row collection の役割 | 完了、direct enumeration 監査継続 | `BMSFiles` / `BmsonSongs` は DB commit、BMS-only / bmson-only producer、binding 互換、external full refresh に残す。ViewModel が両方を直接束ねる chart-common 経路は持たず、normal source owner view や bounded input projection を経由する。 |
 
 ### 現行仕様として固定する判断
@@ -861,6 +861,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - `installed_chart_lookup_index build/update`
 - `owned_adjacent_index_warmup index=installed_primary_hash`
 - `owned_adjacent_index_warmup index=real_path`
+- `owned_adjacent_index_warmup index=install_destination_overlay`
 - `owned_adjacent_index_warmup index=playlist_summary_owned_hash`
 - `post_startup_warmup stage=owned_adjacent_index`
 - `owned_collection_mutation_dispatch`
