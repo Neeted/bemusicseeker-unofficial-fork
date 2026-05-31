@@ -1228,6 +1228,41 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PostStartupWarmup_PrioritizesOwnedAdjacentIndexesBeforeVirtualSortPrewarm()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string scheduler = ExtractBetween(
+            viewModelCode,
+            "private void SchedulePostStartupBestEffortWarmups",
+            "private Task SchedulePostStartupOwnedAdjacentIndexWarmup");
+        string ownedWarmup = ExtractBetween(
+            viewModelCode,
+            "private void RunPostStartupOwnedAdjacentIndexWarmup",
+            "private void ScheduleVirtualNormalLibraryOrderPrewarm");
+        string virtualWarmup = ExtractBetween(
+            viewModelCode,
+            "private void RunVirtualNormalLibraryOrderPrewarm",
+            "private void LogVirtualNormalLibraryRouteSkipped");
+
+        int ownedSchedule = scheduler.IndexOf("SchedulePostStartupOwnedAdjacentIndexWarmup(reason)", StringComparison.Ordinal);
+        int virtualSchedule = scheduler.IndexOf("ScheduleVirtualNormalLibraryOrderPrewarm(reason, ownedAdjacentIndexWarmupTask)", StringComparison.Ordinal);
+        StringAssert.Contains(scheduler, "IsVirtualNormalLibraryOrderPrewarmRunning()");
+        StringAssert.Contains(scheduler, "skipped=virtual_order_prewarm_running");
+        Assert.IsTrue(ownedSchedule >= 0);
+        Assert.IsTrue(virtualSchedule > ownedSchedule);
+        Assert.IsFalse(ownedWarmup.Contains("Wait()"));
+
+        int realPathWarmup = ownedWarmup.IndexOf("WarmOwnedRealPathDirectoryView", StringComparison.Ordinal);
+        int primaryHashWarmup = ownedWarmup.IndexOf("WarmInstalledPrimaryHashLookup", StringComparison.Ordinal);
+        int playlistSummaryWarmup = ownedWarmup.IndexOf("WarmPlaylistSummaryOwnedHashSnapshot", StringComparison.Ordinal);
+        Assert.IsTrue(realPathWarmup >= 0);
+        Assert.IsTrue(primaryHashWarmup > realPathWarmup);
+        Assert.IsTrue(playlistSummaryWarmup > primaryHashWarmup);
+        StringAssert.Contains(virtualWarmup, "precedingOwnedAdjacentIndexWarmupTask.Wait()");
+        StringAssert.Contains(virtualWarmup, "ownedAdjacentWaitStatus");
+    }
+
+    [TestMethod]
     public void ReloadScoresOnly_DoesNotSchedulePlaylistReloadWork()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));

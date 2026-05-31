@@ -671,7 +671,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - BMS / bmson の storage table を統合しない。
 - settings 名、UI 文言、playlist DB / JSON、LR2 互換 schema は抽象化だけを理由に変更しない。
 - BMS-only 処理を chart-common 処理へ無理に広げない。encoding / zero-note / LR2IR / score viewer / ranking update / invalid extension rename / audio convert は capability で BMS-only として残す。
-- owned collection 隣接 index は startup readiness をブロックしない。manual 記載機能で初回操作 cost が出やすい installed primary hash、real path directory view、playlist summary owned hash は post-startup best-effort warmup と mutation 同期で温める。full installed directory lookup は duplicate merge には使わず、install estimation 系の explicit on-demand index として扱う。通常一覧の virtual sort order は UI 体感用の別枠であり、readiness / `startup_background_summary` をブロックしない best-effort staged prewarm として priority 1-3 を温める。
+- owned collection 隣接 index は startup readiness をブロックしない。manual 記載機能で初回操作 cost が出やすい real path directory view、installed primary hash、playlist summary owned hash は post-startup best-effort warmup と mutation 同期で温める。full installed directory lookup は duplicate merge には使わず、install estimation 系の explicit on-demand index として扱う。通常一覧の virtual sort order は UI 体感用の別枠であり、readiness / `startup_background_summary` をブロックしない best-effort staged prewarm として priority 1-3 を温める。ただし duplicate merge / folder 操作の cold path を避けるため、post-startup では owned adjacent index warmup を virtual sort order prewarm より先に実行する。
 - `ChartFile` を全件 collection の唯一の runtime object として常時 rich projection しない。resource refs / warning / score / maintenance を含む projection は用途別に遅延または subset に限定する。
 
 ### 変更時の選択基準
