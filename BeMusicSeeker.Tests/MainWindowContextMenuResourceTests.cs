@@ -1253,10 +1253,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(ownedWarmup.Contains("Wait()"));
 
         int realPathWarmup = ownedWarmup.IndexOf("WarmOwnedRealPathDirectoryView", StringComparison.Ordinal);
+        int installDestinationOverlayWarmup = ownedWarmup.IndexOf("WarmInstallDestinationOverlaySnapshot", StringComparison.Ordinal);
         int primaryHashWarmup = ownedWarmup.IndexOf("WarmInstalledPrimaryHashLookup", StringComparison.Ordinal);
         int playlistSummaryWarmup = ownedWarmup.IndexOf("WarmPlaylistSummaryOwnedHashSnapshot", StringComparison.Ordinal);
         Assert.IsTrue(realPathWarmup >= 0);
-        Assert.IsTrue(primaryHashWarmup > realPathWarmup);
+        Assert.IsTrue(installDestinationOverlayWarmup > realPathWarmup);
+        Assert.IsTrue(primaryHashWarmup > installDestinationOverlayWarmup);
         Assert.IsTrue(playlistSummaryWarmup > primaryHashWarmup);
         StringAssert.Contains(virtualWarmup, "precedingOwnedAdjacentIndexWarmupTask.Wait()");
         StringAssert.Contains(virtualWarmup, "ownedAdjacentWaitStatus");

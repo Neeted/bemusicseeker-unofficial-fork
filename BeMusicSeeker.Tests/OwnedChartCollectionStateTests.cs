@@ -2468,6 +2468,35 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void WarmInstallDestinationOverlaySnapshot_BuildsAndReusesOverlaySnapshot()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = []
+            };
+            string installDestination = Path.Combine("C:\\Install", "WarmOverlay");
+            ApplyInstallDestinationChange(library, bmsFile, installDestination);
+
+            BMSLibrary.OwnedAdjacentIndexWarmupResult first = library.WarmInstallDestinationOverlaySnapshot("test");
+            BMSLibrary.OwnedAdjacentIndexWarmupResult second = library.WarmInstallDestinationOverlaySnapshot("test");
+            InstallDestinationOverlayChartRefSnapshot snapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+
+            Assert.AreEqual("install_destination_overlay", first.IndexName);
+            Assert.AreEqual("built", first.Status);
+            Assert.AreEqual(1, first.ChartRefCount);
+            Assert.AreEqual(1, first.DirectoryCount);
+            Assert.AreEqual("cached", second.Status);
+            Assert.AreEqual(first.ChartRefCount, second.ChartRefCount);
+            Assert.AreEqual(1, snapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_UnregisterPrunesInstallDestinationOverlayByAffectedChart()
     {
         TestResourceInitializer.EnsureJapaneseResources();

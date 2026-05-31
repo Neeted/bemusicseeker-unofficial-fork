@@ -365,6 +365,8 @@ public class BMSLibrary : NotificationObject
 
         internal int SubtreeDirectoryCount { get; set; }
 
+        internal int DirectoryCount { get; set; }
+
         internal int OwnedCollectionVersion { get; set; }
     }
 
@@ -7307,6 +7309,40 @@ completeFileEnumerationOnce,
             + " directDirs=" + result.DirectDirectoryCount
             + " subtreeDirs=" + result.SubtreeDirectoryCount
             + " ownedCollectionVersion=" + result.OwnedCollectionVersion);
+        return result;
+    }
+
+    /// <summary>
+    /// folder / merge 操作で使う install destination overlay view を readiness 外で温めます。
+    /// </summary>
+    /// <param name="reason">warmup を要求した理由。</param>
+    /// <returns>warmup 結果。</returns>
+    internal OwnedAdjacentIndexWarmupResult WarmInstallDestinationOverlaySnapshot(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string status;
+        InstallDestinationOverlayChartRefSnapshot snapshot;
+        lock (installDestinationRuntimeStatesLock)
+        {
+            status = installDestinationOverlayChartRefSnapshot == null ? "built" : "cached";
+            snapshot = installDestinationOverlayChartRefSnapshot ??= InstallDestinationOverlayChartRefSnapshot
+                .FromCharts(CreateCurrentInstallDestinationCleanupChartsUnsafe());
+        }
+        stopwatch.Stop();
+        var result = new OwnedAdjacentIndexWarmupResult
+        {
+            IndexName = "install_destination_overlay",
+            Status = status,
+            ElapsedMs = stopwatch.ElapsedMilliseconds,
+            ChartRefCount = snapshot?.ChartCount ?? 0,
+            DirectoryCount = snapshot?.DirectoryCount ?? 0
+        };
+        LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
+            + " reason=" + (reason ?? string.Empty)
+            + " status=" + result.Status
+            + " elapsedMs=" + result.ElapsedMs
+            + " chartRefs=" + result.ChartRefCount
+            + " directories=" + result.DirectoryCount);
         return result;
     }
 

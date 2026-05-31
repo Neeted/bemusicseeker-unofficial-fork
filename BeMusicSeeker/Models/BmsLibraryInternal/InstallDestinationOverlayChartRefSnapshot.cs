@@ -30,6 +30,8 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
     /// </summary>
     internal int ChartCount => refsByInstallDestinationDirectory.Values.Sum(refs => refs?.Count ?? 0);
 
+    internal int DirectoryCount => refsByInstallDestinationDirectory.Count;
+
     internal static InstallDestinationOverlayChartRefSnapshot FromCharts(IEnumerable<ChartFile> charts)
     {
         return FromLibraryChartRefs((charts ?? [])

@@ -11687,6 +11687,7 @@ public class MainWindowViewModel : ViewModel
             }
 
             BMSLibrary.OwnedAdjacentIndexWarmupResult realPathResult = library.WarmOwnedRealPathDirectoryView("post_startup_" + (reason ?? string.Empty));
+            BMSLibrary.OwnedAdjacentIndexWarmupResult installDestinationOverlayResult = library.WarmInstallDestinationOverlaySnapshot("post_startup_" + (reason ?? string.Empty));
             BMSLibrary.InstalledPrimaryHashWarmupResult primaryHashResult = library.WarmInstalledPrimaryHashLookup("post_startup_" + (reason ?? string.Empty));
             BMSLibrary.OwnedHashIndexWarmupResult playlistSummaryResult = library.WarmPlaylistSummaryOwnedHashSnapshot("post_startup_" + (reason ?? string.Empty));
             stopwatch.Stop();
@@ -11703,6 +11704,9 @@ public class MainWindowViewModel : ViewModel
                 + " realPathDirectDirs=" + (realPathResult?.DirectDirectoryCount ?? 0)
                 + " realPathSubtreeDirs=" + (realPathResult?.SubtreeDirectoryCount ?? 0)
                 + " realPathOwnedCollectionVersion=" + (realPathResult?.OwnedCollectionVersion ?? 0)
+                + " installDestinationOverlayStatus=" + (installDestinationOverlayResult?.Status ?? "(null)")
+                + " installDestinationOverlayChartRefs=" + (installDestinationOverlayResult?.ChartRefCount ?? 0)
+                + " installDestinationOverlayDirs=" + (installDestinationOverlayResult?.DirectoryCount ?? 0)
                 + " playlistSummaryStatus=" + (playlistSummaryResult?.Status ?? "(null)")
                 + " playlistSummaryMd5Hashes=" + (playlistSummaryResult?.Md5Count ?? 0)
                 + " playlistSummarySha256Hashes=" + (playlistSummaryResult?.Sha256Count ?? 0)
@@ -11714,6 +11718,7 @@ public class MainWindowViewModel : ViewModel
                 + " playlistSummaryStaleRetries=" + (playlistSummaryResult?.StaleRetryCount ?? 0)
                 + " installedPrimaryWarmupMs=" + (primaryHashResult?.ElapsedMs ?? 0L)
                 + " realPathWarmupMs=" + (realPathResult?.ElapsedMs ?? 0L)
+                + " installDestinationOverlayWarmupMs=" + (installDestinationOverlayResult?.ElapsedMs ?? 0L)
                 + " playlistSummaryWarmupMs=" + (playlistSummaryResult?.ElapsedMs ?? 0L)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
