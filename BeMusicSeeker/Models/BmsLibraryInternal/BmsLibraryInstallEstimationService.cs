@@ -1121,7 +1121,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     public static List<string> GetDistinctInstalledDirectoriesForChart(IInstalledChartLookupIndex installedDirectoryIndex, ChartFile chart)
     {
-        return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndex, chart?.PrimaryLookupHash);
+        return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndex, ChartLookupKey.GetPrimaryHash(chart));
     }
 
     public static List<string> GetDistinctInstalledDirectoriesByPrimaryHash(IInstalledChartLookupIndex installedDirectoryIndex, string lookupHash)

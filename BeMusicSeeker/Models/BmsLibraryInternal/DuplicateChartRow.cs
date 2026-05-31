@@ -38,7 +38,7 @@ internal sealed class DuplicateChartRow
         {
             Path = chart.Path,
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(chart.Path),
-            LookupHash = chart.PrimaryLookupHash,
+            LookupHash = ChartLookupKey.GetPrimaryHash(chart),
             HashKind = ChartLookupKey.GetPrimaryHashKind(chart),
             ChartKind = chart.Kind,
             Chart = chart,
@@ -58,8 +58,8 @@ internal sealed class DuplicateChartRow
         {
             Path = file.path,
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(file.path),
-            LookupHash = SelectPrimaryHash(file.hash, file.sha256),
-            HashKind = SelectPrimaryHashKind(file.hash, file.sha256),
+            LookupHash = SelectPrimaryHash(file.hash),
+            HashKind = SelectPrimaryHashKind(file.hash),
             ChartKind = ChartFileKind.Bms,
             BmsFile = file,
         };
@@ -76,8 +76,8 @@ internal sealed class DuplicateChartRow
         {
             Path = song.path,
             DirectoryPath = DirectoryExt.GetDirectoryNameSimple(song.path),
-            LookupHash = SelectPrimaryHash(song.md5, song.sha256),
-            HashKind = SelectPrimaryHashKind(song.md5, song.sha256),
+            LookupHash = SelectPrimaryHash(song.md5),
+            HashKind = SelectPrimaryHashKind(song.md5),
             ChartKind = ChartFileKind.Bmson,
             BmsonSong = song,
         };
@@ -100,19 +100,17 @@ internal sealed class DuplicateChartRow
         return Chart;
     }
 
-    private static string SelectPrimaryHash(string md5, string sha256)
+    private static string SelectPrimaryHash(string md5)
     {
-        return !string.IsNullOrWhiteSpace(md5)
-            ? md5.Trim()
-            : string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
+        return string.IsNullOrWhiteSpace(md5) ? null : md5.Trim();
     }
 
-    private static ChartLookupHashKind SelectPrimaryHashKind(string md5, string sha256)
+    private static ChartLookupHashKind SelectPrimaryHashKind(string md5)
     {
         if (!string.IsNullOrWhiteSpace(md5))
         {
             return ChartLookupHashKind.Md5;
         }
-        return string.IsNullOrWhiteSpace(sha256) ? ChartLookupHashKind.None : ChartLookupHashKind.Sha256;
+        return ChartLookupHashKind.None;
     }
 }

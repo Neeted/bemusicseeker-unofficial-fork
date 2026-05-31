@@ -152,12 +152,19 @@ internal sealed class PlaylistReferenceIndex
         }
         foreach (BMSTableEntry entry in entries)
         {
-            if (entry == null || entry.is_removed)
+            PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
+            if (!lookupKey.HasValue)
             {
                 continue;
             }
-            AddEntryKey(md5ToTablesMap, md5ToDisplayMap, keys.Md5, entry.md5, table, updateDisplay);
-            AddEntryKey(sha256ToTablesMap, sha256ToDisplayMap, keys.Sha256, entry.sha256, table, updateDisplay);
+            if (lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5)
+            {
+                AddEntryKey(md5ToTablesMap, md5ToDisplayMap, keys.Md5, lookupKey.Hash, table, updateDisplay);
+            }
+            else
+            {
+                AddEntryKey(sha256ToTablesMap, sha256ToDisplayMap, keys.Sha256, lookupKey.Hash, table, updateDisplay);
+            }
         }
     }
 

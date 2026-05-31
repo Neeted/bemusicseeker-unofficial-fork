@@ -40,6 +40,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     path = chartPath
                 };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
                 int bmsFilesChangedCount = 0;
                 int folderChangedCount = 0;
                 int pathChangedCount = 0;
@@ -104,6 +105,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     path = chartPath
                 };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
                 int bmsFilesChangedCount = 0;
                 int normalLibraryRefreshCount = 0;
                 library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -160,6 +162,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     path = chartPath,
                     folder = sourceDirectoryPath,
+                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     title = "Chart"
                 };
                 int bmsFilesChangedCount = 0;
@@ -217,6 +220,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     path = chartPath,
                     folder = sourceRootPath,
+                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     title = "Chart"
                 };
                 int bmsFilesChangedCount = 0;

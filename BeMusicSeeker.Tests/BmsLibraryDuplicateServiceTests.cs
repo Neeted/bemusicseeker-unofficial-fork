@@ -69,7 +69,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
-    public void Analyze_BuildSnapshotIncludesBmsonAndUsesPrimaryLookupHash()
+    public void Analyze_BuildSnapshotIncludesBmsonAndUsesMd5PrimaryLookupHash()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryDuplicateService();
@@ -91,7 +91,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             new LR2SongDBExtended.bmson_song
             {
                 path = Path.Combine("C:\\BMS", "DirD", "d.bmson"),
-                title = "sha256 only duplicate",
+                title = "sha256 only does not duplicate",
                 sha256 = "9999999999999999999999999999999999999999999999999999999999999999"
             },
             new LR2SongDBExtended.bmson_song
@@ -105,13 +105,12 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         DuplicateAnalysisResult result = service.Analyze(CreateDuplicateAnalysisRows(bmsFiles, bmsonSongs), Resources.Warning_DuplicateBmsFile);
 
-        Assert.AreEqual(2, result.DuplicateGroups.Count);
+        Assert.AreEqual(1, result.DuplicateGroups.Count);
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
-        Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirD") && group.Folders.Contains("C:\\BMS\\DirE")));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Any(chart => chart.Kind == ChartFileKind.Bmson && chart.GetBmsonStorageOwner() != null));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Where(chart => chart.Kind == ChartFileKind.Bmson).All(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
-        Assert.IsFalse(result.DuplicateGroups.Any(group => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirF")));
-        Assert.AreEqual(4, result.DuplicateCharts.Count);
+        Assert.IsFalse(result.DuplicateGroups.Any(group => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirD") || group.Folders.Contains("C:\\BMS\\DirE") || group.Folders.Contains("C:\\BMS\\DirF")));
+        Assert.AreEqual(2, result.DuplicateCharts.Count);
     }
 
     [TestMethod]

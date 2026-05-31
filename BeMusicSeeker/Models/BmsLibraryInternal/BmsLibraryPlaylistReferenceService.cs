@@ -143,28 +143,20 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         }
         foreach (BMSTableEntry entry in entries)
         {
-            if (entry == null || entry.is_removed)
+            PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
+            if (!lookupKey.HasValue)
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(entry.md5))
+            Dictionary<string, HashSet<BMSTable>> target = lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5
+                ? md5Dictionary
+                : sha256Dictionary;
+            if (!target.TryGetValue(lookupKey.Hash, out HashSet<BMSTable> value))
             {
-                if (!md5Dictionary.TryGetValue(entry.md5, out HashSet<BMSTable> value))
-                {
-                    value = [];
-                    md5Dictionary[entry.md5] = value;
-                }
-                value.Add(table);
+                value = [];
+                target[lookupKey.Hash] = value;
             }
-            if (!string.IsNullOrWhiteSpace(entry.sha256))
-            {
-                if (!sha256Dictionary.TryGetValue(entry.sha256, out HashSet<BMSTable> value))
-                {
-                    value = [];
-                    sha256Dictionary[entry.sha256] = value;
-                }
-                value.Add(table);
-            }
+            value.Add(table);
         }
     }
 

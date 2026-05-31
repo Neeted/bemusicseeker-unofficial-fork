@@ -50,7 +50,7 @@ internal sealed class ChartStorageTargetSet
             BMSFile bmsFile = chart.GetBmsStorageOwner();
             if (ChartFileKindResolver.IsBmsChartFile(bmsFile))
             {
-                ThrowIfPathless(bmsFile.path);
+                ThrowIfInvalidStorageIdentity(bmsFile.path, bmsFile.hash);
                 bmsFiles.Add(bmsFile);
                 bmsCharts.Add(ChartFileProjection.FromBmsFile(
                     bmsFile,
@@ -63,7 +63,7 @@ internal sealed class ChartStorageTargetSet
             LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
             if (bmsonSong != null)
             {
-                ThrowIfPathless(bmsonSong.path);
+                ThrowIfInvalidStorageIdentity(bmsonSong.path, bmsonSong.md5);
                 bmsonSongsByPath[bmsonSong.path] = bmsonSong;
                 bmsonChartsByPath[bmsonSong.path] = ChartFileProjection.FromBmsonSong(
                     bmsonSong,
@@ -78,11 +78,11 @@ internal sealed class ChartStorageTargetSet
             [.. bmsCharts.Concat(bmsonChartsByPath.Values)]);
     }
 
-    private static void ThrowIfPathless(string path)
+    private static void ThrowIfInvalidStorageIdentity(string path, string md5)
     {
-        if (string.IsNullOrWhiteSpace(path))
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(md5))
         {
-            throw new InvalidOperationException("Owned chart storage rows must have a non-empty path.");
+            throw new InvalidOperationException("Owned chart storage rows must have non-empty path and md5.");
         }
     }
 
@@ -90,13 +90,22 @@ internal sealed class ChartStorageTargetSet
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        List<BMSFile> bmsFileList = [.. (bmsFiles ?? [])
-            .Where(file => ChartFileKindResolver.IsBmsChartFile(file) && !string.IsNullOrWhiteSpace(file.path))];
+        List<BMSFile> bmsFileList = [];
+        foreach (BMSFile file in bmsFiles ?? [])
+        {
+            if (!ChartFileKindResolver.IsBmsChartFile(file))
+            {
+                continue;
+            }
+            ThrowIfInvalidStorageIdentity(file.path, file.hash);
+            bmsFileList.Add(file);
+        }
         var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDBExtended.bmson_song bmsonSong in bmsonSongs ?? [])
         {
-            if (bmsonSong != null && !string.IsNullOrWhiteSpace(bmsonSong.path))
+            if (bmsonSong != null)
             {
+                ThrowIfInvalidStorageIdentity(bmsonSong.path, bmsonSong.md5);
                 bmsonSongsByPath[bmsonSong.path] = bmsonSong;
             }
         }

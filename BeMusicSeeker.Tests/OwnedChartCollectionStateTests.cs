@@ -47,16 +47,18 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void FromStorageRows_FiltersPathlessBmsAndBmsonOwnedCharts()
+    public void FromStorageRows_FiltersPathlessAndMd5lessBmsAndBmsonOwnedCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
+        var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
         var pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         var pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
         List<ChartFile> snapshot = OwnedChartCollectionState
-            .FromStorageRows([pathfulBms, pathlessBms], [pathfulBmson, pathlessBmson])
+            .FromStorageRows([pathfulBms, pathlessBms, md5lessBms], [pathfulBmson, pathlessBmson, md5lessBmson], out OwnedChartStorageRowFilterSummary filterSummary)
             .CreateSnapshot(includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false);
 
         Assert.AreEqual(2, snapshot.Count);
@@ -64,6 +66,12 @@ public sealed class OwnedChartCollectionStateTests
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathfulBmson)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), md5lessBms)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), md5lessBmson)));
+        Assert.AreEqual(1, filterSummary.PathlessBmsCount);
+        Assert.AreEqual(1, filterSummary.PathlessBmsonCount);
+        Assert.AreEqual(1, filterSummary.Md5lessBmsCount);
+        Assert.AreEqual(1, filterSummary.Md5lessBmsonCount);
     }
 
     [TestMethod]
@@ -95,23 +103,27 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ChartStorageTargetSet_FromRowsFiltersPathlessBmsAndBmsonRows()
+    public void ChartStorageTargetSet_FromRowsRejectsInvalidBmsAndBmsonRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
+        var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
         var pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         var pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
+        var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
         ChartStorageTargetSet targets = ChartStorageTargetSet.FromRows(
-            [pathfulBms, pathlessBms],
-            [pathfulBmson, pathlessBmson]);
+            [pathfulBms],
+            [pathfulBmson]);
 
         CollectionAssert.AreEqual(new[] { pathfulBms }, targets.BmsFiles.ToArray());
         CollectionAssert.AreEqual(new[] { pathfulBmson }, targets.BmsonSongs.ToArray());
         Assert.AreEqual(2, targets.Charts.Count);
-        Assert.IsFalse(targets.Charts.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
-        Assert.IsFalse(targets.Charts.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([pathlessBms], []));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([md5lessBms], []));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([], [pathlessBmson]));
+        Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromRows([], [md5lessBmson]));
     }
 
     [TestMethod]
@@ -577,16 +589,22 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ChartStorageTargetSetFromCharts_RejectsPathlessOwnerCharts()
+    public void ChartStorageTargetSetFromCharts_RejectsInvalidOwnerCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var pathlessBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", string.Empty);
+        var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"));
         var pathlessBmson = CreateBmsonSong(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
         Assert.ThrowsException<InvalidOperationException>(() =>
             ChartStorageTargetSet.FromCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(pathlessBms)]));
         Assert.ThrowsException<InvalidOperationException>(() =>
+            ChartStorageTargetSet.FromCharts([ChartFileProjection.FromBmsStorageOwnerIdentity(md5lessBms)]));
+        Assert.ThrowsException<InvalidOperationException>(() =>
             ChartStorageTargetSet.FromCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(pathlessBmson)]));
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            ChartStorageTargetSet.FromCharts([ChartFileProjection.FromBmsonStorageOwnerIdentity(md5lessBmson)]));
     }
 
     [TestMethod]
@@ -945,15 +963,19 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void UpsertStorageRows_RejectsPathlessBmsAndBmsonRows()
+    public void UpsertStorageRows_RejectsInvalidBmsAndBmsonRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var state = OwnedChartCollectionState.FromStorageRows([], []);
         var pathlessBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", string.Empty);
+        var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"));
         var pathlessBmson = CreateBmsonSong(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([pathlessBms], []));
+        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([md5lessBms], []));
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([], [pathlessBmson]));
+        Assert.ThrowsException<InvalidOperationException>(() => state.UpsertStorageRows([], [md5lessBmson]));
     }
 
     [TestMethod]
@@ -1060,14 +1082,16 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void CreateFullResourceMaintenanceTargetSnapshot_FiltersPathlessOwnedChartsBeforeProjection()
+    public void CreateFullResourceMaintenanceTargetSnapshot_FiltersInvalidOwnedChartsBeforeProjection()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
         var pathlessBms = CreateFile("dddddddddddddddddddddddddddddddd", string.Empty);
+        var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"));
         var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         var pathlessBmson = CreateBmsonSong(null, "cccccccccccccccccccccccccccccccc");
-        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms], [bmsonSong, pathlessBmson]);
+        var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile, pathlessBms, md5lessBms], [bmsonSong, pathlessBmson, md5lessBmson]);
 
         List<ChartFile> snapshot = state.CreateFullResourceMaintenanceTargetSnapshot();
 
@@ -1076,6 +1100,8 @@ public sealed class OwnedChartCollectionStateTests
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), bmsonSong)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), md5lessBms)));
+        Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), md5lessBmson)));
     }
 
     [TestMethod]
@@ -2742,6 +2768,59 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void LibraryChartDigestChange_Md5lessExplicitOwnedEventThrows()
+    {
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            new LibraryChartDigestChange(
+                LibraryChartKind.Bms,
+                Path.Combine("C:\\Installed", "Bms", "chart.bms"),
+                null,
+                new string('a', 64),
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                new string('b', 64)));
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            new LibraryChartDigestChange(
+                LibraryChartKind.Bmson,
+                Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                new string('a', 64),
+                null,
+                new string('b', 64)));
+    }
+
+    [TestMethod]
+    public void LibraryChartDigestChange_FactorySkipsInvalidProjectionEvent()
+    {
+        string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var bmsFile = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
+        var pathlessBmsFile = CreateFile(md5, null, new string('d', 64));
+        var bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), null);
+        bmsonSong.sha256 = new string('c', 64);
+        var pathlessBmsonSong = CreateBmsonSong(null, md5);
+        pathlessBmsonSong.sha256 = new string('e', 64);
+
+        Assert.IsNull(LibraryChartDigestChange.FromBms(bmsFile, null, null));
+        Assert.IsNull(LibraryChartDigestChange.FromBms(pathlessBmsFile, md5, null));
+        Assert.IsNull(LibraryChartDigestChange.FromBmson(bmsonSong, null, null));
+        Assert.IsNull(LibraryChartDigestChange.FromBmson(pathlessBmsonSong, md5, null));
+    }
+
+    [TestMethod]
+    public void LibraryChartDigestChange_PrimaryHashChangedUsesMd5Only()
+    {
+        var digestChange = new LibraryChartDigestChange(
+            LibraryChartKind.Bms,
+            Path.Combine("C:\\Installed", "Bms", "chart.bms"),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            new string('a', 64),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            new string('b', 64));
+
+        Assert.IsFalse(digestChange.PrimaryHashChanged);
+        Assert.IsTrue(digestChange.Sha256Changed);
+    }
+
+    [TestMethod]
     public void CreateInstalledDisplayPackageForResourceOnlyMerge_UsesDestinationDirectChildrenOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -3046,7 +3125,7 @@ public sealed class OwnedChartCollectionStateTests
         }
     }
 
-    private static TestableBmsFile CreateFile(string hash, string? path, string? sha256 = null)
+    private static TestableBmsFile CreateFile(string? hash, string? path, string? sha256 = null)
     {
         var file = new TestableBmsFile
         {
@@ -3057,7 +3136,7 @@ public sealed class OwnedChartCollectionStateTests
         return file;
     }
 
-    private static LR2SongDBExtended.bmson_song CreateBmsonSong(string? path, string md5)
+    private static LR2SongDBExtended.bmson_song CreateBmsonSong(string? path, string? md5)
     {
         return new LR2SongDBExtended.bmson_song
         {
@@ -3068,7 +3147,7 @@ public sealed class OwnedChartCollectionStateTests
 
     private sealed class TestableBmsFile : BMSFile
     {
-        public void SetHash(string value)
+        public void SetHash(string? value)
         {
             hash = value;
         }

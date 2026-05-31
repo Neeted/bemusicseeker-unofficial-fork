@@ -67,7 +67,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void EstimateInstallationDirectory_NormalModeSkipsSha256OnlyInstalledLooseFile()
+    public void EstimateInstallationDirectory_NormalModeDoesNotUseSha256OnlyInstalledHash()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -87,7 +87,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.ReinstallCorrection);
 
-        Assert.IsNull(normal.ConfidenceReason);
+        Assert.AreEqual("resource_index_unavailable", normal.ConfidenceReason);
         Assert.AreEqual("resource_index_unavailable", correction.ConfidenceReason);
     }
 
@@ -1981,6 +1981,26 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void CreateInstalledChartLookupIndexSnapshot_DoesNotRegisterMd5lessRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string installDir = Path.Combine("C:\\Installed", "ShaOnly");
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine(installDir, "chart.bmson"),
+            folder = installDir,
+            md5 = null,
+            sha256 = new string('b', 64)
+        };
+
+        InstalledChartLookupIndexSnapshot result = CreateInstalledChartLookupIndexSnapshot([], [bmsonSong]);
+
+        Assert.AreEqual(0, result.DistinctPrimaryHashCount);
+        Assert.IsFalse(result.Sha256Directories.ContainsKey(bmsonSong.sha256));
+        Assert.AreEqual(0, result.KnownChartDirectories.Count);
+    }
+
+    [TestMethod]
     public void CreateInstalledChartLookupIndexSnapshot_CountsPrimaryHashesForExcludingLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -3206,7 +3226,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void GetDistinctInstalledDirectoriesForChart_Sha256OnlyChartUsesSha256()
+    public void GetDistinctInstalledDirectoriesForChart_Sha256OnlyChartDoesNotUseSha256()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string installDir = Path.Combine("C:\\Installed", "ShaOnly");
@@ -3227,7 +3247,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstalledChartLookupIndexSnapshot snapshot = CreateInstalledChartLookupIndexSnapshot([], [bmsonSong]);
         List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(snapshot, pendingChart);
 
-        CollectionAssert.AreEqual(new[] { installDir }, directories);
+        Assert.AreEqual(0, directories.Count);
     }
 
     private static void WithWorkspace(Action<string, BmsLibraryInstallEstimationService> testAction)
@@ -3320,7 +3340,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         bool isCorrectionLikeMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection || estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
-            targetEntries = [.. targetEntries.Where(entry => !installedHashes.Contains(entry.Chart.PrimaryLookupHash))];
+            targetEntries = [.. targetEntries.Where(entry => !installedHashes.Contains(ChartLookupKey.GetPrimaryHash(entry.Chart)))];
         }
         return targetEntries.Count == 0 ? null : PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(targetEntries);
     }

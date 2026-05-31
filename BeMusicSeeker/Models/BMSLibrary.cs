@@ -7035,7 +7035,11 @@ completeFileEnumerationOnce,
                 }
             }
 
-            OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(bmsFiles, bmsonSongs);
+            OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
+                bmsFiles,
+                bmsonSongs,
+                out OwnedChartStorageRowFilterSummary filterSummary);
+            LogOwnedChartCollectionSkippedRows("build", filterSummary);
             lock (lockStorageRowsVersion)
             {
                 if (bmsRowsVersion != bmsStorageRowsVersion
@@ -7106,7 +7110,11 @@ completeFileEnumerationOnce,
             }
         }
 
-        OwnedChartCollectionState replacementCollection = OwnedChartCollectionState.FromStorageRows(storageRows.BmsFiles, storageRows.BmsonSongs);
+        OwnedChartCollectionState replacementCollection = OwnedChartCollectionState.FromStorageRows(
+            storageRows.BmsFiles,
+            storageRows.BmsonSongs,
+            out OwnedChartStorageRowFilterSummary filterSummary);
+        LogOwnedChartCollectionSkippedRows("replace", filterSummary);
         lock (lockStorageRowsVersion)
         {
             if (storageRows.BmsRowsVersion != bmsStorageRowsVersion
@@ -7206,6 +7214,19 @@ completeFileEnumerationOnce,
         }
 
         DispatchOwnedChartCollectionMutation(mutationResult, CreateFileScanMutationReason(reason));
+    }
+
+    private void LogOwnedChartCollectionSkippedRows(string reason, OwnedChartStorageRowFilterSummary filterSummary)
+    {
+        if (!filterSummary.HasSkippedRows)
+        {
+            return;
+        }
+        LogInstallPerformance("owned_chart_collection_storage_rows_skipped reason=" + (reason ?? "(null)")
+            + " pathlessBms=" + filterSummary.PathlessBmsCount
+            + " pathlessBmson=" + filterSummary.PathlessBmsonCount
+            + " md5lessBms=" + filterSummary.Md5lessBmsCount
+            + " md5lessBmson=" + filterSummary.Md5lessBmsonCount);
     }
 
     private void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
@@ -8615,7 +8636,7 @@ completeFileEnumerationOnce,
 
     private bool ContainsInstalledChartUnsafe(ChartFile chart)
     {
-        string lookupKey = chart?.PrimaryLookupHash;
+        string lookupKey = ChartLookupKey.GetPrimaryHash(chart);
         if (string.IsNullOrWhiteSpace(lookupKey))
         {
             return false;
@@ -8651,7 +8672,7 @@ completeFileEnumerationOnce,
 
     private List<string> GetDistinctInstalledDirectoriesForChartUnsafe(ChartFile chart)
     {
-        return GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(chart?.PrimaryLookupHash);
+        return GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(ChartLookupKey.GetPrimaryHash(chart));
     }
 
     private List<string> GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(string lookupHash)
@@ -8751,7 +8772,7 @@ completeFileEnumerationOnce,
         {
             foreach (ChartFile item in excluded.Where(chart => chart != null))
             {
-                string key = item.PrimaryLookupHash;
+                string key = ChartLookupKey.GetPrimaryHash(item);
                 if (!string.IsNullOrWhiteSpace(key))
                 {
                     excludedKeyCount[key] = excludedKeyCount.TryGetValue(key, out int value) ? value + 1 : 1;
@@ -11549,7 +11570,7 @@ completeFileEnumerationOnce,
             return null;
         }
         var hashSet = new HashSet<string>((originalPackage.ChartEntries ?? [])
-            .Select(entry => entry?.Chart?.PrimaryLookupHash)
+            .Select(entry => ChartLookupKey.GetPrimaryHash(entry?.Chart))
             .Where(key => !string.IsNullOrWhiteSpace(key)), StringComparer.OrdinalIgnoreCase);
         if (hashSet.Count == 0)
         {
@@ -11570,7 +11591,7 @@ completeFileEnumerationOnce,
             {
                 return false;
             }
-            string key = chart.PrimaryLookupHash;
+            string key = ChartLookupKey.GetPrimaryHash(chart);
             if (string.IsNullOrWhiteSpace(key) || !hashSet.Contains(key))
             {
                 return false;
@@ -11958,7 +11979,7 @@ completeFileEnumerationOnce,
             bool isBmson = chart.Kind == ChartFileKind.Bmson;
             entry.ClearStructuredWarnings();
 
-            string key = chart.PrimaryLookupHash;
+            string key = ChartLookupKey.GetPrimaryHash(chart);
             if (!string.IsNullOrWhiteSpace(key) && installedHashLookup.ContainsPrimaryHash(key))
             {
                 entry.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
@@ -12073,12 +12094,12 @@ completeFileEnumerationOnce,
                                 {
                                     case InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories:
                                         ChartFile multipleDirectoryChart = BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot);
-                                        return "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (multipleDirectoryChart?.Path ?? "(null)") + " hash=" + (multipleDirectoryChart?.PrimaryLookupHash ?? "(null)") + " dirCount=" + ((multipleDirectoryChart == null) ? 0 : BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndexSnapshot, multipleDirectoryChart).Count);
+                                        return "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (multipleDirectoryChart?.Path ?? "(null)") + " hash=" + (ChartLookupKey.GetPrimaryHash(multipleDirectoryChart) ?? "(null)") + " dirCount=" + ((multipleDirectoryChart == null) ? 0 : BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndexSnapshot, multipleDirectoryChart).Count);
                                     case InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories:
                                         return "advanced_pending_resource_overwrite skip_package_split_dst path=" + pendingPackage.path + " dirCount=" + BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(pendingPackage, installedDirectoryIndexSnapshot);
                                     default:
                                         ChartFile missingDirectoryChart = BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot);
-                                        return "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (missingDirectoryChart?.Path ?? "(null)") + " hash=" + (missingDirectoryChart?.PrimaryLookupHash ?? "(null)");
+                                        return "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (missingDirectoryChart?.Path ?? "(null)") + " hash=" + (ChartLookupKey.GetPrimaryHash(missingDirectoryChart) ?? "(null)");
                                 }
                             },
                             (pendingPackage, destinationDir) => HasResourceOverwriteTargetsForInstalledOnlyPackage(pendingPackage, destinationDir),
@@ -12759,17 +12780,18 @@ completeFileEnumerationOnce,
         sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSTableEntry entry in entries ?? [])
         {
-            if (entry == null || entry.is_removed)
+            PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
+            if (!lookupKey.HasValue)
             {
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(entry.md5))
+            if (lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5)
             {
-                md5Hashes.Add(entry.md5);
+                md5Hashes.Add(lookupKey.Hash);
             }
-            if (!string.IsNullOrWhiteSpace(entry.sha256))
+            else
             {
-                sha256Hashes.Add(entry.sha256);
+                sha256Hashes.Add(lookupKey.Hash);
             }
         }
     }
@@ -13160,7 +13182,7 @@ completeFileEnumerationOnce,
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
     {
-        string lookupHash = chart?.PrimaryLookupHash;
+        string lookupHash = ChartLookupKey.GetPrimaryHash(chart);
         if (string.IsNullOrWhiteSpace(lookupHash))
         {
             return [];

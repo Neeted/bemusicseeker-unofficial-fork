@@ -12,7 +12,7 @@ internal static class ChartLookupKey
 {
     internal static string GetPrimaryHash(ChartFile chart)
     {
-        return chart?.PrimaryLookupHash;
+        return string.IsNullOrWhiteSpace(chart?.Md5) ? null : chart.Md5;
     }
 
     internal static ChartLookupHashKind GetPrimaryHashKind(ChartFile chart)
@@ -20,10 +20,6 @@ internal static class ChartLookupKey
         if (!string.IsNullOrWhiteSpace(chart?.Md5))
         {
             return ChartLookupHashKind.Md5;
-        }
-        if (!string.IsNullOrWhiteSpace(chart?.Sha256))
-        {
-            return ChartLookupHashKind.Sha256;
         }
         return ChartLookupHashKind.None;
     }

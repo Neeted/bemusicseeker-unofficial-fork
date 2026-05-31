@@ -868,7 +868,7 @@ internal sealed class BmsLibraryPackageInstallService
             List<PackageChartEntry> skippedEntries = [.. installTargetEntries
                 .Where(delegate (PackageChartEntry entry)
                 {
-                    string lookupKey = entry?.Chart?.PrimaryLookupHash;
+                    string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
                     return !string.IsNullOrWhiteSpace(lookupKey) && hashSnapshot.ContainsPrimaryHash(lookupKey);
                 })];
             if (skippedEntries.Count > 0)
@@ -1082,7 +1082,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 continue;
             }
-            string lookupKey = installedPackageEntry.Chart.PrimaryLookupHash;
+            string lookupKey = ChartLookupKey.GetPrimaryHash(installedPackageEntry.Chart);
             if (string.IsNullOrWhiteSpace(lookupKey))
             {
                 reason = "current_package_hash_unavailable path=" + installedPackageEntry.Chart.Path;
@@ -1518,7 +1518,7 @@ internal sealed class BmsLibraryPackageInstallService
             List<PackageChartEntry> duplicateInBatchEntries = [];
             foreach (PackageChartEntry packageEntry in packageEntries)
             {
-                string lookupKey = packageEntry.Chart?.PrimaryLookupHash;
+                string lookupKey = ChartLookupKey.GetPrimaryHash(packageEntry.Chart);
                 if (string.IsNullOrWhiteSpace(lookupKey))
                 {
                     installTargetPackageEntries.Add(packageEntry);
@@ -1804,7 +1804,7 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     foreach (PackageChartEntry entry in packageEntries)
                     {
-                        string lookupKey = entry?.Chart?.PrimaryLookupHash;
+                        string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
                         if (!string.IsNullOrWhiteSpace(lookupKey))
                         {
                             mutableExistingHashes.AddPrimaryHash(lookupKey);

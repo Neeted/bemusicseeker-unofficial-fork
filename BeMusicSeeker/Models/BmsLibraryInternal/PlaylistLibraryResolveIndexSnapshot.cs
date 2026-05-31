@@ -81,15 +81,16 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     /// <returns>一致した chart。見つからない場合は null。</returns>
     internal LibraryChartRef ResolveChartForPlaylistEntry(BMSTableEntry entry)
     {
-        if (entry == null)
+        PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
+        if (!lookupKey.HasValue)
         {
             return null;
         }
-        if (!string.IsNullOrWhiteSpace(entry.md5) && ChartsByMd5.TryGetValue(entry.md5, out LibraryChartRef resolvedByMd5))
+        if (lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5 && ChartsByMd5.TryGetValue(lookupKey.Hash, out LibraryChartRef resolvedByMd5))
         {
             return resolvedByMd5;
         }
-        if (!string.IsNullOrWhiteSpace(entry.sha256) && ChartsBySha256.TryGetValue(entry.sha256, out LibraryChartRef resolvedBySha256))
+        if (lookupKey.Kind == PlaylistEntryLookupKeyKind.Sha256 && ChartsBySha256.TryGetValue(lookupKey.Hash, out LibraryChartRef resolvedBySha256))
         {
             return resolvedBySha256;
         }
@@ -120,16 +121,13 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
         Dictionary<string, LibraryChartRef> chartsBySha256,
         LibraryChartRef chart)
     {
-        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path) || string.IsNullOrWhiteSpace(chart.Md5))
         {
             return;
         }
-        if (!string.IsNullOrWhiteSpace(chart.Md5))
-        {
-            chartsByMd5[chart.Md5] = ChoosePreferredRepresentative(
-                chartsByMd5.TryGetValue(chart.Md5, out LibraryChartRef existingByMd5) ? existingByMd5 : null,
-                chart);
-        }
+        chartsByMd5[chart.Md5] = ChoosePreferredRepresentative(
+            chartsByMd5.TryGetValue(chart.Md5, out LibraryChartRef existingByMd5) ? existingByMd5 : null,
+            chart);
         if (!string.IsNullOrWhiteSpace(chart.Sha256))
         {
             chartsBySha256[chart.Sha256] = ChoosePreferredRepresentative(

@@ -37,7 +37,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
     }
 
     [TestMethod]
-    public void ApplyReferenceMap_FallsBackToSha256WhenMd5IsMissing()
+    public void ApplyReferenceMap_UsesSha256WhenMd5IsMissing()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         BMSTable table = CreateTable(CreateEntry(null, new string('a', 64)));
@@ -50,6 +50,23 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         Assert.AreEqual(1, maps.Sha256ToTablesMap.Count);
         Assert.AreEqual(1, matchedFiles);
         Assert.AreEqual(1, appliedCharts);
+    }
+
+    [TestMethod]
+    public void ApplyReferenceMap_DoesNotFallbackToSha256WhenEntryMd5Exists()
+    {
+        var service = new BmsLibraryPlaylistReferenceService(2);
+        string sha256 = new string('a', 64);
+        BMSTable table = CreateTable(CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sha256));
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sha256);
+
+        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
+        int appliedCharts = service.ApplyReferenceMap(ToChartRefs([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+
+        Assert.AreEqual(1, maps.Md5ToTablesMap.Count);
+        Assert.AreEqual(0, maps.Sha256ToTablesMap.Count);
+        Assert.AreEqual(0, matchedFiles);
+        Assert.AreEqual(0, appliedCharts);
     }
 
     [TestMethod]
@@ -185,6 +202,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         });
         LibraryChartRef chartRef = LibraryChartRef.FromChartFile(chart);
 
+        Assert.AreEqual(1, index.Md5Count);
+        Assert.AreEqual(0, index.Sha256Count);
         Assert.AreEqual("ID", index.Find(chart).Symbols);
         Assert.AreEqual("Identity", index.Find(chartRef).Names);
     }

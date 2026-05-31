@@ -4511,7 +4511,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         // 主キー(hash)でグループ化し、各グループで削除対象を決定
         var deletionList = new List<ChartFile>();
         foreach (var hashGroup in chartsInFolder
-            .Select(chart => new { Chart = chart, LookupHash = chart.PrimaryLookupHash })
+            .Select(chart => new { Chart = chart, LookupHash = ChartLookupKey.GetPrimaryHash(chart) })
             .Where(x => !string.IsNullOrWhiteSpace(x.LookupHash))
             .GroupBy(x => x.LookupHash, StringComparer.OrdinalIgnoreCase))
         {
@@ -5319,9 +5319,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             reason = string.Format(BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found, chart.InstallDestination);
             return false;
         }
-        if (!string.IsNullOrWhiteSpace(chart.PrimaryLookupHash)
+        string lookupHash = ChartLookupKey.GetPrimaryHash(chart);
+        if (!string.IsNullOrWhiteSpace(lookupHash)
             && base.DataContext is MainWindowViewModel mainWindowViewModel
-            && mainWindowViewModel.TryGetInstalledDirectoryByHash(chart.PrimaryLookupHash, out string installDir2))
+            && mainWindowViewModel.TryGetInstalledDirectoryByHash(lookupHash, out string installDir2))
         {
             installDir = installDir2;
             return true;

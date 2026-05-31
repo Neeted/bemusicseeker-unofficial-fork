@@ -118,10 +118,6 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
         {
             return CreateDistinctDirectoryList(md5DirectoryList);
         }
-        if (sha256Directories.TryGetValue(lookupHash, out IReadOnlyList<string> sha256DirectoryList) && sha256DirectoryList != null)
-        {
-            return CreateDistinctDirectoryList(sha256DirectoryList);
-        }
         return [];
     }
 
@@ -249,10 +245,6 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         {
             return CreateDirectoryList(md5Directories);
         }
-        if (sha256DirectoryCounts.TryGetValue(lookupHash, out Dictionary<string, int> sha256Directories) && sha256Directories != null)
-        {
-            return CreateDirectoryList(sha256Directories);
-        }
         return [];
     }
 
@@ -265,8 +257,12 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     internal void AddChart(string path, string md5, string sha256)
     {
+        if (string.IsNullOrWhiteSpace(md5))
+        {
+            return;
+        }
         string directory = GetDirectory(path);
-        string primaryHash = GetPrimaryHash(md5, sha256);
+        string primaryHash = GetPrimaryHash(md5);
         AddKnownDirectory(directory);
         AddDirectoryHash(md5DirectoryCounts, md5, directory);
         AddDirectoryHash(sha256DirectoryCounts, sha256, directory);
@@ -276,8 +272,12 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 
     internal void RemoveChart(string path, string md5, string sha256)
     {
+        if (string.IsNullOrWhiteSpace(md5))
+        {
+            return;
+        }
         string directory = GetDirectory(path);
-        string primaryHash = GetPrimaryHash(md5, sha256);
+        string primaryHash = GetPrimaryHash(md5);
         RemoveKnownDirectory(directory);
         RemoveDirectoryHash(md5DirectoryCounts, md5, directory);
         RemoveDirectoryHash(sha256DirectoryCounts, sha256, directory);
@@ -459,11 +459,9 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         return true;
     }
 
-    private static string GetPrimaryHash(string md5, string sha256)
+    private static string GetPrimaryHash(string md5)
     {
-        return !string.IsNullOrWhiteSpace(md5)
-            ? md5
-            : string.IsNullOrWhiteSpace(sha256) ? null : sha256;
+        return string.IsNullOrWhiteSpace(md5) ? null : md5;
     }
 
     private static string GetDirectory(string path)

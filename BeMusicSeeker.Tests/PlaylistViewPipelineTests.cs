@@ -2624,14 +2624,13 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreSame(earlierPath, preferred.GetBmsonStorageOwner());
         Assert.AreSame(earlierPath, resolvedMd5First.GetBmsonStorageOwner());
-        Assert.AreSame(shaOnly, resolvedBmson.GetBmsonStorageOwner());
+        Assert.IsNull(resolvedBmson);
     }
 
     [TestMethod]
-    public void ResolveChartForPlaylistEntry_FallsBackToSha256RepresentativeByPath()
+    public void ResolveChartForPlaylistEntry_UsesSha256RepresentativeByPathOnlyWhenMd5IsMissing()
     {
         var entry = new TestablePlaylistEntry();
-        entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         entry.SetSha256(new string('f', 64));
         var laterBms = new TestableBmsFile();
         laterBms.Apply("C:\\Songs\\Omega\\chart.bms", "BMS", "Artist", new string('1', 32));
@@ -2653,6 +2652,28 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreSame(earlierBmson, preferred.GetBmsonStorageOwner());
         Assert.AreSame(earlierBmson, resolved.GetBmsonStorageOwner());
+    }
+
+    [TestMethod]
+    public void ResolveChartForPlaylistEntry_DoesNotFallbackToSha256WhenMd5Exists()
+    {
+        var entry = new TestablePlaylistEntry();
+        entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        entry.SetSha256(new string('f', 64));
+        var shaMatch = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Sha\\chart.bmson",
+            md5 = new string('1', 32),
+            sha256 = entry.sha256
+        };
+
+        PlaylistLibraryResolveIndexSnapshot index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        [
+            LibraryChartRef.FromBmsonSong(shaMatch)
+        ]);
+        LibraryChartRef resolved = index.ResolveChartForPlaylistEntry(entry);
+
+        Assert.IsNull(resolved);
     }
 
     [TestMethod]
@@ -2682,6 +2703,31 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(index.ChartsByMd5.ContainsKey(md5Entry.md5));
         Assert.IsFalse(index.ChartsBySha256.ContainsKey(shaEntry.sha256));
         Assert.IsNull(index.ResolveChartForPlaylistEntry(md5Entry));
+        Assert.IsNull(index.ResolveChartForPlaylistEntry(shaEntry));
+    }
+
+    [TestMethod]
+    public void ResolveChartForPlaylistEntry_ExcludesMd5lessBmsAndBmsonRepresentatives()
+    {
+        var shaEntry = new TestablePlaylistEntry();
+        shaEntry.SetSha256(new string('c', 64));
+        var md5lessBms = new TestableBmsFile();
+        md5lessBms.Apply("C:\\Songs\\Bms\\chart.bms", "BMS", "Artist", string.Empty);
+        md5lessBms.SetSha256(shaEntry.sha256);
+        var md5lessBmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            md5 = null,
+            sha256 = shaEntry.sha256
+        };
+
+        PlaylistLibraryResolveIndexSnapshot index = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+        [
+            LibraryChartRef.FromBmsFile(md5lessBms),
+            LibraryChartRef.FromBmsonSong(md5lessBmson)
+        ]);
+
+        Assert.IsFalse(index.ChartsBySha256.ContainsKey(shaEntry.sha256));
         Assert.IsNull(index.ResolveChartForPlaylistEntry(shaEntry));
     }
 

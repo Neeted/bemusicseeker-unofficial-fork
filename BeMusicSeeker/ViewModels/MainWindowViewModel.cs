@@ -21438,7 +21438,7 @@ public class MainWindowViewModel : ViewModel
                 return "path:" + chart.Path;
             }
 
-            string hash = chart.PrimaryLookupHash;
+            string hash = ChartLookupKey.GetPrimaryHash(chart);
             return string.IsNullOrWhiteSpace(hash) ? null : "hash:" + hash;
         }
 
