@@ -86,17 +86,44 @@ internal readonly struct BmsonLibraryRowCacheSyncResult
 internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySortCacheKey>
 {
     internal NormalLibrarySortCacheKey(long sourceGeneration, long sortKeyGeneration, string columnName, ListSortDirection direction, int rowCount)
-        : this(sourceGeneration, sortKeyGeneration, 0, 0, 0, columnName, direction, rowCount)
+        : this(sourceGeneration, sortKeyGeneration, 0, 0, 0, 0, 0, 0, columnName, direction, rowCount)
     {
     }
 
-    internal NormalLibrarySortCacheKey(long sourceGeneration, long sortKeyGeneration, int scoreGeneration, int chartInfoGeneration, int maintenanceGeneration, string columnName, ListSortDirection direction, int rowCount)
+    internal NormalLibrarySortCacheKey(
+        long sourceGeneration,
+        long sortKeyGeneration,
+        long scoreGeneration,
+        long chartInfoGeneration,
+        long maintenanceGeneration,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount)
+        : this(sourceGeneration, sortKeyGeneration, scoreGeneration, chartInfoGeneration, maintenanceGeneration, 0, 0, 0, columnName, direction, rowCount)
+    {
+    }
+
+    internal NormalLibrarySortCacheKey(
+        long sourceGeneration,
+        long sortKeyGeneration,
+        long scoreGeneration,
+        long chartInfoGeneration,
+        long maintenanceGeneration,
+        long warningGeneration,
+        long installDestinationGeneration,
+        long referenceTablesGeneration,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount)
     {
         SourceGeneration = sourceGeneration;
         SortKeyGeneration = sortKeyGeneration;
         ScoreGeneration = scoreGeneration;
         ChartInfoGeneration = chartInfoGeneration;
         MaintenanceGeneration = maintenanceGeneration;
+        WarningGeneration = warningGeneration;
+        InstallDestinationGeneration = installDestinationGeneration;
+        ReferenceTablesGeneration = referenceTablesGeneration;
         ColumnName = columnName ?? string.Empty;
         Direction = direction;
         RowCount = rowCount;
@@ -106,11 +133,17 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
 
     internal long SortKeyGeneration { get; }
 
-    internal int ScoreGeneration { get; }
+    internal long ScoreGeneration { get; }
 
-    internal int ChartInfoGeneration { get; }
+    internal long ChartInfoGeneration { get; }
 
-    internal int MaintenanceGeneration { get; }
+    internal long MaintenanceGeneration { get; }
+
+    internal long WarningGeneration { get; }
+
+    internal long InstallDestinationGeneration { get; }
+
+    internal long ReferenceTablesGeneration { get; }
 
     internal string ColumnName { get; }
 
@@ -125,6 +158,9 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
             && ScoreGeneration == other.ScoreGeneration
             && ChartInfoGeneration == other.ChartInfoGeneration
             && MaintenanceGeneration == other.MaintenanceGeneration
+            && WarningGeneration == other.WarningGeneration
+            && InstallDestinationGeneration == other.InstallDestinationGeneration
+            && ReferenceTablesGeneration == other.ReferenceTablesGeneration
             && string.Equals(ColumnName, other.ColumnName, StringComparison.Ordinal)
             && Direction == other.Direction
             && RowCount == other.RowCount;
@@ -141,9 +177,12 @@ internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySor
         {
             int hashCode = SourceGeneration.GetHashCode();
             hashCode = (hashCode * 397) ^ SortKeyGeneration.GetHashCode();
-            hashCode = (hashCode * 397) ^ ScoreGeneration;
-            hashCode = (hashCode * 397) ^ ChartInfoGeneration;
-            hashCode = (hashCode * 397) ^ MaintenanceGeneration;
+            hashCode = (hashCode * 397) ^ ScoreGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ ChartInfoGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ MaintenanceGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ WarningGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ InstallDestinationGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ ReferenceTablesGeneration.GetHashCode();
             hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(ColumnName ?? string.Empty);
             hashCode = (hashCode * 397) ^ (int)Direction;
             hashCode = (hashCode * 397) ^ RowCount;
@@ -157,9 +196,42 @@ internal readonly struct VirtualChartSubsetSortCacheKey : IEquatable<VirtualChar
     internal VirtualChartSubsetSortCacheKey(
         long sourceGeneration,
         long sortKeyGeneration,
-        int scoreGeneration,
-        int chartInfoGeneration,
-        int maintenanceGeneration,
+        long scoreGeneration,
+        long chartInfoGeneration,
+        long maintenanceGeneration,
+        int treeMode,
+        string subsetName,
+        long sourceRowsSignature,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount)
+        : this(
+            sourceGeneration,
+            sortKeyGeneration,
+            scoreGeneration,
+            chartInfoGeneration,
+            maintenanceGeneration,
+            0,
+            0,
+            0,
+            treeMode,
+            subsetName,
+            sourceRowsSignature,
+            columnName,
+            direction,
+            rowCount)
+    {
+    }
+
+    internal VirtualChartSubsetSortCacheKey(
+        long sourceGeneration,
+        long sortKeyGeneration,
+        long scoreGeneration,
+        long chartInfoGeneration,
+        long maintenanceGeneration,
+        long warningGeneration,
+        long installDestinationGeneration,
+        long referenceTablesGeneration,
         int treeMode,
         string subsetName,
         long sourceRowsSignature,
@@ -172,6 +244,9 @@ internal readonly struct VirtualChartSubsetSortCacheKey : IEquatable<VirtualChar
         ScoreGeneration = scoreGeneration;
         ChartInfoGeneration = chartInfoGeneration;
         MaintenanceGeneration = maintenanceGeneration;
+        WarningGeneration = warningGeneration;
+        InstallDestinationGeneration = installDestinationGeneration;
+        ReferenceTablesGeneration = referenceTablesGeneration;
         TreeMode = treeMode;
         SubsetName = subsetName ?? string.Empty;
         SourceRowsSignature = sourceRowsSignature;
@@ -184,11 +259,17 @@ internal readonly struct VirtualChartSubsetSortCacheKey : IEquatable<VirtualChar
 
     internal long SortKeyGeneration { get; }
 
-    internal int ScoreGeneration { get; }
+    internal long ScoreGeneration { get; }
 
-    internal int ChartInfoGeneration { get; }
+    internal long ChartInfoGeneration { get; }
 
-    internal int MaintenanceGeneration { get; }
+    internal long MaintenanceGeneration { get; }
+
+    internal long WarningGeneration { get; }
+
+    internal long InstallDestinationGeneration { get; }
+
+    internal long ReferenceTablesGeneration { get; }
 
     internal int TreeMode { get; }
 
@@ -209,6 +290,9 @@ internal readonly struct VirtualChartSubsetSortCacheKey : IEquatable<VirtualChar
             && ScoreGeneration == other.ScoreGeneration
             && ChartInfoGeneration == other.ChartInfoGeneration
             && MaintenanceGeneration == other.MaintenanceGeneration
+            && WarningGeneration == other.WarningGeneration
+            && InstallDestinationGeneration == other.InstallDestinationGeneration
+            && ReferenceTablesGeneration == other.ReferenceTablesGeneration
             && TreeMode == other.TreeMode
             && string.Equals(SubsetName, other.SubsetName, StringComparison.Ordinal)
             && SourceRowsSignature == other.SourceRowsSignature
@@ -228,9 +312,12 @@ internal readonly struct VirtualChartSubsetSortCacheKey : IEquatable<VirtualChar
         {
             int hashCode = SourceGeneration.GetHashCode();
             hashCode = (hashCode * 397) ^ SortKeyGeneration.GetHashCode();
-            hashCode = (hashCode * 397) ^ ScoreGeneration;
-            hashCode = (hashCode * 397) ^ ChartInfoGeneration;
-            hashCode = (hashCode * 397) ^ MaintenanceGeneration;
+            hashCode = (hashCode * 397) ^ ScoreGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ ChartInfoGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ MaintenanceGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ WarningGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ InstallDestinationGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ ReferenceTablesGeneration.GetHashCode();
             hashCode = (hashCode * 397) ^ TreeMode;
             hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(SubsetName ?? string.Empty);
             hashCode = (hashCode * 397) ^ SourceRowsSignature.GetHashCode();
@@ -339,7 +426,8 @@ internal enum MainViewDataDependency
     ChartInfo,
     Score,
     Maintenance,
-    Warning
+    Warning,
+    ReferenceTables
 }
 
 internal enum MainViewRefreshAction
@@ -5667,7 +5755,7 @@ public class MainWindowViewModel : ViewModel
 
     private int virtualNormalLibraryOrderPrewarmRunId;
 
-    private const int StartupVirtualNormalLibraryOrderPrewarmMaxPriority = 1;
+    private const int StartupVirtualNormalLibraryOrderPrewarmMaxPriority = 3;
 
     private int chartInfoProjectionVersionCache;
 
@@ -5676,6 +5764,14 @@ public class MainWindowViewModel : ViewModel
     private long normalLibrarySourceGeneration;
 
     private long normalLibrarySortKeyGeneration;
+
+    private long normalLibraryWarningGeneration;
+
+    private long normalLibraryInstallDestinationGeneration;
+
+    private long normalLibraryMaintenanceGeneration;
+
+    private long normalLibraryReferenceTablesGeneration;
 
     private int normalLibrarySourceHandledOwnedCollectionVersion;
 
@@ -8428,6 +8524,7 @@ public class MainWindowViewModel : ViewModel
             case MainViewDataDependency.Maintenance:
             case MainViewDataDependency.Warning:
             case MainViewDataDependency.InstallDestination:
+            case MainViewDataDependency.ReferenceTables:
                 break;
             default:
                 return false;
@@ -8437,7 +8534,8 @@ public class MainWindowViewModel : ViewModel
             || sortDependency == MainViewDataDependency.ChartInfo
             || sortDependency == MainViewDataDependency.Score
             || sortDependency == MainViewDataDependency.Maintenance
-            || sortDependency == MainViewDataDependency.Warning;
+            || sortDependency == MainViewDataDependency.Warning
+            || sortDependency == MainViewDataDependency.ReferenceTables;
     }
 
     internal static MainViewDataDependency GetMainViewSortColumnDependencyForTest(string columnName)
@@ -8459,7 +8557,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (string.Equals(columnName, nameof(LibraryChartRow.RefTablesSymbols), StringComparison.Ordinal))
         {
-            return MainViewDataDependency.IdentitySortKey;
+            return MainViewDataDependency.ReferenceTables;
         }
         if (IsMainViewScoreSortColumn(columnName))
         {
@@ -10070,8 +10168,57 @@ public class MainWindowViewModel : ViewModel
         if (string.Equals(reason, NormalLibraryReferenceTablesChangedReason, StringComparison.Ordinal))
         {
             NotifyBmsonPlaylistReferenceDisplayChanged();
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.ReferenceTables, reason);
+            return;
+        }
+        if (string.Equals(reason, NormalLibraryInstallDestinationChangedReason, StringComparison.Ordinal))
+        {
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, reason);
+            return;
+        }
+        if (string.Equals(reason, NormalLibraryMaintenanceChangedReason, StringComparison.Ordinal))
+        {
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, reason);
+            return;
+        }
+        if (string.Equals(reason, NormalLibraryWarningChangedReason, StringComparison.Ordinal))
+        {
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, reason);
+            return;
         }
         OnNormalLibrarySortKeyChanged(reason ?? string.Empty);
+    }
+
+    private void InvalidateNormalLibrarySortDependency(MainViewDataDependency dependency, string reason)
+    {
+        int cacheCount;
+        int removedCount;
+        lock (normalLibrarySortCacheLock)
+        {
+            IncrementNormalLibrarySortDependencyGenerationLocked(dependency);
+            cacheCount = GetNormalLibraryCacheCountLocked();
+            removedCount = PruneNormalLibrarySortCachesForDependencyLocked(dependency);
+        }
+        LogNormalLibrarySortCacheInvalidation("dependency", reason, cacheCount, dependency, removedCount);
+    }
+
+    private void IncrementNormalLibrarySortDependencyGenerationLocked(MainViewDataDependency dependency)
+    {
+        switch (dependency)
+        {
+            case MainViewDataDependency.Warning:
+                normalLibraryWarningGeneration++;
+                break;
+            case MainViewDataDependency.InstallDestination:
+                normalLibraryInstallDestinationGeneration++;
+                break;
+            case MainViewDataDependency.Maintenance:
+                normalLibraryMaintenanceGeneration++;
+                break;
+            case MainViewDataDependency.ReferenceTables:
+                normalLibraryReferenceTablesGeneration++;
+                break;
+        }
     }
 
     private void InvalidateNormalLibrarySortKeysForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reason = null)
@@ -10241,6 +10388,57 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private int PruneNormalLibrarySortCachesForDependencyLocked(MainViewDataDependency dependency)
+    {
+        int removedCount = 0;
+        removedCount += PruneNormalLibrarySortCacheForDependencyLocked(normalLibrarySortCache, dependency);
+        removedCount += PruneNormalLibrarySortCacheForDependencyLocked(virtualNormalLibraryOrderCache, dependency);
+        removedCount += PruneVirtualChartSubsetSortCacheForDependencyLocked(dependency);
+        return removedCount;
+    }
+
+    private static int PruneNormalLibrarySortCacheForDependencyLocked<TValue>(Dictionary<NormalLibrarySortCacheKey, TValue> cache, MainViewDataDependency dependency)
+    {
+        if (cache == null || cache.Count == 0)
+        {
+            return 0;
+        }
+        NormalLibrarySortCacheKey[] keys = [.. cache.Keys.Where(key => DoesVirtualSortColumnDependOn(key.ColumnName, dependency))];
+        foreach (NormalLibrarySortCacheKey key in keys)
+        {
+            cache.Remove(key);
+        }
+        return keys.Length;
+    }
+
+    private int PruneVirtualChartSubsetSortCacheForDependencyLocked(MainViewDataDependency dependency)
+    {
+        if (virtualChartSubsetOrderCache.Count == 0)
+        {
+            return 0;
+        }
+        VirtualChartSubsetSortCacheKey[] keys = [.. virtualChartSubsetOrderCache.Keys.Where(key => DoesVirtualSortColumnDependOn(key.ColumnName, dependency))];
+        foreach (VirtualChartSubsetSortCacheKey key in keys)
+        {
+            virtualChartSubsetOrderCache.Remove(key);
+        }
+        return keys.Length;
+    }
+
+    private static bool DoesVirtualSortColumnDependOn(string columnName, MainViewDataDependency dependency)
+    {
+        if (!ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
+        {
+            return false;
+        }
+        if (metadata.Dependency == dependency)
+        {
+            return true;
+        }
+        return metadata.Dependency == MainViewDataDependency.Warning
+            && (dependency == MainViewDataDependency.InstallDestination || dependency == MainViewDataDependency.Maintenance);
+    }
+
     private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
     {
         if (string.IsNullOrWhiteSpace(reason))
@@ -10266,6 +10464,21 @@ public class MainWindowViewModel : ViewModel
             + " cacheCountBefore=" + cacheCountBefore
             + " sourceGeneration=" + normalLibrarySourceGeneration
             + " sortKeyGeneration=" + normalLibrarySortKeyGeneration);
+    }
+
+    private void LogNormalLibrarySortCacheInvalidation(string reason, string detail, int cacheCountBefore, MainViewDataDependency dependency, int removedCount)
+    {
+        LogMainViewBuild("normal_library_sort_cache_invalidate reason=" + (reason ?? string.Empty)
+            + " detail=" + (detail ?? string.Empty)
+            + " dependency=" + dependency
+            + " cacheCountBefore=" + cacheCountBefore
+            + " removed=" + removedCount
+            + " sourceGeneration=" + normalLibrarySourceGeneration
+            + " sortKeyGeneration=" + normalLibrarySortKeyGeneration
+            + " warningGeneration=" + normalLibraryWarningGeneration
+            + " installDestinationGeneration=" + normalLibraryInstallDestinationGeneration
+            + " maintenanceGeneration=" + normalLibraryMaintenanceGeneration
+            + " referenceTablesGeneration=" + normalLibraryReferenceTablesGeneration);
     }
 
     private int PruneRegularBmsLibraryRowCacheByBmsFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
@@ -11011,8 +11224,7 @@ public class MainWindowViewModel : ViewModel
         {
             lock (normalLibrarySortCacheLock)
             {
-                if (normalLibrarySourceGeneration == sourceGeneration
-                    && normalLibrarySortKeyGeneration == sortKeyGeneration)
+                if (IsNormalLibrarySortCacheKeyCurrentLocked(cacheKey))
                 {
                     virtualNormalLibraryOrderCache[cacheKey] = order;
                 }
@@ -11076,8 +11288,7 @@ public class MainWindowViewModel : ViewModel
         buildStopwatch.Stop();
         lock (normalLibrarySortCacheLock)
         {
-            if (normalLibrarySourceGeneration == sourceGeneration
-                && normalLibrarySortKeyGeneration == sortKeyGeneration)
+            if (IsVirtualChartSubsetSortCacheKeyCurrentLocked(cacheKey))
             {
                 virtualChartSubsetOrderCache[cacheKey] = order;
             }
@@ -11098,15 +11309,21 @@ public class MainWindowViewModel : ViewModel
     {
         ResolveVirtualSortDependencyGenerations(
             columnName,
-            out int scoreGeneration,
-            out int chartInfoGeneration,
-            out int maintenanceGeneration);
+            out long scoreGeneration,
+            out long chartInfoGeneration,
+            out long maintenanceGeneration,
+            out long warningGeneration,
+            out long installDestinationGeneration,
+            out long referenceTablesGeneration);
         return new NormalLibrarySortCacheKey(
             sourceGeneration,
             sortKeyGeneration,
             scoreGeneration,
             chartInfoGeneration,
             maintenanceGeneration,
+            warningGeneration,
+            installDestinationGeneration,
+            referenceTablesGeneration,
             columnName,
             direction,
             rowCount);
@@ -11124,15 +11341,21 @@ public class MainWindowViewModel : ViewModel
     {
         ResolveVirtualSortDependencyGenerations(
             columnName,
-            out int scoreGeneration,
-            out int chartInfoGeneration,
-            out int maintenanceGeneration);
+            out long scoreGeneration,
+            out long chartInfoGeneration,
+            out long maintenanceGeneration,
+            out long warningGeneration,
+            out long installDestinationGeneration,
+            out long referenceTablesGeneration);
         return new VirtualChartSubsetSortCacheKey(
             sourceGeneration,
             sortKeyGeneration,
             scoreGeneration,
             chartInfoGeneration,
             maintenanceGeneration,
+            warningGeneration,
+            installDestinationGeneration,
+            referenceTablesGeneration,
             (int)treeMode,
             subsetName,
             sourceRowsSignature,
@@ -11141,11 +11364,21 @@ public class MainWindowViewModel : ViewModel
             rowCount);
     }
 
-    private void ResolveVirtualSortDependencyGenerations(string columnName, out int scoreGeneration, out int chartInfoGeneration, out int maintenanceGeneration)
+    private void ResolveVirtualSortDependencyGenerations(
+        string columnName,
+        out long scoreGeneration,
+        out long chartInfoGeneration,
+        out long maintenanceGeneration,
+        out long warningGeneration,
+        out long installDestinationGeneration,
+        out long referenceTablesGeneration)
     {
         scoreGeneration = 0;
         chartInfoGeneration = 0;
         maintenanceGeneration = 0;
+        warningGeneration = 0;
+        installDestinationGeneration = 0;
+        referenceTablesGeneration = 0;
         if (ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
         {
             switch (metadata.Dependency)
@@ -11157,10 +11390,67 @@ public class MainWindowViewModel : ViewModel
                     chartInfoGeneration = files?.ChartInfoIndexVersion ?? 0;
                     break;
                 case MainViewDataDependency.Maintenance:
-                    maintenanceGeneration = files?.MaintenanceHydrationCompletedVersion ?? 0;
+                    maintenanceGeneration = GetNormalLibraryMaintenanceSortGeneration();
+                    break;
+                case MainViewDataDependency.Warning:
+                    warningGeneration = normalLibraryWarningGeneration;
+                    installDestinationGeneration = normalLibraryInstallDestinationGeneration;
+                    maintenanceGeneration = GetNormalLibraryMaintenanceSortGeneration();
+                    break;
+                case MainViewDataDependency.InstallDestination:
+                    installDestinationGeneration = normalLibraryInstallDestinationGeneration;
+                    break;
+                case MainViewDataDependency.ReferenceTables:
+                    referenceTablesGeneration = normalLibraryReferenceTablesGeneration;
                     break;
             }
         }
+    }
+
+    private long GetNormalLibraryMaintenanceSortGeneration()
+    {
+        long hydrationVersion = files?.MaintenanceHydrationCompletedVersion ?? 0;
+        return (hydrationVersion << 32) ^ (normalLibraryMaintenanceGeneration & 0xffffffffL);
+    }
+
+    private bool IsNormalLibrarySortCacheKeyCurrentLocked(NormalLibrarySortCacheKey key)
+    {
+        ResolveVirtualSortDependencyGenerations(
+            key.ColumnName,
+            out long scoreGeneration,
+            out long chartInfoGeneration,
+            out long maintenanceGeneration,
+            out long warningGeneration,
+            out long installDestinationGeneration,
+            out long referenceTablesGeneration);
+        return normalLibrarySourceGeneration == key.SourceGeneration
+            && normalLibrarySortKeyGeneration == key.SortKeyGeneration
+            && scoreGeneration == key.ScoreGeneration
+            && chartInfoGeneration == key.ChartInfoGeneration
+            && maintenanceGeneration == key.MaintenanceGeneration
+            && warningGeneration == key.WarningGeneration
+            && installDestinationGeneration == key.InstallDestinationGeneration
+            && referenceTablesGeneration == key.ReferenceTablesGeneration;
+    }
+
+    private bool IsVirtualChartSubsetSortCacheKeyCurrentLocked(VirtualChartSubsetSortCacheKey key)
+    {
+        ResolveVirtualSortDependencyGenerations(
+            key.ColumnName,
+            out long scoreGeneration,
+            out long chartInfoGeneration,
+            out long maintenanceGeneration,
+            out long warningGeneration,
+            out long installDestinationGeneration,
+            out long referenceTablesGeneration);
+        return normalLibrarySourceGeneration == key.SourceGeneration
+            && normalLibrarySortKeyGeneration == key.SortKeyGeneration
+            && scoreGeneration == key.ScoreGeneration
+            && chartInfoGeneration == key.ChartInfoGeneration
+            && maintenanceGeneration == key.MaintenanceGeneration
+            && warningGeneration == key.WarningGeneration
+            && installDestinationGeneration == key.InstallDestinationGeneration
+            && referenceTablesGeneration == key.ReferenceTablesGeneration;
     }
 
     private static long GetSortCacheGenerationForLog(NormalLibrarySortCacheKey key)
@@ -11172,6 +11462,18 @@ public class MainWindowViewModel : ViewModel
         if (key.ChartInfoGeneration != 0)
         {
             return key.ChartInfoGeneration;
+        }
+        if (key.WarningGeneration != 0)
+        {
+            return key.WarningGeneration;
+        }
+        if (key.InstallDestinationGeneration != 0)
+        {
+            return key.InstallDestinationGeneration;
+        }
+        if (key.ReferenceTablesGeneration != 0)
+        {
+            return key.ReferenceTablesGeneration;
         }
         if (key.MaintenanceGeneration != 0)
         {
@@ -11189,6 +11491,18 @@ public class MainWindowViewModel : ViewModel
         if (key.ChartInfoGeneration != 0)
         {
             return key.ChartInfoGeneration;
+        }
+        if (key.WarningGeneration != 0)
+        {
+            return key.WarningGeneration;
+        }
+        if (key.InstallDestinationGeneration != 0)
+        {
+            return key.InstallDestinationGeneration;
+        }
+        if (key.ReferenceTablesGeneration != 0)
+        {
+            return key.ReferenceTablesGeneration;
         }
         if (key.MaintenanceGeneration != 0)
         {
@@ -11361,6 +11675,7 @@ public class MainWindowViewModel : ViewModel
         var stopwatch = Stopwatch.StartNew();
         int cacheHitCount = 0;
         int builtCount = 0;
+        int staleSkippedCount = 0;
         int descriptorCount = descriptors?.Count ?? 0;
         int degree = ResolveVirtualNormalLibraryOrderPrewarmDegree(descriptorCount);
         int priority1Count = CountPrewarmDescriptorsByPriority(descriptors, 1);
@@ -11395,41 +11710,115 @@ public class MainWindowViewModel : ViewModel
                     + " descriptorCount=" + descriptorCount
                     + " degree=" + degree
                     + " completedDescriptors=0"
+                    + " staleSkipped=" + descriptorCount
+                    + " sourceGeneration=" + sourceGeneration
+                    + " sortKeyGeneration=" + sortKeyGeneration
                     + " rowCount=" + rowCount
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 return;
             }
-            Parallel.ForEach(
-                descriptors ?? [],
-                new ParallelOptions { MaxDegreeOfParallelism = degree },
-                (descriptor, loopState) =>
+            foreach (IGrouping<int, VirtualNormalLibrarySortDescriptor> stage in (descriptors ?? []).GroupBy(descriptor => descriptor.PrewarmPriority).OrderBy(group => group.Key))
+            {
+                VirtualNormalLibrarySortDescriptor[] stageDescriptors = [.. stage];
+                int stageDescriptorCount = stageDescriptors.Length;
+                int stageDegree = ResolveVirtualNormalLibraryOrderPrewarmDegree(stageDescriptorCount);
+                int stageCacheHitCount = 0;
+                int stageBuiltCount = 0;
+                int stageStaleDetected = 0;
+                var stageStopwatch = Stopwatch.StartNew();
+                if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
                 {
-                    if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+                    stageStopwatch.Stop();
+                    staleSkippedCount += stageDescriptorCount;
+                    LogMainViewBuild("virtual_order_prewarm stage_stale_skipped reason=" + (reason ?? string.Empty)
+                        + " runId=" + runId
+                        + " priority=" + stage.Key
+                        + " descriptorCount=" + stageDescriptorCount
+                        + " degree=" + stageDegree
+                        + " completedDescriptors=0"
+                        + " staleSkipped=" + stageDescriptorCount
+                        + " sourceGeneration=" + sourceGeneration
+                        + " sortKeyGeneration=" + sortKeyGeneration
+                        + " rowCount=" + rowCount
+                        + " elapsedMs=" + stageStopwatch.ElapsedMilliseconds);
+                    break;
+                }
+                LogMainViewBuild("virtual_order_prewarm stage_start reason=" + (reason ?? string.Empty)
+                    + " runId=" + runId
+                    + " priority=" + stage.Key
+                    + " descriptorCount=" + stageDescriptorCount
+                    + " degree=" + stageDegree
+                    + " sourceGeneration=" + sourceGeneration
+                    + " sortKeyGeneration=" + sortKeyGeneration
+                    + " rowCount=" + rowCount);
+                Parallel.ForEach(
+                    stageDescriptors,
+                    new ParallelOptions { MaxDegreeOfParallelism = stageDegree },
+                    (descriptor, loopState) =>
                     {
-                        Interlocked.Exchange(ref staleDetected, 1);
-                        loopState.Stop();
-                        return;
-                    }
-                    _ = GetOrCreateVirtualNormalLibraryOrder(
-                        sourceRows,
-                        descriptor.ColumnName,
-                        descriptor.Direction,
-                        sourceGeneration,
-                        sortKeyGeneration,
-                        useCache: true,
-                        out bool cacheHit,
-                        out _,
-                        out _,
-                        out _);
-                    if (cacheHit)
-                    {
-                        Interlocked.Increment(ref cacheHitCount);
-                    }
-                    else
-                    {
-                        Interlocked.Increment(ref builtCount);
-                    }
-                });
+                        if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+                        {
+                            Interlocked.Exchange(ref stageStaleDetected, 1);
+                            loopState.Stop();
+                            return;
+                        }
+                        _ = GetOrCreateVirtualNormalLibraryOrder(
+                            sourceRows,
+                            descriptor.ColumnName,
+                            descriptor.Direction,
+                            sourceGeneration,
+                            sortKeyGeneration,
+                            useCache: true,
+                            out bool cacheHit,
+                            out _,
+                            out _,
+                            out _);
+                        if (cacheHit)
+                        {
+                            Interlocked.Increment(ref stageCacheHitCount);
+                        }
+                        else
+                        {
+                            Interlocked.Increment(ref stageBuiltCount);
+                        }
+                    });
+                stageStopwatch.Stop();
+                int completedStageDescriptors = stageCacheHitCount + stageBuiltCount;
+                cacheHitCount += stageCacheHitCount;
+                builtCount += stageBuiltCount;
+                if (Volatile.Read(ref stageStaleDetected) != 0 || !IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
+                {
+                    int stageStaleSkipped = Math.Max(0, stageDescriptorCount - completedStageDescriptors);
+                    staleSkippedCount += stageStaleSkipped;
+                    Interlocked.Exchange(ref staleDetected, 1);
+                    LogMainViewBuild("virtual_order_prewarm stage_stale_skipped reason=" + (reason ?? string.Empty)
+                        + " runId=" + runId
+                        + " priority=" + stage.Key
+                        + " descriptorCount=" + stageDescriptorCount
+                        + " degree=" + stageDegree
+                        + " completedDescriptors=" + completedStageDescriptors
+                        + " staleSkipped=" + stageStaleSkipped
+                        + " sourceGeneration=" + sourceGeneration
+                        + " sortKeyGeneration=" + sortKeyGeneration
+                        + " rowCount=" + rowCount
+                        + " cacheHit=" + stageCacheHitCount
+                        + " built=" + stageBuiltCount
+                        + " elapsedMs=" + stageStopwatch.ElapsedMilliseconds);
+                    break;
+                }
+                LogMainViewBuild("virtual_order_prewarm stage_done reason=" + (reason ?? string.Empty)
+                    + " runId=" + runId
+                    + " priority=" + stage.Key
+                    + " descriptorCount=" + stageDescriptorCount
+                    + " degree=" + stageDegree
+                    + " sourceGeneration=" + sourceGeneration
+                    + " sortKeyGeneration=" + sortKeyGeneration
+                    + " rowCount=" + rowCount
+                    + " cacheHit=" + stageCacheHitCount
+                    + " built=" + stageBuiltCount
+                    + " staleSkipped=0"
+                    + " elapsedMs=" + stageStopwatch.ElapsedMilliseconds);
+            }
             stopwatch.Stop();
             if (Volatile.Read(ref staleDetected) != 0 || !IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
             {
@@ -11438,6 +11827,9 @@ public class MainWindowViewModel : ViewModel
                     + " descriptorCount=" + descriptorCount
                     + " degree=" + degree
                     + " completedDescriptors=" + (cacheHitCount + builtCount)
+                    + " staleSkipped=" + staleSkippedCount
+                    + " sourceGeneration=" + sourceGeneration
+                    + " sortKeyGeneration=" + sortKeyGeneration
                     + " rowCount=" + rowCount
                     + " cacheHit=" + cacheHitCount
                     + " built=" + builtCount
@@ -11455,6 +11847,9 @@ public class MainWindowViewModel : ViewModel
                 + " sourceRowsReuse=" + sourceRowsCacheHit
                 + " cacheHit=" + cacheHitCount
                 + " built=" + builtCount
+                + " staleSkipped=" + staleSkippedCount
+                + " sourceGeneration=" + sourceGeneration
+                + " sortKeyGeneration=" + sortKeyGeneration
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
         catch (Exception ex)
@@ -11467,6 +11862,9 @@ public class MainWindowViewModel : ViewModel
                 + " rowCount=" + rowCount
                 + " cacheHit=" + cacheHitCount
                 + " built=" + builtCount
+                + " staleSkipped=" + staleSkippedCount
+                + " sourceGeneration=" + sourceGeneration
+                + " sortKeyGeneration=" + sortKeyGeneration
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
                 + " message=" + SanitizeStartupBackgroundSummaryValue(ex.Message));
@@ -16438,7 +16836,12 @@ public class MainWindowViewModel : ViewModel
                     NormalLibrarySortCacheKey newCacheKey;
                     lock (normalLibrarySortCacheLock)
                     {
-                        newCacheKey = new NormalLibrarySortCacheKey(normalLibrarySourceGeneration, normalLibrarySortKeyGeneration, normalizedCacheColumnName, direction, sortedRows.Count);
+                        newCacheKey = CreateNormalLibrarySortCacheKey(
+                            normalLibrarySourceGeneration,
+                            normalLibrarySortKeyGeneration,
+                            normalizedCacheColumnName,
+                            direction,
+                            sortedRows.Count);
                     }
                     StoreNormalLibrarySortCache(newCacheKey, sortedRows);
                     sortMetrics = new LibraryChartSortMetrics(
@@ -16451,7 +16854,7 @@ public class MainWindowViewModel : ViewModel
                         sortMetrics.SortMs,
                         sortReuse: false,
                         sortCacheKey: normalizedCacheColumnName,
-                        sortCacheGeneration: newCacheKey.SortKeyGeneration,
+                        sortCacheGeneration: GetSortCacheGenerationForLog(newCacheKey),
                         sortCacheHit: false);
                 }
                 LogMainSortDetail(sortMetrics);
@@ -16602,7 +17005,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (normalLibrarySortCacheLock)
         {
-            cacheKey = new NormalLibrarySortCacheKey(normalLibrarySourceGeneration, normalLibrarySortKeyGeneration, cacheColumnName, direction, rowCount);
+            cacheKey = CreateNormalLibrarySortCacheKey(normalLibrarySourceGeneration, normalLibrarySortKeyGeneration, cacheColumnName, direction, rowCount);
             return normalLibrarySortCache.TryGetValue(cacheKey, out rows);
         }
     }
@@ -16615,7 +17018,10 @@ public class MainWindowViewModel : ViewModel
         }
         lock (normalLibrarySortCacheLock)
         {
-            normalLibrarySortCache[cacheKey] = rows;
+            if (IsNormalLibrarySortCacheKeyCurrentLocked(cacheKey))
+            {
+                normalLibrarySortCache[cacheKey] = rows;
+            }
         }
     }
 
@@ -16644,7 +17050,7 @@ public class MainWindowViewModel : ViewModel
             sortMs,
             sortReuse: cacheHit,
             sortCacheKey: cacheKey.ColumnName,
-            sortCacheGeneration: cacheKey.SortKeyGeneration,
+            sortCacheGeneration: GetSortCacheGenerationForLog(cacheKey),
             sortCacheHit: cacheHit);
     }
 

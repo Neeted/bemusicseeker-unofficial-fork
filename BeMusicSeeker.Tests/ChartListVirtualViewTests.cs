@@ -779,6 +779,10 @@ public sealed class ChartListVirtualViewTests
         Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 2, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
         Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 3, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
         Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 4, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
+        var dependencyAware = new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 4, 5, 6, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count);
+        Assert.AreNotEqual(dependencyAware, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 7, 5, 6, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(dependencyAware, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 4, 8, 6, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count));
+        Assert.AreNotEqual(dependencyAware, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 4, 5, 9, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count));
         Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
         Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "duplicate_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
         Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", reorderedSignature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
@@ -817,6 +821,7 @@ public sealed class ChartListVirtualViewTests
         AssertRegistryDependency(metadata, MainViewDataDependency.Maintenance, nameof(LibraryChartRow.WAVHealth));
         AssertRegistryDependency(metadata, MainViewDataDependency.Maintenance, nameof(LibraryChartRow.encoding));
         AssertRegistryDependency(metadata, MainViewDataDependency.Warning, nameof(LibraryChartRow.WarningDigestText));
+        AssertRegistryDependency(metadata, MainViewDataDependency.ReferenceTables, nameof(LibraryChartRow.RefTablesSymbols));
         AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Title));
         AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Folder));
         AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.rateDouble));
@@ -829,7 +834,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void DefaultVirtualOrderPrewarmDescriptors_LimitStartupWorkToIdentityPriority()
+    public void DefaultVirtualOrderPrewarmDescriptors_IncludePriorityOneToThree()
     {
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
@@ -841,19 +846,23 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(columns, nameof(LibraryChartRow.Folder));
         CollectionAssert.Contains(columns, nameof(LibraryChartRow.path));
         CollectionAssert.Contains(columns, nameof(LibraryChartRow.Artist));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.rateDouble));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.ChartTotalSortKey));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.ChartFeatureSortKey));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.hash));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.score));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.maxcombo));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.rateDouble));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartTotalSortKey));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartFeatureSortKey));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.hash));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.score));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.maxcombo));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.WarningDigestText));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.WAVHealth));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.encoding));
+        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.level));
 
         settings.Combo.Visibility = Visibility.Visible;
         columns = [.. MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
             .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
             .Select(descriptor => descriptor.ColumnName)];
 
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.maxcombo));
+        CollectionAssert.Contains(columns, nameof(LibraryChartRow.maxcombo));
     }
 
     [TestMethod]
@@ -1704,11 +1713,20 @@ public sealed class ChartListVirtualViewTests
         var changedScoreGeneration = new NormalLibrarySortCacheKey(7, 11, 2, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
         var changedChartInfoGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 3, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
         var changedMaintenanceGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 4, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
+        var dependencyAware = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 5, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
+        var dependencyAwareSame = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 5, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
+        var changedWarningGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 7, 5, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
+        var changedInstallDestinationGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 8, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
+        var changedReferenceTablesGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 5, 9, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
 
         Assert.AreEqual(scoreAware, scoreAwareSame);
         Assert.AreNotEqual(scoreAware, changedScoreGeneration);
         Assert.AreNotEqual(scoreAware, changedChartInfoGeneration);
         Assert.AreNotEqual(scoreAware, changedMaintenanceGeneration);
+        Assert.AreEqual(dependencyAware, dependencyAwareSame);
+        Assert.AreNotEqual(dependencyAware, changedWarningGeneration);
+        Assert.AreNotEqual(dependencyAware, changedInstallDestinationGeneration);
+        Assert.AreNotEqual(dependencyAware, changedReferenceTablesGeneration);
     }
 
     [TestMethod]
@@ -2311,7 +2329,42 @@ public sealed class ChartListVirtualViewTests
             nameof(LibraryChartRow.Title),
             nameof(LibraryChartRow.Folder),
             nameof(LibraryChartRow.path),
-            nameof(LibraryChartRow.Artist)
+            nameof(LibraryChartRow.Artist),
+            nameof(LibraryChartRow.clear),
+            nameof(LibraryChartRow.rateDouble),
+            nameof(LibraryChartRow.minbp),
+            nameof(LibraryChartRow.ChartJudgeSortKey),
+            nameof(LibraryChartRow.ChartNotes),
+            nameof(LibraryChartRow.ChartLongNotes),
+            nameof(LibraryChartRow.ChartScratchNotes),
+            nameof(LibraryChartRow.ChartMainBpmSortKey),
+            nameof(LibraryChartRow.ChartMinBpmSortKey),
+            nameof(LibraryChartRow.ChartMaxBpmSortKey),
+            nameof(LibraryChartRow.ChartSoflanCount),
+            nameof(LibraryChartRow.ChartTotalSortKey),
+            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
+            nameof(LibraryChartRow.ChartDurationSortKey),
+            nameof(LibraryChartRow.ChartDensitySortKey),
+            nameof(LibraryChartRow.ChartPeakDensitySortKey),
+            nameof(LibraryChartRow.ChartEndDensitySortKey),
+            nameof(LibraryChartRow.genre),
+            nameof(LibraryChartRow.mode),
+            nameof(LibraryChartRow.tag),
+            nameof(LibraryChartRow.hash),
+            nameof(LibraryChartRow.sha256),
+            nameof(LibraryChartRow.instl_dst),
+            nameof(LibraryChartRow.InstallDestinationTitle),
+            nameof(LibraryChartRow.InstallDestinationArtist),
+            nameof(LibraryChartRow.RefTablesSymbols),
+            nameof(LibraryChartRow.score),
+            nameof(LibraryChartRow.maxcombo),
+            nameof(LibraryChartRow.rankingString),
+            nameof(LibraryChartRow.rankingLastupdate),
+            nameof(LibraryChartRow.stddevVal),
+            nameof(LibraryChartRow.scoreDifficulty),
+            nameof(LibraryChartRow.ChartLevelSortKey),
+            nameof(LibraryChartRow.ChartDifficultySortKey),
+            nameof(LibraryChartRow.ChartFeatureSortKey)
         ];
     }
 

@@ -97,7 +97,7 @@ internal sealed class ChartListOrder
             nameof(LibraryChartRow.RefTablesSymbols),
             row => row?.RefTablesSymbols ?? string.Empty,
             "virtual_ref_tables_symbols_order",
-            MainViewDataDependency.IdentitySortKey,
+            MainViewDataDependency.ReferenceTables,
             prewarmByDefault: true),
         ChartListOrderColumnDefinition.Comparable(
             nameof(LibraryChartRow.WAVHealth),
