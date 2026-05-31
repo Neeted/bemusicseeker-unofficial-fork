@@ -4290,23 +4290,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     return;
                 }
+                if (viewModel.DuplicateChartGroups == null)
+                {
+                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect wait_for_groups trigger=" + trigger + " header=" + header + " request=" + requestVersion);
+                    return;
+                }
+
                 string lastReason = string.Empty;
-                var priorities = new DispatcherPriority[3]
+                await Dispatcher.Yield(DispatcherPriority.Loaded);
+                if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
                 {
-                    DispatcherPriority.Loaded,
-                    DispatcherPriority.Render,
-                    DispatcherPriority.ContextIdle
-                };
-                for (int retry = 0; retry < priorities.Length; retry++)
+                    return;
+                }
+                if (TrySelectDuplicateGroupByHeader(header, viewModel, out lastReason))
                 {
-                    await Dispatcher.Yield(priorities[retry]);
+                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=0 header=" + header + " request=" + requestVersion);
+                    completeSelection();
+                    return;
+                }
+                if (lastReason == "container_not_realized")
+                {
+                    await Dispatcher.Yield(DispatcherPriority.ContextIdle);
                     if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
                     {
                         return;
                     }
                     if (TrySelectDuplicateGroupByHeader(header, viewModel, out lastReason))
                     {
-                        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=" + retry + " header=" + header + " request=" + requestVersion);
+                        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=1 header=" + header + " request=" + requestVersion);
                         completeSelection();
                         return;
                     }
@@ -4363,11 +4374,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     return;
                 }
                 NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=timeout_fallback header=" + header + " request=" + requestVersion);
-                if (viewModel.DuplicateChartGroups == null)
-                {
-                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect wait_for_groups trigger=timeout_fallback header=" + header + " request=" + requestVersion);
-                    return;
-                }
                 await AttemptAutoSelectAsync("timeout_fallback");
             }, DispatcherPriority.Background);
         });
