@@ -178,6 +178,56 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
+    public void WarmPlaylistSummaryOwnedHashSnapshot_BuildsReusesAndRebuildsAfterOwnershipChange()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles =
+                [
+                    CreateLibraryFile(@"C:\Songs\old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+                ]
+            };
+
+            BMSLibrary.OwnedHashIndexWarmupResult first = library.WarmPlaylistSummaryOwnedHashSnapshot("test");
+            BMSLibrary.OwnedHashIndexWarmupResult second = library.WarmPlaylistSummaryOwnedHashSnapshot("test");
+
+            Assert.AreEqual("playlist_summary_owned_hash", first.IndexName);
+            Assert.AreEqual("built", first.Status);
+            Assert.AreEqual(1, first.Md5Count);
+            Assert.AreEqual(1, first.Sha256Count);
+            Assert.AreEqual(0, first.StaleRetryCount);
+            Assert.AreEqual(library.OwnedChartCollectionVersion, first.OwnedCollectionVersion);
+            Assert.IsTrue(first.BmsRowsVersion > 0);
+            Assert.AreEqual(0, first.BmsonRowsVersion);
+            Assert.AreEqual("cached", second.Status);
+            Assert.AreEqual(first.SnapshotVersion, second.SnapshotVersion);
+            Assert.AreEqual(first.InvalidationVersion, second.InvalidationVersion);
+            Assert.AreEqual(first.OwnedCollectionVersion, second.OwnedCollectionVersion);
+            Assert.AreEqual(first.BmsRowsVersion, second.BmsRowsVersion);
+            Assert.AreEqual(first.BmsonRowsVersion, second.BmsonRowsVersion);
+
+            library.BMSFiles =
+            [
+                CreateLibraryFile(@"C:\Songs\new.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+            ];
+
+            BMSLibrary.OwnedHashIndexWarmupResult third = library.WarmPlaylistSummaryOwnedHashSnapshot("test");
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot snapshot = library.GetPlaylistSummaryOwnedHashSnapshot();
+
+            Assert.AreEqual("built", third.Status);
+            Assert.IsTrue(third.SnapshotVersion > second.SnapshotVersion);
+            Assert.IsTrue(third.InvalidationVersion > second.InvalidationVersion);
+            Assert.AreEqual(library.OwnedChartCollectionVersion, third.OwnedCollectionVersion);
+            Assert.IsTrue(third.BmsRowsVersion > second.BmsRowsVersion);
+            Assert.AreEqual(third.SnapshotVersion, snapshot.Version);
+            CollectionAssert.DoesNotContain(new List<string>(snapshot.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), "cccccccccccccccccccccccccccccccc");
+        });
+    }
+
+    [TestMethod]
     public void PlaylistSummaryDataRefreshDecision_InvalidatesRowsEvenWhenHidden()
     {
         MainWindowViewModel.PlaylistSummaryDataRefreshDecision decision =

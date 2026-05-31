@@ -239,9 +239,45 @@ public class BMSLibrary : NotificationObject
 
         internal long BuildElapsedMs { get; set; }
 
+        internal int InvalidationVersion { get; set; }
+
+        internal int OwnedCollectionVersion { get; set; }
+
+        internal int BmsRowsVersion { get; set; }
+
+        internal int BmsonRowsVersion { get; set; }
+
         internal HashSet<string> Md5Hashes { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         internal HashSet<string> Sha256Hashes { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// playlist summary 用 owned hash snapshot の warmup 結果です。
+    /// </summary>
+    internal sealed class OwnedHashIndexWarmupResult
+    {
+        internal string IndexName { get; set; }
+
+        internal string Status { get; set; }
+
+        internal long ElapsedMs { get; set; }
+
+        internal int Md5Count { get; set; }
+
+        internal int Sha256Count { get; set; }
+
+        internal int SnapshotVersion { get; set; }
+
+        internal int InvalidationVersion { get; set; }
+
+        internal int OwnedCollectionVersion { get; set; }
+
+        internal int BmsRowsVersion { get; set; }
+
+        internal int BmsonRowsVersion { get; set; }
+
+        internal int StaleRetryCount { get; set; }
     }
 
     /// <summary>
@@ -967,6 +1003,10 @@ public class BMSLibrary : NotificationObject
 
     private int playlistSummaryOwnedHashSnapshotVersion;
 
+    private int playlistSummaryOwnedHashInvalidationVersion;
+
+    private int playlistSummaryOwnedHashInvalidationOwnedCollectionVersion;
+
     private int chartInfoBackfillRequestedVersion;
 
     private int chartInfoBackfillCompletedVersion;
@@ -1206,10 +1246,11 @@ public class BMSLibrary : NotificationObject
             {
                 using (BeginResourceHealthInputMutation())
                 {
-                    SetBmsStorageRowsCoreUnsafe(normalized);
                     InvalidatePlaylistSummaryOwnedHashSnapshot();
+                    SetBmsStorageRowsCoreUnsafe(normalized);
                     InvalidateOwnedChartCollection();
-                    NotifyOwnedChartCollectionChanged();
+                    int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
+                    InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
                     PublishExternalReplacementNormalLibraryRefreshNotification(
                         notifiesBmsFiles: true,
                         notifiesBmsonSongs: false);
@@ -1296,10 +1337,11 @@ public class BMSLibrary : NotificationObject
             {
                 using (BeginResourceHealthInputMutation())
                 {
-                    SetBmsonStorageRowsCoreUnsafe(normalized);
                     InvalidatePlaylistSummaryOwnedHashSnapshot();
+                    SetBmsonStorageRowsCoreUnsafe(normalized);
                     InvalidateOwnedChartCollection();
-                    NotifyOwnedChartCollectionChanged();
+                    int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
+                    InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
                     PublishExternalReplacementNormalLibraryRefreshNotification(
                         notifiesBmsFiles: false,
                         notifiesBmsonSongs: true);
@@ -6521,11 +6563,14 @@ completeFileEnumerationOnce,
         return entries.All(entry => ContainsInstalledChartUnsafe(entry?.Chart));
     }
 
-    private void InvalidatePlaylistSummaryOwnedHashSnapshot()
+    private void InvalidatePlaylistSummaryOwnedHashSnapshot(int ownedCollectionVersion = 0)
     {
+        int resolvedOwnedCollectionVersion = ownedCollectionVersion > 0 ? ownedCollectionVersion : OwnedChartCollectionVersion;
         lock (lockPlaylistSummaryOwnedHashSnapshot)
         {
             playlistSummaryOwnedHashSnapshot = null;
+            playlistSummaryOwnedHashInvalidationVersion++;
+            playlistSummaryOwnedHashInvalidationOwnedCollectionVersion = resolvedOwnedCollectionVersion;
         }
     }
 
@@ -6780,41 +6825,127 @@ completeFileEnumerationOnce,
     /// </summary>
     internal PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot()
     {
+        return GetPlaylistSummaryOwnedHashSnapshot(out _, out _);
+    }
+
+    private PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot(out bool cacheHit, out int staleRetryCount)
+    {
         PlaylistSummaryOwnedHashSnapshot snapshot;
-        lock (lockPlaylistSummaryOwnedHashSnapshot)
+        staleRetryCount = 0;
+        while (true)
         {
-            snapshot = playlistSummaryOwnedHashSnapshot;
+            int invalidationVersion;
+            int invalidationOwnedCollectionVersion;
+            lock (lockPlaylistSummaryOwnedHashSnapshot)
+            {
+                snapshot = playlistSummaryOwnedHashSnapshot;
+                int currentOwnedCollectionVersion = OwnedChartCollectionVersion;
+                if (snapshot != null)
+                {
+                    if (IsPlaylistSummaryOwnedHashSnapshotCurrent(snapshot, currentOwnedCollectionVersion))
+                    {
+                        cacheHit = true;
+                        return snapshot;
+                    }
+                    playlistSummaryOwnedHashSnapshot = null;
+                    playlistSummaryOwnedHashInvalidationVersion++;
+                    playlistSummaryOwnedHashInvalidationOwnedCollectionVersion = currentOwnedCollectionVersion;
+                }
+                invalidationVersion = playlistSummaryOwnedHashInvalidationVersion;
+                invalidationOwnedCollectionVersion = playlistSummaryOwnedHashInvalidationOwnedCollectionVersion;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            OwnedChartHashIndexSnapshot ownedHashSnapshot;
+            StorageRowsVersionSnapshot storageRowsVersion;
+            int ownedCollectionVersion;
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                ownedHashSnapshot = CreateOwnedHashIndexSnapshotUnsafe(out storageRowsVersion);
+                ownedCollectionVersion = OwnedChartCollectionVersion;
+            }
+            var rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot
+            {
+                BuildElapsedMs = stopwatch.ElapsedMilliseconds,
+                InvalidationVersion = invalidationVersion,
+                OwnedCollectionVersion = invalidationOwnedCollectionVersion == ownedCollectionVersion ? invalidationOwnedCollectionVersion : ownedCollectionVersion,
+                BmsRowsVersion = storageRowsVersion.BmsRowsVersion,
+                BmsonRowsVersion = storageRowsVersion.BmsonRowsVersion,
+                Md5Hashes = ownedHashSnapshot.Md5Hashes,
+                Sha256Hashes = ownedHashSnapshot.Sha256Hashes
+            };
+            lock (lockPlaylistSummaryOwnedHashSnapshot)
+            {
+                snapshot = playlistSummaryOwnedHashSnapshot;
+                if (snapshot != null)
+                {
+                    if (IsPlaylistSummaryOwnedHashSnapshotCurrent(snapshot, OwnedChartCollectionVersion))
+                    {
+                        cacheHit = true;
+                        return snapshot;
+                    }
+                    playlistSummaryOwnedHashSnapshot = null;
+                    playlistSummaryOwnedHashInvalidationVersion++;
+                    playlistSummaryOwnedHashInvalidationOwnedCollectionVersion = OwnedChartCollectionVersion;
+                    staleRetryCount++;
+                    continue;
+                }
+                if (playlistSummaryOwnedHashInvalidationVersion != invalidationVersion
+                    || OwnedChartCollectionVersion != ownedCollectionVersion
+                    || !IsStorageRowsVersionCurrent(storageRowsVersion))
+                {
+                    staleRetryCount++;
+                    continue;
+                }
+                rebuiltSnapshot.Version = Interlocked.Increment(ref playlistSummaryOwnedHashSnapshotVersion);
+                playlistSummaryOwnedHashSnapshot = rebuiltSnapshot;
+                cacheHit = false;
+                return rebuiltSnapshot;
+            }
         }
-        if (snapshot != null)
-        {
-            return snapshot;
-        }
-        var stopwatch = Stopwatch.StartNew();
-        OwnedChartHashIndexSnapshot ownedHashSnapshot;
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            ownedHashSnapshot = CreateOwnedHashIndexSnapshotUnsafe();
-        }
-        var rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot
-        {
-            Version = Interlocked.Increment(ref playlistSummaryOwnedHashSnapshotVersion),
-            BuildElapsedMs = stopwatch.ElapsedMilliseconds,
-            Md5Hashes = ownedHashSnapshot.Md5Hashes,
-            Sha256Hashes = ownedHashSnapshot.Sha256Hashes
-        };
-        lock (lockPlaylistSummaryOwnedHashSnapshot)
-        {
-            playlistSummaryOwnedHashSnapshot ??= rebuiltSnapshot;
-            return playlistSummaryOwnedHashSnapshot;
-        }
+    }
+
+    private bool IsPlaylistSummaryOwnedHashSnapshotCurrent(
+        PlaylistSummaryOwnedHashSnapshot snapshot,
+        int currentOwnedCollectionVersion)
+    {
+        return snapshot != null
+            && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
+            && Volatile.Read(ref bmsStorageRowsVersion) == snapshot.BmsRowsVersion
+            && Volatile.Read(ref bmsonStorageRowsVersion) == snapshot.BmsonRowsVersion;
+    }
+
+    private bool IsStorageRowsVersionCurrent(StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        return Volatile.Read(ref bmsStorageRowsVersion) == storageRowsVersion.BmsRowsVersion
+            && Volatile.Read(ref bmsonStorageRowsVersion) == storageRowsVersion.BmsonRowsVersion;
     }
 
     private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe()
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
+        return CreateOwnedHashIndexSnapshotUnsafe(out _);
+    }
+
+    private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe(out StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        while (true)
         {
-            return ownedChartCollection.CreateOwnedHashIndexSnapshot();
+            EnsureOwnedChartCollectionBuiltUnsafe();
+            lock (lockStorageRowsVersion)
+            {
+                StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
+                lock (lockOwnedChartCollection)
+                {
+                    if (!ownedChartCollectionInitialized
+                        || ownedChartCollectionBmsStorageRowsVersion != currentVersion.BmsRowsVersion
+                        || ownedChartCollectionBmsonStorageRowsVersion != currentVersion.BmsonRowsVersion)
+                    {
+                        continue;
+                    }
+                    storageRowsVersion = currentVersion;
+                    return ownedChartCollection.CreateOwnedHashIndexSnapshot();
+                }
+            }
         }
     }
 
@@ -6888,6 +7019,45 @@ completeFileEnumerationOnce,
             + " directDirs=" + result.DirectDirectoryCount
             + " subtreeDirs=" + result.SubtreeDirectoryCount
             + " ownedCollectionVersion=" + result.OwnedCollectionVersion);
+        return result;
+    }
+
+    /// <summary>
+    /// playlist summary の所持 hash snapshot を readiness 外で温めます。
+    /// </summary>
+    /// <param name="reason">warmup を要求した理由。</param>
+    /// <returns>warmup 結果。</returns>
+    internal OwnedHashIndexWarmupResult WarmPlaylistSummaryOwnedHashSnapshot(string reason)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        PlaylistSummaryOwnedHashSnapshot snapshot = GetPlaylistSummaryOwnedHashSnapshot(out bool cacheHit, out int staleRetryCount);
+        stopwatch.Stop();
+        var result = new OwnedHashIndexWarmupResult
+        {
+            IndexName = "playlist_summary_owned_hash",
+            Status = cacheHit ? "cached" : "built",
+            ElapsedMs = stopwatch.ElapsedMilliseconds,
+            Md5Count = snapshot?.Md5Hashes?.Count ?? 0,
+            Sha256Count = snapshot?.Sha256Hashes?.Count ?? 0,
+            SnapshotVersion = snapshot?.Version ?? 0,
+            InvalidationVersion = snapshot?.InvalidationVersion ?? 0,
+            OwnedCollectionVersion = snapshot?.OwnedCollectionVersion ?? 0,
+            BmsRowsVersion = snapshot?.BmsRowsVersion ?? 0,
+            BmsonRowsVersion = snapshot?.BmsonRowsVersion ?? 0,
+            StaleRetryCount = staleRetryCount
+        };
+        LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
+            + " reason=" + (reason ?? string.Empty)
+            + " status=" + result.Status
+            + " elapsedMs=" + result.ElapsedMs
+            + " md5Hashes=" + result.Md5Count
+            + " sha256Hashes=" + result.Sha256Count
+            + " snapshotVersion=" + result.SnapshotVersion
+            + " invalidationVersion=" + result.InvalidationVersion
+            + " ownedCollectionVersion=" + result.OwnedCollectionVersion
+            + " bmsRowsVersion=" + result.BmsRowsVersion
+            + " bmsonRowsVersion=" + result.BmsonRowsVersion
+            + " staleRetries=" + result.StaleRetryCount);
         return result;
     }
 
@@ -8029,6 +8199,10 @@ completeFileEnumerationOnce,
         {
             PublishOwnedCollectionChangeNotification(result);
             AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);
+        }
+        if (result.PlaylistSummaryOwnedHashInvalidated)
+        {
+            InvalidatePlaylistSummaryOwnedHashSnapshot(result.OwnedCollectionVersion);
         }
         result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
         bool installMetadataProfileCacheInvalidated = result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup;

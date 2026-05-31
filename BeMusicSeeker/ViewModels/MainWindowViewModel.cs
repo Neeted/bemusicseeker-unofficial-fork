@@ -11710,20 +11710,30 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
 
-            BMSLibrary.OwnedAdjacentIndexWarmupResult result = library.WarmOwnedRealPathDirectoryView("post_startup_" + (reason ?? string.Empty));
+            BMSLibrary.OwnedAdjacentIndexWarmupResult realPathResult = library.WarmOwnedRealPathDirectoryView("post_startup_" + (reason ?? string.Empty));
+            BMSLibrary.OwnedHashIndexWarmupResult playlistSummaryResult = library.WarmPlaylistSummaryOwnedHashSnapshot("post_startup_" + (reason ?? string.Empty));
             stopwatch.Stop();
             LogMainViewBuild("post_startup_warmup done reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " stage=owned_adjacent_index"
-                + " index=" + (result?.IndexName ?? "(null)")
-                + " status=" + (result?.Status ?? "(null)")
-                + " chartRefs=" + (result?.ChartRefCount ?? 0)
-                + " directDirs=" + (result?.DirectDirectoryCount ?? 0)
-                + " subtreeDirs=" + (result?.SubtreeDirectoryCount ?? 0)
-                + " ownedCollectionVersion=" + (result?.OwnedCollectionVersion ?? 0)
+                + " realPathStatus=" + (realPathResult?.Status ?? "(null)")
+                + " realPathChartRefs=" + (realPathResult?.ChartRefCount ?? 0)
+                + " realPathDirectDirs=" + (realPathResult?.DirectDirectoryCount ?? 0)
+                + " realPathSubtreeDirs=" + (realPathResult?.SubtreeDirectoryCount ?? 0)
+                + " realPathOwnedCollectionVersion=" + (realPathResult?.OwnedCollectionVersion ?? 0)
+                + " playlistSummaryStatus=" + (playlistSummaryResult?.Status ?? "(null)")
+                + " playlistSummaryMd5Hashes=" + (playlistSummaryResult?.Md5Count ?? 0)
+                + " playlistSummarySha256Hashes=" + (playlistSummaryResult?.Sha256Count ?? 0)
+                + " playlistSummarySnapshotVersion=" + (playlistSummaryResult?.SnapshotVersion ?? 0)
+                + " playlistSummaryInvalidationVersion=" + (playlistSummaryResult?.InvalidationVersion ?? 0)
+                + " playlistSummaryOwnedCollectionVersion=" + (playlistSummaryResult?.OwnedCollectionVersion ?? 0)
+                + " playlistSummaryBmsRowsVersion=" + (playlistSummaryResult?.BmsRowsVersion ?? 0)
+                + " playlistSummaryBmsonRowsVersion=" + (playlistSummaryResult?.BmsonRowsVersion ?? 0)
+                + " playlistSummaryStaleRetries=" + (playlistSummaryResult?.StaleRetryCount ?? 0)
                 + " virtualWaitStatus=" + virtualWaitStatus
                 + " waitMs=" + waitStopwatch.ElapsedMilliseconds
-                + " warmupMs=" + (result?.ElapsedMs ?? 0L)
+                + " realPathWarmupMs=" + (realPathResult?.ElapsedMs ?? 0L)
+                + " playlistSummaryWarmupMs=" + (playlistSummaryResult?.ElapsedMs ?? 0L)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
         catch (Exception ex)

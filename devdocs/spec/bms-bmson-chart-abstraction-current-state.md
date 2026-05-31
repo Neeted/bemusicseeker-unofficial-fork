@@ -523,7 +523,7 @@ folder operation 向けの full `LibraryChartRef` snapshot helper は削除済�
 
 `CreateFullOwnedResourceMaintenanceTargetSet(reason)` は owned collection の resource maintenance target view から作り、install destination overlay は混ぜない。pathless / md5less owned chart は projection 前に BMS / bmson 共通で除外し、resource references を必要とする full maintenance / resource health rebuild だけがこの full target を使う。full target を作る caller は `resource_maintenance_target build mode=full reason=... targetCount=... elapsedMs=...` を必ず残す。full maintenance と resource health index rebuild が同じ full target を必要とする場合は、同じ `ResourceMaintenanceTargetSet` を引き渡して再利用し、同一 operation 内で二重 materialize しない。一方、resource maintenance 用の任意 target、追加 install chart、merge 先 directory に限った target は `CreateResourceMaintenanceTargetSet(...)` で subset を明示して作る。これは全件 owned collection ではなく、対象 chart だけを resource references 付きで扱うための境界である。`NormalizeResourceMaintenanceTargetCharts(...)` は target set を作らない内部 list 正規化に限る。全件 resource health が必要な caller は、可能な限り `ResourceHealthIndexSnapshot` の cache / delta を見る。full rebuild が必要な場合だけ、理由を log したうえで full maintenance target を作る。
 
-playlist summary owned hash snapshot は owned chart collection の lightweight hash index から作る。playlist reference apply は参照 map の selected key に一致する owned refs だけを current owner hash で抽出し、全 owned refs snapshot を毎回複製しない。playlist detail open 用の playlist library resolve index は、BMSLibrary が `PlaylistLibraryResolveIndexSnapshot` として md5 / sha256 -> representative `LibraryChartRef` を持つ snapshot を返し、ViewModel は `ResolveChartForPlaylistEntry(...)` 相当の model snapshot API を使う。代表選択は deterministic に path 昇順最小を採用し、entry selected key が md5 なら md5 map だけ、sha256 なら sha256 map だけを読む。pathless / md5less owned chart は playlist detail の owned 判定対象から除外する。ViewModel 側には version / prewarm cache / readiness 表示だけを残し、md5 / sha256 辞書構築と representative selection は置かない。
+playlist summary owned hash snapshot は owned chart collection の lightweight hash index から作る。startup readiness 外の best-effort warmup 対象であり、snapshot 専用 invalidation version、owned collection version、storage rows version によって stale build result を publish しない。playlist reference apply は参照 map の selected key に一致する owned refs だけを current owner hash で抽出し、全 owned refs snapshot を毎回複製しない。playlist detail open 用の playlist library resolve index は、BMSLibrary が `PlaylistLibraryResolveIndexSnapshot` として md5 / sha256 -> representative `LibraryChartRef` を持つ snapshot を返し、ViewModel は `ResolveChartForPlaylistEntry(...)` 相当の model snapshot API を使う。代表選択は deterministic に path 昇順最小を採用し、entry selected key が md5 なら md5 map だけ、sha256 なら sha256 map だけを読む。pathless / md5less owned chart は playlist detail の owned 判定対象から除外する。ViewModel 側には version / prewarm cache / readiness 表示だけを残し、md5 / sha256 辞書構築と representative selection は置かない。
 
 installed chart lookup は owned chart collection から path / md5 / sha256 / kind だけを読む隣接 index として build し、差分更新 state を持つ。primary hash count / primary path lookup は md5 identity で管理し、sha256 は補助 directory bucket として保持する。初回 build log は `source=owned_collection_lightweight` であり、storage row direct build と full `ChartFile` materialize のどちらにも戻さない。hash / directory / primary count だけを見る index として管理し、package entry や resource target が必要な caller だけ最後に `ChartFile` 化する。
 
@@ -671,7 +671,7 @@ production に残る `Compatibility` 名は playlist summary column settings の
 - BMS / bmson の storage table を統合しない。
 - settings 名、UI 文言、playlist DB / JSON、LR2 互換 schema は抽象化だけを理由に変更しない。
 - BMS-only 処理を chart-common 処理へ無理に広げない。encoding / zero-note / LR2IR / score viewer / ranking update / invalid extension rename / audio convert は capability で BMS-only として残す。
-- owned collection 隣接 index は startup 直後に不要な heavy prewarm を増やさない。必要な index は lazy build か mutation 同期で用意する。通常一覧の virtual sort order は UI 体感用の別枠であり、readiness / `startup_background_summary` をブロックしない best-effort staged prewarm として priority 1-3 を温める。
+- owned collection 隣接 index は startup readiness をブロックしない。manual 記載機能で初回操作 cost が出やすい primary installed hash、real path directory view、playlist summary owned hash は post-startup best-effort warmup と mutation 同期で温める。通常一覧の virtual sort order は UI 体感用の別枠であり、readiness / `startup_background_summary` をブロックしない best-effort staged prewarm として priority 1-3 を温める。
 - `ChartFile` を全件 collection の唯一の runtime object として常時 rich projection しない。resource refs / warning / score / maintenance を含む projection は用途別に遅延または subset に限定する。
 
 ### 変更時の選択基準
@@ -793,7 +793,7 @@ dispatcher は mutation result を受け取り、各 index に同じ変更内容
 | owner/path canonical lookup | added / removed / moved / storage owner replace | affected owner/path key を更新。ambiguous path は canonical lookup 側の規則で扱う。 |
 | install destination overlay directory view | install destination changed / removed / moved / storage owner removed | overlay key を更新し、current owned key に存在しない runtime state を prune。 |
 | parent folder cache | added / removed / moved の real path root / parent directory | 当面は cache invalidate。将来 affected parent だけ更新してよい。 |
-| playlist summary owned hash snapshot | added / removed / digest updated | affected md5 / sha256 bucket 更新。表現不能なら snapshot invalidate。 |
+| playlist summary owned hash snapshot | added / removed / digest updated | snapshot invalidate。未構築なら mutation 時に build せず、post-startup best-effort warmup または次回要求時に再構築する。rebuild publish は専用 invalidation version で guard する。 |
 | playlist detail resolve index | added / removed / moved / digest updated / pathless state changed | affected hash bucket と representative path を更新。表現不能なら snapshot invalidate。 |
 | playlist reference apply hash subset | digest updated / added / removed | affected hash subset を更新または invalidate。 |
 | chart_info parse failure md5 subset | digest updated / warning state changed / owner removed | subset invalidate。chart_info producer の結果は chart_info index 側を正本にする。 |
@@ -814,7 +814,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 | resource / maintenance target | 完了、currentness / 性能監査継続 | `ResourceMaintenanceTargetSet`、`ResourceHealthIndexMutation`、`ResourceHealthIndexUpdateMode`、dispatcher が resource-health contract である。subset は delta / invalidate / defer、明示 full operation は version metadata 付き full targetとして扱う。 |
 | warning / source generation / sort-key | 完了、property fallback 再導入監査継続 | `NormalLibraryRefreshNotification` が refresh effect、owned collection version、storage row coverage を運ぶ。ViewModel は notification batch を消費し、`BMSFiles` / `BmsonSongs` property handler を normal source refresh の入口にしない。 |
 | full snapshot helper | 完了、監査継続 | installed chart snapshot 系 helper と folder operation 向け full ref snapshot は、owned collection の用途別 view / index / bounded projection に分解されている。全件 `ChartFile` materialize は chart_info full backfill と resource maintenance full operation に限定する。 |
-| hot path view / index | 進行中、性能監査継続 | duplicate merge / folder move / delete / folder auto rename / resource-only merge display / install result resource lookup / playlist detail resolve / normal library sort は用途別 view または model-owned index を読む。duplicate merge の existing hash 判定は primary md5 lookup へ分離済みで、real path directory view は post-startup best-effort warmup で温める。 |
+| hot path view / index | 進行中、性能監査継続 | duplicate merge / folder move / delete / folder auto rename / resource-only merge display / install result resource lookup / playlist detail resolve / normal library sort は用途別 view または model-owned index を読む。duplicate merge の existing hash 判定は primary md5 lookup へ分離済みで、real path directory view と playlist summary owned hash は post-startup best-effort warmup で温める。 |
 | storage row collection の役割 | 完了、direct enumeration 監査継続 | `BMSFiles` / `BmsonSongs` は DB commit、BMS-only / bmson-only producer、binding 互換、external full refresh に残す。ViewModel が両方を直接束ねる chart-common 経路は持たず、normal source owner view や bounded input projection を経由する。 |
 
 ### 現行仕様として固定する判断
@@ -860,6 +860,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - `installed_primary_hash_lookup build/update/excluding_snapshot`
 - `installed_chart_lookup_index build/update`
 - `owned_adjacent_index_warmup index=real_path`
+- `owned_adjacent_index_warmup index=playlist_summary_owned_hash`
 - `post_startup_warmup stage=owned_adjacent_index`
 - `owned_collection_mutation_dispatch`
 - `duplicate_merge_model prepare_done`
